@@ -1,0 +1,203 @@
+import { expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
+import { loadConfig } from "../../../src/config/load-config";
+
+test("loads a valid config file", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          description: "backend repo",
+          allowed_agents: ["codex"],
+        },
+      },
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.transport.type).toBe("acpx-cli");
+  expect(config.workspaces.backend.cwd).toBe("/tmp/backend");
+  expect(config.transport.sessionInitTimeoutMs).toBeUndefined();
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("loads a workspace without allowed_agents", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          description: "backend repo",
+        },
+      },
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.workspaces.backend).toEqual({
+    cwd: "/tmp/backend",
+    description: "backend repo",
+  });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("defaults transport.type to acpx-bridge when omitted", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex"],
+        },
+      },
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.transport.type).toBe("acpx-bridge");
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("loads an optional transport session init timeout", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx", sessionInitTimeoutMs: 120000 },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex"],
+        },
+      },
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.transport.sessionInitTimeoutMs).toBe(120000);
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("loads an optional raw agent command for non-codex agents", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: {
+        custom: {
+          driver: "custom",
+          command: "npx some-agent",
+        },
+      },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex"],
+        },
+      },
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.agents.custom?.command).toBe("npx some-agent");
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("drops the legacy raw codex command so codex uses the built-in acpx alias", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: {
+        codex: {
+          driver: "codex",
+          command: "./node_modules/.bin/codex-acp",
+        },
+      },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+        },
+      },
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.agents.codex).toEqual({ driver: "codex" });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("throws when transport.type is invalid", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "nope" },
+      agents: {},
+      workspaces: {},
+    }),
+  );
+
+  await expect(loadConfig(path)).rejects.toThrow("transport.type");
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("throws when transport.sessionInitTimeoutMs is not a positive number", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-cli", sessionInitTimeoutMs: 0 },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+        },
+      },
+    }),
+  );
+
+  await expect(loadConfig(path)).rejects.toThrow("transport.sessionInitTimeoutMs");
+  await rm(dir, { recursive: true, force: true });
+});

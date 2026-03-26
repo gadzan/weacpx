@@ -1,0 +1,71 @@
+import { expect, test } from "bun:test";
+
+import { parseDryRunArgs, runDryRun } from "../../src/dry-run";
+import type { WechatAgent } from "../../src/wechat-types";
+
+test("parses chat key and messages from dry-run args", () => {
+  expect(parseDryRunArgs(["--chat-key", "wx:test", "/help", "hello"])).toEqual({
+    turns: [
+      { chatKey: "wx:test", input: "/help" },
+      { chatKey: "wx:test", input: "hello" },
+    ],
+  });
+});
+
+test("uses the default chat key when none is provided", () => {
+  expect(parseDryRunArgs(["/help"])).toEqual({
+    turns: [{ chatKey: "dry-run", input: "/help" }],
+  });
+});
+
+test("ignores the argument separator token", () => {
+  expect(parseDryRunArgs(["--chat-key", "wx:test", "--", "/help"])).toEqual({
+    turns: [{ chatKey: "wx:test", input: "/help" }],
+  });
+});
+
+test("supports switching chat keys within one dry-run invocation", () => {
+  expect(
+    parseDryRunArgs([
+      "--chat-key",
+      "wx:alice",
+      "/status",
+      "--chat-key",
+      "wx:bob",
+      "/status",
+      "hello",
+    ]),
+  ).toEqual({
+    turns: [
+      { chatKey: "wx:alice", input: "/status" },
+      { chatKey: "wx:bob", input: "/status" },
+      { chatKey: "wx:bob", input: "hello" },
+    ],
+  });
+});
+
+test("replays a transcript through the shared agent interface", async () => {
+  const seen: Array<{ conversationId: string; text: string }> = [];
+  const agent: WechatAgent = {
+    async chat(request) {
+      seen.push(request);
+      return { text: `reply:${request.text}` };
+    },
+  };
+
+  const transcript = await runDryRun(agent, {
+    turns: [
+      { chatKey: "wx:test", input: "/help" },
+      { chatKey: "wx:other", input: "hello" },
+    ],
+  });
+
+  expect(seen).toEqual([
+    { conversationId: "wx:test", text: "/help" },
+    { conversationId: "wx:other", text: "hello" },
+  ]);
+  expect(transcript).toEqual([
+    { input: "/help", output: "reply:/help" },
+    { input: "hello", output: "reply:hello" },
+  ]);
+});

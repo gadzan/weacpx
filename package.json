@@ -1,0 +1,54 @@
+{
+  "name": "weacpx",
+  "type": "module",
+  "bin": {
+    "weacpx": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "config.example.json"
+  ],
+  "scripts": {
+    "build": "bun build ./src/cli.ts ./src/bridge/bridge-main.ts --outdir ./dist --target node --external node-pty",
+    "dev": "bun run ./src/cli.ts run",
+    "dry-run": "bun run ./src/dry-run.ts",
+    "login": "bun run ./src/cli.ts login",
+    "start": "node ./dist/cli.js run",
+    "daemon:start": "bun run ./src/cli.ts start",
+    "daemon:status": "bun run ./src/cli.ts status",
+    "daemon:stop": "bun run ./src/cli.ts stop",
+    "test": "node ./scripts/run-tests.mjs",
+    "test:unit": "node ./scripts/run-tests.mjs tests/unit",
+    "test:smoke": "node ./scripts/run-tests.mjs tests/smoke"
+  },
+  "dependencies": {
+    "acpx": "^0.3.1",
+    "node-pty": "^1.1.0",
+    "qrcode-terminal": "^0.12.0",
+    "weixin-agent-sdk": "^0.2.0"
+  },
+  "description": "用微信远程控制 `acpx` 会话的控制台, 底层基于 `weixin-agent-sdk` 与 `acpx`",
+  "version": "0.1.0",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gadzan/weacpx.git"
+  },
+  "keywords": [
+    "acpx",
+    "weixin-agent-sdk",
+    "openclaw",
+    "weixin"
+  ],
+  "author": "gadzan",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/gadzan/weacpx/issues"
+  },
+  "homepage": "https://github.com/gadzan/weacpx#readme"
+}

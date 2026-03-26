@@ -1,0 +1,74 @@
+import { buildApp, resolveRuntimePaths } from "./main";
+import type { WechatAgent } from "./wechat-types";
+
+interface DryRunOptions {
+  turns: DryRunInputTurn[];
+}
+
+interface DryRunInputTurn {
+  chatKey: string;
+  input: string;
+}
+
+interface DryRunTurn {
+  input: string;
+  output: string;
+}
+
+export function parseDryRunArgs(args: string[]): DryRunOptions {
+  let chatKey = "dry-run";
+  const turns: DryRunInputTurn[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+    if (token === "--") {
+      continue;
+    }
+    if (token === "--chat-key") {
+      chatKey = args[index + 1] ?? chatKey;
+      index += 1;
+      continue;
+    }
+
+    turns.push({ chatKey, input: token });
+  }
+
+  return { turns };
+}
+
+export async function runDryRun(agent: WechatAgent, options: DryRunOptions): Promise<DryRunTurn[]> {
+  const transcript: DryRunTurn[] = [];
+
+  for (const turn of options.turns) {
+    const response = await agent.chat({
+      conversationId: turn.chatKey,
+      text: turn.input,
+    });
+
+    transcript.push({
+      input: turn.input,
+      output: response.text ?? "",
+    });
+  }
+
+  return transcript;
+}
+
+async function main(): Promise<void> {
+  const options = parseDryRunArgs(process.argv.slice(2));
+  if (options.turns.length === 0) {
+    throw new Error('Usage: bun run dry-run --chat-key <id> "/session new ..." "hello" [--chat-key <other-id> "/status"]');
+  }
+
+  const runtime = await buildApp(resolveRuntimePaths());
+  const transcript = await runDryRun(runtime.agent, options);
+
+  for (const turn of transcript) {
+    console.log(`> ${turn.input}`);
+    console.log(turn.output);
+  }
+}
+
+if (import.meta.main) {
+  await main();
+}

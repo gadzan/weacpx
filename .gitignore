@@ -1,0 +1,11 @@
+*.zip
+weclaw
+wexin-agent-sdk
+node_modules/
+dist
+.worktrees/
+openclaw
+.claude/
+.agents/
+.nvm*
+*.local.md

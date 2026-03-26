@@ -1,0 +1,24 @@
+{
+  "transport": {
+    "type": "acpx-bridge",
+    "sessionInitTimeoutMs": 120000
+  },
+  "agents": {
+    "codex": {
+      "driver": "codex"
+    },
+    "claude": {
+      "driver": "claude"
+    }
+  },
+  "workspaces": {
+    "backend": {
+      "cwd": "/absolute/path/to/backend",
+      "description": "backend repo"
+    },
+    "weacpx-console": {
+      "cwd": "/Users/your-name/Projects/weacpx/.worktrees/weacpx-console-v1",
+      "description": "weacpx console worktree"
+    }
+  }
+}
