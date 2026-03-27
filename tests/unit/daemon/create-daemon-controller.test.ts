@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, open, readFile, rm } from "node:fs/promises";
+import { mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
+import { PassThrough } from "node:stream";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -23,11 +24,13 @@ test("spawns a detached run command and records the child pid", async () => {
     cliEntryPath: "/app/dist/cli.js",
     cwd: "/app",
     env: { HOME: "/home/test", PATH: "/usr/bin" },
-    spawnProcess: ({ command, args, options }) => {
+    platform: "linux",
+    spawnProcess: async ({ command, args, options }) => {
       spawnCalls.push({ command, args, options });
-      return Promise.resolve(43210);
+      setTimeout(() => { void writeReadyStatus(paths.statusFile, 43210); }, 0);
+      return 43210;
     },
-    isProcessRunning: () => false,
+    isProcessRunning: (pid) => pid === 43210,
     terminateProcess: async () => {},
   });
 
@@ -63,13 +66,15 @@ test("appends daemon stdout and stderr to runtime log files", async () => {
     cliEntryPath: "/app/dist/cli.js",
     cwd: "/app",
     env: {},
+    platform: "linux",
     spawnProcess: async ({ options }) => {
       const stdio = options.stdio as unknown[];
       stdoutFd = Number(stdio[1]);
       stderrFd = Number(stdio[2]);
+      setTimeout(() => { void writeReadyStatus(paths.statusFile, 54321); }, 0);
       return 54321;
     },
-    isProcessRunning: () => false,
+    isProcessRunning: (pid) => pid === 54321,
     terminateProcess: async () => {},
   });
 
@@ -86,10 +91,14 @@ test("appends daemon stdout and stderr to runtime log files", async () => {
   await rm(runtimeDir, { recursive: true, force: true });
 });
 
-test("sets windowsHide when spawning the daemon on win32", async () => {
+test("uses a hidden powershell launcher when spawning the daemon on win32", async () => {
   const runtimeDir = await mkdtemp(join(tmpdir(), "weacpx-daemon-factory-"));
   const paths = createPaths(runtimeDir);
-  const spawnCalls: Array<{ options: Record<string, unknown> }> = [];
+  const spawnCalls: Array<{
+    command: string;
+    args: string[];
+    options: Record<string, unknown>;
+  }> = [];
 
   const controller = createDaemonController(paths, {
     processExecPath: "C:\\node\\node.exe",
@@ -97,11 +106,12 @@ test("sets windowsHide when spawning the daemon on win32", async () => {
     cwd: "C:\\app",
     env: {},
     platform: "win32",
-    spawnProcess: async ({ options }) => {
-      spawnCalls.push({ options });
+    spawnProcess: async ({ command, args, options }) => {
+      spawnCalls.push({ command, args, options });
+      await writeReadyStatus(paths.statusFile, 65432);
       return 65432;
     },
-    isProcessRunning: () => false,
+    isProcessRunning: (pid) => pid === 65432,
     terminateProcess: async () => {},
   });
 
@@ -109,12 +119,51 @@ test("sets windowsHide when spawning the daemon on win32", async () => {
 
   expect(spawnCalls).toEqual([
     {
+      command: "powershell.exe",
+      args: expect.arrayContaining(["-NoProfile", "-NonInteractive", "-EncodedCommand"]),
       options: expect.objectContaining({
-        detached: true,
         windowsHide: true,
+        env: expect.objectContaining({
+          WEACPX_DAEMON_COMMAND: "C:\\node\\node.exe",
+          WEACPX_DAEMON_ARG0: "C:\\app\\dist\\cli.js",
+          WEACPX_DAEMON_ARG1: "run",
+          WEACPX_DAEMON_STDOUT: paths.stdoutLog,
+          WEACPX_DAEMON_STDERR: paths.stderrLog,
+        }),
       }),
     },
   ]);
+
+  await rm(runtimeDir, { recursive: true, force: true });
+});
+
+test("returns as soon as the hidden windows launcher prints a pid", async () => {
+  const runtimeDir = await mkdtemp(join(tmpdir(), "weacpx-daemon-factory-"));
+  const paths = createPaths(runtimeDir);
+  let capturedCommand = "";
+
+  const controller = createDaemonController(paths, {
+    processExecPath: "C:\\node\\node.exe",
+    cliEntryPath: "C:\\app\\dist\\cli.js",
+    cwd: "C:\\app",
+    env: {},
+    platform: "win32",
+    spawnProcess: async ({ command }) => {
+      capturedCommand = command;
+      await writeReadyStatus(paths.statusFile, 76543);
+      return await new Promise<number>((resolve) => {
+        setTimeout(() => resolve(76543), 10);
+      });
+    },
+    isProcessRunning: (pid) => pid === 76543,
+    terminateProcess: async () => {},
+  });
+
+  await expect(controller.start()).resolves.toEqual({
+    state: "started",
+    pid: 76543,
+  });
+  expect(capturedCommand).toBe("powershell.exe");
 
   await rm(runtimeDir, { recursive: true, force: true });
 });
@@ -143,4 +192,20 @@ function createPaths(runtimeDir: string): DaemonPaths {
     stdoutLog: join(runtimeDir, "stdout.log"),
     stderrLog: join(runtimeDir, "stderr.log"),
   };
+}
+
+async function writeReadyStatus(statusFile: string, pid: number): Promise<void> {
+  await writeFile(
+    statusFile,
+    JSON.stringify({
+      pid,
+      started_at: "2026-03-26T00:00:00.000Z",
+      heartbeat_at: "2026-03-26T00:01:00.000Z",
+      config_path: "/cfg",
+      state_path: "/state",
+      app_log: "/app",
+      stdout_log: "/out",
+      stderr_log: "/err",
+    }),
+  );
 }

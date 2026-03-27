@@ -8,6 +8,9 @@ interface DaemonControllerDeps {
   isProcessRunning: (pid: number) => boolean;
   spawnDetached: () => Promise<number>;
   terminateProcess: (pid: number) => Promise<void>;
+  startupPollIntervalMs?: number;
+  startupTimeoutMs?: number;
+  onStartupPoll?: () => Promise<void>;
 }
 
 type DaemonState =
@@ -17,12 +20,20 @@ type DaemonState =
 
 export class DaemonController {
   private readonly statusStore: DaemonStatusStore;
+  private readonly startupPollIntervalMs: number;
+  private readonly startupTimeoutMs: number;
+  private readonly onStartupPoll: () => Promise<void>;
 
   constructor(
     private readonly paths: DaemonPaths,
     private readonly deps: DaemonControllerDeps,
   ) {
     this.statusStore = new DaemonStatusStore(paths.statusFile);
+    this.startupPollIntervalMs = deps.startupPollIntervalMs ?? 50;
+    this.startupTimeoutMs = deps.startupTimeoutMs ?? 5_000;
+    this.onStartupPoll = deps.onStartupPoll ?? (async () => {
+      await new Promise((resolve) => setTimeout(resolve, this.startupPollIntervalMs));
+    });
   }
 
   async getStatus(): Promise<DaemonState> {
@@ -55,8 +66,13 @@ export class DaemonController {
       return { state: "already-running", pid: current.pid };
     }
 
+    // Clear any stale status file before spawning so that a matching PID from a
+    // recycled process does not cause a spurious immediate return from
+    // waitForStartupMetadata.
+    await this.statusStore.clear();
     const pid = await this.deps.spawnDetached();
     await this.writePid(pid);
+    await this.waitForStartupMetadata(pid);
     return { state: "started", pid };
   }
 
@@ -95,5 +111,24 @@ export class DaemonController {
   private async clearRuntimeFiles(): Promise<void> {
     await rm(this.paths.pidFile, { force: true });
     await this.statusStore.clear();
+  }
+
+  private async waitForStartupMetadata(pid: number): Promise<void> {
+    const deadline = Date.now() + this.startupTimeoutMs;
+    while (Date.now() < deadline) {
+      const status = await this.statusStore.load();
+      if (status?.pid === pid) {
+        return;
+      }
+
+      if (!this.deps.isProcessRunning(pid)) {
+        await this.clearRuntimeFiles();
+        throw new Error(`weacpx daemon exited before reporting ready state (pid ${pid})`);
+      }
+
+      await this.onStartupPoll();
+    }
+
+    throw new Error(`weacpx daemon did not report ready state within ${this.startupTimeoutMs}ms (pid ${pid})`);
   }
 }
