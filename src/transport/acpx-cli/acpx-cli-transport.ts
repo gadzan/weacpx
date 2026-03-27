@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { spawn as spawnPty } from "node-pty";
 
+import { resolveSpawnCommand } from "../../process/spawn-command";
 import type { ResolvedSession, SessionTransport } from "../types";
 import { ensureNodePtyHelperExecutable, resolveNodePtyHelperPath } from "./node-pty-helper";
 
@@ -26,7 +27,8 @@ const require = createRequire(import.meta.url);
 
 async function defaultRunner(command: string, args: string[], options?: RunOptions): Promise<CommandResult> {
   return await new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const spawnSpec = resolveSpawnCommand(command, args);
+    const child = spawn(spawnSpec.command, spawnSpec.args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
 
@@ -63,7 +65,8 @@ async function defaultPtyRunner(command: string, args: string[], options?: RunOp
   await ensureNodePtyHelperExecutable(helperPath);
 
   return await new Promise((resolve, reject) => {
-    const child = spawnPty(command, args, {
+    const spawnSpec = resolveSpawnCommand(command, args);
+    const child = spawnPty(spawnSpec.command, spawnSpec.args, {
       name: "xterm-color",
       cols: 80,
       rows: 24,
@@ -174,14 +177,16 @@ export class AcpxCliTransport implements SessionTransport {
     args: string[],
     options?: RunOptions,
   ): Promise<CommandResult> {
+    const spawnSpec = resolveSpawnCommand(this.command, args);
+
     if (!options?.timeoutMs) {
-      return await runner(this.command, args, undefined);
+      return await runner(spawnSpec.command, spawnSpec.args, undefined);
     }
 
     let timeoutId: NodeJS.Timeout | undefined;
 
     return await Promise.race([
-      runner(this.command, args, options).finally(() => {
+      runner(spawnSpec.command, spawnSpec.args, options).finally(() => {
         if (timeoutId) clearTimeout(timeoutId);
       }),
       new Promise<CommandResult>((_, reject) => {

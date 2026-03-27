@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { posix, win32 } from "node:path";
 import { createRequire } from "node:module";
 
 interface ResolveAcpxCommandOptions {
@@ -26,6 +26,8 @@ export function resolveAcpxCommand(options: ResolveAcpxCommandOptions = {}): str
   try {
     const packageJsonPath = resolvePackageJson("acpx/package.json");
     const pkg = readPackageJson(packageJsonPath);
+    const pathApi = platform === "win32" ? win32 : posix;
+    const packageDir = pathApi.dirname(packageJsonPath);
     const binPath =
       typeof pkg.bin === "string"
         ? pkg.bin
@@ -34,10 +36,7 @@ export function resolveAcpxCommand(options: ResolveAcpxCommandOptions = {}): str
           : null;
 
     if (binPath) {
-      if (platform === "win32") {
-        return resolve(dirname(packageJsonPath), "../.bin/acpx.exe");
-      }
-      return resolve(dirname(packageJsonPath), binPath);
+      return pathApi.resolve(packageDir, binPath);
     }
   } catch {
     // Fall back to PATH resolution below.

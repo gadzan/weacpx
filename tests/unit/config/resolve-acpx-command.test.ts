@@ -42,7 +42,7 @@ test("resolves the local acpx windows shim on win32", () => {
         },
       }),
     }),
-  ).toBe("E:\\project\\node_modules\\.bin\\acpx.exe");
+  ).toBe("E:\\project\\node_modules\\acpx\\dist\\cli.js");
 });
 
 test("falls back to PATH acpx when the package is not installed", () => {

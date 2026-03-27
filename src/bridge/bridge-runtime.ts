@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { resolveSpawnCommand } from "../process/spawn-command";
+
 interface CommandResult {
   code: number;
   stdout: string;
@@ -23,11 +25,12 @@ export class BridgeRuntime {
     cwd: string;
     name: string;
   }): Promise<{ exists: boolean }> {
-    const result = await this.run(this.command, this.buildSessionArgs(input, [
+    const spawnSpec = resolveSpawnCommand(this.command, this.buildSessionArgs(input, [
       "sessions",
       "show",
       input.name,
     ]));
+    const result = await this.run(spawnSpec.command, spawnSpec.args);
 
     return { exists: result.code === 0 };
   }
@@ -38,24 +41,25 @@ export class BridgeRuntime {
     cwd: string;
     name: string;
   }): Promise<Record<string, never>> {
-    const ensured = await this.run(this.command, this.buildSessionArgs(input, ["sessions", "ensure", "--name", input.name]));
+    const ensuredSpec = resolveSpawnCommand(this.command, this.buildSessionArgs(input, [
+      "sessions",
+      "ensure",
+      "--name",
+      input.name,
+    ]));
+    const ensured = await this.run(ensuredSpec.command, ensuredSpec.args);
     if (ensured.code === 0) {
       return {};
     }
 
-    const existing = await this.run(
-      this.command,
-      this.buildSessionArgs(input, ["sessions", "show", input.name]),
-    );
+    const existingSpec = resolveSpawnCommand(this.command, this.buildSessionArgs(input, ["sessions", "show", input.name]));
+    const existing = await this.run(existingSpec.command, existingSpec.args);
     if (existing.code === 0) {
       return {};
     }
 
-    const createdWithHelper = await this.runSessionCreate(
-      this.command,
-      this.buildSessionArgs(input, ["sessions", "new", "--name", input.name]),
-      input.cwd,
-    );
+    const createSpec = resolveSpawnCommand(this.command, this.buildSessionArgs(input, ["sessions", "new", "--name", input.name]));
+    const createdWithHelper = await this.runSessionCreate(createSpec.command, createSpec.args, input.cwd);
 
     if (createdWithHelper.code !== 0) {
       throw new Error(
@@ -77,12 +81,13 @@ export class BridgeRuntime {
     name: string;
     text: string;
   }): Promise<{ text: string }> {
-    const result = await this.run(this.command, this.buildSessionArgs(input, [
+    const spawnSpec = resolveSpawnCommand(this.command, this.buildSessionArgs(input, [
       "prompt",
       "-s",
       input.name,
       input.text,
     ]));
+    const result = await this.run(spawnSpec.command, spawnSpec.args);
 
     if (result.code !== 0) {
       throw new Error(result.stderr || result.stdout || "prompt failed");
@@ -97,11 +102,12 @@ export class BridgeRuntime {
     cwd: string;
     name: string;
   }): Promise<{ cancelled: boolean; message: string }> {
-    const result = await this.run(this.command, this.buildSessionArgs(input, [
+    const spawnSpec = resolveSpawnCommand(this.command, this.buildSessionArgs(input, [
       "cancel",
       "-s",
       input.name,
     ]));
+    const result = await this.run(spawnSpec.command, spawnSpec.args);
 
     if (result.code !== 0) {
       throw new Error(result.stderr || result.stdout || "cancel failed");

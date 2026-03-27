@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, open, readFile, rm } from "node:fs/promises";
 import { PassThrough } from "node:stream";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -25,12 +25,11 @@ test("spawns a detached run command and records the child pid", async () => {
     cwd: "/app",
     env: { HOME: "/home/test", PATH: "/usr/bin" },
     platform: "linux",
-    spawnProcess: async ({ command, args, options }) => {
+    spawnProcess: ({ command, args, options }) => {
       spawnCalls.push({ command, args, options });
-      setTimeout(() => { void writeReadyStatus(paths.statusFile, 43210); }, 0);
-      return 43210;
+      return Promise.resolve(43210);
     },
-    isProcessRunning: (pid) => pid === 43210,
+    isProcessRunning: () => false,
     terminateProcess: async () => {},
   });
 
@@ -71,10 +70,9 @@ test("appends daemon stdout and stderr to runtime log files", async () => {
       const stdio = options.stdio as unknown[];
       stdoutFd = Number(stdio[1]);
       stderrFd = Number(stdio[2]);
-      setTimeout(() => { void writeReadyStatus(paths.statusFile, 54321); }, 0);
       return 54321;
     },
-    isProcessRunning: (pid) => pid === 54321,
+    isProcessRunning: () => false,
     terminateProcess: async () => {},
   });
 
@@ -108,10 +106,9 @@ test("uses a hidden powershell launcher when spawning the daemon on win32", asyn
     platform: "win32",
     spawnProcess: async ({ command, args, options }) => {
       spawnCalls.push({ command, args, options });
-      await writeReadyStatus(paths.statusFile, 65432);
       return 65432;
     },
-    isProcessRunning: (pid) => pid === 65432,
+    isProcessRunning: () => false,
     terminateProcess: async () => {},
   });
 
@@ -150,12 +147,11 @@ test("returns as soon as the hidden windows launcher prints a pid", async () => 
     platform: "win32",
     spawnProcess: async ({ command }) => {
       capturedCommand = command;
-      await writeReadyStatus(paths.statusFile, 76543);
       return await new Promise<number>((resolve) => {
         setTimeout(() => resolve(76543), 10);
       });
     },
-    isProcessRunning: (pid) => pid === 76543,
+    isProcessRunning: () => false,
     terminateProcess: async () => {},
   });
 
@@ -192,20 +188,4 @@ function createPaths(runtimeDir: string): DaemonPaths {
     stdoutLog: join(runtimeDir, "stdout.log"),
     stderrLog: join(runtimeDir, "stderr.log"),
   };
-}
-
-async function writeReadyStatus(statusFile: string, pid: number): Promise<void> {
-  await writeFile(
-    statusFile,
-    JSON.stringify({
-      pid,
-      started_at: "2026-03-26T00:00:00.000Z",
-      heartbeat_at: "2026-03-26T00:01:00.000Z",
-      config_path: "/cfg",
-      state_path: "/state",
-      app_log: "/app",
-      stdout_log: "/out",
-      stderr_log: "/err",
-    }),
-  );
 }

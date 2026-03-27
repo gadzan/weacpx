@@ -7,5 +7,9 @@ dist
 openclaw
 .claude/
 .agents/
+.npm*
 .nvm*
 *.local.md
+
+**.DS_Store**
+

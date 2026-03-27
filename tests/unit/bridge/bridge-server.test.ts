@@ -87,6 +87,86 @@ test("creates a new session when ensure fails and no existing session is found",
   ]);
 });
 
+test("runs a resolved JavaScript acpx entry with the current node executable", async () => {
+  const calls: Array<{ command: string; args: string[] }> = [];
+  const shellCalls: Array<{ command: string; args: string[]; cwd: string }> = [];
+  const runtime = new BridgeRuntime(
+    "E:/global/node_modules/acpx/dist/cli.js",
+    async (command, args) => {
+      calls.push({ command, args });
+      if (args.includes("ensure")) {
+        return { code: 1, stdout: "", stderr: "ensure failed" };
+      }
+      if (args.includes("show")) {
+        return { code: 1, stdout: "", stderr: "missing" };
+      }
+      throw new Error(`unexpected command: ${args.join(" ")}`);
+    },
+    async (command, args, cwd) => {
+      shellCalls.push({ command, args, cwd });
+      return { code: 0, stdout: "created", stderr: "" };
+    },
+  );
+
+  await expect(
+    runtime.ensureSession({
+      agent: "codex",
+      cwd: "/repo",
+      name: "demo",
+    }),
+  ).resolves.toEqual({});
+
+  expect(calls).toEqual([
+    {
+      command: process.execPath,
+      args: [
+        "E:/global/node_modules/acpx/dist/cli.js",
+        "--format",
+        "quiet",
+        "--cwd",
+        "/repo",
+        "codex",
+        "sessions",
+        "ensure",
+        "--name",
+        "demo",
+      ],
+    },
+    {
+      command: process.execPath,
+      args: [
+        "E:/global/node_modules/acpx/dist/cli.js",
+        "--format",
+        "quiet",
+        "--cwd",
+        "/repo",
+        "codex",
+        "sessions",
+        "show",
+        "demo",
+      ],
+    },
+  ]);
+  expect(shellCalls).toEqual([
+    {
+      command: process.execPath,
+      args: [
+        "E:/global/node_modules/acpx/dist/cli.js",
+        "--format",
+        "quiet",
+        "--cwd",
+        "/repo",
+        "codex",
+        "sessions",
+        "new",
+        "--name",
+        "demo",
+      ],
+      cwd: "/repo",
+    },
+  ]);
+});
+
 test("forwards an optional raw agent command to runtime operations", async () => {
   const calls: Array<Record<string, unknown>> = [];
   const runtime = {

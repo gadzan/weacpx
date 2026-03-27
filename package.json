@@ -1,7 +1,7 @@
 {
   "name": "weacpx",
   "description": "用微信远程控制 `acpx` 会话的控制台, 底层基于 `weixin-agent-sdk` 与 `acpx`",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "main": "index.js",
   "directories": {
     "doc": "docs",

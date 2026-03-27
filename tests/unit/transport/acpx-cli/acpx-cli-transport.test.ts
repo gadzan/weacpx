@@ -44,6 +44,30 @@ test("ensures a session with raw agent command by invoking acpx with the normal 
   expect(runPty).not.toHaveBeenCalled();
 });
 
+test("runs a resolved JavaScript acpx entry with the current node executable", async () => {
+  const run = mock(async () => ({ code: 0, stdout: "", stderr: "" }));
+  const runPty = mock(async () => ({ code: 0, stdout: "", stderr: "" }));
+  const transport = new AcpxCliTransport({ command: "E:/global/node_modules/acpx/dist/cli.js" }, run, runPty);
+
+  await transport.ensureSession(session);
+
+  expect(run).toHaveBeenCalledWith(process.execPath, [
+    "E:/global/node_modules/acpx/dist/cli.js",
+    "--format",
+    "quiet",
+    "--cwd",
+    "/tmp/backend",
+    "--agent",
+    "./node_modules/.bin/codex-acp",
+    "sessions",
+    "new",
+    "--name",
+    "backend:api-fix",
+  ], {
+    timeoutMs: 120_000,
+  });
+});
+
 test("uses 120 seconds as the default raw-command session creation timeout", async () => {
   const run = mock(async () => ({ code: 0, stdout: "", stderr: "" }));
   const runPty = mock(async () => ({ code: 0, stdout: "", stderr: "" }));
