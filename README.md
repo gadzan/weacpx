@@ -1,31 +1,17 @@
 # weacpx 
 
-通过微信 ClawBot 远程控制通过 `acpx` 控制 Claude Code、Codex 等 Agents。
-
-## weacpx 是什么
-
-`weacpx` 基于以下组件工作：
-
-- `weixin-agent-sdk`
-- `acpx`
-- `acpx` 已支持的 agent driver，或自定义 ACP agent
-
-它适合这样的场景：
-
-- 你已经在本机使用 `acpx`
-- 你希望通过微信远程发起或继续一个 agent 会话
-- 你希望在手机上完成常见的会话切换、目录切换和对话操作
+使用微信 ClawBot 随时随地通过 `acpx` 控制 Claude Code、Codex 等 Agents。
 
 ## 安装前准备
 
 开始前，至少需要：
 
-- Node.js 22+
-- Bun
+- Node.js 22+ 或 Bun
 - 一个可用的微信登录环境
-- 本机可以运行 `acpx` 及其目标 agent
+- Claude Code 或 Codex
 
-正常情况下，不需要再额外全局安装 `acpx`。
+> `weacpx` 基于 `weixin-agent-sdk` 与 `acpx` 实现。
+> 正常情况下，不需要再额外全局安装 `acpx`。
 
 ## 安装
 
@@ -34,15 +20,8 @@
 ```bash
 # 使用 NPM 全局安装
 npm install -g weacpx
-# 或使用 bun 全局安装
+# 或使用 Bun 全局安装
 bun add -g weacpx
-```
-
-如果你是从源码仓库直接使用，请先安装依赖并构建：
-
-```bash
-bun install
-bun run dev
 ```
 
 ## 快速开始
@@ -58,19 +37,9 @@ bun run dev
 ```bash
 weacpx login
 weacpx start
-weacpx status
 ```
 
-如果你是在仓库里本地运行：
-
-```bash
-bun run login
-bun run dev
-```
-
-`weacpx login` 和 `bun run login` 都会在终端里显示二维码。
-
-启动后，在微信里先发：
+`weacpx login` 会在终端里显示二维码，使用微信扫描登录。`weacpx start` 启动后，在微信里发：
 
 ```text
 /ss codex -d /absolute/path/to/your/repo
@@ -78,13 +47,25 @@ bun run dev
 /help
 ```
 
-第一行的意思是：开启或挂在一个会话，并切换到该会话。使用 Codex，并指定工作目录为 `/absolute/path/to/your/repo`。
-第二行的意思是：查看帮助信息。
+`/ss codex -d /absolute/path/to/your/repo`：开启或挂在一个会话，并切换到该会话。使用 Codex，并指定工作目录为 `/absolute/path/to/your/repo`。
+
+`/help` 查看帮助信息。
 
 然后就可以直接发普通消息，例如：
 
 ```text
 hello
+```
+
+如果你是从源码仓库直接使用：
+
+```bash
+# 先安装依赖
+bun install
+# 登录微信
+bun run login
+# 启动服务
+bun run dev
 ```
 
 普通文本会默认发送到当前选中的 session。
@@ -106,27 +87,55 @@ hello
 - `status` 查看后台状态、PID、配置路径和日志路径
 - `stop` 停止后台实例
 
-## 微信中如何使用
+## 微信中使用说明
 
-### Agent
+### 管理 Agent
 
-内置 `codex` 与 `claude` 两个常见模板，也支持添加你自己的 agent。
+内置 `codex` 与 `claude` 两个常见 agent，也支持添加你自己的 agents。
 
-- `/agents` 查看当前已添加的 agent
-- `/agent add codex` 添加 codex agent
-- `/agent add claude` 添加 claude agent
-- `/agent rm <name>` 删除 agent
+| 命令 | 说明 |
+|------|------|
+| `/agents` | 查看当前已添加的 agent |
+| `/agent add codex` | 添加 codex agent |
+| `/agent add claude` | 添加 claude agent |
+| `/agent rm <name>` | 删除 agent |
 
 说明：
 
 - 内置 `codex` 和 `claude` 走 `acpx` 的 driver alias，通常不需要额外写 `agent.command`
 - 如果你接入的是自定义 agent，再考虑显式配置 `agent.command`
 
+`config.json` 中的 `agent.command` 用于显式指定 agent 的原始启动命令，完整字段如下：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `driver` | `string` | 是 | agent 驱动类型，传递给 acpx 的第一位置参数 |
+| `command` | `string` | 否 | 显式指定自定义 agent 的原始命令。不填则使用 acpx 默认行为 |
+
+示例 — 配置一个自定义 agent：
+
+```json
+{
+  "agents": {
+    "my-agent": {
+      "driver": "codex",
+      "command": "/path/to/acpx codex --arg1 value1"
+    }
+  }
+}
+```
+
+- 内置 `codex` 和 `claude` 建议只写 `driver`，让 `acpx` 自己解析对应 alias
+- `command` 主要用于自定义 agent，不建议给内置 driver 手写原始命令
+- 旧版 `codex` raw command 配置会被自动忽略，回退为 `acpx codex ...`
+
 ### Workspace 工作目录
 
-- `/workspaces` 或 `/workspace` 或 `/ws` 可查看当前已添加的工作目录
-- `/ws new <name> -d <path>` 添加工作目录，`-d` 后面接的是目录在电脑的绝对路径
-- `/workspace rm <name>` 删除工作目录
+| 命令 | 说明 |
+|------|------|
+| `/workspaces` / `/workspace` / `/ws` | 查看当前已添加的工作目录 |
+| `/ws new <name> -d <path>` | 添加工作目录，`-d` 后面接的是目录在电脑的绝对路径 |
+| `/workspace rm <name>` | 删除工作目录 |
 
 说明：
 
@@ -135,15 +144,17 @@ hello
 
 ### Session 会话
 
-- `/sessions` 或 `/session` 或 `/ss` 可查看当前已添加的会话
-- `/ss <agent> -d <path>` 新建会话，会自动按目录名推导并创建或复用 workspace，再创建或复用 session
-- `/ss new <agent> -d <path>` 强制新建会话
-- `/ss new <alias> -a <name> --ws <name>` 强制新建会话，并指定 agent 和 workspace
-- `/ss attach <alias> -a <name> --ws <name> --name <transport-session>` 恢复已存在的会话
-- `/use <alias>` 切换当前会话
-- `/status` 查看当前会话状态
-- `/cancel` 取消当前会话
-- `/stop` 停止当前会话
+| 命令 | 说明 |
+|------|------|
+| `/sessions` / `/session` / `/ss` | 查看当前已添加的会话 |
+| `/ss <agent> -d <path>` | 新建会话（自动按目录名推导并创建或复用 workspace，再创建或复用 session） |
+| `/ss new <agent> -d <path>` | 强制新建会话 |
+| `/ss new <alias> -a <name> --ws <name>` | 强制新建会话，并指定 agent 和 workspace |
+| `/ss attach <alias> -a <name> --ws <name> --name <transport-session>` | 恢复已存在的会话 |
+| `/use <alias>` | 切换当前会话 |
+| `/status` | 查看当前会话状态 |
+| `/cancel` | 取消当前会话 |
+| `/stop` | 停止当前会话 |
 
 说明：
 
