@@ -74,7 +74,7 @@ export function parseCommand(input: string): ParsedCommand {
         if (parts[index] === "--agent" || parts[index] === "-a") {
           agent = parts[index + 1] ?? "";
           index += 1;
-        } else if (parts[index] === "--ws") {
+        } else if (parts[index] === "--ws" || parts[index] === "-ws") {
           workspace = parts[index + 1] ?? "";
           index += 1;
         }
@@ -96,24 +96,6 @@ export function parseCommand(input: string): ParsedCommand {
     }
   }
 
-  if (command === "/session" && parts[1] === "new" && parts[2]) {
-    const alias = parts[2];
-    let agent = "";
-    let workspace = "";
-
-    for (let index = 3; index < parts.length; index += 1) {
-      if (parts[index] === "--agent" || parts[index] === "-a") {
-        agent = parts[index + 1] ?? "";
-        index += 1;
-      } else if (parts[index] === "--ws") {
-        workspace = parts[index + 1] ?? "";
-        index += 1;
-      }
-    }
-
-    return { kind: "session.new", alias, agent, workspace };
-  }
-
   if (command === "/session" && parts[1] === "attach" && parts[2]) {
     const alias = parts[2];
     let agent = "";
@@ -124,7 +106,7 @@ export function parseCommand(input: string): ParsedCommand {
       if (parts[index] === "--agent" || parts[index] === "-a") {
         agent = parts[index + 1] ?? "";
         index += 1;
-      } else if (parts[index] === "--ws") {
+      } else if (parts[index] === "--ws" || parts[index] === "-ws") {
         workspace = parts[index + 1] ?? "";
         index += 1;
       } else if (parts[index] === "--name") {

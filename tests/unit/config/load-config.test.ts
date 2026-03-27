@@ -136,6 +136,68 @@ test("loads an optional raw agent command for non-codex agents", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test("defaults logging to bounded info mode when omitted", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+        },
+      },
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.logging).toEqual({
+    level: "info",
+    maxSizeBytes: 2 * 1024 * 1024,
+    maxFiles: 5,
+    retentionDays: 7,
+  });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("loads an explicit logging configuration", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      logging: {
+        level: "debug",
+        maxSizeBytes: 65536,
+        maxFiles: 3,
+        retentionDays: 2,
+      },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+        },
+      },
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.logging).toEqual({
+    level: "debug",
+    maxSizeBytes: 65536,
+    maxFiles: 3,
+    retentionDays: 2,
+  });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
 test("drops the legacy raw codex command so codex uses the built-in acpx alias", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
   const path = join(dir, "config.json");

@@ -3,7 +3,10 @@ import { mkdtemp, open, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { createDaemonController } from "../../../src/daemon/create-daemon-controller";
+import {
+  createDaemonController,
+  terminateProcessTree,
+} from "../../../src/daemon/create-daemon-controller";
 import { type DaemonPaths } from "../../../src/daemon/daemon-files";
 
 test("spawns a detached run command and records the child pid", async () => {
@@ -81,6 +84,55 @@ test("appends daemon stdout and stderr to runtime log files", async () => {
   await stderrHandle.close();
 
   await rm(runtimeDir, { recursive: true, force: true });
+});
+
+test("sets windowsHide when spawning the daemon on win32", async () => {
+  const runtimeDir = await mkdtemp(join(tmpdir(), "weacpx-daemon-factory-"));
+  const paths = createPaths(runtimeDir);
+  const spawnCalls: Array<{ options: Record<string, unknown> }> = [];
+
+  const controller = createDaemonController(paths, {
+    processExecPath: "C:\\node\\node.exe",
+    cliEntryPath: "C:\\app\\dist\\cli.js",
+    cwd: "C:\\app",
+    env: {},
+    platform: "win32",
+    spawnProcess: async ({ options }) => {
+      spawnCalls.push({ options });
+      return 65432;
+    },
+    isProcessRunning: () => false,
+    terminateProcess: async () => {},
+  });
+
+  await controller.start();
+
+  expect(spawnCalls).toEqual([
+    {
+      options: expect.objectContaining({
+        detached: true,
+        windowsHide: true,
+      }),
+    },
+  ]);
+
+  await rm(runtimeDir, { recursive: true, force: true });
+});
+
+test("terminates the full process tree on win32", async () => {
+  const calls: Array<{ command: string; args: string[] }> = [];
+
+  await terminateProcessTree(43210, "win32", async (command, args) => {
+    calls.push({ command, args });
+    return 0;
+  });
+
+  expect(calls).toEqual([
+    {
+      command: "taskkill",
+      args: ["/PID", "43210", "/T", "/F"],
+    },
+  ]);
 });
 
 function createPaths(runtimeDir: string): DaemonPaths {

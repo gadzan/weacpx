@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -213,4 +213,57 @@ test("falls back to the OS home directory when HOME is unset", () => {
     process.env.WEACPX_CONFIG = originalConfig;
     process.env.WEACPX_STATE = originalState;
   }
+});
+
+test("buildApp cleans stale rotated app logs and can default logging to debug", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const rootDir = join(dir, ".weacpx");
+  const configPath = join(rootDir, "config.json");
+  const statePath = join(rootDir, "state.json");
+  const runtimeDir = join(rootDir, "runtime");
+  const staleLog = join(runtimeDir, "app.log.2");
+  await mkdir(runtimeDir, { recursive: true });
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+        },
+      },
+    }),
+  );
+  await writeFile(staleLog, "stale");
+  const staleAt = new Date("2026-03-19T00:00:00.000Z");
+  await utimes(staleLog, staleAt, staleAt);
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      defaultLoggingLevel: "debug",
+      loggerNow: () => new Date("2026-03-27T00:00:00.000Z"),
+      createCliTransport: () => ({
+        ensureSession: async () => {},
+        prompt: async () => ({ text: "ok" }),
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+        listSessions: async () => [],
+      }),
+    },
+  );
+
+  await runtime.agent.chat({
+    conversationId: "wx:user",
+    text: "/help",
+  });
+
+  const appLog = await readFile(join(runtimeDir, "app.log"), "utf8");
+  expect(appLog).toContain("DEBUG command.parsed");
+  await expect(readFile(staleLog, "utf8")).rejects.toThrow();
+
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
 });

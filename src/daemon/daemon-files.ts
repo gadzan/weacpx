@@ -6,6 +6,7 @@ export interface DaemonPaths {
   statusFile: string;
   stdoutLog: string;
   stderrLog: string;
+  appLog: string;
 }
 
 interface ResolveDaemonPathsOptions {
@@ -22,5 +23,6 @@ export function resolveDaemonPaths(options: ResolveDaemonPathsOptions): DaemonPa
     statusFile: join(runtimeDir, "status.json"),
     stdoutLog: join(runtimeDir, "stdout.log"),
     stderrLog: join(runtimeDir, "stderr.log"),
+    appLog: join(runtimeDir, "app.log"),
   };
 }

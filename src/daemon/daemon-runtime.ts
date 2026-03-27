@@ -30,6 +30,7 @@ export class DaemonRuntime {
       heartbeat_at: timestamp,
       config_path: input.configPath,
       state_path: input.statePath,
+      app_log: this.paths.appLog,
       stdout_log: this.paths.stdoutLog,
       stderr_log: this.paths.stderrLog,
     };

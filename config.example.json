@@ -3,6 +3,12 @@
     "type": "acpx-bridge",
     "sessionInitTimeoutMs": 120000
   },
+  "logging": {
+    "level": "info",
+    "maxSizeBytes": 2097152,
+    "maxFiles": 5,
+    "retentionDays": 7
+  },
   "agents": {
     "codex": {
       "driver": "codex"

@@ -30,6 +30,7 @@ test("reports running when pid is alive and status exists", async () => {
     heartbeat_at: "2026-03-26T00:01:00.000Z",
     config_path: "/cfg",
     state_path: "/state",
+    app_log: "/app",
     stdout_log: "/out",
     stderr_log: "/err",
   });
@@ -57,6 +58,7 @@ test("treats dead pid files as stale and clears runtime files", async () => {
     heartbeat_at: "2026-03-26T00:01:00.000Z",
     config_path: "/cfg",
     state_path: "/state",
+    app_log: "/app",
     stdout_log: "/out",
     stderr_log: "/err",
   });
@@ -89,6 +91,7 @@ test("start reports already running without spawning again", async () => {
     heartbeat_at: "2026-03-26T00:01:00.000Z",
     config_path: "/cfg",
     state_path: "/state",
+    app_log: "/app",
     stdout_log: "/out",
     stderr_log: "/err",
   });
@@ -122,6 +125,7 @@ function createController(
     runtimeDir,
     pidFile: join(runtimeDir, "daemon.pid"),
     statusFile: join(runtimeDir, "status.json"),
+    appLog: join(runtimeDir, "app.log"),
     stdoutLog: join(runtimeDir, "stdout.log"),
     stderrLog: join(runtimeDir, "stderr.log"),
   };

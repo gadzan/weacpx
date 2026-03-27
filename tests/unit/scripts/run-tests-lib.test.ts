@@ -41,7 +41,7 @@ function walkTree(tree: Record<string, unknown>) {
 }
 
 function resolveNode(tree: Record<string, unknown>, path: string): Record<string, unknown> | null {
-  const parts = path.split("/").filter(Boolean).slice(2);
+  const parts = path.split(/[/\\\\]/).filter(Boolean).slice(2);
   let current: unknown = tree;
 
   for (const part of parts) {

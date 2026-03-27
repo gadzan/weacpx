@@ -34,6 +34,7 @@ test("prints running status", async () => {
             heartbeat_at: "2026-03-26T00:01:00.000Z",
             config_path: "/cfg",
             state_path: "/state",
+            app_log: "/app",
             stdout_log: "/out",
             stderr_log: "/err",
           },
@@ -54,6 +55,7 @@ test("prints running status", async () => {
     "Heartbeat: 2026-03-26T00:01:00.000Z",
     "Config: /cfg",
     "State: /state",
+    "App Log: /app",
     "Stdout: /out",
     "Stderr: /err",
   ]);

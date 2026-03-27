@@ -27,6 +27,7 @@ test("writes startup status and pid metadata", async () => {
     heartbeat_at: "2026-03-26T00:00:00.000Z",
     config_path: "/cfg",
     state_path: "/state",
+    app_log: paths.appLog,
     stdout_log: paths.stdoutLog,
     stderr_log: paths.stderrLog,
   });
@@ -57,6 +58,7 @@ test("updates the heartbeat timestamp without changing startup metadata", async 
     heartbeat_at: "2026-03-26T00:05:00.000Z",
     config_path: "/cfg",
     state_path: "/state",
+    app_log: paths.appLog,
     stdout_log: paths.stdoutLog,
     stderr_log: paths.stderrLog,
   });
@@ -89,6 +91,7 @@ function createPaths(runtimeDir: string): DaemonPaths {
     runtimeDir,
     pidFile: join(runtimeDir, "daemon.pid"),
     statusFile: join(runtimeDir, "status.json"),
+    appLog: join(runtimeDir, "app.log"),
     stdoutLog: join(runtimeDir, "stdout.log"),
     stderrLog: join(runtimeDir, "stderr.log"),
   };

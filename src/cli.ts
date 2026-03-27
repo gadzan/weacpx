@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { homedir } from "node:os";
+import { sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createDaemonController } from "./daemon/create-daemon-controller";
@@ -85,6 +86,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       print(`Heartbeat: ${status.status.heartbeat_at}`);
       print(`Config: ${status.status.config_path}`);
       print(`State: ${status.status.state_path}`);
+      print(`App Log: ${status.status.app_log}`);
       print(`Stdout: ${status.status.stdout_log}`);
       print(`Stderr: ${status.status.stderr_log}`);
       return 0;
@@ -122,7 +124,10 @@ async function defaultRun(): Promise<void> {
   const daemonRuntime = new DaemonRuntime(daemonPaths, { pid: process.pid });
 
   await runConsole(runtimePaths, {
-    buildApp,
+    buildApp: (paths) =>
+      buildApp(paths, {
+        defaultLoggingLevel: resolveCliEntryPath().includes(`${sep}src${sep}`) ? "debug" : "info",
+      }),
     loadWeixinSdk,
     daemonRuntime,
   });

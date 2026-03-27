@@ -12,6 +12,7 @@ interface SpawnRequest {
     detached: boolean;
     env: NodeJS.ProcessEnv;
     stdio: ["ignore", number, number];
+    windowsHide?: boolean;
   };
 }
 
@@ -20,6 +21,7 @@ interface CreateDaemonControllerOptions {
   cliEntryPath: string;
   cwd: string;
   env: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
   spawnProcess?: (request: SpawnRequest) => Promise<number>;
   isProcessRunning?: (pid: number) => boolean;
   terminateProcess?: (pid: number) => Promise<void>;
@@ -45,6 +47,7 @@ export function createDaemonController(
             detached: true,
             env: options.env,
             stdio: ["ignore", stdoutHandle.fd, stderrHandle.fd],
+            ...(options.platform ?? process.platform) === "win32" ? { windowsHide: true } : {},
           },
         });
       } finally {
@@ -72,6 +75,25 @@ async function defaultSpawnProcess(request: SpawnRequest): Promise<number> {
 }
 
 async function defaultTerminateProcess(pid: number): Promise<void> {
+  await terminateProcessTree(pid);
+}
+
+type ProcessCommandRunner = (command: string, args: string[]) => Promise<number>;
+
+export async function terminateProcessTree(
+  pid: number,
+  platform: NodeJS.Platform = process.platform,
+  runCommand: ProcessCommandRunner = defaultRunProcessCommand,
+): Promise<void> {
+  if (platform === "win32") {
+    try {
+      await runCommand("taskkill", ["/PID", String(pid), "/T", "/F"]);
+    } catch {
+      // Process tree already exited or could not be found.
+    }
+    return;
+  }
+
   try {
     process.kill(pid, "SIGTERM");
   } catch {
@@ -91,4 +113,13 @@ async function defaultTerminateProcess(pid: number): Promise<void> {
   } catch {
     // Process already exited.
   }
+}
+
+async function defaultRunProcessCommand(command: string, args: string[]): Promise<number> {
+  return await new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: "ignore" });
+
+    child.on("error", reject);
+    child.on("close", (code) => resolve(code ?? 1));
+  });
 }

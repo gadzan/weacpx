@@ -23,6 +23,7 @@ test("persists and reloads daemon status", async () => {
     heartbeat_at: "2026-03-26T00:01:00.000Z",
     config_path: "/Users/tester/.weacpx/config.json",
     state_path: "/Users/tester/.weacpx/state.json",
+    app_log: "/Users/tester/.weacpx/runtime/app.log",
     stdout_log: "/Users/tester/.weacpx/runtime/stdout.log",
     stderr_log: "/Users/tester/.weacpx/runtime/stderr.log",
   };
@@ -43,6 +44,7 @@ test("clears the daemon status file", async () => {
     heartbeat_at: "2026-03-26T00:01:00.000Z",
     config_path: "/Users/tester/.weacpx/config.json",
     state_path: "/Users/tester/.weacpx/state.json",
+    app_log: "/Users/tester/.weacpx/runtime/app.log",
     stdout_log: "/Users/tester/.weacpx/runtime/stdout.log",
     stderr_log: "/Users/tester/.weacpx/runtime/stderr.log",
   });

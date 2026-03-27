@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CommandRouter } from "./commands/command-router";
@@ -7,6 +8,8 @@ import { ensureConfigExists } from "./config/ensure-config";
 import { loadConfig } from "./config/load-config";
 import { resolveAcpxCommand } from "./config/resolve-acpx-command";
 import { ConsoleAgent } from "./console-agent";
+import type { LoggingLevel } from "./config/types";
+import { createAppLogger, type AppLogger } from "./logging/app-logger";
 import { SessionService } from "./sessions/session-service";
 import { StateStore } from "./state/state-store";
 import { runConsole } from "./run-console";
@@ -27,18 +30,32 @@ export interface AppRuntime {
   sessions: SessionService;
   stateStore: StateStore;
   configStore: ConfigStore;
+  logger: AppLogger;
   dispose: () => Promise<void>;
 }
 
 interface RuntimeDeps {
   createCliTransport?: (command: string) => SessionTransport;
   createBridgeTransport?: () => Promise<SessionTransport>;
+  defaultLoggingLevel?: LoggingLevel;
+  loggerNow?: () => Date;
 }
 
 export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Promise<AppRuntime> {
   await ensureConfigExists(paths.configPath);
   const configStore = new ConfigStore(paths.configPath);
-  const config = await loadConfig(paths.configPath);
+  const config = await loadConfig(paths.configPath, {
+    defaultLoggingLevel: deps.defaultLoggingLevel,
+  });
+  const logger = createAppLogger({
+    filePath: resolveAppLogPath(paths.configPath),
+    level: config.logging.level,
+    maxSizeBytes: config.logging.maxSizeBytes,
+    maxFiles: config.logging.maxFiles,
+    retentionDays: config.logging.retentionDays,
+    now: deps.loggerNow,
+  });
+  await logger.cleanup();
   const acpxCommand = resolveAcpxCommand({ configuredCommand: config.transport.command });
   const stateStore = new StateStore(paths.statePath);
   const state = await stateStore.load();
@@ -56,8 +73,8 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
           ))
       : (deps.createCliTransport?.(acpxCommand) ??
           new AcpxCliTransport({ ...config.transport, command: acpxCommand }));
-  const router = new CommandRouter(sessions, transport, config, configStore);
-  const agent = new ConsoleAgent(router);
+  const router = new CommandRouter(sessions, transport, config, configStore, logger);
+  const agent = new ConsoleAgent(router, logger);
 
   return {
     agent,
@@ -65,6 +82,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     sessions,
     stateStore,
     configStore,
+    logger,
     dispose: async () => {
       if ("dispose" in transport && typeof transport.dispose === "function") {
         await transport.dispose();
@@ -116,4 +134,10 @@ function resolveBridgeEntryPath(): string {
   }
 
   return fileURLToPath(new URL("./bridge/bridge-main.ts", import.meta.url));
+}
+
+function resolveAppLogPath(configPath: string): string {
+  const rootDir = dirname(configPath);
+  const runtimeDir = join(rootDir, "runtime");
+  return join(runtimeDir, "app.log");
 }

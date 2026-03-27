@@ -29,17 +29,13 @@ async function defaultRunner(command: string, args: string[], options?: RunOptio
     const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
-    let finished = false;
 
     const timeoutId = options?.timeoutMs
       ? setTimeout(() => {
-          finished = true;
           child.kill("SIGTERM");
           reject(new Error(`acpx command timed out after ${options.timeoutMs}ms: ${renderCommandForError(args)}`));
         }, options.timeoutMs)
       : undefined;
-
-    timeoutId?.unref?.();
 
     child.stdout.on("data", (chunk) => {
       stdout += String(chunk);
@@ -48,19 +44,11 @@ async function defaultRunner(command: string, args: string[], options?: RunOptio
       stderr += String(chunk);
     });
     child.on("error", (error) => {
-      if (finished) {
-        return;
-      }
-      finished = true;
-      timeoutId && clearTimeout(timeoutId);
+      if (timeoutId) clearTimeout(timeoutId);
       reject(error);
     });
     child.on("close", (code) => {
-      if (finished) {
-        return;
-      }
-      finished = true;
-      timeoutId && clearTimeout(timeoutId);
+      if (timeoutId) clearTimeout(timeoutId);
       resolve({ code: code ?? 1, stdout, stderr });
     });
   });
@@ -83,28 +71,20 @@ async function defaultPtyRunner(command: string, args: string[], options?: RunOp
       env: process.env as Record<string, string>,
     });
     let output = "";
-    let finished = false;
 
     const timeoutId = options?.timeoutMs
       ? setTimeout(() => {
-          finished = true;
           child.kill();
           reject(new Error(`acpx command timed out after ${options.timeoutMs}ms: ${renderCommandForError(args)}`));
         }, options.timeoutMs)
       : undefined;
-
-    timeoutId?.unref?.();
 
     child.onData((chunk) => {
       output += chunk;
     });
 
     child.onExit(({ exitCode }) => {
-      if (finished) {
-        return;
-      }
-      finished = true;
-      timeoutId && clearTimeout(timeoutId);
+      if (timeoutId) clearTimeout(timeoutId);
       resolve({ code: exitCode, stdout: output, stderr: "" });
     });
   });
@@ -198,17 +178,20 @@ export class AcpxCliTransport implements SessionTransport {
       return await runner(this.command, args, undefined);
     }
 
+    let timeoutId: NodeJS.Timeout | undefined;
+
     return await Promise.race([
-      runner(this.command, args, options),
+      runner(this.command, args, options).finally(() => {
+        if (timeoutId) clearTimeout(timeoutId);
+      }),
       new Promise<CommandResult>((_, reject) => {
-        const timeoutId = setTimeout(() => {
+        timeoutId = setTimeout(() => {
           reject(
             new Error(
               `acpx command timed out after ${options.timeoutMs}ms: ${renderCommandForError(args)}`,
             ),
           );
         }, options.timeoutMs);
-        timeoutId.unref?.();
       }),
     ]);
   }

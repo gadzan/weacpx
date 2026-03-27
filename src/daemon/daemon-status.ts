@@ -7,6 +7,7 @@ export interface DaemonStatus {
   heartbeat_at: string;
   config_path: string;
   state_path: string;
+  app_log: string;
   stdout_log: string;
   stderr_log: string;
 }

@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { join } from "node:path";
 
 import { resolveDaemonPaths } from "../../../src/daemon/daemon-files";
 
@@ -8,11 +9,12 @@ test("resolves runtime files under ~/.weacpx/runtime by default", () => {
       home: "/Users/tester",
     }),
   ).toEqual({
-    runtimeDir: "/Users/tester/.weacpx/runtime",
-    pidFile: "/Users/tester/.weacpx/runtime/daemon.pid",
-    statusFile: "/Users/tester/.weacpx/runtime/status.json",
-    stdoutLog: "/Users/tester/.weacpx/runtime/stdout.log",
-    stderrLog: "/Users/tester/.weacpx/runtime/stderr.log",
+    runtimeDir: join("/Users/tester", ".weacpx", "runtime"),
+    pidFile: join("/Users/tester", ".weacpx", "runtime", "daemon.pid"),
+    statusFile: join("/Users/tester", ".weacpx", "runtime", "status.json"),
+    stdoutLog: join("/Users/tester", ".weacpx", "runtime", "stdout.log"),
+    stderrLog: join("/Users/tester", ".weacpx", "runtime", "stderr.log"),
+    appLog: join("/Users/tester", ".weacpx", "runtime", "app.log"),
   });
 });
 
@@ -24,9 +26,10 @@ test("allows overriding the runtime directory", () => {
     }),
   ).toEqual({
     runtimeDir: "/tmp/weacpx-runtime",
-    pidFile: "/tmp/weacpx-runtime/daemon.pid",
-    statusFile: "/tmp/weacpx-runtime/status.json",
-    stdoutLog: "/tmp/weacpx-runtime/stdout.log",
-    stderrLog: "/tmp/weacpx-runtime/stderr.log",
+    pidFile: join("/tmp/weacpx-runtime", "daemon.pid"),
+    statusFile: join("/tmp/weacpx-runtime", "status.json"),
+    stdoutLog: join("/tmp/weacpx-runtime", "stdout.log"),
+    stderrLog: join("/tmp/weacpx-runtime", "stderr.log"),
+    appLog: join("/tmp/weacpx-runtime", "app.log"),
   });
 });

@@ -1,4 +1,5 @@
 import { expect, mock, test } from "bun:test";
+import { join } from "node:path";
 
 import { ensureNodePtyHelperExecutable, resolveNodePtyHelperPath } from "../../../../src/transport/acpx-cli/node-pty-helper";
 
@@ -9,7 +10,7 @@ test("resolves the macOS helper path from the node-pty package root", () => {
       "darwin",
       "x64",
     ),
-  ).toBe("/Users/me/project/node_modules/node-pty/prebuilds/darwin-x64/spawn-helper");
+  ).toBe(join("/Users/me/project/node_modules/node-pty", "prebuilds", "darwin-x64", "spawn-helper"));
 });
 
 test("returns null on win32 where spawn-helper is not used", () => {

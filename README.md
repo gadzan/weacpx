@@ -8,19 +8,12 @@
 
 核心目标是：在微信里完成常见的 agent、workspace、session 管理和日常对话，不把用户卡在手写 JSON 配置上。
 
-## 当前状态
+## 安装
 
-当前已经可用的主路径：
+```
+npm install -g weacpx
+```
 
-- 微信里注册常见 agent 模板
-- 微信里创建/删除 workspace
-- 微信里创建 session
-- 普通消息发送到当前 session
-- `/status`、`/ss`、`/stop`
-- `acpx` 默认优先使用项目内依赖，不要求全局安装
-
-- [docs/testing.md](docs/testing.md)
-- [docs/config-reference.md](docs/config-reference.md) — 配置文件各字段详解
 
 ## 你需要准备什么
 
@@ -110,6 +103,7 @@ node ./dist/cli.js stop
 
 - 配置文件：`~/.weacpx/config.json`
 - 状态文件：`~/.weacpx/state.json`
+- 业务日志：`~/.weacpx/runtime/app.log`
 
 你可以从 [config.example.json](./config.example.json) 开始。
 
@@ -118,6 +112,34 @@ node ./dist/cli.js stop
 - `WEACPX_CONFIG`
 - `WEACPX_STATE`
 - `WEACPX_WEIXIN_SDK`
+
+### 日志配置
+
+`config.json` 支持一个可选的 `logging` 段：
+
+```json
+{
+  "logging": {
+    "level": "info",
+    "maxSizeBytes": 2097152,
+    "maxFiles": 5,
+    "retentionDays": 7
+  }
+}
+```
+
+说明：
+
+- `level`: `error`、`info`、`debug`
+- `maxSizeBytes`: 单个 `app.log` 文件达到上限后会轮转
+- `maxFiles`: 最多保留多少个轮转文件，如 `app.log.1`、`app.log.2`
+- `retentionDays`: 每次启动时会清理超过保留天数的旧轮转日志
+
+默认行为：
+
+- 正式 CLI 运行默认使用 `info`
+- 本地 `bun run dev` 默认使用 `debug`
+- 如果配置文件显式写了 `logging.level`，则以配置为准
 
 ## weixin-agent-sdk 解析顺序
 
@@ -224,9 +246,15 @@ bun run dev
 
 - `~/.weacpx/runtime/daemon.pid`
 - `~/.weacpx/runtime/status.json`
+- `~/.weacpx/runtime/app.log`
 - `~/.weacpx/runtime/stdout.log`
 - `~/.weacpx/runtime/stderr.log`
 
+其中：
+
+- `app.log` 记录 weacpx 的业务处理日志，例如收到的命令、session/workspace 解析、transport 调用摘要和耗时
+- `stdout.log`、`stderr.log` 保留 daemon 进程标准输出和错误输出
+- 
 ## 微信里的推荐上手流程
 
 启动后，在微信里按这个顺序发：

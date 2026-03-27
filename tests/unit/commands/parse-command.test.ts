@@ -20,6 +20,15 @@ test("parses session creation aliases", () => {
   });
 });
 
+test("parses session creation with the short workspace flag variant", () => {
+  expect(parseCommand("/ss new api-fix -a codex -ws backend")).toEqual({
+    kind: "session.new",
+    alias: "api-fix",
+    agent: "codex",
+    workspace: "backend",
+  });
+});
+
 test("parses the session shortcut command", () => {
   expect(parseCommand("/ss codex -d E:/projects/weacpx")).toEqual({
     kind: "session.shortcut",
@@ -50,6 +59,16 @@ test("parses session attach flags", () => {
 
 test("parses session attach aliases", () => {
   expect(parseCommand("/ss attach review -a codex --ws backend --name existing-review")).toEqual({
+    kind: "session.attach",
+    alias: "review",
+    agent: "codex",
+    workspace: "backend",
+    transportSession: "existing-review",
+  });
+});
+
+test("parses session attach with the short workspace flag variant", () => {
+  expect(parseCommand("/ss attach review -a codex -ws backend --name existing-review")).toEqual({
     kind: "session.attach",
     alias: "review",
     agent: "codex",

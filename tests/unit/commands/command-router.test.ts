@@ -11,10 +11,17 @@ import type { StateStore } from "../../../src/state/state-store";
 import { SessionService } from "../../../src/sessions/session-service";
 import type { ResolvedSession, SessionTransport } from "../../../src/transport/types";
 import { CommandRouter } from "../../../src/commands/command-router";
+import type { AppLogger } from "../../../src/logging/app-logger";
 
 function createConfig(): AppConfig {
   return {
     transport: { type: "acpx-cli", command: "acpx" },
+    logging: {
+      level: "info",
+      maxSizeBytes: 2 * 1024 * 1024,
+      maxFiles: 5,
+      retentionDays: 7,
+    },
     agents: {
       codex: { driver: "codex" },
     },
@@ -84,6 +91,21 @@ function getCancelMock(transport: SessionTransport) {
 
 function basename(path: string): string {
   return path.split(/[/\\\\]/).at(-1)!;
+}
+
+function createLogger(events: string[]): AppLogger {
+  return {
+    debug: async (event, _message, context) => {
+      events.push(`DEBUG ${event} ${JSON.stringify(context ?? {})}`);
+    },
+    info: async (event, _message, context) => {
+      events.push(`INFO ${event} ${JSON.stringify(context ?? {})}`);
+    },
+    error: async (event, _message, context) => {
+      events.push(`ERROR ${event} ${JSON.stringify(context ?? {})}`);
+    },
+    cleanup: async () => {},
+  };
 }
 
 test("creates and selects a new session", async () => {
@@ -567,4 +589,17 @@ test("renders an attach-first hint when session creation times out", async () =>
   expect(reply.text).toContain("/session attach api-fix --agent codex --ws backend --name <会话名>");
   expect(reply.text).not.toContain("120000");
   expect(reply.text).not.toContain("backend:api-fix");
+});
+
+test("logs parsed commands and transport timing summaries", async () => {
+  const events: string[] = [];
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, createConfig(), undefined, createLogger(events));
+
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
+
+  expect(events.some((entry) => entry.includes("DEBUG command.parsed"))).toBe(true);
+  expect(events.some((entry) => entry.includes("INFO transport.ensure_session"))).toBe(true);
+  expect(events.some((entry) => entry.includes("INFO command.completed"))).toBe(true);
 });

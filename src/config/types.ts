@@ -4,6 +4,15 @@ export interface TransportConfig {
   sessionInitTimeoutMs?: number;
 }
 
+export type LoggingLevel = "error" | "info" | "debug";
+
+export interface LoggingConfig {
+  level: LoggingLevel;
+  maxSizeBytes: number;
+  maxFiles: number;
+  retentionDays: number;
+}
+
 export interface AgentConfig {
   driver: string;
   command?: string;
@@ -16,6 +25,7 @@ export interface WorkspaceConfig {
 
 export interface AppConfig {
   transport: TransportConfig;
+  logging: LoggingConfig;
   agents: Record<string, AgentConfig>;
   workspaces: Record<string, WorkspaceConfig>;
 }
