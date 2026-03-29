@@ -152,6 +152,7 @@ async function spawnWindowsHiddenProcess(request: SpawnRequest): Promise<number>
       }
 
       settled = true;
+      child.stdout?.destroy();
       child.unref();
       resolve(pid);
     });

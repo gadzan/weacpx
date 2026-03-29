@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { dirname, resolve } from "node:path";
+import { dirname, posix, resolve } from "node:path";
 
 import { resolveAcpxCommand } from "../../../src/config/resolve-acpx-command";
 
@@ -21,14 +21,14 @@ test("resolves the local acpx bin from the installed package", () => {
   expect(
     resolveAcpxCommand({
       platform: "linux",
-      resolvePackageJson: () => "E:/project/node_modules/acpx/package.json",
+      resolvePackageJson: () => "/project/node_modules/acpx/package.json",
       readPackageJson: () => ({
         bin: {
           acpx: "bin/acpx.js",
         },
       }),
     }),
-  ).toBe(resolve(dirname("E:/project/node_modules/acpx/package.json"), "bin/acpx.js"));
+  ).toBe(posix.resolve(posix.dirname("/project/node_modules/acpx/package.json"), "bin/acpx.js"));
 });
 
 test("resolves the local acpx windows shim on win32", () => {

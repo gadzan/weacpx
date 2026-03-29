@@ -14,6 +14,7 @@ export type ParsedCommand =
   | { kind: "session.shortcut"; agent: string; cwd: string }
   | { kind: "session.shortcut.new"; agent: string; cwd: string }
   | { kind: "session.attach"; alias: string; agent: string; workspace: string; transportSession: string }
+  | { kind: "invalid"; text: string; recognizedCommand: string }
   | { kind: "prompt"; text: string };
 
 export function parseCommand(input: string): ParsedCommand {
@@ -118,7 +119,12 @@ export function parseCommand(input: string): ParsedCommand {
     return { kind: "session.attach", alias, agent, workspace, transportSession };
   }
 
-  return { kind: "prompt", text: trimmed };
+  // 如果命令前缀被识别但参数不匹配任何子命令，返回 invalid
+if (command.startsWith("/") && isRecognizedCommand(command)) {
+  return { kind: "invalid", text: trimmed, recognizedCommand: command };
+}
+
+return { kind: "prompt", text: trimmed };
 }
 
 function hasAnyFlag(parts: string[], flags: string[]): boolean {
@@ -140,6 +146,23 @@ function normalizeCommand(command: string): string {
   if (command === "/ws") return "/workspace";
   if (command === "/stop") return "/cancel";
   return command;
+}
+
+const RECOGNIZED_COMMANDS = new Set([
+  "/help",
+  "/agents",
+  "/workspaces",
+  "/sessions",
+  "/status",
+  "/cancel",
+  "/session",
+  "/workspace",
+  "/use",
+  "/agent",
+]);
+
+function isRecognizedCommand(command: string): boolean {
+  return RECOGNIZED_COMMANDS.has(command);
 }
 
 function tokenizeCommand(input: string): string[] {

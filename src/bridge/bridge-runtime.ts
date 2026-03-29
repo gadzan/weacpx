@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { resolveSpawnCommand } from "../process/spawn-command";
+import { getPromptText } from "../transport/prompt-output";
 
 interface CommandResult {
   code: number;
@@ -81,19 +82,14 @@ export class BridgeRuntime {
     name: string;
     text: string;
   }): Promise<{ text: string }> {
-    const spawnSpec = resolveSpawnCommand(this.command, this.buildSessionArgs(input, [
+    const spawnSpec = resolveSpawnCommand(this.command, this.buildPromptArgs(input, [
       "prompt",
       "-s",
       input.name,
       input.text,
     ]));
     const result = await this.run(spawnSpec.command, spawnSpec.args);
-
-    if (result.code !== 0) {
-      throw new Error(result.stderr || result.stdout || "prompt failed");
-    }
-
-    return { text: result.stdout.trim() };
+    return { text: getPromptText(result) };
   }
 
   async cancel(input: {
@@ -137,6 +133,22 @@ export class BridgeRuntime {
     }
 
     return ["--format", "quiet", "--cwd", input.cwd, input.agent, ...tail];
+  }
+
+  private buildPromptArgs(
+    input: {
+      agent: string;
+      agentCommand?: string;
+      cwd: string;
+      name: string;
+    },
+    tail: string[],
+  ): string[] {
+    if (input.agentCommand) {
+      return ["--format", "json", "--json-strict", "--cwd", input.cwd, "--agent", input.agentCommand, ...tail];
+    }
+
+    return ["--format", "json", "--json-strict", "--cwd", input.cwd, input.agent, ...tail];
   }
 }
 

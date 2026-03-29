@@ -38,6 +38,15 @@ test("rejects responses with bridge error payloads", async () => {
   await expect(pending).rejects.toThrow("boom");
 });
 
+test("rejects pending requests when the bridge exits before replying", async () => {
+  const client = new AcpxBridgeClient(() => {});
+
+  const pending = client.request("ping", {});
+  client.handleExit(new Error("bridge process exited before responding"));
+
+  await expect(pending).rejects.toThrow("bridge process exited before responding");
+});
+
 test("uses direct node execution instead of `node run` when spawning the bridge", () => {
   expect(
     buildBridgeSpawnSpec({

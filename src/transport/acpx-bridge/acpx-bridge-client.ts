@@ -52,6 +52,15 @@ export class AcpxBridgeClient {
 
     pending.reject(new Error(response.error.message));
   }
+
+  handleExit(error: Error): void {
+    const pendingRequests = [...this.pending.values()];
+    this.pending.clear();
+
+    for (const pending of pendingRequests) {
+      pending.reject(error);
+    }
+  }
 }
 
 export interface ManagedBridgeClient extends AcpxBridgeClient {
@@ -114,6 +123,10 @@ export async function spawnAcpxBridgeClient(
 
   child.on("exit", () => {
     output.close();
+    client.handleExit(new Error("bridge process exited before responding"));
+  });
+  child.on("error", (error) => {
+    client.handleExit(error);
   });
 
   client.waitUntilReady = async () => {

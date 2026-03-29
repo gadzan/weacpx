@@ -318,7 +318,7 @@ test("returns only the last non-empty agent message segment after a non-message 
     "-s",
     "backend:api-fix",
     "hello",
-  ], undefined);
+  ]);
 });
 
 test("assembles the last segment from multiple consecutive message chunks", async () => {
@@ -510,4 +510,51 @@ test("extracts the final JSON-RPC error message instead of surfacing raw payload
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toBe("Session queue owner failed to start for session 123");
   }
+});
+
+test("keeps the extracted agent reply when prompt exits non-zero without a structured error", async () => {
+  const run = mock(async () => ({
+    code: 1,
+    stdout: [
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "abc",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "先做检查。" },
+          },
+        },
+      }),
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "abc",
+          update: {
+            sessionUpdate: "tool_call",
+            title: "Read file",
+          },
+        },
+      }),
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "session/update",
+        params: {
+          sessionId: "abc",
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "让我更新任务状态并继续执行测试验证。" },
+          },
+        },
+      }),
+    ].join("\n"),
+    stderr: "",
+  }));
+  const transport = new AcpxCliTransport({ command: "acpx" }, run);
+
+  await expect(transport.prompt(session, "hello")).resolves.toEqual({
+    text: "让我更新任务状态并继续执行测试验证。",
+  });
 });

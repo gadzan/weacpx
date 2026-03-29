@@ -159,3 +159,34 @@ test("treats plain text as a prompt", () => {
     text: "fix the timeout issue",
   });
 });
+
+test("returns invalid for /ss new with unsupported flag", () => {
+  expect(parseCommand("/ss new claude -ws weacpx")).toEqual({
+    kind: "invalid",
+    text: "/ss new claude -ws weacpx",
+    recognizedCommand: "/session",
+  });
+});
+
+test("returns invalid for /session new missing --agent flag", () => {
+  expect(parseCommand("/session new claude --ws weacpx")).toEqual({
+    kind: "invalid",
+    text: "/session new claude --ws weacpx",
+    recognizedCommand: "/session",
+  });
+});
+
+test("returns prompt for unrecognized command prefix", () => {
+  expect(parseCommand("/unknown_cmd foo bar")).toEqual({
+    kind: "prompt",
+    text: "/unknown_cmd foo bar",
+  });
+});
+
+test("returns invalid for /session new with wrong flag", () => {
+  expect(parseCommand("/session new demo --xyz value")).toEqual({
+    kind: "invalid",
+    text: "/session new demo --xyz value",
+    recognizedCommand: "/session",
+  });
+});

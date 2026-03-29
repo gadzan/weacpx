@@ -103,3 +103,83 @@ test("still stops daemon runtime when startup fails", async () => {
 
   expect(events).toEqual(["daemon:start", "dispose", "daemon:stop"]);
 });
+
+test("swallows heartbeat failures inside the timer callback", async () => {
+  let heartbeatTick: (() => void | Promise<void>) | null = null;
+
+  await runConsole(
+    {
+      configPath: "/cfg",
+      statePath: "/state",
+    },
+    {
+      buildApp: async () => ({
+        agent: {} as never,
+        router: {} as never,
+        sessions: {} as never,
+        stateStore: {} as never,
+        configStore: {} as never,
+        dispose: async () => {},
+      }),
+      loadWeixinSdk: async () => ({
+        start: async () => {
+          await heartbeatTick?.();
+        },
+      }),
+      daemonRuntime: {
+        start: async () => {},
+        heartbeat: async () => {
+          throw new Error("heartbeat failed");
+        },
+        stop: async () => {},
+      },
+      setInterval: (fn) => {
+        heartbeatTick = fn;
+        return "timer-id";
+      },
+      clearInterval: () => {},
+    },
+  );
+});
+
+test("still stops daemon runtime when dispose fails", async () => {
+  const events: string[] = [];
+
+  await expect(
+    runConsole(
+      {
+        configPath: "/cfg",
+        statePath: "/state",
+      },
+      {
+        buildApp: async () => ({
+          agent: {} as never,
+          router: {} as never,
+          sessions: {} as never,
+          stateStore: {} as never,
+          configStore: {} as never,
+          dispose: async () => {
+            events.push("dispose");
+            throw new Error("dispose failed");
+          },
+        }),
+        loadWeixinSdk: async () => ({
+          start: async () => {
+            events.push("sdk:start");
+          },
+        }),
+        daemonRuntime: {
+          start: async () => {
+            events.push("daemon:start");
+          },
+          heartbeat: async () => {},
+          stop: async () => {
+            events.push("daemon:stop");
+          },
+        },
+      },
+    ),
+  ).rejects.toThrow("dispose failed");
+
+  expect(events).toEqual(["daemon:start", "sdk:start", "dispose", "daemon:stop"]);
+});

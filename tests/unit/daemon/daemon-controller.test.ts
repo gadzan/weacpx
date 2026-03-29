@@ -105,6 +105,45 @@ test("start reports already running without spawning again", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test("start waits for daemon status metadata before returning", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-daemon-controller-"));
+  const statusStore = new DaemonStatusStore(join(dir, "status.json"));
+  let checks = 0;
+
+  const controller = createController(dir, {
+    isProcessRunning: (pid) => pid === 44444,
+    spawnDetached: async () => {
+      setTimeout(() => {
+        void statusStore.save({
+          pid: 44444,
+          started_at: "2026-03-26T00:00:00.000Z",
+          heartbeat_at: "2026-03-26T00:01:00.000Z",
+          config_path: "/cfg",
+          state_path: "/state",
+          app_log: "/app",
+          stdout_log: "/out",
+          stderr_log: "/err",
+        });
+      }, 20);
+      return 44444;
+    },
+    startupPollIntervalMs: 5,
+    startupTimeoutMs: 200,
+    onStartupPoll: async () => {
+      checks += 1;
+    },
+  });
+
+  await expect(controller.start()).resolves.toEqual({
+    state: "started",
+    pid: 44444,
+  });
+  expect(checks).toBeGreaterThan(0);
+  await expect(statusStore.load()).resolves.toMatchObject({ pid: 44444 });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
 test("stop handles missing pid file gracefully", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-daemon-controller-"));
   const controller = createController(dir);
@@ -134,6 +173,9 @@ function createController(
     isProcessRunning: overrides.isProcessRunning ?? (() => false),
     spawnDetached: overrides.spawnDetached ?? (async () => 99999),
     terminateProcess: overrides.terminateProcess ?? (async () => {}),
+    startupPollIntervalMs: overrides.startupPollIntervalMs ?? 1,
+    startupTimeoutMs: overrides.startupTimeoutMs ?? 50,
+    onStartupPoll: overrides.onStartupPoll ?? (async () => {}),
   });
 }
 
@@ -141,4 +183,7 @@ interface ControllerDeps {
   isProcessRunning: (pid: number) => boolean;
   spawnDetached: () => Promise<number>;
   terminateProcess: (pid: number) => Promise<void>;
+  startupPollIntervalMs: number;
+  startupTimeoutMs: number;
+  onStartupPoll: () => Promise<void>;
 }

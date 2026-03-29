@@ -1,5 +1,6 @@
 import { access } from "node:fs/promises";
 import { basename, normalize } from "node:path";
+import { homedir } from "node:os";
 
 import type { ConfigStore } from "../config/config-store";
 import { getAgentTemplate, listAgentTemplates } from "../config/agent-templates";
@@ -48,6 +49,18 @@ export class CommandRouter {
 
     return await this.executeCommand(chatKey, command.kind, startedAt, async () => {
       switch (command.kind) {
+        case "invalid":
+          return {
+            text: [
+              "无法识别的命令格式。",
+              "",
+              "正确的会话创建格式：",
+              "/session new <别名> --agent <Agent名> --ws <工作区名>",
+              "",
+              "例如：",
+              "/session new demo --agent claude --ws weacpx",
+            ].join("\n"),
+          };
         case "help":
           return { text: renderHelpText() };
         case "agents":
@@ -84,11 +97,12 @@ export class CommandRouter {
           if (!this.config || !this.configStore) {
             return { text: "当前没有加载可写入的配置。" };
           }
-          if (!(await pathExists(command.cwd))) {
+          const wsCwd = normalizePathForWorkspace(command.cwd);
+          if (!(await pathExists(wsCwd))) {
             return { text: `工作区路径不存在：${command.cwd}` };
           }
 
-          const updated = await this.configStore.upsertWorkspace(command.name, command.cwd);
+          const updated = await this.configStore.upsertWorkspace(command.name, wsCwd);
           this.replaceConfig(updated);
           return { text: `工作区「${command.name}」已保存` };
         }
@@ -324,7 +338,17 @@ export class CommandRouter {
       };
     }
 
-    throw error;
+    if (!isPartialPromptOutputError(message)) {
+      throw error;
+    }
+
+    return {
+      text: [
+        `当前会话「${session.alias}」执行中断，未收到最终回复。`,
+        "请直接重试；如果长时间无响应，可先发送 /cancel 后再重试。",
+        `错误信息：${summarizeTransportError(message)}`,
+      ].join("\n"),
+    };
   }
 
   private renderSessionCreationError(session: ResolvedSession, error: unknown): RouterResponse {
@@ -495,7 +519,8 @@ async function pathExists(path: string): Promise<boolean> {
 }
 
 function normalizePathForWorkspace(path: string): string {
-  return normalize(path);
+  const expanded = path.startsWith("~") ? homedir() + path.slice(1) : path;
+  return normalize(expanded);
 }
 
 function sameWorkspacePath(left: string, right: string): boolean {
@@ -507,4 +532,15 @@ function sameWorkspacePath(left: string, right: string): boolean {
   }
 
   return normalizedLeft === normalizedRight;
+}
+
+function summarizeTransportError(message: string): string {
+  return message
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+}
+
+function isPartialPromptOutputError(message: string): boolean {
+  return message.includes("未收到最终回复");
 }

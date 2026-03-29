@@ -30,19 +30,29 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
         statePath: paths.statePath,
       });
       heartbeatTimer = setIntervalFn(
-        () => deps.daemonRuntime?.heartbeat(),
+        () => {
+          void deps.daemonRuntime?.heartbeat().catch(() => {});
+        },
         deps.heartbeatIntervalMs ?? 30_000,
       );
     }
 
     await sdk.start(runtime.agent);
   } finally {
+    let disposeError: unknown = null;
     if (heartbeatTimer !== null) {
       clearIntervalFn(heartbeatTimer);
     }
-    await runtime.dispose();
+    try {
+      await runtime.dispose();
+    } catch (error) {
+      disposeError = error;
+    }
     if (deps.daemonRuntime) {
       await deps.daemonRuntime.stop();
+    }
+    if (disposeError) {
+      throw disposeError;
     }
   }
 }

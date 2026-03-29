@@ -4,6 +4,7 @@ import { spawn as spawnPty } from "node-pty";
 
 import { resolveSpawnCommand } from "../../process/spawn-command";
 import type { ResolvedSession, SessionTransport } from "../types";
+import { getPromptText, normalizeCommandError } from "../prompt-output";
 import { ensureNodePtyHelperExecutable, resolveNodePtyHelperPath } from "./node-pty-helper";
 
 interface AcpxCliTransportOptions {
@@ -124,8 +125,8 @@ export class AcpxCliTransport implements SessionTransport {
   }
 
   async prompt(session: ResolvedSession, text: string): Promise<{ text: string }> {
-    const output = await this.run(this.buildPromptArgs(session, text));
-    return { text: sanitizePromptText(extractPromptText(output)) };
+    const result = await this.runCommand(this.command, this.buildPromptArgs(session, text));
+    return { text: getPromptText(result) };
   }
 
   async cancel(session: ResolvedSession): Promise<{ cancelled: boolean; message: string }> {
@@ -242,136 +243,4 @@ function renderCommandForError(args: string[]): string {
   }
 
   return rendered.join(" ");
-}
-
-function extractPromptText(output: string): string {
-  const lines = output
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-
-  const messageSegments: string[] = [];
-  let currentSegment = "";
-
-  for (const line of lines) {
-    try {
-      const event = JSON.parse(line) as {
-        method?: string;
-        params?: {
-          update?: {
-            sessionUpdate?: string;
-            content?: {
-              type?: string;
-              text?: string;
-            };
-          };
-        };
-      };
-
-      const isMessageChunk =
-        event.method === "session/update" &&
-        event.params?.update?.sessionUpdate === "agent_message_chunk" &&
-        event.params.update.content?.type === "text" &&
-        typeof event.params.update.content.text === "string";
-
-      if (isMessageChunk) {
-        const chunk = event.params!.update!.content!.text ?? "";
-        if (chunk.length > 0) {
-          currentSegment += chunk;
-        }
-        continue;
-      }
-
-      if (currentSegment.trim().length > 0) {
-        messageSegments.push(currentSegment.trim());
-      }
-      currentSegment = "";
-    } catch {
-      if (currentSegment.trim().length > 0) {
-        messageSegments.push(currentSegment.trim());
-        currentSegment = "";
-      }
-      // Ignore malformed or non-JSON lines and fall back below if needed.
-    }
-  }
-
-  if (currentSegment.trim().length > 0) {
-    messageSegments.push(currentSegment.trim());
-  }
-
-  if (messageSegments.length > 0) {
-    return messageSegments[messageSegments.length - 1]!;
-  }
-
-  return output.trim();
-}
-
-function sanitizePromptText(text: string): string {
-  const trimmed = text.trim();
-  const paragraphs = trimmed.split(/\n\s*\n/);
-  if (paragraphs.length < 2) {
-    return trimmed;
-  }
-
-  const firstParagraph = paragraphs[0]!.trim().replace(/\s+/g, " ").toLowerCase();
-  if (!looksLikeWorkflowPreamble(firstParagraph)) {
-    return trimmed;
-  }
-
-  return paragraphs.slice(1).join("\n\n").trim();
-}
-
-function looksLikeWorkflowPreamble(paragraph: string): boolean {
-  if (!paragraph.startsWith("using ")) {
-    return false;
-  }
-
-  return (
-    paragraph.includes("using-superpowers") ||
-    paragraph.includes("repo workflow requirement") ||
-    paragraph.includes("workflow requirement") ||
-    paragraph.includes("before responding") ||
-    paragraph.includes("skill check")
-  );
-}
-
-function normalizeCommandError(result: CommandResult): string | null {
-  const rpcMessages = extractJsonRpcErrorMessages(result.stderr)
-    .concat(extractJsonRpcErrorMessages(result.stdout))
-    .filter((message) => message.length > 0);
-
-  const preferredMessage = [...rpcMessages].reverse().find((message) => message !== "Resource not found");
-  if (preferredMessage) {
-    return preferredMessage;
-  }
-
-  if (rpcMessages.length > 0) {
-    return rpcMessages[rpcMessages.length - 1] ?? null;
-  }
-
-  return result.stderr.trim() || result.stdout.trim() || null;
-}
-
-function extractJsonRpcErrorMessages(output: string): string[] {
-  return output
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .flatMap((line) => {
-      try {
-        const payload = JSON.parse(line) as {
-          error?: {
-            message?: string;
-          };
-        };
-
-        if (typeof payload.error?.message === "string" && payload.error.message.length > 0) {
-          return [payload.error.message];
-        }
-      } catch {
-        return [];
-      }
-
-      return [];
-    });
 }

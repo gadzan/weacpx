@@ -242,9 +242,125 @@ test("uses raw agent command for hasSession, prompt, and cancel", async () => {
 
   expect(calls).toEqual([
     ["--format", "quiet", "--cwd", "/repo", "--agent", "./node_modules/.bin/codex-acp", "sessions", "show", "demo"],
-    ["--format", "quiet", "--cwd", "/repo", "--agent", "./node_modules/.bin/codex-acp", "prompt", "-s", "demo", "hello"],
+    [
+      "--format",
+      "json",
+      "--json-strict",
+      "--cwd",
+      "/repo",
+      "--agent",
+      "./node_modules/.bin/codex-acp",
+      "prompt",
+      "-s",
+      "demo",
+      "hello",
+    ],
     ["--format", "quiet", "--cwd", "/repo", "--agent", "./node_modules/.bin/codex-acp", "cancel", "-s", "demo"],
   ]);
+});
+
+test("returns the final agent message from json-strict prompt output", async () => {
+  const runtime = new BridgeRuntime("acpx", async (_command, args) => {
+    if (args.includes("prompt")) {
+      return {
+        code: 0,
+        stdout: [
+          JSON.stringify({ jsonrpc: "2.0", id: 0, method: "initialize" }),
+          JSON.stringify({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "demo",
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: "line 1" },
+              },
+            },
+          }),
+          JSON.stringify({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "demo",
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: "\nline 2" },
+              },
+            },
+          }),
+        ].join("\n"),
+        stderr: "",
+      };
+    }
+
+    return { code: 0, stdout: "ok", stderr: "" };
+  });
+
+  await expect(
+    runtime.prompt({
+      agent: "codex",
+      cwd: "/repo",
+      name: "demo",
+      text: "hello",
+    }),
+  ).resolves.toEqual({ text: "line 1\nline 2" });
+});
+
+test("keeps the extracted agent reply when prompt exits non-zero without a structured error", async () => {
+  const runtime = new BridgeRuntime("acpx", async (_command, args) => {
+    if (args.includes("prompt")) {
+      return {
+        code: 1,
+        stdout: [
+          JSON.stringify({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "demo",
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: "先做检查。" },
+              },
+            },
+          }),
+          JSON.stringify({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "demo",
+              update: {
+                sessionUpdate: "tool_call",
+                title: "Run tests",
+              },
+            },
+          }),
+          JSON.stringify({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "demo",
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: "让我更新任务状态并继续执行测试验证。" },
+              },
+            },
+          }),
+        ].join("\n"),
+        stderr: "",
+      };
+    }
+
+    return { code: 0, stdout: "ok", stderr: "" };
+  });
+
+  await expect(
+    runtime.prompt({
+      agent: "codex",
+      cwd: "/repo",
+      name: "demo",
+      text: "hello",
+    }),
+  ).resolves.toEqual({ text: "让我更新任务状态并继续执行测试验证。" });
 });
 
 test("surfaces helper failures when final session creation still fails", async () => {

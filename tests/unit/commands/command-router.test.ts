@@ -575,6 +575,35 @@ test("renders a recovery hint when the current acpx session is missing", async (
   expect(reply.text).not.toContain("backend:api-fix");
 });
 
+test("renders a generic failure hint when prompt stops after partial output", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  getPromptMock(transport).mockImplementationOnce(async () => {
+    throw new Error("未收到最终回复。最后一条输出：让我更新任务状态并继续执行测试验证。");
+  });
+  const router = new CommandRouter(sessions, transport);
+
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
+  const reply = await router.handle("wx:user", "hello");
+
+  expect(reply.text).toContain('当前会话「api-fix」执行中断');
+  expect(reply.text).toContain("/cancel");
+  expect(reply.text).toContain("未收到最终回复");
+});
+
+test("rethrows unrelated transport failures instead of masking them as partial output", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  getPromptMock(transport).mockImplementationOnce(async () => {
+    throw new Error("spawn acpx ENOENT");
+  });
+  const router = new CommandRouter(sessions, transport);
+
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
+
+  await expect(router.handle("wx:user", "hello")).rejects.toThrow("spawn acpx ENOENT");
+});
+
 test("renders an attach-first hint when session creation times out", async () => {
   const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
   const transport = createTransport();
