@@ -12,7 +12,7 @@ export class AcpxBridgeTransport implements SessionTransport {
     await this.client.request("ensureSession", this.toParams(session));
   }
 
-  async prompt(session: ResolvedSession, text: string): Promise<{ text: string }> {
+  async prompt(session: ResolvedSession, text: string, _reply?: (text: string) => Promise<void>): Promise<{ text: string }> {
     return await this.client.request("prompt", {
       ...this.toParams(session),
       text,

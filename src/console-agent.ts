@@ -3,7 +3,7 @@ import type { AppLogger } from "./logging/app-logger";
 import { createNoopAppLogger } from "./logging/app-logger";
 
 interface RouterLike {
-  handle(chatKey: string, input: string): Promise<ChatResponse>;
+  handle(chatKey: string, input: string, reply?: (text: string) => Promise<void>): Promise<ChatResponse>;
 }
 
 export class ConsoleAgent implements WechatAgent {
@@ -24,7 +24,7 @@ export class ConsoleAgent implements WechatAgent {
       text: summarizeText(request.text),
     });
 
-    return await this.router.handle(request.conversationId, request.text);
+    return await this.router.handle(request.conversationId, request.text, request.reply);
   }
 }
 

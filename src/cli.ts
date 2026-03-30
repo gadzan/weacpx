@@ -42,12 +42,13 @@ interface CliController {
 
 interface CliDeps {
   login?: () => Promise<void>;
+  logout?: () => Promise<void>;
   run?: () => Promise<void>;
   controller?: CliController;
   print?: (line: string) => void;
 }
 
-const HELP_LINES = ["用法：", "weacpx login", "weacpx run", "weacpx start", "weacpx status", "weacpx stop"];
+const HELP_LINES = ["用法：", "weacpx login", "weacpx logout", "weacpx run", "weacpx start", "weacpx status", "weacpx stop"];
 
 export async function runCli(args: string[], deps: CliDeps = {}): Promise<number> {
   const command = args[0];
@@ -57,6 +58,9 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
   switch (command) {
     case "login":
       await (deps.login ?? defaultLogin)();
+      return 0;
+    case "logout":
+      await (deps.logout ?? defaultLogout)();
       return 0;
     case "run":
       await (deps.run ?? defaultRun)();
@@ -111,6 +115,11 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
 async function defaultLogin(): Promise<void> {
   const { main } = await import("./login");
   await main();
+}
+
+async function defaultLogout(): Promise<void> {
+  const { logout } = await import("./weixin-sdk");
+  logout();
 }
 
 async function defaultRun(): Promise<void> {

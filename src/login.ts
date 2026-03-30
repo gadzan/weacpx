@@ -1,77 +1,23 @@
 import qrcodeTerminal from "qrcode-terminal";
 
-import { buildWeixinSdkSourceCandidates, loadWeixinSdk } from "./weixin-sdk";
-
-interface WeixinAccountsModule {
-  DEFAULT_BASE_URL: string;
-  normalizeAccountId: (raw: string) => string;
-  registerWeixinAccountId: (accountId: string) => void;
-  saveWeixinAccount: (
-    accountId: string,
-    update: { token?: string; baseUrl?: string; userId?: string },
-  ) => void;
-}
-
-interface WeixinLoginQrModule {
-  DEFAULT_ILINK_BOT_TYPE: string;
-  startWeixinLoginWithQr: (opts: {
-    apiBaseUrl: string;
-    botType?: string;
-  }) => Promise<{
-    qrcodeUrl?: string;
-    message: string;
-    sessionKey: string;
-  }>;
-  waitForWeixinLogin: (opts: {
-    sessionKey: string;
-    apiBaseUrl: string;
-    timeoutMs?: number;
-    botType?: string;
-  }) => Promise<{
-    connected: boolean;
-    botToken?: string;
-    accountId?: string;
-    baseUrl?: string;
-    userId?: string;
-    message: string;
-  }>;
-}
-
-async function loadQrLoginSupport(): Promise<{
-  accounts: WeixinAccountsModule;
-  loginQr: WeixinLoginQrModule;
-} | null> {
-  const candidates = buildWeixinSdkSourceCandidates(process.env.WEACPX_WEIXIN_SDK);
-
-  for (const candidate of candidates) {
-    try {
-      const sourceUrl = candidate.startsWith("file:") ? candidate : new URL(candidate, import.meta.url).href;
-      const accounts = (await import(new URL("./src/auth/accounts.ts", sourceUrl).href)) as WeixinAccountsModule;
-      const loginQr = (await import(new URL("./src/auth/login-qr.ts", sourceUrl).href)) as WeixinLoginQrModule;
-      return { accounts, loginQr };
-    } catch {
-      // Try the next source candidate.
-    }
-  }
-
-  return null;
-}
-
+import {
+  DEFAULT_BASE_URL,
+  normalizeAccountId,
+  registerWeixinAccountId,
+  saveWeixinAccount,
+} from "./weixin/auth/accounts.js";
+import {
+  DEFAULT_ILINK_BOT_TYPE,
+  startWeixinLoginWithQr,
+  waitForWeixinLogin,
+} from "./weixin/auth/login-qr.js";
 export async function loginWithQrRendering(): Promise<void> {
-  const support = await loadQrLoginSupport();
-  if (!support) {
-    const { login } = await loadWeixinSdk();
-    await login();
-    return;
-  }
-
-  const { accounts, loginQr } = support;
-  const apiBaseUrl = accounts.DEFAULT_BASE_URL;
+  const apiBaseUrl = DEFAULT_BASE_URL;
 
   console.log("正在启动微信扫码登录...");
-  const startResult = await loginQr.startWeixinLoginWithQr({
+  const startResult = await startWeixinLoginWithQr({
     apiBaseUrl,
-    botType: loginQr.DEFAULT_ILINK_BOT_TYPE,
+    botType: DEFAULT_ILINK_BOT_TYPE,
   });
 
   if (!startResult.qrcodeUrl) {
@@ -88,24 +34,24 @@ export async function loginWithQrRendering(): Promise<void> {
 
   console.log("\n等待扫码...\n");
 
-  const waitResult = await loginQr.waitForWeixinLogin({
+  const waitResult = await waitForWeixinLogin({
     sessionKey: startResult.sessionKey,
     apiBaseUrl,
     timeoutMs: 480_000,
-    botType: loginQr.DEFAULT_ILINK_BOT_TYPE,
+    botType: DEFAULT_ILINK_BOT_TYPE,
   });
 
   if (!waitResult.connected || !waitResult.botToken || !waitResult.accountId) {
     throw new Error(waitResult.message);
   }
 
-  const normalizedId = accounts.normalizeAccountId(waitResult.accountId);
-  accounts.saveWeixinAccount(normalizedId, {
+  const normalizedId = normalizeAccountId(waitResult.accountId);
+  saveWeixinAccount(normalizedId, {
     token: waitResult.botToken,
     baseUrl: waitResult.baseUrl,
     userId: waitResult.userId,
   });
-  accounts.registerWeixinAccountId(normalizedId);
+  registerWeixinAccountId(normalizedId);
 
   console.log("\n✅ 与微信连接成功！");
 }

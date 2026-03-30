@@ -113,6 +113,7 @@ test("prints help for unknown commands", async () => {
   expect(lines).toEqual([
     "用法：",
     "weacpx login",
+    "weacpx logout",
     "weacpx run",
     "weacpx start",
     "weacpx status",

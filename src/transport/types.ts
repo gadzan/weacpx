@@ -9,7 +9,7 @@ export interface ResolvedSession {
 
 export interface SessionTransport {
   ensureSession(session: ResolvedSession): Promise<void>;
-  prompt(session: ResolvedSession, text: string): Promise<{ text: string }>;
+  prompt(session: ResolvedSession, text: string, reply?: (text: string) => Promise<void>): Promise<{ text: string }>;
   cancel(session: ResolvedSession): Promise<{ cancelled: boolean; message: string }>;
   hasSession(session: ResolvedSession): Promise<boolean>;
   listSessions(): Promise<Array<{ name: string; agent: string; workspace: string }>>;

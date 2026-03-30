@@ -5,6 +5,7 @@ import { spawn as spawnPty } from "node-pty";
 import { resolveSpawnCommand } from "../../process/spawn-command";
 import type { ResolvedSession, SessionTransport } from "../types";
 import { getPromptText, normalizeCommandError } from "../prompt-output";
+import { createStreamingPromptState, parseStreamingChunks } from "../streaming-prompt";
 import { ensureNodePtyHelperExecutable, resolveNodePtyHelperPath } from "./node-pty-helper";
 
 interface AcpxCliTransportOptions {
@@ -124,8 +125,13 @@ export class AcpxCliTransport implements SessionTransport {
     });
   }
 
-  async prompt(session: ResolvedSession, text: string): Promise<{ text: string }> {
-    const result = await this.runCommand(this.command, this.buildPromptArgs(session, text));
+  async prompt(session: ResolvedSession, text: string, reply?: (text: string) => Promise<void>): Promise<{ text: string }> {
+    const args = this.buildPromptArgs(session, text);
+    if (reply) {
+      const result = await this.runStreamingPrompt(this.command, args, reply);
+      return { text: getPromptText(result) };
+    }
+    const result = await this.runCommand(this.command, args);
     return { text: getPromptText(result) };
   }
 
@@ -200,6 +206,68 @@ export class AcpxCliTransport implements SessionTransport {
         }, options.timeoutMs);
       }),
     ]);
+  }
+
+  private async runStreamingPrompt(
+    command: string,
+    args: string[],
+    reply: (text: string) => Promise<void>,
+    maxSegmentWaitMs: number = 30_000,
+  ): Promise<CommandResult> {
+    return await new Promise((resolve, reject) => {
+      const spawnSpec = resolveSpawnCommand(command, args);
+      const child = spawn(spawnSpec.command, spawnSpec.args, { stdio: ["ignore", "pipe", "pipe"] });
+      let stdout = "";
+      let stderr = "";
+      const state = createStreamingPromptState();
+      let lastReplyAt = Date.now();
+
+      const flushBuffer = () => {
+        const remaining = state.buffer.trim();
+        if (remaining.length > 0) {
+          state.buffer = "";
+          void reply(remaining).catch(() => {});
+          lastReplyAt = Date.now();
+        }
+      };
+
+      // Periodic timer: flush accumulated text if waiting too long
+      const timer = setInterval(() => {
+        if (state.buffer.trim().length > 0 && Date.now() - lastReplyAt >= maxSegmentWaitMs) {
+          flushBuffer();
+        }
+      }, 5_000);
+
+      child.stdout.setEncoding("utf8");
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdout += String(chunk);
+        const lines = String(chunk).split("\n");
+        for (const line of lines) {
+          parseStreamingChunks(state, line);
+          for (const segment of state.segments.splice(0)) {
+            void reply(segment).catch(() => {});
+            lastReplyAt = Date.now();
+          }
+        }
+      });
+
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderr += String(chunk);
+      });
+
+      child.on("error", (err) => {
+        clearInterval(timer);
+        reject(err);
+      });
+      child.on("close", (code) => {
+        clearInterval(timer);
+        const remaining = state.finalize();
+        if (remaining.length > 0) {
+          void reply(remaining).catch(() => {});
+        }
+        resolve({ code: code ?? 1, stdout, stderr });
+      });
+    });
   }
 
   private buildArgs(session: ResolvedSession, tail: string[]): string[] {

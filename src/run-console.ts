@@ -8,7 +8,11 @@ interface DaemonLifecycle {
 
 interface RunConsoleDeps {
   buildApp: (paths: RuntimePaths) => Promise<AppRuntime>;
-  loadWeixinSdk: () => Promise<{ start: (agent: AppRuntime["agent"]) => Promise<void> }>;
+  loadWeixinSdk: () => Promise<{
+    start: (agent: AppRuntime["agent"]) => Promise<void>;
+    login: () => Promise<string>;
+    isLoggedIn: () => boolean;
+  }>;
   daemonRuntime?: DaemonLifecycle;
   heartbeatIntervalMs?: number;
   setInterval?: (fn: () => void | Promise<void>, delay: number) => unknown;
@@ -35,6 +39,12 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
         },
         deps.heartbeatIntervalMs ?? 30_000,
       );
+    }
+
+    // Auto-detect login status, trigger QR login if not logged in
+    if (!sdk.isLoggedIn()) {
+      console.log("[weacpx] 未检测到登录凭证，正在启动扫码登录...");
+      await sdk.login();
     }
 
     await sdk.start(runtime.agent);

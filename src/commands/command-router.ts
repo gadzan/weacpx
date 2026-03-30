@@ -39,7 +39,7 @@ export class CommandRouter {
     this.logger = logger ?? createNoopAppLogger();
   }
 
-  async handle(chatKey: string, input: string): Promise<RouterResponse> {
+  async handle(chatKey: string, input: string, reply?: (text: string) => Promise<void>): Promise<RouterResponse> {
     const startedAt = Date.now();
     const command = parseCommand(input);
     await this.logger.debug("command.parsed", "parsed inbound command", {
@@ -233,8 +233,8 @@ export class CommandRouter {
             return { text: "当前还没有选中的会话。请先执行 /session new ... 或 /use <alias>。" };
           }
           try {
-            const reply = await this.promptTransportSession(session, command.text);
-            return { text: reply.text };
+            const result = await this.promptTransportSession(session, command.text, reply);
+            return { text: result.text };
           } catch (error) {
             return this.renderTransportError(session, error);
           }
@@ -471,8 +471,8 @@ export class CommandRouter {
     return await this.measureTransportCall("has_session", session, () => this.transport.hasSession(session));
   }
 
-  private async promptTransportSession(session: ResolvedSession, text: string) {
-    return await this.measureTransportCall("prompt", session, () => this.transport.prompt(session, text));
+  private async promptTransportSession(session: ResolvedSession, text: string, reply?: (text: string) => Promise<void>) {
+    return await this.measureTransportCall("prompt", session, () => this.transport.prompt(session, text, reply));
   }
 
   private async cancelTransportSession(session: ResolvedSession) {

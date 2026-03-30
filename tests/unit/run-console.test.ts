@@ -24,6 +24,7 @@ test("runs the foreground service with daemon lifecycle hooks", async () => {
         },
       }),
       loadWeixinSdk: async () => ({
+        isLoggedIn: () => true,
         start: async () => {
           events.push("sdk:start");
           await heartbeatTick?.();
@@ -82,6 +83,7 @@ test("still stops daemon runtime when startup fails", async () => {
           },
         }),
         loadWeixinSdk: async () => ({
+          isLoggedIn: () => true,
           start: async () => {
             throw new Error("boom");
           },
@@ -122,6 +124,7 @@ test("swallows heartbeat failures inside the timer callback", async () => {
         dispose: async () => {},
       }),
       loadWeixinSdk: async () => ({
+        isLoggedIn: () => true,
         start: async () => {
           await heartbeatTick?.();
         },
@@ -164,6 +167,7 @@ test("still stops daemon runtime when dispose fails", async () => {
           },
         }),
         loadWeixinSdk: async () => ({
+          isLoggedIn: () => true,
           start: async () => {
             events.push("sdk:start");
           },
