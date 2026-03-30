@@ -3,14 +3,17 @@ import { spawn } from "node:child_process";
 import { spawn as spawnPty } from "node-pty";
 
 import { resolveSpawnCommand } from "../../process/spawn-command";
+import type { NonInteractivePermissions, PermissionMode } from "../../config/types";
 import type { ResolvedSession, SessionTransport } from "../types";
 import { getPromptText, normalizeCommandError } from "../prompt-output";
-import { createStreamingPromptState, parseStreamingChunks } from "../streaming-prompt";
+import { createStreamingPromptState, parseStreamingDataChunk } from "../streaming-prompt";
 import { ensureNodePtyHelperExecutable, resolveNodePtyHelperPath } from "./node-pty-helper";
 
 interface AcpxCliTransportOptions {
   command?: string;
   sessionInitTimeoutMs?: number;
+  permissionMode?: PermissionMode;
+  nonInteractivePermissions?: NonInteractivePermissions;
 }
 
 interface CommandResult {
@@ -98,6 +101,8 @@ async function defaultPtyRunner(command: string, args: string[], options?: RunOp
 export class AcpxCliTransport implements SessionTransport {
   private readonly command: string;
   private readonly sessionInitTimeoutMs: number;
+  private readonly permissionMode: PermissionMode;
+  private readonly nonInteractivePermissions: NonInteractivePermissions;
   private readonly runCommand: CommandRunner;
   private readonly runPtyCommand: PtyRunner;
 
@@ -108,6 +113,8 @@ export class AcpxCliTransport implements SessionTransport {
   ) {
     this.command = options.command ?? "acpx";
     this.sessionInitTimeoutMs = options.sessionInitTimeoutMs ?? 120_000;
+    this.permissionMode = options.permissionMode ?? "approve-all";
+    this.nonInteractivePermissions = options.nonInteractivePermissions ?? "fail";
     this.runCommand = runCommand;
     this.runPtyCommand = runPtyCommand;
   }
@@ -241,13 +248,10 @@ export class AcpxCliTransport implements SessionTransport {
       child.stdout.setEncoding("utf8");
       child.stdout.on("data", (chunk: Buffer) => {
         stdout += String(chunk);
-        const lines = String(chunk).split("\n");
-        for (const line of lines) {
-          parseStreamingChunks(state, line);
-          for (const segment of state.segments.splice(0)) {
-            void reply(segment).catch(() => {});
-            lastReplyAt = Date.now();
-          }
+        parseStreamingDataChunk(state, String(chunk));
+        for (const segment of state.segments.splice(0)) {
+          void reply(segment).catch(() => {});
+          lastReplyAt = Date.now();
         }
       });
 
@@ -271,7 +275,13 @@ export class AcpxCliTransport implements SessionTransport {
   }
 
   private buildArgs(session: ResolvedSession, tail: string[]): string[] {
-    const prefix = ["--format", "quiet", "--cwd", session.cwd];
+    const prefix = [
+      "--format",
+      "quiet",
+      "--cwd",
+      session.cwd,
+      ...this.buildPermissionArgs(),
+    ];
     if (session.agentCommand) {
       return [...prefix, "--agent", session.agentCommand, ...tail];
     }
@@ -280,7 +290,14 @@ export class AcpxCliTransport implements SessionTransport {
   }
 
   private buildPromptArgs(session: ResolvedSession, text: string): string[] {
-    const prefix = ["--format", "json", "--json-strict", "--cwd", session.cwd];
+    const prefix = [
+      "--format",
+      "json",
+      "--json-strict",
+      "--cwd",
+      session.cwd,
+      ...this.buildPermissionArgs(),
+    ];
     const tail = ["prompt", "-s", session.transportSession, text];
 
     if (session.agentCommand) {
@@ -289,6 +306,17 @@ export class AcpxCliTransport implements SessionTransport {
 
     return [...prefix, session.agent, ...tail];
   }
+
+  private buildPermissionArgs(): string[] {
+    const modeFlag =
+      this.permissionMode === "approve-reads"
+        ? "--approve-reads"
+        : this.permissionMode === "deny-all"
+          ? "--deny-all"
+          : "--approve-all";
+
+    return [modeFlag, "--non-interactive-permissions", this.nonInteractivePermissions];
+  }
 }
 
 function renderCommandForError(args: string[]): string {
@@ -296,6 +324,9 @@ function renderCommandForError(args: string[]): string {
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
+    if (arg === undefined) {
+      continue;
+    }
 
     if (arg === "--format") {
       index += 1;

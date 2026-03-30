@@ -68,6 +68,8 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
               await spawnAcpxBridgeClient({
                 acpxCommand,
                 bridgeEntryPath: resolveBridgeEntryPath(),
+                permissionMode: config.transport.permissionMode,
+                nonInteractivePermissions: config.transport.nonInteractivePermissions,
               }),
             ),
           ))

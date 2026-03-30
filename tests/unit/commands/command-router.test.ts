@@ -12,10 +12,16 @@ import { SessionService } from "../../../src/sessions/session-service";
 import type { ResolvedSession, SessionTransport } from "../../../src/transport/types";
 import { CommandRouter } from "../../../src/commands/command-router";
 import type { AppLogger } from "../../../src/logging/app-logger";
+import { PromptCommandError } from "../../../src/transport/prompt-output";
 
 function createConfig(): AppConfig {
   return {
-    transport: { type: "acpx-cli", command: "acpx" },
+    transport: {
+      type: "acpx-cli",
+      command: "acpx",
+      permissionMode: "approve-all",
+      nonInteractivePermissions: "fail",
+    },
     logging: {
       level: "info",
       maxSizeBytes: 2 * 1024 * 1024,
@@ -38,7 +44,7 @@ class MemoryStateStore implements Pick<StateStore, "save"> {
 }
 
 class MemoryConfigStore
-  implements Pick<ConfigStore, "upsertWorkspace" | "removeWorkspace" | "upsertAgent" | "removeAgent">
+  implements Pick<ConfigStore, "upsertWorkspace" | "removeWorkspace" | "upsertAgent" | "removeAgent" | "updateTransport">
 {
   constructor(private readonly config: AppConfig) {}
 
@@ -62,6 +68,14 @@ class MemoryConfigStore
 
   async removeAgent(name: string): Promise<AppConfig> {
     delete this.config.agents[name];
+    return this.config;
+  }
+
+  async updateTransport(transport: Partial<AppConfig["transport"]>): Promise<AppConfig> {
+    this.config.transport = {
+      ...this.config.transport,
+      ...transport,
+    };
     return this.config;
   }
 }
@@ -210,6 +224,67 @@ test("returns help text", async () => {
 
   expect(reply.text).toContain("可用命令");
   expect(reply.text).toContain("/ss new");
+});
+
+test("renders the current permission mode", async () => {
+  const config = createConfig();
+  config.transport.permissionMode = "approve-reads";
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle("wx:user", "/pm");
+
+  expect(reply.text).toBe(["当前权限模式：", "- mode: approve-reads", "- auto: fail"].join("\n"));
+});
+
+test("renders the current non-interactive policy", async () => {
+  const config = createConfig();
+  config.transport.nonInteractivePermissions = "allow";
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle("wx:user", "/pm auto");
+
+  expect(reply.text).toBe(["当前非交互策略：", "- mode: approve-all", "- auto: allow"].join("\n"));
+});
+
+test("updates the permission mode", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle("wx:user", "/pm set read");
+
+  expect(reply.text).toBe(["权限模式已更新：", "- mode: approve-reads", "- auto: fail"].join("\n"));
+  expect(config.transport.permissionMode).toBe("approve-reads");
+});
+
+test("updates the non-interactive permission policy", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle("wx:user", "/pm auto allow");
+
+  expect(reply.text).toBe(["非交互策略已更新：", "- mode: approve-all", "- auto: allow"].join("\n"));
+  expect(config.transport.nonInteractivePermissions).toBe("allow");
+});
+
+test("refuses permission writes when writable config is unavailable", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config);
+
+  const modeReply = await router.handle("wx:user", "/pm set deny");
+  const autoReply = await router.handle("wx:user", "/pm auto deny");
+
+  expect(modeReply.text).toBe("当前没有加载可写入的配置。");
+  expect(autoReply.text).toBe("当前没有加载可写入的配置。");
 });
 
 test("renders agents in Chinese", async () => {
@@ -631,4 +706,50 @@ test("logs parsed commands and transport timing summaries", async () => {
   expect(events.some((entry) => entry.includes("DEBUG command.parsed"))).toBe(true);
   expect(events.some((entry) => entry.includes("INFO transport.ensure_session"))).toBe(true);
   expect(events.some((entry) => entry.includes("INFO command.completed"))).toBe(true);
+});
+
+test("logs prompt diagnostics when transport fails with captured output", async () => {
+  const events: string[] = [];
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  getPromptMock(transport).mockImplementationOnce(async () => {
+    throw new PromptCommandError("command failed with exit code 5", {
+      code: 5,
+      stdout: [
+        JSON.stringify({ jsonrpc: "2.0", id: 0, method: "initialize" }),
+        JSON.stringify({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "hello" },
+            },
+          },
+        }),
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          result: { stopReason: "end_turn" },
+        }),
+      ].join("\n"),
+      stderr: "fatal",
+    });
+  });
+  const router = new CommandRouter(sessions, transport, createConfig(), undefined, createLogger(events));
+
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
+  await expect(router.handle("wx:user", "hello")).rejects.toThrow("command failed with exit code 5");
+
+  expect(events.some((entry) => entry.includes("ERROR transport.prompt.failed"))).toBe(true);
+  expect(events.some((entry) => entry.includes('"exitCode":5'))).toBe(true);
+  expect(events.some((entry) => entry.includes('"stdoutPreview":"{\\"jsonrpc\\":\\"2.0\\",\\"id\\":0,\\"method\\":\\"initialize\\"}'))).toBe(true);
+  expect(events.some((entry) => entry.includes('"stdoutLength":'))).toBe(true);
+  expect(events.some((entry) => entry.includes('"stdoutLineCount":3'))).toBe(true);
+  expect(events.some((entry) => entry.includes('"stdoutAgentMessageChunkCount":1'))).toBe(true);
+  expect(events.some((entry) => entry.includes('"stdoutStopReason":"end_turn"'))).toBe(true);
+  expect(events.some((entry) => entry.includes('"stdoutMethods":"initialize,session/update"'))).toBe(true);
+  expect(events.some((entry) => entry.includes('"stderrPreview":"fatal"'))).toBe(true);
+  expect(events.some((entry) => entry.includes('"stderrTailPreview":"fatal"'))).toBe(true);
+  expect(events.some((entry) => entry.includes('"stderrLength":5'))).toBe(true);
 });

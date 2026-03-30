@@ -5,6 +5,7 @@ import {
   buildBridgeSpawnSpec,
 } from "../../../../src/transport/acpx-bridge/acpx-bridge-client";
 import { encodeBridgeRequest } from "../../../../src/transport/acpx-bridge/acpx-bridge-protocol";
+import { PromptCommandError } from "../../../../src/transport/prompt-output";
 
 test("encodes a bridge request as ndjson", () => {
   expect(
@@ -36,6 +37,25 @@ test("rejects responses with bridge error payloads", async () => {
   client.handleLine('{"id":"1","ok":false,"error":{"code":"PING_FAILED","message":"boom"}}');
 
   await expect(pending).rejects.toThrow("boom");
+});
+
+test("reconstructs prompt command diagnostics from bridge error payloads", async () => {
+  const client = new AcpxBridgeClient(() => {});
+
+  const pending = client.request("prompt", {});
+  client.handleLine(
+    '{"id":"1","ok":false,"error":{"code":"BRIDGE_INTERNAL_ERROR","message":"command failed with exit code 5","details":{"exitCode":5,"stdout":"partial stdout","stderr":"partial stderr"}}}',
+  );
+
+  try {
+    await pending;
+    throw new Error("expected request to fail");
+  } catch (error) {
+    expect(error).toBeInstanceOf(PromptCommandError);
+    expect((error as PromptCommandError).exitCode).toBe(5);
+    expect((error as PromptCommandError).stdout).toBe("partial stdout");
+    expect((error as PromptCommandError).stderr).toBe("partial stderr");
+  }
 });
 
 test("rejects pending requests when the bridge exits before replying", async () => {

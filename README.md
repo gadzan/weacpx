@@ -28,16 +28,9 @@ bun add -g weacpx
 
 第一次使用建议按这个顺序：
 
-1. 登录微信
-2. 启动服务
+1. 登录微信 `weacpx login`
+2. 启动服务 `weacpx start`
 3. 在微信里创建会话并开始对话
-
-如果你是全局安装版本：
-
-```bash
-weacpx login
-weacpx start
-```
 
 `weacpx login` 会在终端里显示二维码，使用微信扫描登录。`weacpx start` 启动后，在微信里发：
 
@@ -57,6 +50,8 @@ weacpx start
 hello
 ```
 
+如果任务比较长，`weacpx` 会优先把 Agent 的中间回复分段发回微信，而不是一直等到最后一条结果。
+
 如果你是从源码仓库直接使用：
 
 ```bash
@@ -75,6 +70,7 @@ bun run dev
 常用命令：
 
 - `weacpx login`
+- `weacpx logout`
 - `weacpx run`
 - `weacpx start`
 - `weacpx status`
@@ -86,6 +82,12 @@ bun run dev
 - `start` 后台启动
 - `status` 查看后台状态、PID、配置路径和日志路径
 - `stop` 停止后台实例
+- `logout` 清除本机已保存的微信登录凭证；如果当前没有已登录账号，会直接提示
+
+说明：
+
+- `weacpx logout` 只清理已保存的微信账号凭证
+- 它不会停止当前 daemon，也不会删除 `weacpx` 的 session/state 配置
 
 ## 微信中使用说明
 
@@ -163,6 +165,29 @@ bun run dev
 - `/use <alias>` 用来切换当前会话
 - 非 `/` 开头的文本会发送到当前 session
 
+### 权限策略
+
+`weacpx` 支持直接在微信里查看和切换 `acpx` 的权限策略。
+
+| 命令 | 说明 |
+|------|------|
+| `/pm` / `/permission` | 查看当前权限模式 |
+| `/pm set allow` | 切到 `approve-all` |
+| `/pm set read` | 切到 `approve-reads` |
+| `/pm set deny` | 切到 `deny-all` |
+| `/pm auto` | 查看当前非交互策略 |
+| `/pm auto allow` | 切到 `allow` |
+| `/pm auto deny` | 切到 `deny` |
+| `/pm auto fail` | 切到 `fail` |
+
+说明：
+
+- `allow` 对应 `approve-all`
+- `read` 对应 `approve-reads`
+- `deny` 对应 `deny-all`
+- `/pm auto ...` 修改的是 `transport.nonInteractivePermissions`
+- 这些命令会把结果写回 `config.json`
+
 ### 推荐工作流
 
 新建一个可聊天的会话：
@@ -190,6 +215,21 @@ bun run dev
 /workspace rm old-repo
 ```
 
+### 微信内置登录相关指令
+
+除了 `weacpx login` / `weacpx logout` 这类 CLI 命令外，微信通道里还支持少量内置 slash 指令：
+
+| 命令 | 说明 |
+|------|------|
+| `/clear` | 清除当前聊天会话，上下文重新开始 |
+| `/logout` | 清除当前机器上已保存的所有微信账号凭证 |
+
+说明：
+
+- `/logout` 的语义和 CLI 的 `weacpx logout` 一致，都是清凭证
+- 如果当前没有已登录账号，会提示“当前没有已登录的账号”
+- `/logout` 不会停止后台服务，也不会删除 `weacpx` 的工作区、agent、session 状态
+
 ## 配置与运行文件
 
 默认文件位置：
@@ -210,6 +250,28 @@ bun run dev
 - `WEACPX_CONFIG`
 - `WEACPX_STATE`
 - `WEACPX_WEIXIN_SDK`
+
+### Transport 权限配置
+
+`config.json` 中的 `transport` 支持以下权限字段：
+
+```json
+{
+  "transport": {
+    "type": "acpx-bridge",
+    "sessionInitTimeoutMs": 120000,
+    "permissionMode": "approve-all",
+    "nonInteractivePermissions": "fail"
+  }
+}
+```
+
+说明：
+
+- `permissionMode`: `approve-all`、`approve-reads`、`deny-all`
+- `nonInteractivePermissions`: `allow`、`deny`、`fail`
+- 默认值分别是 `approve-all` 和 `fail`
+- 也可以直接在微信里通过 `/pm` 和 `/pm auto` 修改
 
 ### 日志配置
 

@@ -4,6 +4,20 @@ export interface PromptCommandResult {
   stderr: string;
 }
 
+export class PromptCommandError extends Error {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+
+  constructor(message: string, result: PromptCommandResult) {
+    super(message);
+    this.name = "PromptCommandError";
+    this.exitCode = result.code;
+    this.stdout = result.stdout;
+    this.stderr = result.stderr;
+  }
+}
+
 interface ExtractedPromptOutput {
   text: string;
   hasAgentMessage: boolean;
@@ -17,7 +31,7 @@ export function getPromptText(result: PromptCommandResult): string {
 
   const preferredError = extractPromptFailureMessage(result);
   if (preferredError) {
-    throw new Error(preferredError);
+    throw new PromptCommandError(preferredError, result);
   }
 
   const stderrOutput = extractPromptOutput(result.stderr);
@@ -30,7 +44,7 @@ export function getPromptText(result: PromptCommandResult): string {
     return partialReply;
   }
 
-  throw new Error(`command failed with exit code ${result.code}`);
+  throw new PromptCommandError(`command failed with exit code ${result.code}`, result);
 }
 
 export function normalizeCommandError(result: Pick<PromptCommandResult, "stdout" | "stderr">): string | null {

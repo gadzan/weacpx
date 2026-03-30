@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import { BridgeRuntime } from "../../../src/bridge/bridge-runtime";
 import { BridgeServer } from "../../../src/bridge/bridge-server";
+import { PromptCommandError } from "../../../src/transport/prompt-output";
 
 test("returns whether a named session exists", async () => {
   const runtime = new BridgeRuntime(
@@ -40,8 +41,33 @@ test("reuses an existing session when ensure fails but status probe finds it", a
   ).resolves.toEqual({});
 
   expect(calls).toEqual([
-    ["--format", "quiet", "--cwd", "/repo", "codex", "sessions", "ensure", "--name", "demo"],
-    ["--format", "quiet", "--cwd", "/repo", "codex", "sessions", "show", "demo"],
+    [
+      "--format",
+      "quiet",
+      "--cwd",
+      "/repo",
+      "--approve-all",
+      "--non-interactive-permissions",
+      "fail",
+      "codex",
+      "sessions",
+      "ensure",
+      "--name",
+      "demo",
+    ],
+    [
+      "--format",
+      "quiet",
+      "--cwd",
+      "/repo",
+      "--approve-all",
+      "--non-interactive-permissions",
+      "fail",
+      "codex",
+      "sessions",
+      "show",
+      "demo",
+    ],
   ]);
 });
 
@@ -75,13 +101,51 @@ test("creates a new session when ensure fails and no existing session is found",
   ).resolves.toEqual({});
 
   expect(calls).toEqual([
-    ["--format", "quiet", "--cwd", "/repo", "codex", "sessions", "ensure", "--name", "demo"],
-    ["--format", "quiet", "--cwd", "/repo", "codex", "sessions", "show", "demo"],
+    [
+      "--format",
+      "quiet",
+      "--cwd",
+      "/repo",
+      "--approve-all",
+      "--non-interactive-permissions",
+      "fail",
+      "codex",
+      "sessions",
+      "ensure",
+      "--name",
+      "demo",
+    ],
+    [
+      "--format",
+      "quiet",
+      "--cwd",
+      "/repo",
+      "--approve-all",
+      "--non-interactive-permissions",
+      "fail",
+      "codex",
+      "sessions",
+      "show",
+      "demo",
+    ],
   ]);
   expect(shellCalls).toEqual([
     {
       command: "acpx",
-      args: ["--format", "quiet", "--cwd", "/repo", "codex", "sessions", "new", "--name", "demo"],
+      args: [
+        "--format",
+        "quiet",
+        "--cwd",
+        "/repo",
+        "--approve-all",
+        "--non-interactive-permissions",
+        "fail",
+        "codex",
+        "sessions",
+        "new",
+        "--name",
+        "demo",
+      ],
       cwd: "/repo",
     },
   ]);
@@ -125,6 +189,9 @@ test("runs a resolved JavaScript acpx entry with the current node executable", a
         "quiet",
         "--cwd",
         "/repo",
+        "--approve-all",
+        "--non-interactive-permissions",
+        "fail",
         "codex",
         "sessions",
         "ensure",
@@ -140,6 +207,9 @@ test("runs a resolved JavaScript acpx entry with the current node executable", a
         "quiet",
         "--cwd",
         "/repo",
+        "--approve-all",
+        "--non-interactive-permissions",
+        "fail",
         "codex",
         "sessions",
         "show",
@@ -156,6 +226,9 @@ test("runs a resolved JavaScript acpx entry with the current node executable", a
         "quiet",
         "--cwd",
         "/repo",
+        "--approve-all",
+        "--non-interactive-permissions",
+        "fail",
         "codex",
         "sessions",
         "new",
@@ -241,13 +314,29 @@ test("uses raw agent command for hasSession, prompt, and cancel", async () => {
   });
 
   expect(calls).toEqual([
-    ["--format", "quiet", "--cwd", "/repo", "--agent", "./node_modules/.bin/codex-acp", "sessions", "show", "demo"],
+    [
+      "--format",
+      "quiet",
+      "--cwd",
+      "/repo",
+      "--approve-all",
+      "--non-interactive-permissions",
+      "fail",
+      "--agent",
+      "./node_modules/.bin/codex-acp",
+      "sessions",
+      "show",
+      "demo",
+    ],
     [
       "--format",
       "json",
       "--json-strict",
       "--cwd",
       "/repo",
+      "--approve-all",
+      "--non-interactive-permissions",
+      "fail",
       "--agent",
       "./node_modules/.bin/codex-acp",
       "prompt",
@@ -255,7 +344,58 @@ test("uses raw agent command for hasSession, prompt, and cancel", async () => {
       "demo",
       "hello",
     ],
-    ["--format", "quiet", "--cwd", "/repo", "--agent", "./node_modules/.bin/codex-acp", "cancel", "-s", "demo"],
+    [
+      "--format",
+      "quiet",
+      "--cwd",
+      "/repo",
+      "--approve-all",
+      "--non-interactive-permissions",
+      "fail",
+      "--agent",
+      "./node_modules/.bin/codex-acp",
+      "cancel",
+      "-s",
+      "demo",
+    ],
+  ]);
+});
+
+test("uses explicit permission policy for bridge runtime commands", async () => {
+  const calls: string[][] = [];
+  const runtime = new BridgeRuntime(
+    "acpx",
+    async (_command, args) => {
+      calls.push(args);
+      return { code: 0, stdout: "ok", stderr: "" };
+    },
+    undefined,
+    { permissionMode: "approve-reads", nonInteractivePermissions: "deny" },
+  );
+
+  await runtime.prompt({
+    agent: "codex",
+    cwd: "/repo",
+    name: "demo",
+    text: "hello",
+  });
+
+  expect(calls).toEqual([
+    [
+      "--format",
+      "json",
+      "--json-strict",
+      "--cwd",
+      "/repo",
+      "--approve-reads",
+      "--non-interactive-permissions",
+      "deny",
+      "codex",
+      "prompt",
+      "-s",
+      "demo",
+      "hello",
+    ],
   ]);
 });
 
@@ -399,5 +539,39 @@ test("handles ping and shutdown over ndjson", async () => {
   );
   await expect(server.handleLine('{"id":"2","method":"shutdown","params":{}}')).resolves.toEqual(
     '{"id":"2","ok":true,"result":{}}\n',
+  );
+});
+
+test("includes prompt diagnostics in bridge error responses", async () => {
+  const runtime = {
+    shutdown: async () => ({}),
+    hasSession: async () => ({ exists: true }),
+    ensureSession: async () => ({}),
+    prompt: async () => {
+      throw new PromptCommandError("command failed with exit code 5", {
+        code: 5,
+        stdout: "partial stdout",
+        stderr: "partial stderr",
+      });
+    },
+    cancel: async () => ({ cancelled: true, message: "cancelled" }),
+  } as unknown as BridgeRuntime;
+  const server = new BridgeServer(runtime);
+
+  await expect(
+    server.handleLine(
+      JSON.stringify({
+        id: "3",
+        method: "prompt",
+        params: {
+          agent: "claude",
+          cwd: "/repo",
+          name: "demo",
+          text: "hello",
+        },
+      }),
+    ),
+  ).resolves.toEqual(
+    '{"id":"3","ok":false,"error":{"code":"BRIDGE_INTERNAL_ERROR","message":"command failed with exit code 5","details":{"exitCode":5,"stdout":"partial stdout","stderr":"partial stderr"}}}\n',
   );
 });

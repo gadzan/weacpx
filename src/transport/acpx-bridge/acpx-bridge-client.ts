@@ -7,6 +7,7 @@ import {
   type BridgeResponse,
   encodeBridgeRequest,
 } from "./acpx-bridge-protocol";
+import { PromptCommandError } from "../prompt-output";
 
 type WriteLine = (line: string) => void;
 
@@ -26,7 +27,10 @@ export class AcpxBridgeClient {
     this.nextId += 1;
 
     return awaitable<TResult>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      this.pending.set(id, {
+        resolve: (value) => resolve(value as TResult),
+        reject,
+      });
       this.writeLine(
         encodeBridgeRequest({
           id,
@@ -47,6 +51,17 @@ export class AcpxBridgeClient {
     this.pending.delete(response.id);
     if (response.ok) {
       pending.resolve(response.result);
+      return;
+    }
+
+    if (response.error.details?.exitCode !== undefined) {
+      pending.reject(
+        new PromptCommandError(response.error.message, {
+          code: response.error.details.exitCode,
+          stdout: response.error.details.stdout ?? "",
+          stderr: response.error.details.stderr ?? "",
+        }),
+      );
       return;
     }
 
@@ -72,6 +87,8 @@ interface SpawnedBridgeClientOptions {
   acpxCommand?: string;
   bridgeEntryPath?: string;
   cwd?: string;
+  permissionMode?: string;
+  nonInteractivePermissions?: string;
 }
 
 export function buildBridgeSpawnSpec(options: {
@@ -105,6 +122,8 @@ export async function spawnAcpxBridgeClient(
     env: {
       ...process.env,
       WEACPX_BRIDGE_ACPX_COMMAND: options.acpxCommand ?? "acpx",
+      WEACPX_BRIDGE_PERMISSION_MODE: options.permissionMode ?? "approve-all",
+      WEACPX_BRIDGE_NON_INTERACTIVE_PERMISSIONS: options.nonInteractivePermissions ?? "fail",
     },
     stdio: ["pipe", "pipe", "inherit"],
   });

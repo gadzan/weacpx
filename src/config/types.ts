@@ -1,7 +1,12 @@
+export type PermissionMode = "approve-all" | "approve-reads" | "deny-all";
+export type NonInteractivePermissions = "allow" | "deny" | "fail";
+
 export interface TransportConfig {
   type: "acpx-cli" | "acpx-bridge";
   command?: string;
   sessionInitTimeoutMs?: number;
+  permissionMode: PermissionMode;
+  nonInteractivePermissions: NonInteractivePermissions;
 }
 
 export type LoggingLevel = "error" | "info" | "debug";

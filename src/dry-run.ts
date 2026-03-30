@@ -21,6 +21,9 @@ export function parseDryRunArgs(args: string[]): DryRunOptions {
 
   for (let index = 0; index < args.length; index += 1) {
     const token = args[index];
+    if (!token) {
+      continue;
+    }
     if (token === "--") {
       continue;
     }

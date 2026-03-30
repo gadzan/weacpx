@@ -48,4 +48,14 @@ export class ConfigStore {
     await this.save(config);
     return config;
   }
+
+  async updateTransport(transport: Partial<AppConfig["transport"]>): Promise<AppConfig> {
+    const config = await this.load();
+    config.transport = {
+      ...config.transport,
+      ...transport,
+    };
+    await this.save(config);
+    return config;
+  }
 }

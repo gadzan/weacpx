@@ -1,7 +1,15 @@
 import { readFile } from "node:fs/promises";
 
 import { resolveAgentCommand } from "./resolve-agent-command";
-import type { AgentConfig, AppConfig, LoggingConfig, LoggingLevel, WorkspaceConfig } from "./types";
+import type {
+  AgentConfig,
+  AppConfig,
+  LoggingConfig,
+  LoggingLevel,
+  NonInteractivePermissions,
+  PermissionMode,
+  WorkspaceConfig,
+} from "./types";
 
 const DEFAULT_LOGGING_CONFIG: LoggingConfig = {
   level: "info",
@@ -9,11 +17,17 @@ const DEFAULT_LOGGING_CONFIG: LoggingConfig = {
   maxFiles: 5,
   retentionDays: 7,
 };
+const DEFAULT_PERMISSION_MODE: PermissionMode = "approve-all";
+const DEFAULT_NON_INTERACTIVE_PERMISSIONS: NonInteractivePermissions = "fail";
+
+type ParsedAgentRecord = Record<string, AgentConfig & { command?: string }>;
+type ParsedWorkspaceRecord = Record<string, WorkspaceConfig & { allowed_agents?: string[] }>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+export async function loadConfig(path: string): Promise<AppConfig>;
 export async function loadConfig(path: string, options: { defaultLoggingLevel?: LoggingLevel }): Promise<AppConfig>;
 export async function loadConfig(
   path: string,
@@ -49,6 +63,22 @@ function parseConfig(
       transport.sessionInitTimeoutMs <= 0)
   ) {
     throw new Error("transport.sessionInitTimeoutMs must be a positive number");
+  }
+  if (
+    "permissionMode" in transport &&
+    transport.permissionMode !== "approve-all" &&
+    transport.permissionMode !== "approve-reads" &&
+    transport.permissionMode !== "deny-all"
+  ) {
+    throw new Error("transport.permissionMode must be approve-all, approve-reads, or deny-all");
+  }
+  if (
+    "nonInteractivePermissions" in transport &&
+    transport.nonInteractivePermissions !== "allow" &&
+    transport.nonInteractivePermissions !== "deny" &&
+    transport.nonInteractivePermissions !== "fail"
+  ) {
+    throw new Error("transport.nonInteractivePermissions must be allow, deny, or fail");
   }
 
   if (!isRecord(raw.agents)) {
@@ -103,9 +133,10 @@ function parseConfig(
     }
   }
 
+  const rawAgents = raw.agents as ParsedAgentRecord;
   const agents: Record<string, AgentConfig> = {};
-  for (const [name, agent] of Object.entries(raw.agents)) {
-    const driver = agent.driver as string;
+  for (const [name, agent] of Object.entries(rawAgents)) {
+    const driver = agent.driver;
     const command = typeof agent.command === "string" ? resolveAgentCommand(driver, agent.command) : undefined;
     agents[name] = {
       driver,
@@ -113,13 +144,35 @@ function parseConfig(
     };
   }
 
+  const rawWorkspaces = raw.workspaces as ParsedWorkspaceRecord;
   const workspaces: Record<string, WorkspaceConfig> = {};
-  for (const [name, workspace] of Object.entries(raw.workspaces)) {
+  for (const [name, workspace] of Object.entries(rawWorkspaces)) {
     workspaces[name] = {
-      cwd: workspace.cwd as string,
+      cwd: workspace.cwd,
       ...(typeof workspace.description === "string" ? { description: workspace.description } : {}),
     };
   }
+
+  const transportType = transport.type === "acpx-cli" || transport.type === "acpx-bridge"
+    ? transport.type
+    : "acpx-bridge";
+  const permissionMode: PermissionMode =
+    transport.permissionMode === "approve-all" ||
+    transport.permissionMode === "approve-reads" ||
+    transport.permissionMode === "deny-all"
+      ? transport.permissionMode
+      : DEFAULT_PERMISSION_MODE;
+  const nonInteractivePermissions: NonInteractivePermissions =
+    transport.nonInteractivePermissions === "allow" ||
+    transport.nonInteractivePermissions === "deny" ||
+    transport.nonInteractivePermissions === "fail"
+      ? transport.nonInteractivePermissions
+      : DEFAULT_NON_INTERACTIVE_PERMISSIONS;
+  const loggingLevel = logging?.level;
+  const resolvedLoggingLevel: LoggingLevel =
+    loggingLevel === "error" || loggingLevel === "info" || loggingLevel === "debug"
+      ? loggingLevel
+      : (options.defaultLoggingLevel ?? DEFAULT_LOGGING_CONFIG.level);
 
   return {
     transport: {
@@ -127,13 +180,12 @@ function parseConfig(
       ...(typeof transport.sessionInitTimeoutMs === "number"
         ? { sessionInitTimeoutMs: transport.sessionInitTimeoutMs }
         : {}),
-      type: transport.type ?? "acpx-bridge",
+      type: transportType,
+      permissionMode,
+      nonInteractivePermissions,
     },
     logging: {
-      level:
-        typeof logging?.level === "string"
-          ? logging.level
-          : (options.defaultLoggingLevel ?? DEFAULT_LOGGING_CONFIG.level),
+      level: resolvedLoggingLevel,
       maxSizeBytes:
         typeof logging?.maxSizeBytes === "number" ? logging.maxSizeBytes : DEFAULT_LOGGING_CONFIG.maxSizeBytes,
       maxFiles: typeof logging?.maxFiles === "number" ? logging.maxFiles : DEFAULT_LOGGING_CONFIG.maxFiles,

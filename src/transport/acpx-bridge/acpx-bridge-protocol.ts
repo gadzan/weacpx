@@ -18,6 +18,11 @@ export interface BridgeErrorResponse {
   error: {
     code: string;
     message: string;
+    details?: {
+      exitCode?: number;
+      stdout?: string;
+      stderr?: string;
+    };
   };
 }
 

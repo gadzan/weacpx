@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import type { NonInteractivePermissions, PermissionMode } from "../config/types";
 import { resolveSpawnCommand } from "../process/spawn-command";
 import { getPromptText } from "../transport/prompt-output";
 
@@ -13,11 +14,17 @@ interface CommandResult {
 type CommandRunner = (command: string, args: string[]) => Promise<CommandResult>;
 type SessionCreateRunner = (command: string, args: string[], cwd: string) => Promise<CommandResult>;
 
+interface BridgeRuntimeOptions {
+  permissionMode?: PermissionMode;
+  nonInteractivePermissions?: NonInteractivePermissions;
+}
+
 export class BridgeRuntime {
   constructor(
     private readonly command: string = "acpx",
     private readonly run: CommandRunner = defaultRunner,
     private readonly runSessionCreate: SessionCreateRunner = shellSessionCreateRunner,
+    private readonly options: BridgeRuntimeOptions = {},
   ) {}
 
   async hasSession(input: {
@@ -128,11 +135,18 @@ export class BridgeRuntime {
     },
     tail: string[],
   ): string[] {
+    const prefix = [
+      "--format",
+      "quiet",
+      "--cwd",
+      input.cwd,
+      ...this.buildPermissionArgs(),
+    ];
     if (input.agentCommand) {
-      return ["--format", "quiet", "--cwd", input.cwd, "--agent", input.agentCommand, ...tail];
+      return [...prefix, "--agent", input.agentCommand, ...tail];
     }
 
-    return ["--format", "quiet", "--cwd", input.cwd, input.agent, ...tail];
+    return [...prefix, input.agent, ...tail];
   }
 
   private buildPromptArgs(
@@ -144,11 +158,32 @@ export class BridgeRuntime {
     },
     tail: string[],
   ): string[] {
+    const prefix = [
+      "--format",
+      "json",
+      "--json-strict",
+      "--cwd",
+      input.cwd,
+      ...this.buildPermissionArgs(),
+    ];
     if (input.agentCommand) {
-      return ["--format", "json", "--json-strict", "--cwd", input.cwd, "--agent", input.agentCommand, ...tail];
+      return [...prefix, "--agent", input.agentCommand, ...tail];
     }
 
-    return ["--format", "json", "--json-strict", "--cwd", input.cwd, input.agent, ...tail];
+    return [...prefix, input.agent, ...tail];
+  }
+
+  private buildPermissionArgs(): string[] {
+    const permissionMode = this.options.permissionMode ?? "approve-all";
+    const nonInteractivePermissions = this.options.nonInteractivePermissions ?? "fail";
+    const modeFlag =
+      permissionMode === "approve-reads"
+        ? "--approve-reads"
+        : permissionMode === "deny-all"
+          ? "--deny-all"
+          : "--approve-all";
+
+    return [modeFlag, "--non-interactive-permissions", nonInteractivePermissions];
   }
 }
 

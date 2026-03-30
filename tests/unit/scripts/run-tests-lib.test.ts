@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 
-import { collectTests } from "../../../scripts/run-tests-lib.mjs";
+import { buildTestPlan, collectTests } from "../../../scripts/run-tests-lib.mjs";
 
 test("collects test files recursively in sorted order", () => {
   const tree = {
@@ -21,6 +21,17 @@ test("collects test files recursively in sorted order", () => {
     resolve("tests/unit/alpha/c.test.ts"),
     resolve("tests/unit/b.test.ts"),
     resolve("tests/unit/beta/nested/a.test.ts"),
+  ]);
+});
+
+test("builds a test plan with typecheck before unit tests", () => {
+  expect(buildTestPlan("tests/unit", () => [
+    resolve("tests/unit/a.test.ts"),
+    resolve("tests/unit/b.test.ts"),
+  ])).toEqual([
+    { command: "npx", args: ["tsc", "--noEmit"] },
+    { command: "bun", args: ["test", resolve("tests/unit/a.test.ts")] },
+    { command: "bun", args: ["test", resolve("tests/unit/b.test.ts")] },
   ]);
 });
 

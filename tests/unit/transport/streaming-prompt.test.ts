@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { createStreamingPromptState, parseStreamingChunks } from "../../../src/transport/streaming-prompt";
+import {
+  createStreamingPromptState,
+  parseStreamingChunks,
+  parseStreamingDataChunk,
+} from "../../../src/transport/streaming-prompt";
 
 function makeChunkLine(text: string): string {
   return JSON.stringify({
@@ -65,4 +69,32 @@ test("finalize returns empty string when buffer is empty", () => {
   const state = createStreamingPromptState();
   const result = state.finalize();
   expect(result).toBe("");
+});
+
+test("parseStreamingDataChunk preserves partial JSON lines across stdout chunks", () => {
+  const state = createStreamingPromptState();
+  const line = makeChunkLine("split json still works");
+  const splitAt = Math.floor(line.length / 2);
+
+  parseStreamingDataChunk(state, line.slice(0, splitAt));
+  expect(state.buffer).toBe("");
+  expect(state.segments).toEqual([]);
+
+  parseStreamingDataChunk(state, `${line.slice(splitAt)}\n`);
+
+  expect(state.buffer).toBe("split json still works");
+  expect(state.segments).toEqual([]);
+  expect(state.hasAgentMessage).toBe(true);
+});
+
+test("finalize parses a complete pending JSON line when the stream ends without a trailing newline", () => {
+  const state = createStreamingPromptState();
+
+  parseStreamingDataChunk(state, makeChunkLine("eof without newline"));
+
+  const result = state.finalize();
+
+  expect(result).toBe("eof without newline");
+  expect(state.pendingLine).toBe("");
+  expect(state.hasAgentMessage).toBe(true);
 });

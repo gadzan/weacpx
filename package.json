@@ -1,7 +1,7 @@
 {
   "name": "weacpx",
   "description": "用微信远程控制 `acpx` 会话的控制台, 底层基于 `weixin-agent-sdk` 与 `acpx`",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "main": "index.js",
   "directories": {
     "doc": "docs",
@@ -48,7 +48,12 @@
   "dependencies": {
     "acpx": "^0.3.1",
     "node-pty": "^1.1.0",
-    "qrcode-terminal": "^0.12.0",
-    "weixin-agent-sdk": "^0.2.0"
+    "qrcode-terminal": "^0.12.0"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

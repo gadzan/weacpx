@@ -3,6 +3,10 @@ export type ParsedCommand =
   | { kind: "agents" }
   | { kind: "agent.add"; template: string }
   | { kind: "agent.rm"; name: string }
+  | { kind: "permission.status" }
+  | { kind: "permission.mode.set"; mode: "approve-all" | "approve-reads" | "deny-all" }
+  | { kind: "permission.auto.status" }
+  | { kind: "permission.auto.set"; policy: "allow" | "deny" | "fail" }
   | { kind: "workspaces" }
   | { kind: "workspace.new"; name: string; cwd: string }
   | { kind: "workspace.rm"; name: string }
@@ -32,8 +36,27 @@ export function parseCommand(input: string): ParsedCommand {
   if (command === "/sessions") return { kind: "sessions" };
   if (command === "/status") return { kind: "status" };
   if (command === "/cancel") return { kind: "cancel" };
+  if (command === "/permission" && parts.length === 1) return { kind: "permission.status" };
   if (command === "/session" && parts.length === 1) return { kind: "sessions" };
   if (command === "/workspace" && parts.length === 1) return { kind: "workspaces" };
+
+  if (command === "/permission" && parts[1] === "set") {
+    const mode = toPermissionMode(parts[2] ?? "");
+    if (mode) {
+      return { kind: "permission.mode.set", mode };
+    }
+  }
+
+  if (command === "/permission" && parts[1] === "auto") {
+    if (parts.length === 2) {
+      return { kind: "permission.auto.status" };
+    }
+
+    const policy = toNonInteractivePermission(parts[2] ?? "");
+    if (policy) {
+      return { kind: "permission.auto.set", policy };
+    }
+  }
 
   if (command === "/use" && parts[1]) {
     return { kind: "session.use", alias: parts[1] };
@@ -144,6 +167,7 @@ function readFlagValue(parts: string[], flags: string[]): string {
 function normalizeCommand(command: string): string {
   if (command === "/ss") return "/session";
   if (command === "/ws") return "/workspace";
+  if (command === "/pm") return "/permission";
   if (command === "/stop") return "/cancel";
   return command;
 }
@@ -155,6 +179,7 @@ const RECOGNIZED_COMMANDS = new Set([
   "/sessions",
   "/status",
   "/cancel",
+  "/permission",
   "/session",
   "/workspace",
   "/use",
@@ -163,6 +188,21 @@ const RECOGNIZED_COMMANDS = new Set([
 
 function isRecognizedCommand(command: string): boolean {
   return RECOGNIZED_COMMANDS.has(command);
+}
+
+function toPermissionMode(value: string): "approve-all" | "approve-reads" | "deny-all" | null {
+  if (value === "allow") return "approve-all";
+  if (value === "read") return "approve-reads";
+  if (value === "deny") return "deny-all";
+  return null;
+}
+
+function toNonInteractivePermission(value: string): "allow" | "deny" | "fail" | null {
+  if (value === "allow" || value === "deny" || value === "fail") {
+    return value;
+  }
+
+  return null;
 }
 
 function tokenizeCommand(input: string): string[] {

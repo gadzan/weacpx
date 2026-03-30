@@ -5,7 +5,18 @@ import { renderAgents, renderHelpText, renderWorkspaces } from "../../../src/for
 
 function createConfig(): AppConfig {
   return {
-    transport: { type: "acpx-cli", command: "acpx" },
+    transport: {
+      type: "acpx-cli",
+      command: "acpx",
+      permissionMode: "approve-all",
+      nonInteractivePermissions: "fail",
+    },
+    logging: {
+      level: "info",
+      maxSizeBytes: 2 * 1024 * 1024,
+      maxFiles: 5,
+      retentionDays: 7,
+    },
     agents: {
       codex: { driver: "codex" },
     },
@@ -27,6 +38,9 @@ test("renders help text in Chinese", () => {
   expect(renderHelpText()).toContain("/ss <agent> -d <path>");
   expect(renderHelpText()).toContain("/ss new <agent> -d <path>");
   expect(renderHelpText()).toContain("/ss new <alias> -a <name> --ws <name>");
+  expect(renderHelpText()).toContain("/pm 或 /permission");
+  expect(renderHelpText()).toContain("/pm set <allow|read|deny>");
+  expect(renderHelpText()).toContain("/pm auto [allow|deny|fail]");
   expect(renderHelpText()).toContain("/stop");
 });
 

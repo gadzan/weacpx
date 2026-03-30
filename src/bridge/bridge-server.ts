@@ -1,4 +1,5 @@
 import { type BridgeMethod, type BridgeResponse } from "../transport/acpx-bridge/acpx-bridge-protocol";
+import { PromptCommandError } from "../transport/prompt-output";
 import { BridgeRuntime } from "./bridge-runtime";
 
 interface BridgeRequest {
@@ -28,6 +29,15 @@ export class BridgeServer {
         error: {
           code: "BRIDGE_INTERNAL_ERROR",
           message,
+          ...(error instanceof PromptCommandError
+            ? {
+                details: {
+                  exitCode: error.exitCode,
+                  stdout: error.stdout,
+                  stderr: error.stderr,
+                },
+              }
+            : {}),
         },
       } satisfies BridgeResponse)}\n`;
     }

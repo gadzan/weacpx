@@ -11,6 +11,7 @@ import { createNoopAppLogger } from "../logging/app-logger";
 import type { SessionService } from "../sessions/session-service";
 import type { SessionTransport } from "../transport/types";
 import type { ResolvedSession } from "../transport/types";
+import { PromptCommandError } from "../transport/prompt-output";
 import { parseCommand } from "./parse-command";
 
 interface RouterResponse {
@@ -32,7 +33,7 @@ export class CommandRouter {
     private readonly config?: AppConfig,
     private readonly configStore?: Pick<
       ConfigStore,
-      "upsertWorkspace" | "removeWorkspace" | "upsertAgent" | "removeAgent"
+      "upsertWorkspace" | "removeWorkspace" | "upsertAgent" | "removeAgent" | "updateTransport"
     >,
     logger?: AppLogger,
   ) {
@@ -90,6 +91,32 @@ export class CommandRouter {
           const updated = await this.configStore.removeAgent(command.name);
           this.replaceConfig(updated);
           return { text: `Agent「${command.name}」已删除` };
+        }
+        case "permission.status":
+          return { text: this.renderPermissionStatus("当前权限模式：") };
+        case "permission.mode.set": {
+          if (!this.config || !this.configStore) {
+            return { text: "当前没有加载可写入的配置。" };
+          }
+
+          const updated = await this.configStore.updateTransport({
+            permissionMode: command.mode,
+          });
+          this.replaceConfig(updated);
+          return { text: this.renderPermissionStatus("权限模式已更新：") };
+        }
+        case "permission.auto.status":
+          return { text: this.renderPermissionStatus("当前非交互策略：") };
+        case "permission.auto.set": {
+          if (!this.config || !this.configStore) {
+            return { text: "当前没有加载可写入的配置。" };
+          }
+
+          const updated = await this.configStore.updateTransport({
+            nonInteractivePermissions: command.policy,
+          });
+          this.replaceConfig(updated);
+          return { text: this.renderPermissionStatus("非交互策略已更新：") };
         }
         case "workspaces":
           return { text: this.config ? renderWorkspaces(this.config) : "No config loaded." };
@@ -325,6 +352,13 @@ export class CommandRouter {
     this.config.workspaces = { ...updated.workspaces };
   }
 
+  private renderPermissionStatus(title: string): string {
+    const permissionMode = this.config?.transport.permissionMode ?? "approve-all";
+    const nonInteractivePermissions = this.config?.transport.nonInteractivePermissions ?? "fail";
+
+    return [title, `- mode: ${permissionMode}`, `- auto: ${nonInteractivePermissions}`].join("\n");
+  }
+
   private renderTransportError(session: ResolvedSession, error: unknown): RouterResponse {
     const message = error instanceof Error ? error.message : String(error);
 
@@ -496,6 +530,19 @@ export class CommandRouter {
       });
       return result;
     } catch (error) {
+      const diagnosticContext = error instanceof PromptCommandError
+        ? {
+            exitCode: error.exitCode,
+            stdoutPreview: summarizeTransportDiagnostic(error.stdout),
+            stdoutTailPreview: summarizeTransportDiagnosticTail(error.stdout),
+            stdoutLength: error.stdout.length,
+            ...summarizeTransportNdjson(error.stdout, "stdout"),
+            stderrPreview: summarizeTransportDiagnostic(error.stderr),
+            stderrTailPreview: summarizeTransportDiagnosticTail(error.stderr),
+            stderrLength: error.stderr.length,
+            ...summarizeTransportNdjson(error.stderr, "stderr"),
+          }
+        : {};
       await this.logger.error(`transport.${operation}.failed`, "transport operation failed", {
         operation,
         agent: session.agent,
@@ -503,6 +550,7 @@ export class CommandRouter {
         alias: session.alias,
         durationMs: Date.now() - startedAt,
         error: error instanceof Error ? error.message : String(error),
+        ...diagnosticContext,
       });
       throw error;
     }
@@ -539,6 +587,82 @@ function summarizeTransportError(message: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 200);
+}
+
+function summarizeTransportDiagnostic(output: string): string | undefined {
+  const trimmed = output.replace(/\s+/g, " ").trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  return trimmed.slice(0, 200);
+}
+
+function summarizeTransportDiagnosticTail(output: string): string | undefined {
+  const trimmed = output.replace(/\s+/g, " ").trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  return trimmed.slice(-200);
+}
+
+function summarizeTransportNdjson(output: string, prefix: "stdout" | "stderr"): Record<string, string | number> {
+  const lines = output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  if (lines.length === 0) {
+    return {};
+  }
+
+  const methods = new Set<string>();
+  let agentMessageChunkCount = 0;
+  let stopReason: string | undefined;
+
+  for (const line of lines) {
+    try {
+      const payload = JSON.parse(line) as {
+        method?: string;
+        params?: {
+          update?: {
+            sessionUpdate?: string;
+          };
+        };
+        result?: {
+          stopReason?: string;
+        };
+      };
+
+      if (typeof payload.method === "string" && payload.method.length > 0) {
+        methods.add(payload.method);
+      }
+      if (payload.params?.update?.sessionUpdate === "agent_message_chunk") {
+        agentMessageChunkCount += 1;
+      }
+      if (typeof payload.result?.stopReason === "string" && payload.result.stopReason.length > 0) {
+        stopReason = payload.result.stopReason;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  const summary: Record<string, string | number> = {
+    [`${prefix}LineCount`]: lines.length,
+  };
+  if (methods.size > 0) {
+    summary[`${prefix}Methods`] = [...methods].join(",");
+  }
+  if (agentMessageChunkCount > 0) {
+    summary[`${prefix}AgentMessageChunkCount`] = agentMessageChunkCount;
+  }
+  if (stopReason) {
+    summary[`${prefix}StopReason`] = stopReason;
+  }
+
+  return summary;
 }
 
 function isPartialPromptOutputError(message: string): boolean {

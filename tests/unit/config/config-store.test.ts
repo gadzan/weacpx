@@ -46,7 +46,12 @@ test("upserts a workspace while preserving transport and agents", async () => {
   const store = new ConfigStore(path);
   const config = await store.upsertWorkspace("frontend", "/tmp/frontend", "frontend repo");
 
-  expect(config.transport).toEqual({ type: "acpx-bridge", command: "acpx" });
+  expect(config.transport).toEqual({
+    type: "acpx-bridge",
+    command: "acpx",
+    permissionMode: "approve-all",
+    nonInteractivePermissions: "fail",
+  });
   expect(config.agents.codex).toEqual({
     driver: "codex",
   });
@@ -86,9 +91,61 @@ test("removes a workspace and keeps the rest of the config intact", async () => 
   const store = new ConfigStore(path);
   const config = await store.removeWorkspace("backend");
 
-  expect(config.transport).toEqual({ type: "acpx-cli", command: "acpx" });
+  expect(config.transport).toEqual({
+    type: "acpx-cli",
+    command: "acpx",
+    permissionMode: "approve-all",
+    nonInteractivePermissions: "fail",
+  });
   expect(config.agents).toEqual({ claude: { driver: "claude" } });
   expect(config.workspaces).toEqual({ frontend: { cwd: "/tmp/frontend" } });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("updates transport permissions while preserving unrelated transport config", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-store-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: {
+        type: "acpx-cli",
+        command: "custom-acpx",
+        sessionInitTimeoutMs: 45000,
+        permissionMode: "approve-all",
+        nonInteractivePermissions: "fail",
+      },
+      agents: { codex: { driver: "codex" } },
+      workspaces: { backend: { cwd: "/tmp/backend" } },
+    }),
+  );
+
+  const store = new ConfigStore(path);
+  const config = await store.updateTransport({
+    permissionMode: "approve-reads",
+    nonInteractivePermissions: "allow",
+  });
+
+  expect(config.transport).toEqual({
+    type: "acpx-cli",
+    command: "custom-acpx",
+    sessionInitTimeoutMs: 45000,
+    permissionMode: "approve-reads",
+    nonInteractivePermissions: "allow",
+  });
+
+  const saved = JSON.parse(await readFile(path, "utf8")) as {
+    transport: Record<string, unknown>;
+  };
+  expect(saved.transport).toEqual({
+    type: "acpx-cli",
+    command: "custom-acpx",
+    sessionInitTimeoutMs: 45000,
+    permissionMode: "approve-reads",
+    nonInteractivePermissions: "allow",
+  });
 
   await rm(dir, { recursive: true, force: true });
 });

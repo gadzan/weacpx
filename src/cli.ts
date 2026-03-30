@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 import { createDaemonController } from "./daemon/create-daemon-controller";
 import { resolveDaemonPaths } from "./daemon/daemon-files";
+import type { DaemonController } from "./daemon/daemon-controller";
 import { DaemonRuntime } from "./daemon/daemon-runtime";
 import type { DaemonStatus } from "./daemon/daemon-status";
 
@@ -35,7 +36,7 @@ interface StopStopped {
 }
 
 interface CliController {
-  getStatus: () => Promise<StatusStopped | StatusRunning>;
+  getStatus: DaemonController["getStatus"];
   start: () => Promise<StartStarted | StartAlreadyRunning>;
   stop: () => Promise<StopStopped>;
 }

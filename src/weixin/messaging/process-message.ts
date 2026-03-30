@@ -261,7 +261,7 @@ export async function processOneMessage(
         baseUrl: deps.baseUrl,
         token: deps.token,
         body: {
-          apiVersion: to,
+          ilink_user_id: to,
           typing_ticket: deps.typingTicket,
           status: TypingStatus.CANCEL,
         },

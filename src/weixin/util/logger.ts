@@ -29,8 +29,8 @@ const DEFAULT_LOG_LEVEL = "INFO";
 
 function resolveMinLevel(): number {
   const env = process.env.OPENCLAW_LOG_LEVEL?.toUpperCase();
-  if (env && env in LEVEL_IDS) return LEVEL_IDS[env];
-  return LEVEL_IDS[DEFAULT_LOG_LEVEL];
+  if (env && env in LEVEL_IDS) return LEVEL_IDS[env] ?? LEVEL_IDS[DEFAULT_LOG_LEVEL] ?? 3;
+  return LEVEL_IDS[DEFAULT_LOG_LEVEL] ?? 3;
 }
 
 let minLevelId = resolveMinLevel();
@@ -41,7 +41,7 @@ export function setLogLevel(level: string): void {
   if (!(upper in LEVEL_IDS)) {
     throw new Error(`Invalid log level: ${level}. Valid levels: ${Object.keys(LEVEL_IDS).join(", ")}`);
   }
-  minLevelId = LEVEL_IDS[upper];
+  minLevelId = LEVEL_IDS[upper] ?? minLevelId;
 }
 
 /** Shift a Date into local time so toISOString() renders local clock digits. */
@@ -81,7 +81,7 @@ function buildLoggerName(accountId?: string): string {
 }
 
 function writeLog(level: string, message: string, accountId?: string): void {
-  const levelId = LEVEL_IDS[level] ?? LEVEL_IDS.INFO;
+  const levelId = LEVEL_IDS[level] ?? LEVEL_IDS.INFO ?? 3;
   if (levelId < minLevelId) return;
 
   const now = new Date();
@@ -97,7 +97,7 @@ function writeLog(level: string, message: string, accountId?: string): void {
       name: loggerName,
       parentNames: PARENT_NAMES,
       date: now.toISOString(),
-      logLevelId: LEVEL_IDS[level] ?? LEVEL_IDS.INFO,
+      logLevelId: levelId,
       logLevelName: level,
     },
     time: toLocalISO(now),

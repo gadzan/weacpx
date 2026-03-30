@@ -2,6 +2,7 @@ export interface StreamingPromptState {
   buffer: string;
   segments: string[];
   hasAgentMessage: boolean;
+  pendingLine: string;
   finalize: () => string;
 }
 
@@ -23,12 +24,28 @@ export function createStreamingPromptState(): StreamingPromptState {
     buffer: "",
     segments: [],
     hasAgentMessage: false,
+    pendingLine: "",
     finalize(): string {
+      if (this.pendingLine.trim().length > 0) {
+        parseStreamingChunks(this, this.pendingLine);
+      }
       const remaining = this.buffer.trim();
       this.buffer = "";
+      this.pendingLine = "";
       return remaining;
     },
   };
+}
+
+export function parseStreamingDataChunk(state: StreamingPromptState, chunk: string): void {
+  state.pendingLine += chunk;
+
+  let boundary: number;
+  while ((boundary = state.pendingLine.indexOf("\n")) !== -1) {
+    const line = state.pendingLine.slice(0, boundary);
+    state.pendingLine = state.pendingLine.slice(boundary + 1);
+    parseStreamingChunks(state, line);
+  }
 }
 
 export function parseStreamingChunks(state: StreamingPromptState, line: string): void {

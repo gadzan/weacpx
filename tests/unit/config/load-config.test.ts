@@ -107,6 +107,88 @@ test("loads an optional transport session init timeout", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test("defaults transport permission policy to approve-all and fail", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-bridge", command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+        },
+      },
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.transport.permissionMode).toBe("approve-all");
+  expect(config.transport.nonInteractivePermissions).toBe("fail");
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("loads explicit transport permission policy", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: {
+        type: "acpx-bridge",
+        command: "acpx",
+        permissionMode: "approve-reads",
+        nonInteractivePermissions: "deny",
+      },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+        },
+      },
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.transport.permissionMode).toBe("approve-reads");
+  expect(config.transport.nonInteractivePermissions).toBe("deny");
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("loads allow for explicit non-interactive permissions", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: {
+        type: "acpx-bridge",
+        command: "acpx",
+        permissionMode: "approve-all",
+        nonInteractivePermissions: "allow",
+      },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+        },
+      },
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.transport.permissionMode).toBe("approve-all");
+  expect(config.transport.nonInteractivePermissions).toBe("allow");
+
+  await rm(dir, { recursive: true, force: true });
+});
+
 test("loads an optional raw agent command for non-codex agents", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
   const path = join(dir, "config.json");

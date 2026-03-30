@@ -153,6 +153,48 @@ test("parses agent removal", () => {
   });
 });
 
+test("parses permission status commands", () => {
+  expect(parseCommand("/pm")).toEqual({
+    kind: "permission.status",
+  });
+  expect(parseCommand("/permission")).toEqual({
+    kind: "permission.status",
+  });
+});
+
+test("parses permission mode update commands", () => {
+  expect(parseCommand("/pm set allow")).toEqual({
+    kind: "permission.mode.set",
+    mode: "approve-all",
+  });
+  expect(parseCommand("/pm set read")).toEqual({
+    kind: "permission.mode.set",
+    mode: "approve-reads",
+  });
+  expect(parseCommand("/pm set deny")).toEqual({
+    kind: "permission.mode.set",
+    mode: "deny-all",
+  });
+});
+
+test("parses permission auto commands", () => {
+  expect(parseCommand("/pm auto")).toEqual({
+    kind: "permission.auto.status",
+  });
+  expect(parseCommand("/pm auto allow")).toEqual({
+    kind: "permission.auto.set",
+    policy: "allow",
+  });
+  expect(parseCommand("/pm auto deny")).toEqual({
+    kind: "permission.auto.set",
+    policy: "deny",
+  });
+  expect(parseCommand("/pm auto fail")).toEqual({
+    kind: "permission.auto.set",
+    policy: "fail",
+  });
+});
+
 test("treats plain text as a prompt", () => {
   expect(parseCommand("fix the timeout issue")).toEqual({
     kind: "prompt",
@@ -188,5 +230,18 @@ test("returns invalid for /session new with wrong flag", () => {
     kind: "invalid",
     text: "/session new demo --xyz value",
     recognizedCommand: "/session",
+  });
+});
+
+test("returns invalid for malformed permission commands", () => {
+  expect(parseCommand("/permission set foo")).toEqual({
+    kind: "invalid",
+    text: "/permission set foo",
+    recognizedCommand: "/permission",
+  });
+  expect(parseCommand("/permission auto maybe")).toEqual({
+    kind: "invalid",
+    text: "/permission auto maybe",
+    recognizedCommand: "/permission",
   });
 });

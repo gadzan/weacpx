@@ -32,6 +32,9 @@ test("ensures a session with raw agent command by invoking acpx with the normal 
     "quiet",
     "--cwd",
     "/tmp/backend",
+    "--approve-all",
+    "--non-interactive-permissions",
+    "fail",
     "--agent",
     "./node_modules/.bin/codex-acp",
     "sessions",
@@ -57,6 +60,9 @@ test("runs a resolved JavaScript acpx entry with the current node executable", a
     "quiet",
     "--cwd",
     "/tmp/backend",
+    "--approve-all",
+    "--non-interactive-permissions",
+    "fail",
     "--agent",
     "./node_modules/.bin/codex-acp",
     "sessions",
@@ -80,6 +86,9 @@ test("uses 120 seconds as the default raw-command session creation timeout", asy
     "quiet",
     "--cwd",
     "/tmp/backend",
+    "--approve-all",
+    "--non-interactive-permissions",
+    "fail",
     "--agent",
     "./node_modules/.bin/codex-acp",
     "sessions",
@@ -104,6 +113,9 @@ test("keeps using PTY for alias-based session creation", async () => {
     "quiet",
     "--cwd",
     "/tmp/backend",
+    "--approve-all",
+    "--non-interactive-permissions",
+    "fail",
     "codex",
     "sessions",
     "new",
@@ -129,7 +141,7 @@ test("fails fast when session creation does not finish before the timeout", asyn
   );
 
   await expect(transport.ensureSession(session)).rejects.toThrow(
-    'acpx command timed out after 10ms: --agent ./node_modules/.bin/codex-acp sessions new --name "backend:api-fix"',
+    'acpx command timed out after 10ms: --approve-all --non-interactive-permissions fail --agent ./node_modules/.bin/codex-acp sessions new --name "backend:api-fix"',
   );
 });
 
@@ -142,6 +154,71 @@ test("uses the normal command runner for prompt and cancel", async () => {
 
   expect(run).toHaveBeenCalled();
   expect(runPty).not.toHaveBeenCalled();
+});
+
+test("passes default permission policy flags to prompt", async () => {
+  const run = mock(async () => ({
+    code: 0,
+    stdout: [
+      JSON.stringify({ jsonrpc: "2.0", id: 0, method: "initialize" }),
+      JSON.stringify({ jsonrpc: "2.0", id: 2, result: { stopReason: "end_turn" } }),
+    ].join("\n"),
+    stderr: "",
+  }));
+  const transport = new AcpxCliTransport({ command: "acpx" }, run);
+
+  await transport.prompt(session, "hello");
+
+  expect(run).toHaveBeenCalledWith("acpx", [
+    "--format",
+    "json",
+    "--json-strict",
+    "--cwd",
+    "/tmp/backend",
+    "--approve-all",
+    "--non-interactive-permissions",
+    "fail",
+    "--agent",
+    "./node_modules/.bin/codex-acp",
+    "prompt",
+    "-s",
+    "backend:api-fix",
+    "hello",
+  ]);
+});
+
+test("passes explicit permission policy flags to prompt", async () => {
+  const run = mock(async () => ({
+    code: 0,
+    stdout: [
+      JSON.stringify({ jsonrpc: "2.0", id: 0, method: "initialize" }),
+      JSON.stringify({ jsonrpc: "2.0", id: 2, result: { stopReason: "end_turn" } }),
+    ].join("\n"),
+    stderr: "",
+  }));
+  const transport = new AcpxCliTransport(
+    { command: "acpx", permissionMode: "approve-reads", nonInteractivePermissions: "deny" },
+    run,
+  );
+
+  await transport.prompt(session, "hello");
+
+  expect(run).toHaveBeenCalledWith("acpx", [
+    "--format",
+    "json",
+    "--json-strict",
+    "--cwd",
+    "/tmp/backend",
+    "--approve-reads",
+    "--non-interactive-permissions",
+    "deny",
+    "--agent",
+    "./node_modules/.bin/codex-acp",
+    "prompt",
+    "-s",
+    "backend:api-fix",
+    "hello",
+  ]);
 });
 
 test("invokes cancel for the resolved session", async () => {
@@ -158,6 +235,9 @@ test("invokes cancel for the resolved session", async () => {
     "quiet",
     "--cwd",
     "/tmp/backend",
+    "--approve-all",
+    "--non-interactive-permissions",
+    "fail",
     "--agent",
     "./node_modules/.bin/codex-acp",
     "cancel",
@@ -177,6 +257,9 @@ test("checks whether a named session exists", async () => {
     "quiet",
     "--cwd",
     "/tmp/backend",
+    "--approve-all",
+    "--non-interactive-permissions",
+    "fail",
     "--agent",
     "./node_modules/.bin/codex-acp",
     "sessions",
@@ -312,6 +395,9 @@ test("returns only the last non-empty agent message segment after a non-message 
     "--json-strict",
     "--cwd",
     "/tmp/backend",
+    "--approve-all",
+    "--non-interactive-permissions",
+    "fail",
     "--agent",
     "./node_modules/.bin/codex-acp",
     "prompt",

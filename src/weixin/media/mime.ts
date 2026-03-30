@@ -60,7 +60,7 @@ export function getMimeFromFilename(filename: string): string {
 
 /** Get file extension from MIME type. Returns ".bin" for unknown types. */
 export function getExtensionFromMime(mimeType: string): string {
-  const ct = mimeType.split(";")[0].trim().toLowerCase();
+  const ct = (mimeType.split(";")[0] ?? "").trim().toLowerCase();
   return MIME_TO_EXTENSION[ct] ?? ".bin";
 }
 
