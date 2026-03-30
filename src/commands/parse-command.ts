@@ -13,6 +13,7 @@ export type ParsedCommand =
   | { kind: "sessions" }
   | { kind: "status" }
   | { kind: "cancel" }
+  | { kind: "session.reset" }
   | { kind: "session.use"; alias: string }
   | { kind: "session.new"; alias: string; agent: string; workspace: string }
   | { kind: "session.shortcut"; agent: string; cwd: string }
@@ -36,9 +37,11 @@ export function parseCommand(input: string): ParsedCommand {
   if (command === "/sessions") return { kind: "sessions" };
   if (command === "/status") return { kind: "status" };
   if (command === "/cancel") return { kind: "cancel" };
+  if (command === "/clear") return { kind: "session.reset" };
   if (command === "/permission" && parts.length === 1) return { kind: "permission.status" };
   if (command === "/session" && parts.length === 1) return { kind: "sessions" };
   if (command === "/workspace" && parts.length === 1) return { kind: "workspaces" };
+  if (command === "/session" && parts[1] === "reset" && parts.length === 2) return { kind: "session.reset" };
 
   if (command === "/permission" && parts[1] === "set") {
     const mode = toPermissionMode(parts[2] ?? "");
@@ -113,7 +116,7 @@ export function parseCommand(input: string): ParsedCommand {
     }
   }
 
-  if (command === "/session" && parts[1] && parts[1] !== "new" && parts[1] !== "attach") {
+  if (command === "/session" && parts[1] && parts[1] !== "new" && parts[1] !== "attach" && parts[1] !== "reset") {
     const cwd = readFlagValue(parts, ["--cwd", "-d"]);
     if (cwd) {
       return { kind: "session.shortcut", agent: parts[1], cwd };
@@ -179,6 +182,7 @@ const RECOGNIZED_COMMANDS = new Set([
   "/sessions",
   "/status",
   "/cancel",
+  "/clear",
   "/permission",
   "/session",
   "/workspace",

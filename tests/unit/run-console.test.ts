@@ -187,3 +187,64 @@ test("still stops daemon runtime when dispose fails", async () => {
 
   expect(events).toEqual(["daemon:start", "sdk:start", "dispose", "daemon:stop"]);
 });
+
+test("handles SIGINT by aborting the sdk start and running cleanup", async () => {
+  const events: string[] = [];
+  const signalHandlers = new Map<string, () => void>();
+
+  await runConsole(
+    {
+      configPath: "/cfg",
+      statePath: "/state",
+    },
+    {
+      buildApp: async () => ({
+        agent: {} as never,
+        router: {} as never,
+        sessions: {} as never,
+        stateStore: {} as never,
+        configStore: {} as never,
+        dispose: async () => {
+          events.push("dispose");
+        },
+      }),
+      loadWeixinSdk: async () => ({
+        isLoggedIn: () => true,
+        start: async (_agent, options) => {
+          events.push("sdk:start");
+          await new Promise<void>((resolve) => {
+            options?.abortSignal?.addEventListener(
+              "abort",
+              () => {
+                events.push("sdk:abort");
+                resolve();
+              },
+              { once: true },
+            );
+            signalHandlers.get("SIGINT")?.();
+          });
+        },
+      }),
+      daemonRuntime: {
+        start: async () => {
+          events.push("daemon:start");
+        },
+        heartbeat: async () => {},
+        stop: async () => {
+          events.push("daemon:stop");
+        },
+      },
+      addProcessListener: (signal, handler) => {
+        signalHandlers.set(signal, handler);
+      },
+      removeProcessListener: (signal, handler) => {
+        if (signalHandlers.get(signal) === handler) {
+          signalHandlers.delete(signal);
+        }
+      },
+    },
+  );
+
+  expect(events).toEqual(["daemon:start", "sdk:start", "sdk:abort", "dispose", "daemon:stop"]);
+  expect(signalHandlers.size).toBe(0);
+});

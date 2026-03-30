@@ -155,14 +155,17 @@ bun run dev
 | `/ss attach <alias> -a <name> --ws <name> --name <transport-session>` | 恢复已存在的会话 |
 | `/use <alias>` | 切换当前会话 |
 | `/status` | 查看当前会话状态 |
+| `/session reset` | 重置当前会话上下文，保留 alias/agent/workspace，但重新绑定到一个新的后端 session |
+| `/clear` | `/session reset` 的快捷别名 |
 | `/cancel` | 取消当前会话 |
-| `/stop` | 停止当前会话 |
+| `/stop` | `/cancel` 的别名，用于取消当前会话 |
 
 说明：
 
 - `/ss <agent> -d <path>` 是最常用入口，会自动按目录名推导并创建或复用 workspace，再创建或复用 session
 - `/ss new <agent> -d <path>` 表示强制新建 session
 - `/use <alias>` 用来切换当前会话
+- `/session reset` 和 `/clear` 会保留当前逻辑会话名，但重新创建一个新的后端 session，从空上下文重新开始
 - 非 `/` 开头的文本会发送到当前 session
 
 ### 权限策略
@@ -221,7 +224,7 @@ bun run dev
 
 | 命令 | 说明 |
 |------|------|
-| `/clear` | 清除当前聊天会话，上下文重新开始 |
+| `/clear` | 重置当前聊天绑定的会话上下文，效果等同于 `/session reset` |
 | `/logout` | 清除当前机器上已保存的所有微信账号凭证 |
 
 说明：

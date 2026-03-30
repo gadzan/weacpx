@@ -156,6 +156,78 @@ test("stop handles missing pid file gracefully", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test("stop waits for the daemon process to exit before clearing runtime files", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-daemon-controller-"));
+  await writeFile(join(dir, "daemon.pid"), "12345\n");
+  await new DaemonStatusStore(join(dir, "status.json")).save({
+    pid: 12345,
+    started_at: "2026-03-26T00:00:00.000Z",
+    heartbeat_at: "2026-03-26T00:01:00.000Z",
+    config_path: "/cfg",
+    state_path: "/state",
+    app_log: "/app",
+    stdout_log: "/out",
+    stderr_log: "/err",
+  });
+
+  let terminated = false;
+  let polls = 0;
+  const controller = createController(dir, {
+    isProcessRunning: () => !terminated || polls < 2,
+    terminateProcess: async () => {
+      terminated = true;
+    },
+    shutdownPollIntervalMs: 5,
+    shutdownTimeoutMs: 50,
+    onShutdownPoll: async () => {
+      polls += 1;
+    },
+  });
+
+  await expect(controller.stop()).resolves.toEqual({
+    state: "stopped",
+    detail: "stopped",
+  });
+  expect(polls).toBeGreaterThan(0);
+  await expect(Bun.file(join(dir, "daemon.pid")).exists()).resolves.toBe(false);
+  await expect(Bun.file(join(dir, "status.json")).exists()).resolves.toBe(false);
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("stop preserves runtime files when the daemon does not exit", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-daemon-controller-"));
+  await writeFile(join(dir, "daemon.pid"), "12345\n");
+  await new DaemonStatusStore(join(dir, "status.json")).save({
+    pid: 12345,
+    started_at: "2026-03-26T00:00:00.000Z",
+    heartbeat_at: "2026-03-26T00:01:00.000Z",
+    config_path: "/cfg",
+    state_path: "/state",
+    app_log: "/app",
+    stdout_log: "/out",
+    stderr_log: "/err",
+  });
+
+  let polls = 0;
+  const controller = createController(dir, {
+    isProcessRunning: () => true,
+    terminateProcess: async () => {},
+    shutdownPollIntervalMs: 5,
+    shutdownTimeoutMs: 20,
+    onShutdownPoll: async () => {
+      polls += 1;
+    },
+  });
+
+  await expect(controller.stop()).rejects.toThrow("weacpx daemon did not exit within 20ms");
+  expect(polls).toBeGreaterThan(0);
+  await expect(Bun.file(join(dir, "daemon.pid")).exists()).resolves.toBe(true);
+  await expect(Bun.file(join(dir, "status.json")).exists()).resolves.toBe(true);
+
+  await rm(dir, { recursive: true, force: true });
+});
+
 function createController(
   runtimeDir: string,
   overrides: Partial<ControllerDeps> = {},
@@ -176,6 +248,9 @@ function createController(
     startupPollIntervalMs: overrides.startupPollIntervalMs ?? 1,
     startupTimeoutMs: overrides.startupTimeoutMs ?? 50,
     onStartupPoll: overrides.onStartupPoll ?? (async () => {}),
+    shutdownPollIntervalMs: overrides.shutdownPollIntervalMs ?? 1,
+    shutdownTimeoutMs: overrides.shutdownTimeoutMs ?? 50,
+    onShutdownPoll: overrides.onShutdownPoll ?? (async () => {}),
   });
 }
 
@@ -186,4 +261,7 @@ interface ControllerDeps {
   startupPollIntervalMs: number;
   startupTimeoutMs: number;
   onStartupPoll: () => Promise<void>;
+  shutdownPollIntervalMs: number;
+  shutdownTimeoutMs: number;
+  onShutdownPoll: () => Promise<void>;
 }

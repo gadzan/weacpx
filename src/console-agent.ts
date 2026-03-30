@@ -4,6 +4,7 @@ import { createNoopAppLogger } from "./logging/app-logger";
 
 interface RouterLike {
   handle(chatKey: string, input: string, reply?: (text: string) => Promise<void>): Promise<ChatResponse>;
+  clearSession?: (chatKey: string) => Promise<void>;
 }
 
 export class ConsoleAgent implements WechatAgent {
@@ -25,6 +26,10 @@ export class ConsoleAgent implements WechatAgent {
     });
 
     return await this.router.handle(request.conversationId, request.text, request.reply);
+  }
+
+  async clearSession(conversationId: string): Promise<void> {
+    await this.router.clearSession?.(conversationId);
   }
 }
 

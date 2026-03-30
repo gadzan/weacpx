@@ -11,6 +11,9 @@ interface DaemonControllerDeps {
   startupPollIntervalMs?: number;
   startupTimeoutMs?: number;
   onStartupPoll?: () => Promise<void>;
+  shutdownPollIntervalMs?: number;
+  shutdownTimeoutMs?: number;
+  onShutdownPoll?: () => Promise<void>;
 }
 
 type DaemonState =
@@ -23,6 +26,9 @@ export class DaemonController {
   private readonly startupPollIntervalMs: number;
   private readonly startupTimeoutMs: number;
   private readonly onStartupPoll: () => Promise<void>;
+  private readonly shutdownPollIntervalMs: number;
+  private readonly shutdownTimeoutMs: number;
+  private readonly onShutdownPoll: () => Promise<void>;
 
   constructor(
     private readonly paths: DaemonPaths,
@@ -31,8 +37,13 @@ export class DaemonController {
     this.statusStore = new DaemonStatusStore(paths.statusFile);
     this.startupPollIntervalMs = deps.startupPollIntervalMs ?? 50;
     this.startupTimeoutMs = deps.startupTimeoutMs ?? 5_000;
+    this.shutdownPollIntervalMs = deps.shutdownPollIntervalMs ?? 50;
+    this.shutdownTimeoutMs = deps.shutdownTimeoutMs ?? 5_000;
     this.onStartupPoll = deps.onStartupPoll ?? (async () => {
       await new Promise((resolve) => setTimeout(resolve, this.startupPollIntervalMs));
+    });
+    this.onShutdownPoll = deps.onShutdownPoll ?? (async () => {
+      await new Promise((resolve) => setTimeout(resolve, this.shutdownPollIntervalMs));
     });
   }
 
@@ -84,6 +95,7 @@ export class DaemonController {
 
     if (this.deps.isProcessRunning(pid)) {
       await this.deps.terminateProcess(pid);
+      await this.waitForShutdown(pid);
     }
 
     await this.clearRuntimeFiles();
@@ -130,5 +142,22 @@ export class DaemonController {
     }
 
     throw new Error(`weacpx daemon did not report ready state within ${this.startupTimeoutMs}ms (pid ${pid})`);
+  }
+
+  private async waitForShutdown(pid: number): Promise<void> {
+    const deadline = Date.now() + this.shutdownTimeoutMs;
+    while (Date.now() < deadline) {
+      if (!this.deps.isProcessRunning(pid)) {
+        return;
+      }
+
+      await this.onShutdownPoll();
+    }
+
+    if (!this.deps.isProcessRunning(pid)) {
+      return;
+    }
+
+    throw new Error(`weacpx daemon did not exit within ${this.shutdownTimeoutMs}ms (pid ${pid})`);
   }
 }

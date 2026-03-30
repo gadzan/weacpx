@@ -254,6 +254,8 @@ export class CommandRouter {
             return this.renderTransportError(session, error);
           }
         }
+        case "session.reset":
+          return await this.resetCurrentSession(chatKey);
         case "prompt": {
           const session = await this.sessions.getCurrentSession(chatKey);
           if (!session) {
@@ -268,6 +270,10 @@ export class CommandRouter {
         }
       }
     });
+  }
+
+  async clearSession(chatKey: string): Promise<void> {
+    await this.resetCurrentSession(chatKey);
   }
 
   private async handleSessionShortcut(
@@ -499,6 +505,56 @@ export class CommandRouter {
 
   private async ensureTransportSession(session: ResolvedSession): Promise<void> {
     await this.measureTransportCall("ensure_session", session, () => this.transport.ensureSession(session));
+  }
+
+  private async resetCurrentSession(chatKey: string): Promise<RouterResponse> {
+    const session = await this.sessions.getCurrentSession(chatKey);
+    if (!session) {
+      return { text: "当前还没有选中的会话。请先执行 /session new ... 或 /use <alias>。" };
+    }
+
+    const resetSession = this.sessions.resolveSession(
+      session.alias,
+      session.agent,
+      session.workspace,
+      this.buildResetTransportSessionName(session),
+    );
+
+    try {
+      await this.ensureTransportSession(resetSession);
+      const exists = await this.checkTransportSession(resetSession);
+      if (!exists) {
+        return {
+          text: [
+            `会话「${session.alias}」重置失败。`,
+            "新的后端会话未创建成功，请稍后重试。",
+          ].join("\n"),
+        };
+      }
+    } catch (error) {
+      return this.renderTransportError(resetSession, error);
+    }
+
+    await this.sessions.attachSession(
+      resetSession.alias,
+      resetSession.agent,
+      resetSession.workspace,
+      resetSession.transportSession,
+    );
+    await this.sessions.useSession(chatKey, resetSession.alias);
+    await this.logger.info("session.reset", "reset current logical session", {
+      alias: resetSession.alias,
+      agent: resetSession.agent,
+      workspace: resetSession.workspace,
+      transportSession: resetSession.transportSession,
+      chatKey,
+    });
+
+    return { text: `会话「${resetSession.alias}」已重置` };
+  }
+
+  private buildResetTransportSessionName(session: ResolvedSession): string {
+    return `${session.workspace}:${session.alias}:reset-${Date.now()}`;
   }
 
   private async checkTransportSession(session: ResolvedSession): Promise<boolean> {

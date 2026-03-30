@@ -139,6 +139,15 @@ test("parses stop as cancel", () => {
   });
 });
 
+test("parses session reset and clear aliases", () => {
+  expect(parseCommand("/session reset")).toEqual({
+    kind: "session.reset",
+  });
+  expect(parseCommand("/clear")).toEqual({
+    kind: "session.reset",
+  });
+});
+
 test("parses agent template registration", () => {
   expect(parseCommand("/agent add claude")).toEqual({
     kind: "agent.add",

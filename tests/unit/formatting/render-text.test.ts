@@ -42,6 +42,8 @@ test("renders help text in Chinese", () => {
   expect(renderHelpText()).toContain("/pm set <allow|read|deny>");
   expect(renderHelpText()).toContain("/pm auto [allow|deny|fail]");
   expect(renderHelpText()).toContain("/stop");
+  expect(renderHelpText()).toContain("/session reset");
+  expect(renderHelpText()).toContain("/clear");
 });
 
 test("renders agents in Chinese", () => {

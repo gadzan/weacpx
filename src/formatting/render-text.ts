@@ -22,6 +22,7 @@ export function renderHelpText(): string {
     "/use <alias>",
     "/status",
     "/cancel 或 /stop",
+    "/session reset 或 /clear",
   ].join("\n");
 }
 
