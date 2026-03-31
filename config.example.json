@@ -1,7 +1,9 @@
 {
   "transport": {
     "type": "acpx-bridge",
-    "sessionInitTimeoutMs": 120000
+    "sessionInitTimeoutMs": 120000,
+    "permissionMode": "approve-all",
+    "nonInteractivePermissions": "fail"
   },
   "logging": {
     "level": "info",

@@ -99,6 +99,28 @@ export class BridgeRuntime {
     return { text: getPromptText(result) };
   }
 
+  async setMode(input: {
+    agent: string;
+    agentCommand?: string;
+    cwd: string;
+    name: string;
+    modeId: string;
+  }): Promise<Record<string, never>> {
+    const spawnSpec = resolveSpawnCommand(this.command, this.buildSessionArgs(input, [
+      "set-mode",
+      "-s",
+      input.name,
+      input.modeId,
+    ]));
+    const result = await this.run(spawnSpec.command, spawnSpec.args);
+
+    if (result.code !== 0) {
+      throw new Error(result.stderr || result.stdout || "set-mode failed");
+    }
+
+    return {};
+  }
+
   async cancel(input: {
     agent: string;
     agentCommand?: string;

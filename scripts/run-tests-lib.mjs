@@ -5,6 +5,16 @@ export function collectTests(rootDir, listEntries = defaultListEntries) {
   return walk(rootDir, listEntries).map((file) => resolve(file));
 }
 
+export function buildTestPlan(rootDir, collect = collectTests) {
+  return [
+    { command: "npx", args: ["tsc", "--noEmit"] },
+    ...collect(rootDir).map((file) => ({
+      command: "bun",
+      args: ["test", file],
+    })),
+  ];
+}
+
 function walk(dir, listEntries) {
   const files = [];
 

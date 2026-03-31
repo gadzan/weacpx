@@ -19,6 +19,13 @@ export class AcpxBridgeTransport implements SessionTransport {
     });
   }
 
+  async setMode(session: ResolvedSession, modeId: string): Promise<void> {
+    await this.client.request("setMode", {
+      ...this.toParams(session),
+      modeId,
+    });
+  }
+
   async cancel(session: ResolvedSession): Promise<{ cancelled: boolean; message: string }> {
     return await this.client.request("cancel", this.toParams(session));
   }

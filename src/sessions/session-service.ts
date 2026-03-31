@@ -29,6 +29,7 @@ export class SessionService {
       agent,
       workspace,
       transport_session: transportSession,
+      transport_agent_command: this.state.sessions[alias]?.transport_agent_command,
       created_at: this.state.sessions[alias]?.created_at ?? new Date().toISOString(),
       last_used_at: new Date().toISOString(),
     });
@@ -39,8 +40,18 @@ export class SessionService {
     agent: string,
     workspace: string,
     transportSession: string,
+    transportAgentCommand?: string,
   ): Promise<ResolvedSession> {
-    return await this.createLogicalSession(alias, agent, workspace, transportSession);
+    return await this.createLogicalSession(alias, agent, workspace, transportSession, transportAgentCommand);
+  }
+
+  async getSession(alias: string): Promise<ResolvedSession | null> {
+    const session = this.state.sessions[alias];
+    if (!session) {
+      return null;
+    }
+
+    return this.toResolvedSession(session);
   }
 
   async useSession(chatKey: string, alias: string): Promise<void> {
@@ -51,6 +62,28 @@ export class SessionService {
 
     session.last_used_at = new Date().toISOString();
     this.state.chat_contexts[chatKey] = { current_session: alias };
+    await this.persist();
+  }
+
+  async setCurrentSessionMode(chatKey: string, modeId: string | undefined): Promise<void> {
+    const currentAlias = this.state.chat_contexts[chatKey]?.current_session;
+    if (!currentAlias) {
+      throw new Error("no current session selected");
+    }
+
+    const session = this.state.sessions[currentAlias];
+    if (!session) {
+      throw new Error("no current session selected");
+    }
+
+    const normalizedModeId = modeId?.trim();
+    if (normalizedModeId) {
+      session.mode_id = normalizedModeId;
+    } else {
+      delete session.mode_id;
+    }
+
+    session.last_used_at = new Date().toISOString();
     await this.persist();
   }
 
@@ -85,11 +118,29 @@ export class SessionService {
     return {
       alias: session.alias,
       agent: session.agent,
-      agentCommand: resolveAgentCommand(agentConfig.driver, agentConfig.command),
+      agentCommand: session.transport_agent_command ?? resolveAgentCommand(agentConfig.driver, agentConfig.command),
       workspace: session.workspace,
       transportSession: session.transport_session,
+      modeId: session.mode_id,
       cwd: this.config.workspaces[session.workspace]!.cwd,
     };
+  }
+
+  async setSessionTransportAgentCommand(alias: string, transportAgentCommand: string | undefined): Promise<void> {
+    const session = this.state.sessions[alias];
+    if (!session) {
+      throw new Error(`session "${alias}" does not exist`);
+    }
+
+    const normalized = transportAgentCommand?.trim();
+    if (normalized) {
+      session.transport_agent_command = normalized;
+    } else {
+      delete session.transport_agent_command;
+    }
+
+    session.last_used_at = new Date().toISOString();
+    await this.persist();
   }
 
   private async persist(): Promise<void> {
@@ -101,15 +152,23 @@ export class SessionService {
     agent: string,
     workspace: string,
     transportSession: string,
+    transportAgentCommand?: string,
   ): Promise<ResolvedSession> {
     this.validateSession(alias, agent, workspace);
     const existingSession = this.state.sessions[alias];
     const now = new Date().toISOString();
+    const normalizedTransportAgentCommand = transportAgentCommand?.trim();
     const session: LogicalSession = {
       alias,
       agent,
       workspace,
       transport_session: transportSession,
+      ...(normalizedTransportAgentCommand
+        ? { transport_agent_command: normalizedTransportAgentCommand }
+        : existingSession?.transport_agent_command
+          ? { transport_agent_command: existingSession.transport_agent_command }
+          : {}),
+      mode_id: existingSession?.mode_id,
       created_at: existingSession?.created_at ?? now,
       last_used_at: now,
     };

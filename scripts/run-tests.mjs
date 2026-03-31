@@ -1,20 +1,20 @@
 import { spawn } from "node:child_process";
 
-import { collectTests } from "./run-tests-lib.mjs";
+import { buildTestPlan } from "./run-tests-lib.mjs";
 
 const root = process.argv[2] ?? "tests/unit";
-const testFiles = collectTests(root);
+const plan = buildTestPlan(root);
 
-for (const file of testFiles) {
-  const code = await runOne(file);
+for (const step of plan) {
+  const code = await runOne(step.command, step.args);
   if (code !== 0) {
     process.exit(code ?? 1);
   }
 }
 
-async function runOne(file) {
+async function runOne(command, args) {
   return await new Promise((resolve) => {
-    const child = spawn("bun", ["test", file], {
+    const child = spawn(command, args, {
       stdio: "inherit",
     });
 

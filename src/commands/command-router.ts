@@ -11,6 +11,7 @@ import { createNoopAppLogger } from "../logging/app-logger";
 import type { SessionService } from "../sessions/session-service";
 import type { SessionTransport } from "../transport/types";
 import type { ResolvedSession } from "../transport/types";
+import { resolveSessionAgentCommandFromIndex, type SessionAgentCommandResolver } from "../transport/acpx-session-index";
 import { PromptCommandError } from "../transport/prompt-output";
 import { parseCommand } from "./parse-command";
 
@@ -36,6 +37,7 @@ export class CommandRouter {
       "upsertWorkspace" | "removeWorkspace" | "upsertAgent" | "removeAgent" | "updateTransport"
     >,
     logger?: AppLogger,
+    private readonly resolveSessionAgentCommand: SessionAgentCommandResolver = resolveSessionAgentCommandFromIndex,
   ) {
     this.logger = logger ?? createNoopAppLogger();
   }
@@ -178,6 +180,7 @@ export class CommandRouter {
             command.workspace,
             session.transportSession,
           );
+          await this.refreshSessionTransportAgentCommand(command.alias);
           await this.sessions.useSession(chatKey, command.alias);
           await this.logger.info("session.created", "created and selected logical session", {
             alias: command.alias,
@@ -212,6 +215,7 @@ export class CommandRouter {
             command.workspace,
             command.transportSession,
           );
+          await this.refreshSessionTransportAgentCommand(command.alias);
           await this.sessions.useSession(chatKey, command.alias);
           await this.logger.info("session.attached", "attached existing transport session", {
             alias: command.alias,
@@ -228,6 +232,28 @@ export class CommandRouter {
             chatKey,
           });
           return { text: `已切换到会话「${command.alias}」` };
+        case "mode.show": {
+          const session = await this.sessions.getCurrentSession(chatKey);
+          if (!session) {
+            return { text: "当前还没有选中的会话。请先执行 /session new ... 或 /use <alias>。" };
+          }
+          return {
+            text: [
+              "当前 mode：",
+              `- 会话：${session.alias}`,
+              `- mode：${session.modeId ?? "未设置"}`,
+            ].join("\n"),
+          };
+        }
+        case "mode.set": {
+          const session = await this.sessions.getCurrentSession(chatKey);
+          if (!session) {
+            return { text: "当前还没有选中的会话。请先执行 /session new ... 或 /use <alias>。" };
+          }
+          await this.setModeTransportSession(session, command.modeId);
+          await this.sessions.setCurrentSessionMode(chatKey, command.modeId);
+          return { text: `已设置当前会话 mode：${command.modeId}` };
+        }
         case "status": {
           const session = await this.sessions.getCurrentSession(chatKey);
           if (!session) {
@@ -265,6 +291,11 @@ export class CommandRouter {
             const result = await this.promptTransportSession(session, command.text, reply);
             return { text: result.text };
           } catch (error) {
+            const recovered = await this.tryRecoverMissingSession(session, error);
+            if (recovered) {
+              const result = await this.promptTransportSession(recovered, command.text, reply);
+              return { text: result.text };
+            }
             return this.renderTransportError(session, error);
           }
         }
@@ -330,6 +361,7 @@ export class CommandRouter {
     }
 
     await this.sessions.attachSession(alias, agent, workspace.name, session.transportSession);
+    await this.refreshSessionTransportAgentCommand(alias);
     await this.sessions.useSession(chatKey, alias);
     await this.logger.info("session.shortcut.created", "created new logical session from shortcut", {
       alias,
@@ -541,6 +573,7 @@ export class CommandRouter {
       resetSession.workspace,
       resetSession.transportSession,
     );
+    await this.refreshSessionTransportAgentCommand(resetSession.alias);
     await this.sessions.useSession(chatKey, resetSession.alias);
     await this.logger.info("session.reset", "reset current logical session", {
       alias: resetSession.alias,
@@ -565,8 +598,41 @@ export class CommandRouter {
     return await this.measureTransportCall("prompt", session, () => this.transport.prompt(session, text, reply));
   }
 
+  private async setModeTransportSession(session: ResolvedSession, modeId: string) {
+    return await this.measureTransportCall("set_mode", session, () => this.transport.setMode(session, modeId));
+  }
+
   private async cancelTransportSession(session: ResolvedSession) {
     return await this.measureTransportCall("cancel", session, () => this.transport.cancel(session));
+  }
+
+  private async refreshSessionTransportAgentCommand(alias: string): Promise<void> {
+    const session = await this.sessions.getSession(alias);
+    if (!session) {
+      return;
+    }
+
+    const transportAgentCommand = await this.resolveSessionAgentCommand(session);
+    if (!transportAgentCommand) {
+      return;
+    }
+
+    await this.sessions.setSessionTransportAgentCommand(alias, transportAgentCommand);
+  }
+
+  private async tryRecoverMissingSession(session: ResolvedSession, error: unknown): Promise<ResolvedSession | null> {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("No acpx session found")) {
+      return null;
+    }
+
+    const transportAgentCommand = await this.resolveSessionAgentCommand(session);
+    if (!transportAgentCommand || transportAgentCommand === session.agentCommand) {
+      return null;
+    }
+
+    await this.sessions.setSessionTransportAgentCommand(session.alias, transportAgentCommand);
+    return await this.sessions.getSession(session.alias);
   }
 
   private async measureTransportCall<T>(

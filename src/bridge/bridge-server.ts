@@ -71,6 +71,14 @@ export class BridgeServer {
           name: String(params.name),
           text: String(params.text),
         });
+      case "setMode":
+        return await this.runtime.setMode({
+          agent: String(params.agent),
+          agentCommand: asOptionalString(params.agentCommand),
+          cwd: String(params.cwd),
+          name: String(params.name),
+          modeId: String(params.modeId),
+        });
       case "cancel":
         return await this.runtime.cancel({
           agent: String(params.agent),

@@ -57,3 +57,20 @@ test("proxies cancel through the bridge client", async () => {
     message: "cancelled",
   });
 });
+
+test("proxies setMode through the bridge client", async () => {
+  const request = mock(async () => ({}));
+  const transport = new AcpxBridgeTransport({
+    request,
+  });
+
+  await transport.setMode(session, "plan");
+
+  expect(request).toHaveBeenCalledWith("setMode", {
+    agent: "codex",
+    agentCommand: "./node_modules/.bin/codex-acp",
+    cwd: "/tmp/backend",
+    name: "backend:api-fix",
+    modeId: "plan",
+  });
+});

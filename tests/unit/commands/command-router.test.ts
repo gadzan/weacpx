@@ -86,6 +86,7 @@ function createTransport(): SessionTransport {
     prompt: mock(async (session: ResolvedSession, text: string) => ({
       text: `agent:${session.alias}:${text}`,
     })),
+    setMode: mock(async (_session: ResolvedSession, _modeId: string) => {}),
     cancel: mock(async () => ({
       cancelled: true,
       message: "cancelled",
@@ -101,6 +102,10 @@ function getPromptMock(transport: SessionTransport) {
 
 function getCancelMock(transport: SessionTransport) {
   return transport.cancel as ReturnType<typeof mock>;
+}
+
+function getSetModeMock(transport: SessionTransport) {
+  return transport.setMode as ReturnType<typeof mock>;
 }
 
 function basename(path: string): string {
@@ -122,6 +127,8 @@ function createLogger(events: string[]): AppLogger {
   };
 }
 
+type SessionAgentCommandResolver = (session: ResolvedSession) => Promise<string | undefined>;
+
 test("creates and selects a new session", async () => {
   const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
   const transport = createTransport();
@@ -130,6 +137,22 @@ test("creates and selects a new session", async () => {
   const reply = await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
 
   expect(reply.text).toBe('会话「api-fix」已创建并切换');
+});
+
+test("stores recovered transport agent command after session creation", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const resolveSessionAgentCommand: SessionAgentCommandResolver = async () => "npx @zed-industries/codex-acp@^0.9.5";
+  const router = new CommandRouter(sessions, transport, undefined, undefined, undefined, resolveSessionAgentCommand);
+
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
+  const session = await sessions.getCurrentSession("wx:user");
+
+  expect(session).toMatchObject({
+    alias: "api-fix",
+    transportSession: "backend:api-fix",
+    agentCommand: "npx @zed-industries/codex-acp@^0.9.5",
+  });
 });
 
 test("rejects session creation when acpx reports success but the named session is still missing", async () => {
@@ -703,6 +726,35 @@ test("renders a recovery hint when the current acpx session is missing", async (
   expect(reply.text).not.toContain("backend:api-fix");
 });
 
+test("recovers a missing session once after resolving transport agent command", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  getPromptMock(transport)
+    .mockImplementationOnce(async () => {
+      throw new Error(
+        "No acpx session found (searched up to /tmp/backend).\nCreate one: acpx codex sessions new --name backend:api-fix",
+      );
+    })
+    .mockImplementationOnce(async (session: ResolvedSession, text: string) => ({
+      text: `agent:${session.agentCommand}:${text}`,
+    }));
+  const resolveSessionAgentCommand = mock<SessionAgentCommandResolver>()
+    .mockImplementationOnce(async () => undefined)
+    .mockImplementationOnce(async () => "npx @zed-industries/codex-acp@^0.9.5");
+  const router = new CommandRouter(sessions, transport, undefined, undefined, undefined, resolveSessionAgentCommand);
+
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
+  const reply = await router.handle("wx:user", "hello");
+
+  expect(reply.text).toContain("npx @zed-industries/codex-acp@^0.9.5");
+  expect(getPromptMock(transport).mock.calls).toHaveLength(2);
+  expect(getPromptMock(transport).mock.calls.at(-1)?.[0]).toMatchObject({
+    alias: "api-fix",
+    transportSession: "backend:api-fix",
+    agentCommand: "npx @zed-industries/codex-acp@^0.9.5",
+  });
+});
+
 test("renders a generic failure hint when prompt stops after partial output", async () => {
   const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
   const transport = createTransport();
@@ -805,4 +857,44 @@ test("logs prompt diagnostics when transport fails with captured output", async 
   expect(events.some((entry) => entry.includes('"stderrPreview":"fatal"'))).toBe(true);
   expect(events.some((entry) => entry.includes('"stderrTailPreview":"fatal"'))).toBe(true);
   expect(events.some((entry) => entry.includes('"stderrLength":5'))).toBe(true);
+});
+
+test("shows the saved mode for the current session", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport);
+
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
+  await router.handle("wx:user", "/mode plan");
+
+  const reply = await router.handle("wx:user", "/mode");
+
+  expect(reply.text).toContain("plan");
+});
+
+test("sets the mode on the current session", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport);
+
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
+
+  const reply = await router.handle("wx:user", "/mode plan");
+
+  expect(reply.text).toContain("plan");
+  expect(getSetModeMock(transport)).toHaveBeenCalledWith(
+    expect.objectContaining({ alias: "api-fix", transportSession: "backend:api-fix" }),
+    "plan",
+  );
+});
+
+test("rejects mode commands when no session is selected", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport);
+
+  const reply = await router.handle("wx:user", "/mode");
+
+  expect(reply.text).toContain("/session new");
+  expect(reply.text).toContain("/use");
 });

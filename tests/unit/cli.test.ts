@@ -112,11 +112,11 @@ test("prints help for unknown commands", async () => {
 
   expect(lines).toEqual([
     "用法：",
-    "weacpx login",
-    "weacpx logout",
-    "weacpx run",
-    "weacpx start",
-    "weacpx status",
-    "weacpx stop",
+    "weacpx login  - 微信登录",
+    "weacpx logout - 退出登录",
+    "weacpx run    - 前台运行",
+    "weacpx start  - 后台启动",
+    "weacpx status - 查看状态",
+    "weacpx stop   - 停止服务",
   ]);
 });

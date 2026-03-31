@@ -1,4 +1,4 @@
-export type BridgeMethod = "ping" | "shutdown" | "ensureSession" | "hasSession" | "prompt" | "cancel";
+export type BridgeMethod = "ping" | "shutdown" | "ensureSession" | "hasSession" | "prompt" | "setMode" | "cancel";
 
 export interface BridgeRequest {
   id: string;

@@ -28,6 +28,7 @@ test("persists sessions and chat context", async () => {
         agent: "codex",
         workspace: "backend",
         transport_session: "backend:api-fix",
+        transport_agent_command: "npx @zed-industries/codex-acp@^0.9.5",
         created_at: "2026-03-24T10:00:00.000Z",
         last_used_at: "2026-03-24T10:00:00.000Z",
       },

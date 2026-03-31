@@ -64,6 +64,21 @@ test("attaches an existing transport session with a custom name", async () => {
   expect(session.cwd).toBe("/tmp/backend");
 });
 
+test("stores and resolves a session-level transport agent command", async () => {
+  const store = new MemoryStateStore();
+  const service = new SessionService(createConfig(), store, createEmptyState());
+
+  await service.attachSession("review", "codex", "backend", "existing-review");
+  await service.setSessionTransportAgentCommand("review", "npx @zed-industries/codex-acp@^0.9.5");
+  const session = await service.getSession("review");
+
+  expect(session).toMatchObject({
+    alias: "review",
+    transportSession: "existing-review",
+    agentCommand: "npx @zed-industries/codex-acp@^0.9.5",
+  });
+});
+
 test("rejects duplicate aliases", async () => {
   const store = new MemoryStateStore();
   const service = new SessionService(createConfig(), store, createEmptyState());
@@ -107,6 +122,20 @@ test("sets and resolves current session by chat key", async () => {
   await expect(service.getCurrentSession("wx:user")).resolves.toMatchObject({
     alias: "api-fix",
     transportSession: "backend:api-fix",
+  });
+});
+
+test("stores and resolves the current session mode", async () => {
+  const store = new MemoryStateStore();
+  const service = new SessionService(createConfig(), store, createEmptyState());
+
+  await service.createSession("api-fix", "codex", "backend");
+  await service.useSession("wx:user", "api-fix");
+  await service.setCurrentSessionMode("wx:user", "plan");
+
+  await expect(service.getCurrentSession("wx:user")).resolves.toMatchObject({
+    alias: "api-fix",
+    modeId: "plan",
   });
 });
 

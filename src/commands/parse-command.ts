@@ -14,6 +14,8 @@ export type ParsedCommand =
   | { kind: "status" }
   | { kind: "cancel" }
   | { kind: "session.reset" }
+  | { kind: "mode.show" }
+  | { kind: "mode.set"; modeId: string }
   | { kind: "session.use"; alias: string }
   | { kind: "session.new"; alias: string; agent: string; workspace: string }
   | { kind: "session.shortcut"; agent: string; cwd: string }
@@ -38,6 +40,7 @@ export function parseCommand(input: string): ParsedCommand {
   if (command === "/status") return { kind: "status" };
   if (command === "/cancel") return { kind: "cancel" };
   if (command === "/clear") return { kind: "session.reset" };
+  if (command === "/mode" && parts.length === 1) return { kind: "mode.show" };
   if (command === "/permission" && parts.length === 1) return { kind: "permission.status" };
   if (command === "/session" && parts.length === 1) return { kind: "sessions" };
   if (command === "/workspace" && parts.length === 1) return { kind: "workspaces" };
@@ -63,6 +66,10 @@ export function parseCommand(input: string): ParsedCommand {
 
   if (command === "/use" && parts[1]) {
     return { kind: "session.use", alias: parts[1] };
+  }
+
+  if (command === "/mode" && parts[1]) {
+    return { kind: "mode.set", modeId: parts[1] };
   }
 
   if (command === "/agent" && parts[1] === "add" && parts[2]) {
@@ -183,6 +190,7 @@ const RECOGNIZED_COMMANDS = new Set([
   "/status",
   "/cancel",
   "/clear",
+  "/mode",
   "/permission",
   "/session",
   "/workspace",

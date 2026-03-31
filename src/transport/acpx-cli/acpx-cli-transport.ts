@@ -142,6 +142,15 @@ export class AcpxCliTransport implements SessionTransport {
     return { text: getPromptText(result) };
   }
 
+  async setMode(session: ResolvedSession, modeId: string): Promise<void> {
+    await this.run(this.buildArgs(session, [
+      "set-mode",
+      "-s",
+      session.transportSession,
+      modeId,
+    ]));
+  }
+
   async cancel(session: ResolvedSession): Promise<{ cancelled: boolean; message: string }> {
     const output = await this.run(this.buildArgs(session, [
       "cancel",

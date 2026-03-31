@@ -49,7 +49,15 @@ interface CliDeps {
   print?: (line: string) => void;
 }
 
-const HELP_LINES = ["用法：", "weacpx login", "weacpx logout", "weacpx run", "weacpx start", "weacpx status", "weacpx stop"];
+const HELP_LINES = [
+  "用法：",
+  "weacpx login  - 微信登录",
+  "weacpx logout - 退出登录",
+  "weacpx run    - 前台运行",
+  "weacpx start  - 后台启动",
+  "weacpx status - 查看状态",
+  "weacpx stop   - 停止服务",
+];
 
 export async function runCli(args: string[], deps: CliDeps = {}): Promise<number> {
   const command = args[0];
@@ -172,3 +180,5 @@ function resolveCliEntryPath(): string {
 if (import.meta.main) {
   process.exitCode = await runCli(process.argv.slice(2));
 }
+
+

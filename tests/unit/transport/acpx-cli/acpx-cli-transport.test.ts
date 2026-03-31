@@ -156,6 +156,31 @@ test("uses the normal command runner for prompt and cancel", async () => {
   expect(runPty).not.toHaveBeenCalled();
 });
 
+test("uses the normal command runner for setMode", async () => {
+  const run = mock(async () => ({ code: 0, stdout: "mode set: plan", stderr: "" }));
+  const runPty = mock(async () => ({ code: 0, stdout: "", stderr: "" }));
+  const transport = new AcpxCliTransport({ command: "acpx" }, run, runPty);
+
+  await transport.setMode(session, "plan");
+
+  expect(run).toHaveBeenCalledWith("acpx", [
+    "--format",
+    "quiet",
+    "--cwd",
+    "/tmp/backend",
+    "--approve-all",
+    "--non-interactive-permissions",
+    "fail",
+    "--agent",
+    "./node_modules/.bin/codex-acp",
+    "set-mode",
+    "-s",
+    "backend:api-fix",
+    "plan",
+  ], undefined);
+  expect(runPty).not.toHaveBeenCalled();
+});
+
 test("passes default permission policy flags to prompt", async () => {
   const run = mock(async () => ({
     code: 0,

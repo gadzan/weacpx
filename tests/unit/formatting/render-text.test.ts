@@ -28,22 +28,28 @@ function createConfig(): AppConfig {
   };
 }
 
-test("renders help text in Chinese", () => {
-  expect(renderHelpText()).toContain("可用命令");
-  expect(renderHelpText()).toContain("/agent add <codex|claude>");
-  expect(renderHelpText()).toContain("/agent rm <name>");
-  expect(renderHelpText()).toContain("/ws");
-  expect(renderHelpText()).toContain("/ws new <name> -d <path>");
-  expect(renderHelpText()).toContain("/ss");
-  expect(renderHelpText()).toContain("/ss <agent> -d <path>");
-  expect(renderHelpText()).toContain("/ss new <agent> -d <path>");
-  expect(renderHelpText()).toContain("/ss new <alias> -a <name> --ws <name>");
-  expect(renderHelpText()).toContain("/pm 或 /permission");
-  expect(renderHelpText()).toContain("/pm set <allow|read|deny>");
-  expect(renderHelpText()).toContain("/pm auto [allow|deny|fail]");
-  expect(renderHelpText()).toContain("/stop");
-  expect(renderHelpText()).toContain("/session reset");
-  expect(renderHelpText()).toContain("/clear");
+test("renders grouped help text with beginner shortcuts first", () => {
+  const text = renderHelpText();
+  const lines = text.split("\n");
+
+  expect(lines.slice(0, 6)).toEqual([
+    "可用命令：",
+    "",
+    "先看这 3 个：",
+    "/ss new <agent> -d <path> - 新建会话",
+    "/use <alias> - 切会话",
+    "/status - 看状态",
+  ]);
+
+  expect(text).toContain("Agent：");
+  expect(text).toContain("/agents - 看 Agent");
+  expect(text).toContain("/agent add <codex|claude> - 加 Agent");
+  expect(text).toContain("/agent rm <name> - 删 Agent");
+  expect(text).toContain("工作区：");
+  expect(text).toContain("会话：");
+  expect(text).toContain("权限：");
+  expect(text).toContain("常用：");
+  expect(text).toContain("/cancel 或 /stop - 停当前任务");
 });
 
 test("renders agents in Chinese", () => {

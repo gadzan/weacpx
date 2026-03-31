@@ -171,6 +171,16 @@ test("parses permission status commands", () => {
   });
 });
 
+test("parses mode show and set commands", () => {
+  expect(parseCommand("/mode")).toEqual({
+    kind: "mode.show",
+  });
+  expect(parseCommand("/mode plan")).toEqual({
+    kind: "mode.set",
+    modeId: "plan",
+  });
+});
+
 test("parses permission mode update commands", () => {
   expect(parseCommand("/pm set allow")).toEqual({
     kind: "permission.mode.set",

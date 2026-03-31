@@ -155,6 +155,8 @@ bun run dev
 | `/ss attach <alias> -a <name> --ws <name> --name <transport-session>` | 恢复已存在的会话 |
 | `/use <alias>` | 切换当前会话 |
 | `/status` | 查看当前会话状态 |
+| `/mode` | 查看当前会话已保存的 mode |
+| `/mode <id>` | 设置当前会话 mode，例如 `/mode plan` |
 | `/session reset` | 重置当前会话上下文，保留 alias/agent/workspace，但重新绑定到一个新的后端 session |
 | `/clear` | `/session reset` 的快捷别名 |
 | `/cancel` | 取消当前会话 |
@@ -165,6 +167,8 @@ bun run dev
 - `/ss <agent> -d <path>` 是最常用入口，会自动按目录名推导并创建或复用 workspace，再创建或复用 session
 - `/ss new <agent> -d <path>` 表示强制新建 session
 - `/use <alias>` 用来切换当前会话
+- `/mode` 会显示当前逻辑会话里保存的 mode；如果还没设置过，会显示“未设置”
+- `/mode <id>` 会把 mode 透传给底层 `acpx set-mode`，成功后再写回当前逻辑会话
 - `/session reset` 和 `/clear` 会保留当前逻辑会话名，但重新创建一个新的后端 session，从空上下文重新开始
 - 非 `/` 开头的文本会发送到当前 session
 
@@ -329,6 +333,26 @@ bun run dry-run --chat-key wx:test -- \
 ```text
 /ss attach demo -a codex --ws backend --name existing-demo
 ```
+
+### Adapter mode 参考
+
+`acpx set-mode` / 计划中的 `/mode <id>` 本质上都是给底层 ACP session 发送 `session/set_mode`。
+这里的 `<id>` 不是 `weacpx` 或 `acpx` 统一规定的枚举，而是**各 adapter 自己定义**的值；填错时通常会收到 adapter 返回的 `Invalid params` 一类错误。
+
+基于 `acpx` 内置 adapter 文档和各上游公开文档，当前能确认的信息如下：
+
+| adapter | 已确认可用的 mode id | 说明 |
+|------|------|------|
+| `codex` | `plan` | `acpx` 自身示例明确使用过 `acpx codex set-mode plan`。`codex-acp` 还暴露了 `mode` 运行时配置项，但上游目前没有公开一份完整、稳定的 mode id 列表。 |
+| `cursor` | `agent`、`plan`、`ask` | Cursor 官方文档/更新日志公开提到 `Plan mode`、`Ask mode`；Cursor 官方论坛在 ACP `session/configure` 示例中展示过 `availableModes` 为 `agent` / `plan` / `ask`。 |
+| 其他内置 adapter | 暂无公开、稳定的 mode id 列表 | 包括 `claude`、`copilot`、`gemini`、`qoder`、`qwen`、`kimi`、`kiro`、`iflow`、`opencode`、`trae`、`droid`、`kilocode` 等。即使某些产品本身有“Ask / Agent / Plan”之类概念，其 ACP `set-mode` 可接受的精确字符串也往往没有在官方文档中写死。 |
+
+建议：
+
+- 对 `codex`，优先把 `plan` 当作已知可用值。
+- 对 `cursor`，优先使用 `agent`、`plan`、`ask`。
+- 对其他 adapter，不要在 `weacpx` 里写死候选值；最好把 `/mode <id>` 设计成透传，由 adapter 自己决定是否接受。
+- 如果某个 adapter 后续补充了官方 mode 文档，再把它们补进这里。
 
 ## 更多文档
 
