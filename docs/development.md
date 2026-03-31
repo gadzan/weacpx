@@ -186,6 +186,20 @@ weacpx stop
 1. `WEACPX_WEIXIN_SDK`
 2. 已安装包 `weixin-agent-sdk`
 
+### `dry-run`
+
+`dry-run` 会复用同一套 router、session service、transport，只是把微信消息换成终端输入，适合本地排查。
+
+示例：
+
+```bash
+bun run dry-run --chat-key wx:test -- \
+  "/agent add codex" \
+  "/ws new backend -d /absolute/path/to/backend" \
+  "/ss new demo -a codex --ws backend" \
+  "/status"
+```
+
 ## 相关文档
 
 - 用户文档：[README.md](../README.md)

@@ -1,14 +1,34 @@
-# weacpx 
+# Weacpx
 
-使用微信 ClawBot 随时随地通过 `acpx` 控制 Claude Code、Codex 等 Agents。
+连接微信与 acpx 协议，让 Claude Code / Codex 成为你口袋里的 24/7 伙伴。
+
+[![npm](https://img.shields.io/npm/v/weacpx?style=flat-square)](https://www.npmjs.com/package/weacpx)
+[![Node.js Version](https://img.shields.io/node/v/weacpx?style=flat-square)](https://nodejs.org)
+[![License](https://img.shields.io/npm/l/weacpx?style=flat-square)](./LICENSE)
+
+![weacpx logo](assets/weacpx.jpg)
+
+## Why Weacpx？
+
+在 Agent-First 的开发模式下，编码任务必须依托顶级 Agents，🙅‍♀️不要通过 openclaw 去开发，现在有一个更好的方案。Weacpx 通过微信提供一个轻量化的远程入口，随时随地通过手机驱动你的顶级 Agents。
+
+Weacpx 的核心价值主张很简单：
+
+**随时随地访问** — 只要你有微信，就能控制你的 Agent。无需 VPN、Web 界面或复杂的云服务配置。
+
+**统一的会话管理** — 通过 acpx 协议，weacpx 让你在微信里管理多个 Agent 会话（Codex、Claude Code 等），就像在本地终端一样。创建、切换、查询状态，全部通过简单的斜杠命令完成，这是其它简单基于 ACP 实现的远控 agent 所不具备的。
+
+**轻量守护进程** — weacpx 作为后台守护进程运行，资源占用极低。不用启动一个臃肿 openclaw，不用担心在工作机器上使用会占用资源。启动、停止、查看状态都通过简单的 CLI 命令完成。
+
+**权限可控** — 可以即时通过微信修改 agent 的权限，无论是 YOLO 还是只读。
 
 ## 安装前准备
 
 开始前，至少需要：
 
 - Node.js 22+ 或 Bun
-- 一个可用的微信登录环境
 - Claude Code 或 Codex
+- 装了微信的手机
 
 > `weacpx` 基于 `weixin-agent-sdk` 与 `acpx` 实现。
 > 正常情况下，不需要再额外全局安装 `acpx`。
@@ -252,12 +272,6 @@ bun run dev
 - `~/.weacpx/runtime/stdout.log`
 - `~/.weacpx/runtime/stderr.log`
 
-常用环境变量：
-
-- `WEACPX_CONFIG`
-- `WEACPX_STATE`
-- `WEACPX_WEIXIN_SDK`
-
 ### Transport 权限配置
 
 `config.json` 中的 `transport` 支持以下权限字段：
@@ -304,36 +318,6 @@ bun run dev
 
 ## 注意事项
 
-### `dry-run`
-
-`dry-run` 会复用同一套 router、session service、transport，只是把微信消息换成终端输入，适合本地排查。
-
-示例：
-
-```bash
-bun run dry-run --chat-key wx:test -- \
-  "/agent add codex" \
-  "/ws new backend -d /absolute/path/to/backend" \
-  "/ss new demo -a codex --ws backend" \
-  "/status"
-```
-
-### 如果 `/ss new` 失败
-
-当前最常见的问题仍然是底层 `acpx` named session 的运行时恢复，不一定是 `weacpx` 本身的逻辑问题。
-
-可以先在本地创建一个 named session，再在微信里 attach：
-
-```bash
-./node_modules/.bin/acpx --verbose --cwd /absolute/workspace/path codex sessions new --name existing-demo
-```
-
-然后在微信里：
-
-```text
-/ss attach demo -a codex --ws backend --name existing-demo
-```
-
 ### Adapter mode 参考
 
 `acpx set-mode` / 计划中的 `/mode <id>` 本质上都是给底层 ACP session 发送 `session/set_mode`。
@@ -353,6 +337,22 @@ bun run dry-run --chat-key wx:test -- \
 - 对 `cursor`，优先使用 `agent`、`plan`、`ask`。
 - 对其他 adapter，不要在 `weacpx` 里写死候选值；最好把 `/mode <id>` 设计成透传，由 adapter 自己决定是否接受。
 - 如果某个 adapter 后续补充了官方 mode 文档，再把它们补进这里。
+
+### 如果 `/ss new` 失败
+
+当前最常见的问题仍然是底层 `acpx` named session 的运行时恢复，不一定是 `weacpx` 本身的逻辑问题。
+
+可以先在本地创建一个 named session，再在微信里 attach：
+
+```bash
+./node_modules/.bin/acpx --verbose --cwd /absolute/workspace/path codex sessions new --name existing-demo
+```
+
+然后在微信里：
+
+```text
+/ss attach demo -a codex --ws backend --name existing-demo
+```
 
 ## 更多文档
 
