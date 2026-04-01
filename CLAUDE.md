@@ -4,10 +4,13 @@ This file provides guidance to Agent when working with code in this repository.
 
 ```bash
 bun run build          # Build CLI to ./dist (outputs cli.js and bridge/bridge-main.js)
-npm test               # Run all unit tests (tests/unit/**/*.test.ts)
+npx tsc --noEmit       # Run TypeScript typecheck
+npm test               # Run typecheck, then all unit tests (tests/unit/**/*.test.ts)
 npm run test:unit      # Alias for above
 npm run test:smoke     # Run smoke tests (tests/smoke/**/*.test.ts)
 ```
+
+`transport.permissionMode` defaults to `approve-all` when omitted, so non-interactive prompt turns do not stop on acpx permission requests unless the user explicitly configures a stricter policy.
 
 **Local daemon CLI (before publish):**
 ```bash
@@ -30,48 +33,49 @@ weacpx is a WeChat console that lets you remotely control `acpx` sessions. It br
 
 ### Key Modules
 
-- **`src/cli.ts`** — Daemon CLI (start/status/stop/run/login). Not the main app entry.
-- **`src/main.ts`** — `buildApp()` assembles the runtime; `resolveRuntimePaths()` finds config/state files.
-- **`src/run-console.ts`** — Orchestrates app build, SDK start, heartbeat, and cleanup.
-- **`src/console-agent.ts`** — Bridges WeChat messages to the command router.
-- **`src/commands/command-router.ts`** — Routes WeChat commands (`/agent add`, `/session new`, etc.) to handlers.
-- **`src/commands/parse-command.ts`** — Parses slash commands into typed structures.
+- **`src/cli.ts`** - Daemon CLI (`start`/`status`/`stop`/`run`/`login`). Not the main app entry.
+- **`src/main.ts`** - `buildApp()` assembles the runtime; `resolveRuntimePaths()` finds config/state files.
+- **`src/run-console.ts`** - Orchestrates app build, SDK start, heartbeat, and cleanup.
+- **`src/console-agent.ts`** - Bridges WeChat messages to the command router.
+- **`src/commands/command-router.ts`** - Routes WeChat commands (`/agent add`, `/session new`, etc.) to handlers.
+- **`src/commands/parse-command.ts`** - Parses slash commands into typed structures.
 
 ### Transport Layer (src/transport/)
 
 Two transport implementations share the `SessionTransport` interface:
 
-- **`acpx-cli`** — Spawns `acpx` directly as a child process. Uses `node-pty` for PTY allocation.
-- **`acpx-bridge`** — Runs `acpx` in a separate bridge subprocess (`src/bridge/bridge-main.ts`). Uses stdin/stdout JSON protocol.
+- **`acpx-cli`** - Spawns `acpx` directly as a child process. Uses `node-pty` for PTY allocation.
+- **`acpx-bridge`** - Runs `acpx` in a separate bridge subprocess (`src/bridge/bridge-main.ts`). Uses stdin/stdout JSON protocol.
 
-Both transports expose: `ensureSession`, `prompt`, `cancel`, `hasSession`, `listSessions`.
+Both transports expose: `ensureSession`, `prompt`, `setMode`, `cancel`, `hasSession`.
 
 ### Session Model
 
 There are two session concepts:
 
-1. **Logical session** (managed by `SessionService`) — tracks alias, agent, workspace, and chat context per user.
-2. **Transport session** — the actual `acpx` named session on the backend.
+1. **Logical session** (managed by `SessionService`) - tracks alias, agent, workspace, and chat context per user.
+2. **Transport session** - the actual `acpx` named session on the backend.
 
 `/session new` creates both. `/session attach` only creates the logical session and binds to an existing transport session.
 
 ### Config & State
 
-- Config (`~/.weacpx/config.json`) — transport, agents, workspaces. Written via `ConfigStore`.
-- State (`~/.weacpx/state.json`) — sessions, chat contexts. Written via `StateStore`.
-- Full config field reference: [docs/config-reference.md](docs/config-reference.md)
+- Config (`~/.weacpx/config.json`) - transport, agents, workspaces. Written via `ConfigStore`.
+- State (`~/.weacpx/state.json`) - sessions, chat contexts. Written via `StateStore`.
 
 ### Daemon Subsystem
 
-- **`src/daemon/daemon-runtime.ts`** — Manages daemon lifecycle (PID file, heartbeat).
-- **`src/daemon/daemon-files.ts`** — Resolves daemon runtime paths (pid, logs).
-- **`src/daemon/create-daemon-controller.ts`** — Factory for CLI controller (start/status/stop).
+- **src/daemon/daemon-controller.ts** — External daemon control surface (start/status/stop).
+- **src/daemon/create-daemon-controller.ts** — Wires platform-specific spawn/terminate behavior into the controller.
+- **src/daemon/daemon-runtime.ts** — Writes PID/status metadata and heartbeat from inside the daemon process.
+- **src/daemon/daemon-status.ts** — Reads and writes status.json for daemon readiness/state inspection.
+- **src/daemon/daemon-files.ts** — Resolves daemon runtime paths (pid, status, logs).
 
 ### Bridge Subsystem
 
-- **`src/bridge/bridge-main.ts`** — Entry point for the bridge subprocess (handles acpx stdio).
-- **`src/bridge/bridge-server.ts`** — Parses bridge protocol JSON lines and delegates to `BridgeRuntime`.
-- **`src/bridge/bridge-runtime.ts`** — Wraps raw acpx commands (sessions new, prompt, cancel).
+- **`src/bridge/bridge-main.ts`** - Entry point for the bridge subprocess (handles acpx stdio).
+- **`src/bridge/bridge-server.ts`** - Parses bridge protocol JSON lines and delegates to `BridgeRuntime`.
+- **`src/bridge/bridge-runtime.ts`** - Wraps raw acpx commands (sessions new, prompt, cancel).
 
 ### Acpx Resolution (priority order)
 
@@ -79,16 +83,11 @@ There are two session concepts:
 2. Bundled `acpx` in `node_modules`
 3. `acpx` in shell `PATH`
 
-### weixin-agent-sdk Resolution (priority order)
-
-1. `WEACPX_WEIXIN_SDK` env var (path to SDK entry)
-2. Installed `weixin-agent-sdk` package
-
 ### Test Layout
 
-- `tests/unit/` — Mirror of `src/` structure, `*.test.ts` files. Run by default.
-- `tests/smoke/` — Real-environment tests (real acpx, real WeChat). Not run by default.
-- `tests/helpers/` — Shared test utilities.
+- `tests/unit/` - Mirror of `src/` structure, `*.test.ts` files. Run by default.
+- `tests/smoke/` - Real-environment tests (real acpx, real WeChat). Not run by default.
+- `tests/helpers/` - Shared test utilities.
 
 ## Package Manager
 
@@ -101,3 +100,5 @@ Uses **Bun** for development scripts and builds. Dependencies are in `package.js
 - 测试文档请参考 [docs\testing.md](docs\testing.md)
 - 项目介绍 [README.md](README.md)
 - 配置文件详解 [docs/config-reference.md](docs/config-reference.md)
+- `src/commands` 模块说明 [commands-module.md](docs/commands-module.md)
+- `src/daemon` 模块说明 [daemon-module.md](docs/daemon-module.md)

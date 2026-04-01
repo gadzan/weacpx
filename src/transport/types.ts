@@ -14,6 +14,5 @@ export interface SessionTransport {
   setMode(session: ResolvedSession, modeId: string): Promise<void>;
   cancel(session: ResolvedSession): Promise<{ cancelled: boolean; message: string }>;
   hasSession(session: ResolvedSession): Promise<boolean>;
-  listSessions(): Promise<Array<{ name: string; agent: string; workspace: string }>>;
   dispose?(): Promise<void>;
 }

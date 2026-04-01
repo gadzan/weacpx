@@ -404,8 +404,7 @@ test("returns the final agent message from json-strict prompt output", async () 
     if (args.includes("prompt")) {
       return {
         code: 0,
-        stdout: [
-          JSON.stringify({ jsonrpc: "2.0", id: 0, method: "initialize" }),
+                stdout: [
           JSON.stringify({
             jsonrpc: "2.0",
             method: "session/update",
@@ -413,53 +412,7 @@ test("returns the final agent message from json-strict prompt output", async () 
               sessionId: "demo",
               update: {
                 sessionUpdate: "agent_message_chunk",
-                content: { type: "text", text: "line 1" },
-              },
-            },
-          }),
-          JSON.stringify({
-            jsonrpc: "2.0",
-            method: "session/update",
-            params: {
-              sessionId: "demo",
-              update: {
-                sessionUpdate: "agent_message_chunk",
-                content: { type: "text", text: "\nline 2" },
-              },
-            },
-          }),
-        ].join("\n"),
-        stderr: "",
-      };
-    }
-
-    return { code: 0, stdout: "ok", stderr: "" };
-  });
-
-  await expect(
-    runtime.prompt({
-      agent: "codex",
-      cwd: "/repo",
-      name: "demo",
-      text: "hello",
-    }),
-  ).resolves.toEqual({ text: "line 1\nline 2" });
-});
-
-test("keeps the extracted agent reply when prompt exits non-zero without a structured error", async () => {
-  const runtime = new BridgeRuntime("acpx", async (_command, args) => {
-    if (args.includes("prompt")) {
-      return {
-        code: 1,
-        stdout: [
-          JSON.stringify({
-            jsonrpc: "2.0",
-            method: "session/update",
-            params: {
-              sessionId: "demo",
-              update: {
-                sessionUpdate: "agent_message_chunk",
-                content: { type: "text", text: "先做检查。" },
+                content: { type: "text", text: "First chunk" },
               },
             },
           }),
@@ -481,7 +434,7 @@ test("keeps the extracted agent reply when prompt exits non-zero without a struc
               sessionId: "demo",
               update: {
                 sessionUpdate: "agent_message_chunk",
-                content: { type: "text", text: "让我更新任务状态并继续执行测试验证。" },
+                content: { type: "text", text: "Final chunk" },
               },
             },
           }),
@@ -500,7 +453,64 @@ test("keeps the extracted agent reply when prompt exits non-zero without a struc
       name: "demo",
       text: "hello",
     }),
-  ).resolves.toEqual({ text: "让我更新任务状态并继续执行测试验证。" });
+  ).resolves.toEqual({ text: "Final chunk" });
+});
+
+test("keeps the extracted agent reply when prompt exits non-zero without a structured error", async () => {
+  const runtime = new BridgeRuntime("acpx", async (_command, args) => {
+    if (args.includes("prompt")) {
+      return {
+        code: 1,
+                stdout: [
+          JSON.stringify({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "demo",
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: "First chunk" },
+              },
+            },
+          }),
+          JSON.stringify({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "demo",
+              update: {
+                sessionUpdate: "tool_call",
+                title: "Run tests",
+              },
+            },
+          }),
+          JSON.stringify({
+            jsonrpc: "2.0",
+            method: "session/update",
+            params: {
+              sessionId: "demo",
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: "Final chunk" },
+              },
+            },
+          }),
+        ].join("\n"),
+        stderr: "",
+      };
+    }
+
+    return { code: 0, stdout: "ok", stderr: "" };
+  });
+
+  await expect(
+    runtime.prompt({
+      agent: "codex",
+      cwd: "/repo",
+      name: "demo",
+      text: "hello",
+    }),
+  ).resolves.toEqual({ text: "Final chunk" });
 });
 
 test("surfaces helper failures when final session creation still fails", async () => {
@@ -575,3 +585,60 @@ test("includes prompt diagnostics in bridge error responses", async () => {
     '{"id":"3","ok":false,"error":{"code":"BRIDGE_INTERNAL_ERROR","message":"command failed with exit code 5","details":{"exitCode":5,"stdout":"partial stdout","stderr":"partial stderr"}}}\n',
   );
 });
+
+test("returns structured error for invalid json input", async () => {
+  const runtime = new BridgeRuntime(
+    "acpx",
+    async () => ({ code: 0, stdout: "", stderr: "" }),
+  );
+  const server = new BridgeServer(runtime);
+
+  await expect(server.handleLine("not-json")).resolves.toEqual(
+    '{"id":"unknown","ok":false,"error":{"code":"BRIDGE_INVALID_REQUEST","message":"request must be valid JSON"}}\n',
+  );
+});
+
+test("returns structured error when required params are missing", async () => {
+  const runtime = new BridgeRuntime(
+    "acpx",
+    async () => ({ code: 0, stdout: "", stderr: "" }),
+  );
+  const server = new BridgeServer(runtime);
+
+  await expect(
+    server.handleLine(
+      JSON.stringify({
+        id: "missing-text",
+        method: "prompt",
+        params: {
+          agent: "codex",
+          cwd: "/repo",
+          name: "demo",
+        },
+      }),
+    ),
+  ).resolves.toEqual(
+    '{"id":"missing-text","ok":false,"error":{"code":"BRIDGE_INVALID_REQUEST","message":"text must be a non-empty string"}}\n',
+  );
+});
+
+test("returns invalid-request for unknown bridge methods", async () => {
+  const runtime = new BridgeRuntime(
+    "acpx",
+    async () => ({ code: 0, stdout: "", stderr: "" }),
+  );
+  const server = new BridgeServer(runtime);
+
+  await expect(
+    server.handleLine(
+      JSON.stringify({
+        id: "bad-method",
+        method: "explode",
+        params: {},
+      }),
+    ),
+  ).resolves.toEqual(
+    '{"id":"bad-method","ok":false,"error":{"code":"BRIDGE_INVALID_REQUEST","message":"unsupported bridge method: explode"}}\n',
+  );
+});
+

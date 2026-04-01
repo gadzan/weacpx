@@ -173,10 +173,6 @@ export class AcpxCliTransport implements SessionTransport {
     return result.code === 0;
   }
 
-  async listSessions(): Promise<Array<{ name: string; agent: string; workspace: string }>> {
-    return [];
-  }
-
   private async run(args: string[], options?: RunOptions): Promise<string> {
     const result = await this.runCommandWithTimeout(this.runCommand, args, options);
     if (result.code !== 0) {

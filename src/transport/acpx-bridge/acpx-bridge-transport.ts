@@ -35,10 +35,6 @@ export class AcpxBridgeTransport implements SessionTransport {
     return result.exists;
   }
 
-  async listSessions(): Promise<Array<{ name: string; agent: string; workspace: string }>> {
-    return [];
-  }
-
   async dispose(): Promise<void> {
     await this.client.dispose?.();
   }
