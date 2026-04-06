@@ -64,7 +64,7 @@ test("creates a default config on first run when the config file is missing", as
     type: "acpx-bridge",
     sessionInitTimeoutMs: 120000,
     permissionMode: "approve-all",
-    nonInteractivePermissions: "fail",
+    nonInteractivePermissions: "deny",
   });
   expect(saved.agents).toEqual({
     codex: {

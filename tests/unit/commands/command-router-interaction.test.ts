@@ -22,6 +22,23 @@ test("routes plain text to the current session", async () => {
   expect(reply.text).toContain("agent:api-fix:check this stack trace");
 });
 
+test("suppresses streaming callbacks when reply mode is final", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config);
+  const streamed: string[] = [];
+
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
+  await router.handle("wx:user", "/replymode final");
+  await router.handle("wx:user", "check this stack trace", async (text) => {
+    streamed.push(text);
+  });
+
+  expect(getPromptMock(transport).mock.calls.at(-1)?.[2]).toBeUndefined();
+  expect(streamed).toEqual([]);
+});
+
 test("returns a corrective hint when no current session exists", async () => {
   const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
   const transport = createTransport();

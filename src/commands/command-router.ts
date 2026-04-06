@@ -9,11 +9,15 @@ import { resolveSessionAgentCommandFromIndex, type SessionAgentCommandResolver }
 import { PromptCommandError } from "../transport/prompt-output";
 import { parseCommand } from "./parse-command";
 import { handlePermissionAutoSet, handlePermissionAutoStatus, handlePermissionModeSet, handlePermissionStatus } from "./handlers/permission-handler";
+import { handleConfigSet, handleConfigShow } from "./handlers/config-handler";
 import {
   handleCancel,
   handleModeSet,
   handleModeShow,
   handlePrompt,
+  handleReplyModeReset,
+  handleReplyModeSet,
+  handleReplyModeShow,
   handleSessionAttach,
   handleSessionNew,
   handleSessionReset,
@@ -85,7 +89,7 @@ export class CommandRouter {
             ].join("\n"),
           };
         case "help":
-          return handleHelp();
+          return handleHelp(command.topic);
         case "agents":
           return handleAgents(this.createHandlerContext());
         case "agent.add":
@@ -100,6 +104,10 @@ export class CommandRouter {
           return handlePermissionAutoStatus(this.createHandlerContext(), "当前非交互策略：");
         case "permission.auto.set":
           return await handlePermissionAutoSet(this.createHandlerContext(), command.policy);
+        case "config.show":
+          return handleConfigShow(this.createHandlerContext());
+        case "config.set":
+          return await handleConfigSet(this.createHandlerContext(), command.path, command.value);
         case "workspaces":
           return handleWorkspaces(this.createHandlerContext());
         case "workspace.new":
@@ -117,9 +125,9 @@ export class CommandRouter {
             command.workspace,
           );
         case "session.shortcut":
-          return await handleSessionShortcut(this.createSessionHandlerContext(), chatKey, command.agent, command.cwd, false);
+          return await handleSessionShortcut(this.createSessionHandlerContext(), chatKey, command.agent, command, false);
         case "session.shortcut.new":
-          return await handleSessionShortcut(this.createSessionHandlerContext(), chatKey, command.agent, command.cwd, true);
+          return await handleSessionShortcut(this.createSessionHandlerContext(), chatKey, command.agent, command, true);
         case "session.attach":
           return await handleSessionAttach(
             this.createSessionHandlerContext(),
@@ -135,6 +143,12 @@ export class CommandRouter {
           return await handleModeShow(this.createSessionHandlerContext(), chatKey);
         case "mode.set":
           return await handleModeSet(this.createSessionHandlerContext(), chatKey, command.modeId);
+        case "replymode.show":
+          return await handleReplyModeShow(this.createSessionHandlerContext(), chatKey);
+        case "replymode.set":
+          return await handleReplyModeSet(this.createSessionHandlerContext(), chatKey, command.replyMode);
+        case "replymode.reset":
+          return await handleReplyModeReset(this.createSessionHandlerContext(), chatKey);
         case "status":
           return await handleStatus(this.createSessionHandlerContext(), chatKey);
         case "cancel":
@@ -178,8 +192,8 @@ export class CommandRouter {
         this.sessions.resolveSession(alias, agent, workspace, transportSession),
       ensureTransportSession: (session) => this.ensureTransportSession(session),
       checkTransportSession: (session) => this.checkTransportSession(session),
-      handleSessionShortcut: (chatKey, agent, cwdInput, createNew) =>
-        handleSessionShortcutCommand(this.createHandlerContext(), this.createSessionShortcutOps(), chatKey, agent, cwdInput, createNew),
+      handleSessionShortcut: (chatKey, agent, target, createNew) =>
+        handleSessionShortcutCommand(this.createHandlerContext(), this.createSessionShortcutOps(), chatKey, agent, target, createNew),
       resetCurrentSession: (chatKey) => handleSessionResetCommand(this.createHandlerContext(), this.createSessionResetOps(), chatKey),
       refreshSessionTransportAgentCommand: (alias) => this.refreshSessionTransportAgentCommand(alias),
     };
@@ -238,6 +252,8 @@ export class CommandRouter {
 
     // Replace reference to prevent mutation of caller's object
     this.config.transport = { ...updated.transport };
+    this.config.logging = { ...updated.logging };
+    this.config.wechat = { ...updated.wechat };
     this.config.agents = { ...updated.agents };
     this.config.workspaces = { ...updated.workspaces };
   }
@@ -348,4 +364,3 @@ export class CommandRouter {
     }
   }
 }
-

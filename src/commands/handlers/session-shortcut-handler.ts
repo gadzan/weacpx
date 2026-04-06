@@ -16,19 +16,21 @@ export async function handleSessionShortcutCommand(
   ops: SessionShortcutOps,
   chatKey: string,
   agent: string,
-  cwdInput: string,
+  target: { cwd?: string; workspace?: string },
   createNew: boolean,
 ): Promise<RouterResponse> {
   if (!context.config || !context.configStore) {
     return { text: "当前没有加载可写入的配置。" };
   }
 
-  const cwd = normalizePathForWorkspace(cwdInput);
-  if (!(await pathExists(cwd))) {
-    return { text: `工作区路径不存在：${cwdInput}` };
+  if (!context.config.agents[agent]) {
+    return { text: `agent "${agent}" is not registered` };
   }
 
-  const workspace = await resolveShortcutWorkspace(context, cwd);
+  const workspace = await resolveShortcutWorkspace(context, target);
+  if ("error" in workspace) {
+    return { text: workspace.error };
+  }
   await context.logger.info("session.shortcut.workspace", "resolved shortcut workspace", {
     workspace: workspace.name,
     cwd: workspace.cwd,
@@ -86,8 +88,27 @@ export async function handleSessionShortcutCommand(
 
 async function resolveShortcutWorkspace(
   context: CommandRouterContext,
-  cwd: string,
-): Promise<ShortcutWorkspaceResolution> {
+  target: { cwd?: string; workspace?: string },
+): Promise<ShortcutWorkspaceResolution | { error: string }> {
+  if (target.workspace) {
+    const workspace = context.config?.workspaces[target.workspace];
+    if (!workspace) {
+      return { error: `workspace "${target.workspace}" is not registered` };
+    }
+
+    return {
+      name: target.workspace,
+      cwd: workspace.cwd,
+      reused: true,
+    };
+  }
+
+  const cwdInput = target.cwd ?? "";
+  const cwd = normalizePathForWorkspace(cwdInput);
+  if (!(await pathExists(cwd))) {
+    return { error: `工作区路径不存在：${cwdInput}` };
+  }
+
   const existingByPath = Object.entries(context.config?.workspaces ?? {}).find(([, workspace]) =>
     sameWorkspacePath(workspace.cwd, cwd),
   );

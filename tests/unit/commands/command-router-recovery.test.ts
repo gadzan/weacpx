@@ -100,10 +100,22 @@ test("renders an attach-first hint when session creation times out", async () =>
 
   const reply = await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
 
-  expect(reply.text).toContain("当前还不能直接在微信里创建新会话");
+  expect(reply.text).toContain("会话创建失败");
+  expect(reply.text).toContain("错误信息：acpx command timed out after 120000ms");
   expect(reply.text).toContain("/session attach api-fix --agent codex --ws backend --name <会话名>");
-  expect(reply.text).not.toContain("120000");
-  expect(reply.text).not.toContain("backend:api-fix");
+});
+
+test("renders verification failure with explicit reason before the attach hint", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  (transport.hasSession as ReturnType<typeof mock>).mockImplementationOnce(async () => false);
+  const router = new CommandRouter(sessions, transport);
+
+  const reply = await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
+
+  expect(reply.text).toContain("会话创建失败");
+  expect(reply.text).toContain("错误信息：未检测到可用的后端会话。");
+  expect(reply.text).toContain("/session attach api-fix --agent codex --ws backend --name <会话名>");
 });
 
 test("logs parsed commands and transport timing summaries", async () => {

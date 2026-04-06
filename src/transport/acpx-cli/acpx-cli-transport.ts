@@ -4,7 +4,7 @@ import { spawn as spawnPty } from "node-pty";
 
 import { resolveSpawnCommand } from "../../process/spawn-command";
 import type { NonInteractivePermissions, PermissionMode } from "../../config/types";
-import type { ResolvedSession, SessionTransport } from "../types";
+import type { PermissionPolicy, ResolvedSession, SessionTransport } from "../types";
 import { getPromptText, normalizeCommandError } from "../prompt-output";
 import { createStreamingPromptState, parseStreamingDataChunk } from "../streaming-prompt";
 import { ensureNodePtyHelperExecutable, resolveNodePtyHelperPath } from "./node-pty-helper";
@@ -101,8 +101,8 @@ async function defaultPtyRunner(command: string, args: string[], options?: RunOp
 export class AcpxCliTransport implements SessionTransport {
   private readonly command: string;
   private readonly sessionInitTimeoutMs: number;
-  private readonly permissionMode: PermissionMode;
-  private readonly nonInteractivePermissions: NonInteractivePermissions;
+  private permissionMode: PermissionMode;
+  private nonInteractivePermissions: NonInteractivePermissions;
   private readonly runCommand: CommandRunner;
   private readonly runPtyCommand: PtyRunner;
 
@@ -114,7 +114,7 @@ export class AcpxCliTransport implements SessionTransport {
     this.command = options.command ?? "acpx";
     this.sessionInitTimeoutMs = options.sessionInitTimeoutMs ?? 120_000;
     this.permissionMode = options.permissionMode ?? "approve-all";
-    this.nonInteractivePermissions = options.nonInteractivePermissions ?? "fail";
+    this.nonInteractivePermissions = options.nonInteractivePermissions ?? "deny";
     this.runCommand = runCommand;
     this.runPtyCommand = runPtyCommand;
   }
@@ -163,6 +163,11 @@ export class AcpxCliTransport implements SessionTransport {
     };
   }
 
+
+  async updatePermissionPolicy(policy: PermissionPolicy): Promise<void> {
+    this.permissionMode = policy.permissionMode;
+    this.nonInteractivePermissions = policy.nonInteractivePermissions;
+  }
   async hasSession(session: ResolvedSession): Promise<boolean> {
     const result = await this.runCommand(this.command, this.buildArgs(session, [
       "sessions",

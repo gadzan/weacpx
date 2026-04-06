@@ -168,6 +168,33 @@ test("returns as soon as the hidden windows launcher prints a pid", async () => 
   await rm(runtimeDir, { recursive: true, force: true });
 });
 
+
+test("terminates the full process group on unix", async () => {
+  const signals: Array<{ pid: number; signal: NodeJS.Signals }> = [];
+  const runningChecks: number[] = [];
+
+  await terminateProcessTree(
+    43210,
+    "linux",
+    async () => 0,
+    (pid, signal) => {
+      signals.push({ pid, signal });
+    },
+    (pid) => {
+      runningChecks.push(pid);
+      return false;
+    },
+  );
+
+  expect(signals).toEqual([
+    {
+      pid: -43210,
+      signal: "SIGTERM",
+    },
+  ]);
+  expect(runningChecks).toEqual([-43210]);
+});
+
 test("terminates the full process tree on win32", async () => {
   const calls: Array<{ command: string; args: string[] }> = [];
 

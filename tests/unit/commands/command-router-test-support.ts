@@ -14,13 +14,16 @@ export function createConfig(): AppConfig {
       type: "acpx-cli",
       command: "acpx",
       permissionMode: "approve-all",
-      nonInteractivePermissions: "fail",
+      nonInteractivePermissions: "deny",
     },
     logging: {
       level: "info",
       maxSizeBytes: 2 * 1024 * 1024,
       maxFiles: 5,
       retentionDays: 7,
+    },
+    wechat: {
+      replyMode: "stream",
     },
     agents: {
       codex: { driver: "codex" },
@@ -38,9 +41,19 @@ export class MemoryStateStore implements Pick<StateStore, "save"> {
 }
 
 export class MemoryConfigStore
-  implements Pick<ConfigStore, "upsertWorkspace" | "removeWorkspace" | "upsertAgent" | "removeAgent" | "updateTransport">
+  implements Pick<ConfigStore, "save" | "upsertWorkspace" | "removeWorkspace" | "upsertAgent" | "removeAgent" | "updateTransport" | "updateWechat">
 {
   constructor(private readonly config: AppConfig) {}
+
+  async save(config: AppConfig): Promise<void> {
+    this.config.transport = { ...config.transport };
+    this.config.logging = { ...config.logging };
+    this.config.wechat = { ...config.wechat };
+    this.config.agents = Object.fromEntries(Object.entries(config.agents).map(([name, agent]) => [name, { ...agent }]));
+    this.config.workspaces = Object.fromEntries(
+      Object.entries(config.workspaces).map(([name, workspace]) => [name, { ...workspace }]),
+    );
+  }
 
   async upsertWorkspace(name: string, cwd: string, description?: string): Promise<AppConfig> {
     this.config.workspaces[name] = {
@@ -72,6 +85,14 @@ export class MemoryConfigStore
     };
     return this.config;
   }
+
+  async updateWechat(wechat: Partial<AppConfig["wechat"]>): Promise<AppConfig> {
+    this.config.wechat = {
+      ...this.config.wechat,
+      ...wechat,
+    };
+    return this.config;
+  }
 }
 
 export function createTransport(): SessionTransport {
@@ -86,6 +107,7 @@ export function createTransport(): SessionTransport {
       message: "cancelled",
     })),
     hasSession: mock(async () => true),
+    updatePermissionPolicy: mock(async (_policy) => {}),
   };
 }
 
@@ -123,3 +145,7 @@ export function createLogger(events: string[]): AppLogger {
 export type SessionAgentCommandResolver = (session: ResolvedSession) => Promise<string | undefined>;
 
 export { SessionService, createEmptyState };
+
+export function getUpdatePermissionPolicyMock(transport: SessionTransport & { updatePermissionPolicy?: unknown }) {
+  return transport.updatePermissionPolicy as ReturnType<typeof mock>;
+}

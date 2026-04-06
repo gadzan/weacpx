@@ -10,6 +10,7 @@ import {
   createConfig,
   createEmptyState,
   createTransport,
+  getUpdatePermissionPolicyMock,
 } from "./command-router-test-support";
 
 test("returns help text", async () => {
@@ -19,8 +20,46 @@ test("returns help text", async () => {
 
   const reply = await router.handle("wx:user", "/help");
 
-  expect(reply.text).toContain("可用命令");
-  expect(reply.text).toContain("/ss new");
+  expect(reply.text).toContain("常用入口：");
+  expect(reply.text).toContain("顶级命令：");
+  expect(reply.text).toContain("- session -");
+  expect(reply.text).toContain("/help <topic>");
+});
+
+test("returns topic help for session aliases", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport);
+
+  const byAlias = await router.handle("wx:user", "/help ss");
+  const byTopic = await router.handle("wx:user", "/help session");
+
+  expect(byAlias.text).toBe(byTopic.text);
+  expect(byAlias.text).toContain("帮助主题：session");
+  expect(byAlias.text).toContain("/ss <agent> (-d <path> | --ws <name>)");
+});
+
+test("returns topic help for permission aliases", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport);
+
+  const reply = await router.handle("wx:user", "/help pm");
+
+  expect(reply.text).toContain("帮助主题：permission");
+  expect(reply.text).toContain("/pm set <allow|read|deny>");
+});
+
+test("returns a hint for unknown help topics", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport);
+
+  const reply = await router.handle("wx:user", "/help missing");
+
+  expect(reply.text).toContain("未知帮助主题：missing");
+  expect(reply.text).toContain("可用主题：");
+  expect(reply.text).toContain("- session");
 });
 
 test("renders the current permission mode", async () => {
@@ -32,19 +71,19 @@ test("renders the current permission mode", async () => {
 
   const reply = await router.handle("wx:user", "/pm");
 
-  expect(reply.text).toBe(["当前权限模式：", "- mode: approve-reads", "- auto: fail"].join("\n"));
+  expect(reply.text).toBe(["当前权限模式：", "- mode: approve-reads", "- auto: deny"].join("\n"));
 });
 
 test("renders the current non-interactive policy", async () => {
   const config = createConfig();
-  config.transport.nonInteractivePermissions = "allow";
+  config.transport.nonInteractivePermissions = "deny";
   const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
   const transport = createTransport();
   const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
 
   const reply = await router.handle("wx:user", "/pm auto");
 
-  expect(reply.text).toBe(["当前非交互策略：", "- mode: approve-all", "- auto: allow"].join("\n"));
+  expect(reply.text).toBe(["当前非交互策略：", "- mode: approve-all", "- auto: deny"].join("\n"));
 });
 
 test("updates the permission mode", async () => {
@@ -55,7 +94,7 @@ test("updates the permission mode", async () => {
 
   const reply = await router.handle("wx:user", "/pm set read");
 
-  expect(reply.text).toBe(["权限模式已更新：", "- mode: approve-reads", "- auto: fail"].join("\n"));
+  expect(reply.text).toBe(["权限模式已更新：", "- mode: approve-reads", "- auto: deny"].join("\n"));
   expect(config.transport.permissionMode).toBe("approve-reads");
 });
 
@@ -65,10 +104,10 @@ test("updates the non-interactive permission policy", async () => {
   const transport = createTransport();
   const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
 
-  const reply = await router.handle("wx:user", "/pm auto allow");
+  const reply = await router.handle("wx:user", "/pm auto deny");
 
-  expect(reply.text).toBe(["非交互策略已更新：", "- mode: approve-all", "- auto: allow"].join("\n"));
-  expect(config.transport.nonInteractivePermissions).toBe("allow");
+  expect(reply.text).toBe(["非交互策略已更新：", "- mode: approve-all", "- auto: deny"].join("\n"));
+  expect(config.transport.nonInteractivePermissions).toBe("deny");
 });
 
 test("refuses permission writes when writable config is unavailable", async () => {
@@ -82,6 +121,93 @@ test("refuses permission writes when writable config is unavailable", async () =
 
   expect(modeReply.text).toBe("当前没有加载可写入的配置。");
   expect(autoReply.text).toBe("当前没有加载可写入的配置。");
+});
+
+test("shows supported config paths", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle("wx:user", "/config");
+
+  expect(reply.text).toContain("支持修改的配置字段：");
+  expect(reply.text).toContain("- transport.permissionMode");
+  expect(reply.text).toContain("- agents.<name>.driver");
+  expect(reply.text).toContain("- workspaces.<name>.description");
+});
+
+test("updates a fixed config path through /config set", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle("wx:user", "/config set logging.level debug");
+
+  expect(reply.text).toBe("配置已更新：logging.level = debug");
+  expect(config.logging.level).toBe("debug");
+});
+
+test("updates an existing dynamic config path through /config set", async () => {
+  const config = createConfig();
+  config.workspaces.backend.description = "old";
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle("wx:user", '/config set workspaces.backend.description "backend repo"');
+
+  expect(reply.text).toBe("配置已更新：workspaces.backend.description = backend repo");
+  expect(config.workspaces.backend.description).toBe("backend repo");
+});
+
+test("rejects unsupported config paths", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle("wx:user", "/config set transport.missing value");
+
+  expect(reply.text).toBe("不支持修改这个配置路径：transport.missing");
+});
+
+test("rejects config set when the target dynamic entry does not exist", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const agentReply = await router.handle("wx:user", "/config set agents.claude.driver claude");
+  const workspaceReply = await router.handle("wx:user", "/config set workspaces.frontend.cwd /tmp/frontend");
+
+  expect(agentReply.text).toBe("Agent「claude」不存在，请先创建。");
+  expect(workspaceReply.text).toBe("工作区「frontend」不存在，请先创建。");
+});
+
+test("rejects config set with invalid typed values", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const modeReply = await router.handle("wx:user", "/config set wechat.replyMode maybe");
+  const numberReply = await router.handle("wx:user", "/config set logging.maxFiles 0");
+
+  expect(modeReply.text).toBe("wechat.replyMode 只支持：stream、final");
+  expect(numberReply.text).toBe("logging.maxFiles 必须是正数。");
+});
+
+test("refuses config writes when writable config is unavailable", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config);
+
+  const reply = await router.handle("wx:user", "/config set logging.level debug");
+
+  expect(reply.text).toBe("当前没有加载可写入的配置。");
 });
 
 test("renders agents in Chinese", async () => {
@@ -239,5 +365,97 @@ test("removes a workspace via command", async () => {
   expect(reply.text).toBe('工作区「frontend」已删除');
   expect(config.workspaces).toEqual({
     backend: { cwd: "/tmp/backend" },
+  });
+});
+
+
+test("updates the live transport policy after /pm auto", async () => {
+  const config = createConfig();
+  const transport = createTransport();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  await router.handle("wx:user", "/pm auto deny");
+
+  expect(getUpdatePermissionPolicyMock(transport)).toHaveBeenCalledWith(expect.objectContaining({
+    permissionMode: "approve-all",
+    nonInteractivePermissions: "deny",
+  }));
+});
+
+test("updates the live transport policy after /config set transport.permissionMode", async () => {
+  const config = createConfig();
+  const transport = createTransport();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  await router.handle("wx:user", "/config set transport.permissionMode approve-reads");
+
+  expect(getUpdatePermissionPolicyMock(transport)).toHaveBeenCalledWith(expect.objectContaining({
+    permissionMode: "approve-reads",
+    nonInteractivePermissions: "deny",
+  }));
+});
+
+
+test("updates the live transport policy after /pm set", async () => {
+  const config = createConfig();
+  const transport = createTransport();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  await router.handle("wx:user", "/pm set read");
+
+  expect(getUpdatePermissionPolicyMock(transport)).toHaveBeenCalledWith(expect.objectContaining({
+    permissionMode: "approve-reads",
+    nonInteractivePermissions: "deny",
+  }));
+});
+
+test("updates the live transport policy after /config set transport.nonInteractivePermissions", async () => {
+  const config = createConfig();
+  const transport = createTransport();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  await router.handle("wx:user", "/config set transport.nonInteractivePermissions deny");
+
+  expect(getUpdatePermissionPolicyMock(transport)).toHaveBeenCalledWith(expect.objectContaining({
+    permissionMode: "approve-all",
+    nonInteractivePermissions: "deny",
+  }));
+});
+
+test("rolls back /pm auto config when live transport update fails", async () => {
+  const config = createConfig();
+  const transport = createTransport();
+  getUpdatePermissionPolicyMock(transport).mockImplementation(async () => {
+    throw new Error("bridge write failed");
+  });
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  await expect(router.handle("wx:user", "/pm auto deny")).rejects.toThrow("bridge write failed");
+
+  expect(config.transport).toMatchObject({
+    permissionMode: "approve-all",
+    nonInteractivePermissions: "deny",
+  });
+});
+
+test("rolls back /config set transport.permissionMode when live transport update fails", async () => {
+  const config = createConfig();
+  const transport = createTransport();
+  getUpdatePermissionPolicyMock(transport).mockImplementation(async () => {
+    throw new Error("bridge write failed");
+  });
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  await expect(router.handle("wx:user", "/config set transport.permissionMode approve-reads")).rejects.toThrow("bridge write failed");
+
+  expect(config.transport).toMatchObject({
+    permissionMode: "approve-all",
+    nonInteractivePermissions: "deny",
   });
 });

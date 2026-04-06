@@ -34,7 +34,7 @@ test("ensures a session with raw agent command by invoking acpx with the normal 
     "/tmp/backend",
     "--approve-all",
     "--non-interactive-permissions",
-    "fail",
+    "deny",
     "--agent",
     "./node_modules/.bin/codex-acp",
     "sessions",
@@ -62,7 +62,7 @@ test("runs a resolved JavaScript acpx entry with the current node executable", a
     "/tmp/backend",
     "--approve-all",
     "--non-interactive-permissions",
-    "fail",
+    "deny",
     "--agent",
     "./node_modules/.bin/codex-acp",
     "sessions",
@@ -88,7 +88,7 @@ test("uses 120 seconds as the default raw-command session creation timeout", asy
     "/tmp/backend",
     "--approve-all",
     "--non-interactive-permissions",
-    "fail",
+    "deny",
     "--agent",
     "./node_modules/.bin/codex-acp",
     "sessions",
@@ -115,7 +115,7 @@ test("keeps using PTY for alias-based session creation", async () => {
     "/tmp/backend",
     "--approve-all",
     "--non-interactive-permissions",
-    "fail",
+    "deny",
     "codex",
     "sessions",
     "new",
@@ -141,7 +141,7 @@ test("fails fast when session creation does not finish before the timeout", asyn
   );
 
   await expect(transport.ensureSession(session)).rejects.toThrow(
-    'acpx command timed out after 10ms: --approve-all --non-interactive-permissions fail --agent ./node_modules/.bin/codex-acp sessions new --name "backend:api-fix"',
+    'acpx command timed out after 10ms: --approve-all --non-interactive-permissions deny --agent ./node_modules/.bin/codex-acp sessions new --name "backend:api-fix"',
   );
 });
 
@@ -170,7 +170,7 @@ test("uses the normal command runner for setMode", async () => {
     "/tmp/backend",
     "--approve-all",
     "--non-interactive-permissions",
-    "fail",
+    "deny",
     "--agent",
     "./node_modules/.bin/codex-acp",
     "set-mode",
@@ -202,7 +202,7 @@ test("passes default permission policy flags to prompt", async () => {
     "/tmp/backend",
     "--approve-all",
     "--non-interactive-permissions",
-    "fail",
+    "deny",
     "--agent",
     "./node_modules/.bin/codex-acp",
     "prompt",
@@ -212,6 +212,42 @@ test("passes default permission policy flags to prompt", async () => {
   ]);
 });
 
+
+
+test("applies updated permission policy to later commands", async () => {
+  const run = mock(async () => ({
+    code: 0,
+    stdout: [
+      JSON.stringify({ jsonrpc: "2.0", id: 0, method: "initialize" }),
+      JSON.stringify({ jsonrpc: "2.0", id: 2, result: { stopReason: "end_turn" } }),
+    ].join("\n"),
+    stderr: "",
+  }));
+  const transport = new AcpxCliTransport({ command: "acpx" }, run);
+
+  await transport.updatePermissionPolicy?.({
+    permissionMode: "approve-reads",
+    nonInteractivePermissions: "deny",
+  });
+  await transport.prompt(session, "hello");
+
+  expect(run).toHaveBeenCalledWith("acpx", [
+    "--format",
+    "json",
+    "--json-strict",
+    "--cwd",
+    "/tmp/backend",
+    "--approve-reads",
+    "--non-interactive-permissions",
+    "deny",
+    "--agent",
+    "./node_modules/.bin/codex-acp",
+    "prompt",
+    "-s",
+    "backend:api-fix",
+    "hello",
+  ]);
+});
 test("passes explicit permission policy flags to prompt", async () => {
   const run = mock(async () => ({
     code: 0,
@@ -262,7 +298,7 @@ test("invokes cancel for the resolved session", async () => {
     "/tmp/backend",
     "--approve-all",
     "--non-interactive-permissions",
-    "fail",
+    "deny",
     "--agent",
     "./node_modules/.bin/codex-acp",
     "cancel",
@@ -284,7 +320,7 @@ test("checks whether a named session exists", async () => {
     "/tmp/backend",
     "--approve-all",
     "--non-interactive-permissions",
-    "fail",
+    "deny",
     "--agent",
     "./node_modules/.bin/codex-acp",
     "sessions",
@@ -422,7 +458,7 @@ test("returns only the last non-empty agent message segment after a non-message 
     "/tmp/backend",
     "--approve-all",
     "--non-interactive-permissions",
-    "fail",
+    "deny",
     "--agent",
     "./node_modules/.bin/codex-acp",
     "prompt",

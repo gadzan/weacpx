@@ -2,7 +2,7 @@ import type { Agent } from "../agent/interface.js";
 import { getUpdates } from "../api/api.js";
 import { WeixinConfigManager } from "../api/config-cache.js";
 import { SESSION_EXPIRED_ERRCODE, pauseSession, getRemainingPauseMs } from "../api/session-guard.js";
-import { processOneMessage } from "../messaging/process-message.js";
+import { handleWeixinMessageTurn } from "../messaging/handle-weixin-message-turn.js";
 import { getSyncBufFilePath, loadGetUpdatesBuf, saveGetUpdatesBuf } from "../storage/sync-buf.js";
 import { logger } from "../util/logger.js";
 import { redactBody } from "../util/redact.js";
@@ -125,7 +125,7 @@ export async function monitorWeixinProvider(opts: MonitorWeixinOpts): Promise<vo
         const fromUserId = full.from_user_id ?? "";
         const cachedConfig = await configManager.getForUser(fromUserId, full.context_token);
 
-        await processOneMessage(full, {
+        await handleWeixinMessageTurn(full, {
           accountId,
           agent,
           baseUrl,

@@ -1,10 +1,10 @@
-import { expect, test } from "bun:test";
+import { expect, mock, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { processOneMessage, resolveMediaTempDir } from "../../../src/weixin/messaging/process-message";
+import { handleWeixinMessageTurn, resolveMediaTempDir } from "../../../src/weixin/messaging/handle-weixin-message-turn";
 import type { Agent, ChatResponse } from "../../../src/weixin/agent/interface";
-import type { ProcessMessageDeps } from "../../../src/weixin/messaging/process-message";
+import type { HandleWeixinMessageTurnDeps } from "../../../src/weixin/messaging/handle-weixin-message-turn";
 import type { WeixinMessage } from "../../../src/weixin/api/types";
 import { MessageItemType } from "../../../src/weixin/api/types";
 
@@ -24,7 +24,7 @@ function makeMessage(text: string, contextToken = "ctx-token-123"): WeixinMessag
   };
 }
 
-test("processOneMessage passes reply callback to agent.chat", async () => {
+test("handleWeixinMessageTurn passes reply callback to agent.chat", async () => {
   let capturedReply: ((text: string) => Promise<void>) | undefined;
   const agent: Agent = {
     async chat(request): Promise<ChatResponse> {
@@ -33,7 +33,7 @@ test("processOneMessage passes reply callback to agent.chat", async () => {
     },
   };
 
-  const deps: ProcessMessageDeps = {
+  const deps: HandleWeixinMessageTurnDeps = {
     accountId: "test-account",
     agent,
     baseUrl: "https://example.com",
@@ -43,7 +43,7 @@ test("processOneMessage passes reply callback to agent.chat", async () => {
     errLog: () => {},
   };
 
-  await processOneMessage(makeMessage("hello"), deps);
+  await handleWeixinMessageTurn(makeMessage("hello"), deps);
   expect(typeof capturedReply).toBe("function");
 });
 
@@ -55,7 +55,7 @@ test("resolveMediaTempDir falls back to the system temp dir", () => {
   expect(resolveMediaTempDir()).toBe(join(tmpdir(), "weacpx", "media"));
 });
 
-test("processOneMessage reports agent failures via errLog", async () => {
+test("handleWeixinMessageTurn reports agent failures via errLog", async () => {
   const errors: string[] = [];
   const agent: Agent = {
     async chat(): Promise<ChatResponse> {
@@ -63,7 +63,7 @@ test("processOneMessage reports agent failures via errLog", async () => {
     },
   };
 
-  const deps: ProcessMessageDeps = {
+  const deps: HandleWeixinMessageTurnDeps = {
     accountId: "test-account",
     agent,
     baseUrl: "https://example.com",
@@ -75,6 +75,42 @@ test("processOneMessage reports agent failures via errLog", async () => {
     },
   };
 
-  await processOneMessage(makeMessage("hello", undefined), deps);
+  await handleWeixinMessageTurn(makeMessage("hello", undefined), deps);
   expect(errors.some((msg) => msg.includes("agent exploded"))).toBe(true);
+});
+
+test("handleWeixinMessageTurn treats reply as the only text output channel once it is used", async () => {
+  const sentTexts: string[] = [];
+
+  mock.module("../../../src/weixin/messaging/send.ts", () => ({
+    markdownToPlainText: (text: string) => text,
+    sendMessageWeixin: async ({ text }: { text: string }) => {
+      sentTexts.push(text);
+      return { messageId: `msg-${sentTexts.length}` };
+    },
+  }));
+
+  const { handleWeixinMessageTurn: handleWeixinMessageTurnWithMock } = await import("../../../src/weixin/messaging/handle-weixin-message-turn");
+
+  const agent: Agent = {
+    async chat(request): Promise<ChatResponse> {
+      await request.reply?.("Hello! What can I help with?");
+      return { text: "A different final text that should stay internal" };
+    },
+  };
+
+  const deps: HandleWeixinMessageTurnDeps = {
+    accountId: "test-account",
+    agent,
+    baseUrl: "https://example.com",
+    cdnBaseUrl: "https://cdn.example.com",
+    token: "test-token",
+    log: () => {},
+    errLog: () => {},
+  };
+
+  await handleWeixinMessageTurnWithMock(makeMessage("hello"), deps);
+
+  expect(sentTexts).toEqual(["Hello! What can I help with?"]);
+  mock.restore();
 });

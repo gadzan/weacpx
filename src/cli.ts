@@ -8,6 +8,7 @@ import { resolveDaemonPaths } from "./daemon/daemon-files";
 import type { DaemonController } from "./daemon/daemon-controller";
 import { DaemonRuntime } from "./daemon/daemon-runtime";
 import type { DaemonStatus } from "./daemon/daemon-status";
+import { createWeixinConsumerLock } from "./weixin/monitor/consumer-lock";
 
 interface StatusStopped {
   state: "stopped";
@@ -88,6 +89,12 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
     }
     case "status": {
       const status = await controller.getStatus();
+      if (status.state === "indeterminate") {
+        print("weacpx 进程仍在运行，但状态元数据缺失");
+        print(`PID: ${status.pid}`);
+        return 1;
+      }
+
       if (status.state !== "running") {
         print("weacpx 未运行");
         return 0;
@@ -148,6 +155,13 @@ async function defaultRun(): Promise<void> {
       }),
     loadWeixinSdk,
     daemonRuntime,
+    consumerLockFactory: (runtime) =>
+      createWeixinConsumerLock({
+        lockFilePath: `${daemonPaths.runtimeDir}${sep}weixin-consumer.lock.json`,
+        onDiagnostic: async (event, context) => {
+          await runtime.logger.info(`weixin.consumer_lock.${event}`, "weixin consumer lock diagnostic", context);
+        },
+      }),
   });
 }
 

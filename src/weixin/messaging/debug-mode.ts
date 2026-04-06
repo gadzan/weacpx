@@ -4,7 +4,7 @@
  * State file: `<stateDir>/openclaw-weixin/debug-mode.json`
  * Format:     `{ "accounts": { "<accountId>": true, ... } }`
  *
- * When enabled, processOneMessage appends a timing summary after each
+ * When enabled, handleWeixinMessageTurn appends a timing summary after each
  * AI reply is delivered to the user.
  */
 import fs from "node:fs";

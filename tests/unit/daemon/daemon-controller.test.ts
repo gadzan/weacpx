@@ -46,6 +46,23 @@ test("reports running when pid is alive and status exists", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+
+test("reports indeterminate when pid is alive but status metadata is missing", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-daemon-controller-"));
+  const controller = createController(dir, {
+    isProcessRunning: (pid) => pid === 12345,
+  });
+  await writeFile(join(dir, "daemon.pid"), "12345\n");
+
+  await expect(controller.getStatus()).resolves.toEqual({
+    state: "indeterminate",
+    pid: 12345,
+    reason: "missing-status",
+  });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
 test("treats dead pid files as stale and clears runtime files", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-daemon-controller-"));
   const controller = createController(dir, {
@@ -100,6 +117,25 @@ test("start reports already running without spawning again", async () => {
     state: "already-running",
     pid: 22222,
   });
+  expect(spawned).toBe(false);
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+
+test("start refuses to spawn a second daemon when pid is alive but status metadata is missing", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-daemon-controller-"));
+  let spawned = false;
+  const controller = createController(dir, {
+    isProcessRunning: (pid) => pid === 22222,
+    spawnDetached: async () => {
+      spawned = true;
+      return 33333;
+    },
+  });
+  await writeFile(join(dir, "daemon.pid"), "22222\n");
+
+  await expect(controller.start()).rejects.toThrow("status metadata is missing");
   expect(spawned).toBe(false);
 
   await rm(dir, { recursive: true, force: true });

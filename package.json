@@ -1,7 +1,7 @@
 {
   "name": "weacpx",
-  "description": "用微信远程控制 `acpx` 会话的控制台, 底层基于 `weixin-agent-sdk` 与 `acpx`",
-  "version": "0.1.7",
+  "description": "使用微信 ClawBot 随时随地通过 `acpx` 控制 Claude Code、Codex 等 Agents。",
+  "version": "0.2.0",
   "main": "index.js",
   "directories": {
     "doc": "docs",
@@ -46,7 +46,7 @@
     "test:smoke": "node ./scripts/run-tests.mjs tests/smoke"
   },
   "dependencies": {
-    "acpx": "^0.4.0",
+    "acpx": "^0.4.1",
     "node-pty": "^1.1.0",
     "qrcode-terminal": "^0.12.0"
   },

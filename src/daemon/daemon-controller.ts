@@ -19,6 +19,7 @@ interface DaemonControllerDeps {
 type DaemonState =
   | { state: "stopped"; stale?: boolean }
   | { state: "running"; pid: number; status: DaemonStatus }
+  | { state: "indeterminate"; pid: number; reason: "missing-status" }
   | { state: "already-running"; pid: number };
 
 export class DaemonController {
@@ -61,7 +62,7 @@ export class DaemonController {
     }
 
     if (!status) {
-      return { state: "stopped" };
+      return { state: "indeterminate", pid, reason: "missing-status" };
     }
 
     return {
@@ -75,6 +76,11 @@ export class DaemonController {
     const current = await this.getStatus();
     if (current.state === "running") {
       return { state: "already-running", pid: current.pid };
+    }
+    if (current.state === "indeterminate") {
+      throw new Error(
+        `weacpx daemon process is already running (pid ${current.pid}) but status metadata is missing`,
+      );
     }
 
     // Clear any stale status file before spawning so that a matching PID from a

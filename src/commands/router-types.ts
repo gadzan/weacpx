@@ -10,7 +10,7 @@ export interface RouterResponse {
 
 export type WritableConfigStore = Pick<
   ConfigStore,
-  "upsertWorkspace" | "removeWorkspace" | "upsertAgent" | "removeAgent" | "updateTransport"
+  "save" | "upsertWorkspace" | "removeWorkspace" | "upsertAgent" | "removeAgent" | "updateTransport" | "updateWechat"
 >;
 
 export interface CommandRouterContext {
@@ -30,7 +30,7 @@ export interface SessionLifecycleOps {
   handleSessionShortcut: (
     chatKey: string,
     agent: string,
-    cwdInput: string,
+    target: { cwd?: string; workspace?: string },
     createNew: boolean,
   ) => Promise<RouterResponse>;
   resetCurrentSession: (chatKey: string) => Promise<RouterResponse>;

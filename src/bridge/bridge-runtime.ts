@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { NonInteractivePermissions, PermissionMode } from "../config/types";
 import { resolveSpawnCommand } from "../process/spawn-command";
 import { getPromptText } from "../transport/prompt-output";
+import { createStreamingPromptState, parseStreamingDataChunk } from "../transport/streaming-prompt";
 
 interface CommandResult {
   code: number;
@@ -13,6 +14,30 @@ interface CommandResult {
 
 type CommandRunner = (command: string, args: string[]) => Promise<CommandResult>;
 type SessionCreateRunner = (command: string, args: string[], cwd: string) => Promise<CommandResult>;
+type PromptRunner = typeof runStreamingPrompt;
+
+interface StreamingPromptRunnerOptions {
+  spawnPrompt?: (command: string, args: string[]) => PromptStreamProcess;
+  setIntervalFn?: (fn: () => void, delay: number) => unknown;
+  clearIntervalFn?: (timer: unknown) => void;
+  maxSegmentWaitMs?: number;
+  flushCheckIntervalMs?: number;
+  now?: () => number;
+}
+
+interface PromptStreamProcess {
+  stdout: {
+    setEncoding: (encoding: string) => void;
+    on: (event: "data", handler: (chunk: string | Buffer) => void) => void;
+  };
+  stderr: {
+    on: (event: "data", handler: (chunk: string | Buffer) => void) => void;
+  };
+  on: {
+    (event: "error", handler: (error: Error) => void): void;
+    (event: "close", handler: (code: number | null) => void): void;
+  };
+}
 
 interface BridgeRuntimeOptions {
   permissionMode?: PermissionMode;
@@ -25,7 +50,17 @@ export class BridgeRuntime {
     private readonly run: CommandRunner = defaultRunner,
     private readonly runSessionCreate: SessionCreateRunner = shellSessionCreateRunner,
     private readonly options: BridgeRuntimeOptions = {},
+    private readonly runPromptCommand: PromptRunner = defaultPromptRunner,
   ) {}
+
+  async updatePermissionPolicy(policy: {
+    permissionMode: PermissionMode;
+    nonInteractivePermissions: NonInteractivePermissions;
+  }): Promise<Record<string, never>> {
+    this.options.permissionMode = policy.permissionMode;
+    this.options.nonInteractivePermissions = policy.nonInteractivePermissions;
+    return {};
+  }
 
   async hasSession(input: {
     agent: string;
@@ -88,14 +123,16 @@ export class BridgeRuntime {
     cwd: string;
     name: string;
     text: string;
-  }): Promise<{ text: string }> {
+  }, onEvent?: (event: { type: "prompt.segment"; text: string }) => void): Promise<{ text: string }> {
     const spawnSpec = resolveSpawnCommand(this.command, this.buildPromptArgs(input, [
       "prompt",
       "-s",
       input.name,
       input.text,
     ]));
-    const result = await this.run(spawnSpec.command, spawnSpec.args);
+    const result = onEvent
+      ? await this.runPromptCommand(spawnSpec.command, spawnSpec.args, onEvent)
+      : await this.run(spawnSpec.command, spawnSpec.args);
     return { text: getPromptText(result) };
   }
 
@@ -197,7 +234,7 @@ export class BridgeRuntime {
 
   private buildPermissionArgs(): string[] {
     const permissionMode = this.options.permissionMode ?? "approve-all";
-    const nonInteractivePermissions = this.options.nonInteractivePermissions ?? "fail";
+    const nonInteractivePermissions = this.options.nonInteractivePermissions ?? "deny";
     const modeFlag =
       permissionMode === "approve-reads"
         ? "--approve-reads"
@@ -226,6 +263,78 @@ async function defaultRunner(command: string, args: string[]): Promise<CommandRe
       resolve({ code: code ?? 1, stdout, stderr });
     });
   });
+}
+
+export async function runStreamingPrompt(
+  command: string,
+  args: string[],
+  onEvent?: (event: { type: "prompt.segment"; text: string }) => void,
+  options: StreamingPromptRunnerOptions = {},
+): Promise<CommandResult> {
+  const spawnPrompt = options.spawnPrompt ?? ((spawnCommand, spawnArgs) =>
+    spawn(spawnCommand, spawnArgs, { stdio: ["ignore", "pipe", "pipe"] }) as unknown as PromptStreamProcess);
+  const setIntervalFn = options.setIntervalFn ?? ((fn, delay) => setInterval(fn, delay));
+  const clearIntervalFn = options.clearIntervalFn ?? ((timer) => clearInterval(timer as NodeJS.Timeout));
+  const maxSegmentWaitMs = options.maxSegmentWaitMs ?? 30_000;
+  const flushCheckIntervalMs = options.flushCheckIntervalMs ?? 5_000;
+  const now = options.now ?? (() => Date.now());
+
+  return await new Promise((resolve, reject) => {
+    const child = spawnPrompt(command, args);
+    let stdout = "";
+    let stderr = "";
+    const state = createStreamingPromptState();
+    let lastReplyAt = now();
+
+    const flushBuffer = () => {
+      const remaining = state.buffer.trim();
+      if (remaining.length > 0) {
+        state.buffer = "";
+        onEvent?.({ type: "prompt.segment", text: remaining });
+        lastReplyAt = now();
+      }
+    };
+
+    const timer = setIntervalFn(() => {
+      if (state.buffer.trim().length > 0 && now() - lastReplyAt >= maxSegmentWaitMs) {
+        flushBuffer();
+      }
+    }, flushCheckIntervalMs);
+
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string | Buffer) => {
+      const text = String(chunk);
+      stdout += text;
+      parseStreamingDataChunk(state, text);
+      for (const segment of state.segments.splice(0)) {
+        onEvent?.({ type: "prompt.segment", text: segment });
+        lastReplyAt = now();
+      }
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("error", (error) => {
+      clearIntervalFn(timer);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearIntervalFn(timer);
+      const remaining = state.finalize();
+      if (remaining.length > 0) {
+        onEvent?.({ type: "prompt.segment", text: remaining });
+      }
+      resolve({ code: code ?? 1, stdout, stderr });
+    });
+  });
+}
+
+async function defaultPromptRunner(
+  command: string,
+  args: string[],
+  onEvent?: (event: { type: "prompt.segment"; text: string }) => void,
+): Promise<CommandResult> {
+  return await runStreamingPrompt(command, args, onEvent);
 }
 
 async function shellSessionCreateRunner(

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 
+import { createNoopAppLogger } from "../../src/logging/app-logger";
 import { runConsole } from "../../src/run-console";
 
 test("runs the foreground service with daemon lifecycle hooks", async () => {
@@ -19,6 +20,7 @@ test("runs the foreground service with daemon lifecycle hooks", async () => {
         sessions: {} as never,
         stateStore: {} as never,
         configStore: {} as never,
+        logger: createNoopAppLogger(),
         dispose: async () => {
           events.push("dispose");
         },
@@ -78,6 +80,7 @@ test("still stops daemon runtime when startup fails", async () => {
           sessions: {} as never,
           stateStore: {} as never,
           configStore: {} as never,
+          logger: createNoopAppLogger(),
           dispose: async () => {
             events.push("dispose");
           },
@@ -121,6 +124,7 @@ test("swallows heartbeat failures inside the timer callback", async () => {
         sessions: {} as never,
         stateStore: {} as never,
         configStore: {} as never,
+        logger: createNoopAppLogger(),
         dispose: async () => {},
       }),
       loadWeixinSdk: async () => ({
@@ -161,6 +165,7 @@ test("still stops daemon runtime when dispose fails", async () => {
           sessions: {} as never,
           stateStore: {} as never,
           configStore: {} as never,
+          logger: createNoopAppLogger(),
           dispose: async () => {
             events.push("dispose");
             throw new Error("dispose failed");
@@ -204,6 +209,7 @@ test("handles SIGINT by aborting the sdk start and running cleanup", async () =>
         sessions: {} as never,
         stateStore: {} as never,
         configStore: {} as never,
+        logger: createNoopAppLogger(),
         dispose: async () => {
           events.push("dispose");
         },

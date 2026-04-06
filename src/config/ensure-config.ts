@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import { ConfigStore } from "./config-store";
-import { loadConfig } from "./load-config";
+import { loadConfig, parseConfig } from "./load-config";
 import { resolveAgentCommand } from "./resolve-agent-command";
 import type { AppConfig } from "./types";
 
@@ -20,7 +20,11 @@ export async function ensureConfigExists(path: string): Promise<void> {
 
 async function loadDefaultConfigTemplate(): Promise<AppConfig> {
   const templatePath = new URL("../../config.example.json", import.meta.url);
-  const template = JSON.parse(await readFile(templatePath, "utf8")) as AppConfig;
+  return normalizeDefaultConfigTemplate(JSON.parse(await readFile(templatePath, "utf8")) as unknown);
+}
+
+export function normalizeDefaultConfigTemplate(raw: unknown): AppConfig {
+  const template = parseConfig(raw);
 
   return {
     ...template,

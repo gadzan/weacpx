@@ -2,6 +2,8 @@
 
 `~/.weacpx/config.json` 是 weacpx 的主配置文件。
 
+如果你想在微信里直接修改一部分配置，而不是手改 JSON，请看 [`docs/config-command.md`](./config-command.md)。
+
 ## 完整示例
 
 ```json
@@ -10,6 +12,9 @@
     "type": "acpx-bridge",
     "command": "acpx",
     "sessionInitTimeoutMs": 120000
+  },
+  "wechat": {
+    "replyMode": "stream"
   },
   "agents": {
     "codex": {
@@ -62,6 +67,37 @@
 2. Shell `PATH` 中的 `acpx`
 
 显式指定 `command` 会覆盖上述行为。
+
+---
+
+## `wechat`
+
+控制微信侧回复投递行为。
+
+### `wechat.replyMode`
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `replyMode` | `"stream"` \| `"final"` | 否 | 微信回复模式。默认 `"stream"` |
+
+说明：
+
+- `stream`：有中间文本分段时，优先流式发送到微信
+- `final`：抑制中间文本分段，只在最后发送一次最终文本
+- 这个配置是**全局默认值**
+- 可以通过 `/replymode` 为**当前逻辑会话**设置覆盖值
+- `/replymode reset` 会清除当前会话覆盖，回退到 `wechat.replyMode`
+- `final` 只影响微信侧文本是否实时发送，不改变 acpx transport 的输出生成方式
+
+### 示例
+
+```json
+{
+  "wechat": {
+    "replyMode": "stream"
+  }
+}
+```
 
 ---
 
@@ -166,3 +202,17 @@
 ```
 
 `transport.type` 默认为 `"acpx-bridge"`，其他字段留空或省略即可。agents 和 workspaces 可以先留空，后续在微信里通过命令创建。
+
+---
+
+## 通过微信修改配置
+
+weacpx 支持通过 `/config` 和 `/config set <path> <value>` 修改**部分受支持字段**。
+
+注意：
+
+- `/config` 不是任意 JSON 编辑器
+- 只允许修改白名单中的路径
+- `agents.<name>.*` / `workspaces.<name>.*` 仅在目标已存在时允许修改
+
+详见 [`docs/config-command.md`](./config-command.md)。

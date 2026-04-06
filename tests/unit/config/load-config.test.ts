@@ -107,7 +107,7 @@ test("loads an optional transport session init timeout", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-test("defaults transport permission policy to approve-all and fail", async () => {
+test("defaults transport permission policy to approve-all and deny", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
   const path = join(dir, "config.json");
 
@@ -126,7 +126,7 @@ test("defaults transport permission policy to approve-all and fail", async () =>
 
   const config = await loadConfig(path);
   expect(config.transport.permissionMode).toBe("approve-all");
-  expect(config.transport.nonInteractivePermissions).toBe("fail");
+  expect(config.transport.nonInteractivePermissions).toBe("deny");
 
   await rm(dir, { recursive: true, force: true });
 });
@@ -160,7 +160,7 @@ test("loads explicit transport permission policy", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-test("loads allow for explicit non-interactive permissions", async () => {
+test("rejects allow for explicit non-interactive permissions", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
   const path = join(dir, "config.json");
 
@@ -182,9 +182,7 @@ test("loads allow for explicit non-interactive permissions", async () => {
     }),
   );
 
-  const config = await loadConfig(path);
-  expect(config.transport.permissionMode).toBe("approve-all");
-  expect(config.transport.nonInteractivePermissions).toBe("allow");
+  await expect(loadConfig(path)).rejects.toThrow("transport.nonInteractivePermissions must be deny or fail");
 
   await rm(dir, { recursive: true, force: true });
 });
@@ -242,6 +240,33 @@ test("defaults logging to bounded info mode when omitted", async () => {
     maxFiles: 5,
     retentionDays: 7,
   });
+  expect(config.wechat).toEqual({
+    replyMode: "stream",
+  });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("loads explicit wechat reply mode", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      wechat: { replyMode: "final" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+        },
+      },
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.wechat.replyMode).toBe("final");
 
   await rm(dir, { recursive: true, force: true });
 });

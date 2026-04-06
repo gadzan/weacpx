@@ -5,6 +5,7 @@ export interface LogicalSession {
   transport_session: string;
   transport_agent_command?: string;
   mode_id?: string;
+  reply_mode?: "stream" | "final";
   created_at: string;
   last_used_at: string;
 }

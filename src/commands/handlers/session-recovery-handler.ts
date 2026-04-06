@@ -33,17 +33,22 @@ export function renderSessionCreationError(session: ResolvedSession, error: unkn
   const message = error instanceof Error ? error.message : String(error);
 
   if (message.includes("timed out") && message.includes("sessions new")) {
-    return renderSessionCreationVerificationError(session);
+    return renderSessionCreationFailure(session, message);
   }
 
   throw error;
 }
 
 export function renderSessionCreationVerificationError(session: ResolvedSession): RouterResponse {
+  return renderSessionCreationFailure(session, "未检测到可用的后端会话。");
+}
+
+function renderSessionCreationFailure(session: ResolvedSession, detail: string): RouterResponse {
   return {
     text: [
-      "当前还不能直接在微信里创建新会话。",
-      `请先准备好一个已有会话，然后在微信里执行：/session attach ${session.alias} --agent ${session.agent} --ws ${session.workspace} --name <会话名>`,
+      "会话创建失败。",
+      `错误信息：${summarizeTransportError(detail)}`,
+      `如果你要先绑定一个已有会话，可以执行：/session attach ${session.alias} --agent ${session.agent} --ws ${session.workspace} --name <会话名>`,
     ].join("\n"),
   };
 }

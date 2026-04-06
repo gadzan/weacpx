@@ -8,6 +8,7 @@ import type {
   LoggingLevel,
   NonInteractivePermissions,
   PermissionMode,
+  WechatReplyMode,
   WorkspaceConfig,
 } from "./types";
 
@@ -18,7 +19,8 @@ const DEFAULT_LOGGING_CONFIG: LoggingConfig = {
   retentionDays: 7,
 };
 const DEFAULT_PERMISSION_MODE: PermissionMode = "approve-all";
-const DEFAULT_NON_INTERACTIVE_PERMISSIONS: NonInteractivePermissions = "fail";
+const DEFAULT_NON_INTERACTIVE_PERMISSIONS: NonInteractivePermissions = "deny";
+const DEFAULT_WECHAT_REPLY_MODE: WechatReplyMode = "stream";
 
 type ParsedAgentRecord = Record<string, AgentConfig & { command?: string }>;
 type ParsedWorkspaceRecord = Record<string, WorkspaceConfig & { allowed_agents?: string[] }>;
@@ -37,7 +39,7 @@ export async function loadConfig(
   return parseConfig(raw, options);
 }
 
-function parseConfig(
+export function parseConfig(
   raw: unknown,
   options: { defaultLoggingLevel?: LoggingLevel } = {},
 ): AppConfig {
@@ -74,11 +76,10 @@ function parseConfig(
   }
   if (
     "nonInteractivePermissions" in transport &&
-    transport.nonInteractivePermissions !== "allow" &&
     transport.nonInteractivePermissions !== "deny" &&
     transport.nonInteractivePermissions !== "fail"
   ) {
-    throw new Error("transport.nonInteractivePermissions must be allow, deny, or fail");
+    throw new Error("transport.nonInteractivePermissions must be deny or fail");
   }
 
   if (!isRecord(raw.agents)) {
@@ -90,8 +91,12 @@ function parseConfig(
   }
 
   const logging = raw.logging;
+  const wechat = raw.wechat;
   if (logging !== undefined && !isRecord(logging)) {
     throw new Error("logging must be an object");
+  }
+  if (wechat !== undefined && !isRecord(wechat)) {
+    throw new Error("wechat must be an object");
   }
   if (
     isRecord(logging) &&
@@ -110,6 +115,14 @@ function parseConfig(
     ) {
       throw new Error(`logging.${field} must be a positive number`);
     }
+  }
+  if (
+    isRecord(wechat) &&
+    "replyMode" in wechat &&
+    wechat.replyMode !== "stream" &&
+    wechat.replyMode !== "final"
+  ) {
+    throw new Error("wechat.replyMode must be stream or final");
   }
 
   for (const [name, agent] of Object.entries(raw.agents)) {
@@ -163,7 +176,6 @@ function parseConfig(
       ? transport.permissionMode
       : DEFAULT_PERMISSION_MODE;
   const nonInteractivePermissions: NonInteractivePermissions =
-    transport.nonInteractivePermissions === "allow" ||
     transport.nonInteractivePermissions === "deny" ||
     transport.nonInteractivePermissions === "fail"
       ? transport.nonInteractivePermissions
@@ -173,6 +185,10 @@ function parseConfig(
     loggingLevel === "error" || loggingLevel === "info" || loggingLevel === "debug"
       ? loggingLevel
       : (options.defaultLoggingLevel ?? DEFAULT_LOGGING_CONFIG.level);
+  const replyMode: WechatReplyMode =
+    wechat?.replyMode === "stream" || wechat?.replyMode === "final"
+      ? wechat.replyMode
+      : DEFAULT_WECHAT_REPLY_MODE;
 
   return {
     transport: {
@@ -191,6 +207,9 @@ function parseConfig(
       maxFiles: typeof logging?.maxFiles === "number" ? logging.maxFiles : DEFAULT_LOGGING_CONFIG.maxFiles,
       retentionDays:
         typeof logging?.retentionDays === "number" ? logging.retentionDays : DEFAULT_LOGGING_CONFIG.retentionDays,
+    },
+    wechat: {
+      replyMode,
     },
     agents,
     workspaces,

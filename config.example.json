@@ -3,13 +3,16 @@
     "type": "acpx-bridge",
     "sessionInitTimeoutMs": 120000,
     "permissionMode": "approve-all",
-    "nonInteractivePermissions": "fail"
+    "nonInteractivePermissions": "deny"
   },
   "logging": {
     "level": "info",
     "maxSizeBytes": 2097152,
     "maxFiles": 5,
     "retentionDays": 7
+  },
+  "wechat": {
+    "replyMode": "stream"
   },
   "agents": {
     "codex": {

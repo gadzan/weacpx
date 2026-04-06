@@ -3,7 +3,21 @@ import { homedir } from "node:os";
 import { normalize } from "node:path";
 
 import { renderWorkspaces } from "../../formatting/render-text";
+import type { HelpTopicMetadata } from "../help/help-types";
 import type { CommandRouterContext, RouterResponse } from "../router-types";
+
+export const workspaceHelp: HelpTopicMetadata = {
+  topic: "workspace",
+  aliases: ["ws", "workspaces"],
+  summary: "管理已注册的工作区。",
+  commands: [
+    { usage: "/workspaces", description: "查看当前已注册的工作区" },
+    { usage: "/workspace 或 /ws", description: "查看工作区列表" },
+    { usage: "/ws new <name> -d <path>", description: "添加工作区" },
+    { usage: "/workspace rm <name>", description: "删除工作区" },
+  ],
+  examples: ['/ws new backend -d "/tmp/backend"', "/workspace rm backend"],
+};
 
 export function handleWorkspaces(context: CommandRouterContext): RouterResponse {
   return { text: context.config ? renderWorkspaces(context.config) : "No config loaded." };

@@ -1,4 +1,8 @@
-import { type BridgeMethod, type BridgeResponse } from "../transport/acpx-bridge/acpx-bridge-protocol";
+import {
+  encodeBridgePromptSegmentEvent,
+  type BridgeMethod,
+  type BridgeResponse,
+} from "../transport/acpx-bridge/acpx-bridge-protocol";
 import { PromptCommandError } from "../transport/prompt-output";
 import { BridgeRuntime } from "./bridge-runtime";
 
@@ -13,6 +17,7 @@ class BridgeInvalidRequestError extends Error {}
 const BRIDGE_METHODS = new Set<BridgeMethod>([
   "ping",
   "shutdown",
+  "updatePermissionPolicy",
   "hasSession",
   "ensureSession",
   "prompt",
@@ -23,14 +28,14 @@ const BRIDGE_METHODS = new Set<BridgeMethod>([
 export class BridgeServer {
   constructor(private readonly runtime: BridgeRuntime) {}
 
-  async handleLine(line: string): Promise<string> {
+  async handleLine(line: string, writeLine?: (line: string) => void): Promise<string> {
     let requestId = extractRequestId(line);
 
     try {
       const request = parseBridgeRequest(line);
       requestId = request.id;
 
-      const result = await this.dispatch(request.method, request.params);
+      const result = await this.dispatch(request.id, request.method, request.params, writeLine);
       return `${JSON.stringify({
         id: request.id,
         ok: true,
@@ -58,12 +63,22 @@ export class BridgeServer {
     }
   }
 
-  private async dispatch(method: BridgeMethod, params: Record<string, unknown>): Promise<unknown> {
+  private async dispatch(
+    requestId: string,
+    method: BridgeMethod,
+    params: Record<string, unknown>,
+    writeLine?: (line: string) => void,
+  ): Promise<unknown> {
     switch (method) {
       case "ping":
         return {};
       case "shutdown":
         return await this.runtime.shutdown();
+      case "updatePermissionPolicy":
+        return await this.runtime.updatePermissionPolicy({
+          permissionMode: requirePermissionMode(params, "permissionMode"),
+          nonInteractivePermissions: requireNonInteractivePermissions(params, "nonInteractivePermissions"),
+        });
       case "hasSession":
         return await this.runtime.hasSession({
           agent: requireString(params, "agent"),
@@ -85,6 +100,14 @@ export class BridgeServer {
           cwd: requireString(params, "cwd"),
           name: requireString(params, "name"),
           text: requireString(params, "text"),
+        }, (event) => {
+          if (event.type === "prompt.segment") {
+            writeLine?.(encodeBridgePromptSegmentEvent({
+              id: requestId,
+              event: "prompt.segment",
+              text: event.text,
+            }));
+          }
         });
       case "setMode":
         return await this.runtime.setMode({
@@ -168,6 +191,24 @@ function requireString(params: Record<string, unknown>, key: string): string {
   return value;
 }
 
+
+function requirePermissionMode(params: Record<string, unknown>, key: string): "approve-all" | "approve-reads" | "deny-all" {
+  const value = params[key];
+  if (value === "approve-all" || value === "approve-reads" || value === "deny-all") {
+    return value;
+  }
+
+  throw new BridgeInvalidRequestError(`${key} must be approve-all, approve-reads, or deny-all`);
+}
+
+function requireNonInteractivePermissions(params: Record<string, unknown>, key: string): "deny" | "fail" {
+  const value = params[key];
+  if (value === "deny" || value === "fail") {
+    return value;
+  }
+
+  throw new BridgeInvalidRequestError(`${key} must be deny or fail`);
+}
 function asOptionalString(value: unknown): string | undefined {
   if (typeof value !== "string" || value.length === 0) {
     return undefined;

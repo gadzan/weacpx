@@ -1,6 +1,19 @@
 import { renderAgents } from "../../formatting/render-text";
 import { getAgentTemplate, listAgentTemplates } from "../../config/agent-templates";
+import type { HelpTopicMetadata } from "../help/help-types";
 import type { CommandRouterContext, RouterResponse } from "../router-types";
+
+export const agentHelp: HelpTopicMetadata = {
+  topic: "agent",
+  aliases: ["agents"],
+  summary: "管理已注册的 Agent。",
+  commands: [
+    { usage: "/agents", description: "查看当前已注册的 Agent" },
+    { usage: "/agent add <codex|claude>", description: "添加内置 Agent 模板" },
+    { usage: "/agent rm <name>", description: "删除一个 Agent" },
+  ],
+  examples: ["/agent add claude", "/agent rm codex"],
+};
 
 export function handleAgents(context: CommandRouterContext): RouterResponse {
   return { text: context.config ? renderAgents(context.config) : "No config loaded." };

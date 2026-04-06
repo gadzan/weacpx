@@ -193,11 +193,17 @@ async function defaultTerminateProcess(pid: number): Promise<void> {
 }
 
 type ProcessCommandRunner = (command: string, args: string[]) => Promise<number>;
+type KillProcess = (pid: number, signal: NodeJS.Signals) => void;
+type IsProcessRunning = (pid: number) => boolean;
 
 export async function terminateProcessTree(
   pid: number,
   platform: NodeJS.Platform = process.platform,
   runCommand: ProcessCommandRunner = defaultRunProcessCommand,
+  killProcess: KillProcess = (targetPid, signal) => {
+    process.kill(targetPid, signal);
+  },
+  isProcessRunning: IsProcessRunning = defaultIsProcessRunning,
 ): Promise<void> {
   if (platform === "win32") {
     try {
@@ -208,22 +214,24 @@ export async function terminateProcessTree(
     return;
   }
 
+  const targetPid = pid > 0 ? -pid : pid;
+
   try {
-    process.kill(pid, "SIGTERM");
+    killProcess(targetPid, "SIGTERM");
   } catch {
     return;
   }
 
   const deadline = Date.now() + 5_000;
   while (Date.now() < deadline) {
-    if (!defaultIsProcessRunning(pid)) {
+    if (!isProcessRunning(targetPid)) {
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 
   try {
-    process.kill(pid, "SIGKILL");
+    killProcess(targetPid, "SIGKILL");
   } catch {
     // Process already exited.
   }

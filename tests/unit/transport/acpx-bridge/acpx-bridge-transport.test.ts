@@ -46,6 +46,23 @@ test("proxies prompt through the bridge client", async () => {
   await expect(transport.prompt(session, "hello")).resolves.toEqual({ text: "ok" });
 });
 
+test("forwards bridge prompt segments into the reply callback", async () => {
+  const request = mock(async (_method, _params, onEvent?: (event: { type: string; text: string }) => void) => {
+    onEvent?.({ type: "prompt.segment", text: "hello" });
+    onEvent?.({ type: "prompt.segment", text: "world" });
+    return { text: "done" };
+  });
+  const segments: string[] = [];
+  const transport = new AcpxBridgeTransport({
+    request,
+  });
+
+  await expect(transport.prompt(session, "hello", async (text) => {
+    segments.push(text);
+  })).resolves.toEqual({ text: "done" });
+  expect(segments).toEqual(["hello", "world"]);
+});
+
 test("proxies cancel through the bridge client", async () => {
   const request = mock(async () => ({ cancelled: true, message: "cancelled" }));
   const transport = new AcpxBridgeTransport({
@@ -72,5 +89,23 @@ test("proxies setMode through the bridge client", async () => {
     cwd: "/tmp/backend",
     name: "backend:api-fix",
     modeId: "plan",
+  });
+});
+
+
+test("proxies permission policy updates through the bridge client", async () => {
+  const request = mock(async () => ({}));
+  const transport = new AcpxBridgeTransport({
+    request,
+  });
+
+  await transport.updatePermissionPolicy?.({
+    permissionMode: "approve-reads",
+    nonInteractivePermissions: "deny",
+  });
+
+  expect(request).toHaveBeenCalledWith("updatePermissionPolicy", {
+    permissionMode: "approve-reads",
+    nonInteractivePermissions: "deny",
   });
 });

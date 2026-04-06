@@ -1,5 +1,6 @@
 export type PermissionMode = "approve-all" | "approve-reads" | "deny-all";
-export type NonInteractivePermissions = "allow" | "deny" | "fail";
+export type NonInteractivePermissions = "deny" | "fail";
+export type WechatReplyMode = "stream" | "final";
 
 export interface TransportConfig {
   type: "acpx-cli" | "acpx-bridge";
@@ -18,6 +19,10 @@ export interface LoggingConfig {
   retentionDays: number;
 }
 
+export interface WechatConfig {
+  replyMode: WechatReplyMode;
+}
+
 export interface AgentConfig {
   driver: string;
   command?: string;
@@ -31,6 +36,7 @@ export interface WorkspaceConfig {
 export interface AppConfig {
   transport: TransportConfig;
   logging: LoggingConfig;
+  wechat: WechatConfig;
   agents: Record<string, AgentConfig>;
   workspaces: Record<string, WorkspaceConfig>;
 }

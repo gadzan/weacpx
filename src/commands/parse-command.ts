@@ -1,12 +1,14 @@
 export type ParsedCommand =
-  | { kind: "help" }
+  | { kind: "help"; topic?: string }
   | { kind: "agents" }
   | { kind: "agent.add"; template: string }
   | { kind: "agent.rm"; name: string }
   | { kind: "permission.status" }
   | { kind: "permission.mode.set"; mode: "approve-all" | "approve-reads" | "deny-all" }
   | { kind: "permission.auto.status" }
-  | { kind: "permission.auto.set"; policy: "allow" | "deny" | "fail" }
+  | { kind: "permission.auto.set"; policy: "deny" | "fail" }
+  | { kind: "config.show" }
+  | { kind: "config.set"; path: string; value: string }
   | { kind: "workspaces" }
   | { kind: "workspace.new"; name: string; cwd: string }
   | { kind: "workspace.rm"; name: string }
@@ -16,10 +18,13 @@ export type ParsedCommand =
   | { kind: "session.reset" }
   | { kind: "mode.show" }
   | { kind: "mode.set"; modeId: string }
+  | { kind: "replymode.show" }
+  | { kind: "replymode.set"; replyMode: "stream" | "final" }
+  | { kind: "replymode.reset" }
   | { kind: "session.use"; alias: string }
   | { kind: "session.new"; alias: string; agent: string; workspace: string }
-  | { kind: "session.shortcut"; agent: string; cwd: string }
-  | { kind: "session.shortcut.new"; agent: string; cwd: string }
+  | { kind: "session.shortcut"; agent: string; cwd?: string; workspace?: string }
+  | { kind: "session.shortcut.new"; agent: string; cwd?: string; workspace?: string }
   | { kind: "session.attach"; alias: string; agent: string; workspace: string; transportSession: string }
   | { kind: "invalid"; text: string; recognizedCommand: string }
   | { kind: "prompt"; text: string };
@@ -33,7 +38,8 @@ export function parseCommand(input: string): ParsedCommand {
   const parts = tokenizeCommand(trimmed);
   const command = normalizeCommand(parts[0] ?? "");
 
-  if (command === "/help") return { kind: "help" };
+  if (command === "/help" && parts.length === 1) return { kind: "help" };
+  if (command === "/help" && parts.length === 2) return { kind: "help", topic: parts[1] };
   if (command === "/agents") return { kind: "agents" };
   if (command === "/workspaces") return { kind: "workspaces" };
   if (command === "/sessions") return { kind: "sessions" };
@@ -41,6 +47,8 @@ export function parseCommand(input: string): ParsedCommand {
   if (command === "/cancel") return { kind: "cancel" };
   if (command === "/clear") return { kind: "session.reset" };
   if (command === "/mode" && parts.length === 1) return { kind: "mode.show" };
+  if (command === "/replymode" && parts.length === 1) return { kind: "replymode.show" };
+  if (command === "/config" && parts.length === 1) return { kind: "config.show" };
   if (command === "/permission" && parts.length === 1) return { kind: "permission.status" };
   if (command === "/session" && parts.length === 1) return { kind: "sessions" };
   if (command === "/workspace" && parts.length === 1) return { kind: "workspaces" };
@@ -64,12 +72,23 @@ export function parseCommand(input: string): ParsedCommand {
     }
   }
 
+  if (command === "/config" && parts[1] === "set" && parts.length === 4) {
+    return { kind: "config.set", path: parts[2] ?? "", value: parts[3] ?? "" };
+  }
+
   if (command === "/use" && parts[1]) {
     return { kind: "session.use", alias: parts[1] };
   }
 
   if (command === "/mode" && parts[1]) {
     return { kind: "mode.set", modeId: parts[1] };
+  }
+
+  if (command === "/replymode" && parts[1] === "reset" && parts.length === 2) {
+    return { kind: "replymode.reset" };
+  }
+  if (command === "/replymode" && (parts[1] === "stream" || parts[1] === "final") && parts.length === 2) {
+    return { kind: "replymode.set", replyMode: parts[1] };
   }
 
   if (command === "/agent" && parts[1] === "add" && parts[2]) {
@@ -83,15 +102,26 @@ export function parseCommand(input: string): ParsedCommand {
   if (command === "/workspace" && parts[1] === "new" && parts[2]) {
     const name = parts[2];
     let cwd = "";
+    let invalid = false;
 
     for (let index = 3; index < parts.length; index += 1) {
       if (parts[index] === "--cwd" || parts[index] === "-d") {
+        if (index + 1 >= parts.length) {
+          invalid = true;
+          break;
+        }
         cwd = parts[index + 1] ?? "";
         index += 1;
+        continue;
       }
+
+      invalid = true;
+      break;
     }
 
-    return { kind: "workspace.new", name, cwd };
+    if (!invalid && name.trim().length > 0 && cwd.trim().length > 0) {
+      return { kind: "workspace.new", name, cwd };
+    }
   }
 
   if (command === "/workspace" && parts[1] === "rm" && parts[2]) {
@@ -103,30 +133,46 @@ export function parseCommand(input: string): ParsedCommand {
       const alias = parts[2];
       let agent = "";
       let workspace = "";
+      let invalid = false;
 
       for (let index = 3; index < parts.length; index += 1) {
         if (parts[index] === "--agent" || parts[index] === "-a") {
+          if (index + 1 >= parts.length) {
+            invalid = true;
+            break;
+          }
           agent = parts[index + 1] ?? "";
           index += 1;
+          continue;
         } else if (parts[index] === "--ws" || parts[index] === "-ws") {
+          if (index + 1 >= parts.length) {
+            invalid = true;
+            break;
+          }
           workspace = parts[index + 1] ?? "";
           index += 1;
+          continue;
         }
+
+        invalid = true;
+        break;
       }
 
-      return { kind: "session.new", alias, agent, workspace };
+      if (!invalid && alias.trim().length > 0 && agent.trim().length > 0 && workspace.trim().length > 0) {
+        return { kind: "session.new", alias, agent, workspace };
+      }
     }
 
-    const cwd = readFlagValue(parts, ["--cwd", "-d"]);
-    if (cwd) {
-      return { kind: "session.shortcut.new", agent: parts[2], cwd };
+    const shortcutTarget = readSessionShortcutTarget(parts, 3);
+    if (shortcutTarget) {
+      return { kind: "session.shortcut.new", agent: parts[2], ...shortcutTarget };
     }
   }
 
   if (command === "/session" && parts[1] && parts[1] !== "new" && parts[1] !== "attach" && parts[1] !== "reset") {
-    const cwd = readFlagValue(parts, ["--cwd", "-d"]);
-    if (cwd) {
-      return { kind: "session.shortcut", agent: parts[1], cwd };
+    const shortcutTarget = readSessionShortcutTarget(parts, 2);
+    if (shortcutTarget) {
+      return { kind: "session.shortcut", agent: parts[1], ...shortcutTarget };
     }
   }
 
@@ -135,21 +181,48 @@ export function parseCommand(input: string): ParsedCommand {
     let agent = "";
     let workspace = "";
     let transportSession = "";
+    let invalid = false;
 
     for (let index = 3; index < parts.length; index += 1) {
       if (parts[index] === "--agent" || parts[index] === "-a") {
+        if (index + 1 >= parts.length) {
+          invalid = true;
+          break;
+        }
         agent = parts[index + 1] ?? "";
         index += 1;
+        continue;
       } else if (parts[index] === "--ws" || parts[index] === "-ws") {
+        if (index + 1 >= parts.length) {
+          invalid = true;
+          break;
+        }
         workspace = parts[index + 1] ?? "";
         index += 1;
+        continue;
       } else if (parts[index] === "--name") {
+        if (index + 1 >= parts.length) {
+          invalid = true;
+          break;
+        }
         transportSession = parts[index + 1] ?? "";
         index += 1;
+        continue;
       }
+
+      invalid = true;
+      break;
     }
 
-    return { kind: "session.attach", alias, agent, workspace, transportSession };
+    if (
+      !invalid &&
+      alias.trim().length > 0 &&
+      agent.trim().length > 0 &&
+      workspace.trim().length > 0 &&
+      transportSession.trim().length > 0
+    ) {
+      return { kind: "session.attach", alias, agent, workspace, transportSession };
+    }
   }
 
   // 如果命令前缀被识别但参数不匹配任何子命令，返回 invalid
@@ -174,6 +247,54 @@ function readFlagValue(parts: string[], flags: string[]): string {
   return "";
 }
 
+function readSessionShortcutTarget(
+  parts: string[],
+  startIndex: number,
+): { cwd: string } | { workspace: string } | null {
+  let cwd = "";
+  let workspace = "";
+  let invalid = false;
+
+  for (let index = startIndex; index < parts.length; index += 1) {
+    if (parts[index] === "--cwd" || parts[index] === "-d") {
+      if (index + 1 >= parts.length || workspace) {
+        invalid = true;
+        break;
+      }
+      cwd = parts[index + 1] ?? "";
+      index += 1;
+      continue;
+    }
+
+    if (parts[index] === "--ws" || parts[index] === "-ws") {
+      if (index + 1 >= parts.length || cwd) {
+        invalid = true;
+        break;
+      }
+      workspace = parts[index + 1] ?? "";
+      index += 1;
+      continue;
+    }
+
+    invalid = true;
+    break;
+  }
+
+  if (invalid) {
+    return null;
+  }
+
+  if (cwd.trim().length > 0) {
+    return { cwd };
+  }
+
+  if (workspace.trim().length > 0) {
+    return { workspace };
+  }
+
+  return null;
+}
+
 function normalizeCommand(command: string): string {
   if (command === "/ss") return "/session";
   if (command === "/ws") return "/workspace";
@@ -191,6 +312,8 @@ const RECOGNIZED_COMMANDS = new Set([
   "/cancel",
   "/clear",
   "/mode",
+  "/replymode",
+  "/config",
   "/permission",
   "/session",
   "/workspace",
@@ -209,8 +332,8 @@ function toPermissionMode(value: string): "approve-all" | "approve-reads" | "den
   return null;
 }
 
-function toNonInteractivePermission(value: string): "allow" | "deny" | "fail" | null {
-  if (value === "allow" || value === "deny" || value === "fail") {
+function toNonInteractivePermission(value: string): "deny" | "fail" | null {
+  if (value === "deny" || value === "fail") {
     return value;
   }
 

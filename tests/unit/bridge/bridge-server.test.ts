@@ -48,7 +48,7 @@ test("reuses an existing session when ensure fails but status probe finds it", a
       "/repo",
       "--approve-all",
       "--non-interactive-permissions",
-      "fail",
+      "deny",
       "codex",
       "sessions",
       "ensure",
@@ -62,7 +62,7 @@ test("reuses an existing session when ensure fails but status probe finds it", a
       "/repo",
       "--approve-all",
       "--non-interactive-permissions",
-      "fail",
+      "deny",
       "codex",
       "sessions",
       "show",
@@ -108,7 +108,7 @@ test("creates a new session when ensure fails and no existing session is found",
       "/repo",
       "--approve-all",
       "--non-interactive-permissions",
-      "fail",
+      "deny",
       "codex",
       "sessions",
       "ensure",
@@ -122,7 +122,7 @@ test("creates a new session when ensure fails and no existing session is found",
       "/repo",
       "--approve-all",
       "--non-interactive-permissions",
-      "fail",
+      "deny",
       "codex",
       "sessions",
       "show",
@@ -139,7 +139,7 @@ test("creates a new session when ensure fails and no existing session is found",
         "/repo",
         "--approve-all",
         "--non-interactive-permissions",
-        "fail",
+        "deny",
         "codex",
         "sessions",
         "new",
@@ -191,7 +191,7 @@ test("runs a resolved JavaScript acpx entry with the current node executable", a
         "/repo",
         "--approve-all",
         "--non-interactive-permissions",
-        "fail",
+        "deny",
         "codex",
         "sessions",
         "ensure",
@@ -209,7 +209,7 @@ test("runs a resolved JavaScript acpx entry with the current node executable", a
         "/repo",
         "--approve-all",
         "--non-interactive-permissions",
-        "fail",
+        "deny",
         "codex",
         "sessions",
         "show",
@@ -228,7 +228,7 @@ test("runs a resolved JavaScript acpx entry with the current node executable", a
         "/repo",
         "--approve-all",
         "--non-interactive-permissions",
-        "fail",
+        "deny",
         "codex",
         "sessions",
         "new",
@@ -321,7 +321,7 @@ test("uses raw agent command for hasSession, prompt, and cancel", async () => {
       "/repo",
       "--approve-all",
       "--non-interactive-permissions",
-      "fail",
+      "deny",
       "--agent",
       "./node_modules/.bin/codex-acp",
       "sessions",
@@ -336,7 +336,7 @@ test("uses raw agent command for hasSession, prompt, and cancel", async () => {
       "/repo",
       "--approve-all",
       "--non-interactive-permissions",
-      "fail",
+      "deny",
       "--agent",
       "./node_modules/.bin/codex-acp",
       "prompt",
@@ -351,7 +351,7 @@ test("uses raw agent command for hasSession, prompt, and cancel", async () => {
       "/repo",
       "--approve-all",
       "--non-interactive-permissions",
-      "fail",
+      "deny",
       "--agent",
       "./node_modules/.bin/codex-acp",
       "cancel",
@@ -456,6 +456,52 @@ test("returns the final agent message from json-strict prompt output", async () 
   ).resolves.toEqual({ text: "Final chunk" });
 });
 
+test("streams prompt segments from the runtime prompt runner", async () => {
+  const segments: string[] = [];
+  const runtime = new BridgeRuntime(
+    "acpx",
+    async () => ({ code: 0, stdout: "", stderr: "" }),
+    async () => ({ code: 0, stdout: "", stderr: "" }),
+    {},
+    async (_command, _args, onEvent) => {
+      onEvent?.({ type: "prompt.segment", text: "hello" });
+      onEvent?.({ type: "prompt.segment", text: "world" });
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            sessionId: "demo",
+            update: {
+              sessionUpdate: "agent_message_chunk",
+              content: { type: "text", text: "done" },
+            },
+          },
+        }),
+        stderr: "",
+      };
+    },
+  );
+
+  await expect(
+    runtime.prompt(
+      {
+        agent: "codex",
+        cwd: "/repo",
+        name: "demo",
+        text: "hello",
+      },
+      (event) => {
+        if (event.type === "prompt.segment") {
+          segments.push(event.text);
+        }
+      },
+    ),
+  ).resolves.toEqual({ text: "done" });
+  expect(segments).toEqual(["hello", "world"]);
+});
+
 test("keeps the extracted agent reply when prompt exits non-zero without a structured error", async () => {
   const runtime = new BridgeRuntime("acpx", async (_command, args) => {
     if (args.includes("prompt")) {
@@ -552,6 +598,45 @@ test("handles ping and shutdown over ndjson", async () => {
   );
 });
 
+test("streams prompt segment events before the final prompt response", async () => {
+  const streamed: string[] = [];
+  const runtime = {
+    shutdown: async () => ({}),
+    hasSession: async () => ({ exists: true }),
+    ensureSession: async () => ({}),
+    prompt: async (_input: Record<string, unknown>, onEvent?: (event: { type: string; text: string }) => void) => {
+      onEvent?.({ type: "prompt.segment", text: "hello" });
+      onEvent?.({ type: "prompt.segment", text: "world" });
+      return { text: "done" };
+    },
+    setMode: async () => ({}),
+    cancel: async () => ({ cancelled: true, message: "cancelled" }),
+  };
+  const server = new BridgeServer(runtime as unknown as BridgeRuntime);
+
+  const response = await server.handleLine(
+    JSON.stringify({
+      id: "1",
+      method: "prompt",
+      params: {
+        agent: "codex",
+        cwd: "/repo",
+        name: "demo",
+        text: "hello",
+      },
+    }),
+    (line) => {
+      streamed.push(line);
+    },
+  );
+
+  expect(streamed).toEqual([
+    '{"id":"1","event":"prompt.segment","text":"hello"}\n',
+    '{"id":"1","event":"prompt.segment","text":"world"}\n',
+  ]);
+  expect(response).toBe('{"id":"1","ok":true,"result":{"text":"done"}}\n');
+});
+
 test("includes prompt diagnostics in bridge error responses", async () => {
   const runtime = {
     shutdown: async () => ({}),
@@ -642,3 +727,42 @@ test("returns invalid-request for unknown bridge methods", async () => {
   );
 });
 
+
+
+test("updates bridge runtime permission policy for later commands", async () => {
+  const calls: string[][] = [];
+  const runtime = new BridgeRuntime(
+    "acpx",
+    async (_command, args) => {
+      calls.push(args);
+      return { code: 0, stdout: "ok", stderr: "" };
+    },
+  );
+
+  await runtime.updatePermissionPolicy({
+    permissionMode: "approve-reads",
+    nonInteractivePermissions: "deny",
+  });
+  await runtime.prompt({
+    agent: "codex",
+    cwd: "/repo",
+    name: "demo",
+    text: "hello",
+  });
+
+  expect(calls).toEqual([[
+    "--format",
+    "json",
+    "--json-strict",
+    "--cwd",
+    "/repo",
+    "--approve-reads",
+    "--non-interactive-permissions",
+    "deny",
+    "codex",
+    "prompt",
+    "-s",
+    "demo",
+    "hello",
+  ]]);
+});

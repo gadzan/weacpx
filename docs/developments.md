@@ -200,8 +200,14 @@ bun run dry-run --chat-key wx:test -- \
   "/status"
 ```
 
+
 ## 相关文档
 
 - 用户文档：[README.md](../README.md)
 - 配置参考：[docs/config-reference.md](./config-reference.md)
 - 测试说明：[docs/testing.md](./testing.md)
+## Session & Command Notes
+
+- 命令边界与 session 流向说明：`docs/2026-03-30-command-boundaries-and-session-flow.md`
+- `/session ls --agent --ws` 设计说明：`docs/2026-03-30-session-list-design.md`
+- `acpx` session 与 `weacpx` session 映射说明：`docs/2026-03-30-acpx-session-mapping.md`

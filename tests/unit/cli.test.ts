@@ -61,6 +61,28 @@ test("prints running status", async () => {
   ]);
 });
 
+test("prints indeterminate status when daemon pid is alive but metadata is missing", async () => {
+  const lines: string[] = [];
+
+  await expect(
+    runCli(["status"], {
+      controller: {
+        getStatus: async () => ({ state: "indeterminate", pid: 12345, reason: "missing-status" }),
+        start: async () => ({ state: "started", pid: 12345 }),
+        stop: async () => ({ state: "stopped", detail: "stopped" }),
+      },
+      print: (line) => {
+        lines.push(line);
+      },
+    }),
+  ).resolves.toBe(1);
+
+  expect(lines).toEqual([
+    "weacpx 进程仍在运行，但状态元数据缺失",
+    "PID: 12345",
+  ]);
+});
+
 test("prints already running on repeated start", async () => {
   const lines: string[] = [];
 

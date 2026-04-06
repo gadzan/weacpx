@@ -15,6 +15,11 @@ interface DryRunTurn {
   output: string;
 }
 
+interface DryRunRuntime {
+  agent: WechatAgent;
+  dispose(): Promise<void>;
+}
+
 export function parseDryRunArgs(args: string[]): DryRunOptions {
   let chatKey = "dry-run";
   const turns: DryRunInputTurn[] = [];
@@ -57,6 +62,14 @@ export async function runDryRun(agent: WechatAgent, options: DryRunOptions): Pro
   return transcript;
 }
 
+export async function executeDryRun(runtime: DryRunRuntime, options: DryRunOptions): Promise<DryRunTurn[]> {
+  try {
+    return await runDryRun(runtime.agent, options);
+  } finally {
+    await runtime.dispose();
+  }
+}
+
 async function main(): Promise<void> {
   const options = parseDryRunArgs(process.argv.slice(2));
   if (options.turns.length === 0) {
@@ -64,7 +77,7 @@ async function main(): Promise<void> {
   }
 
   const runtime = await buildApp(resolveRuntimePaths());
-  const transcript = await runDryRun(runtime.agent, options);
+  const transcript = await executeDryRun(runtime, options);
 
   for (const turn of transcript) {
     console.log(`> ${turn.input}`);

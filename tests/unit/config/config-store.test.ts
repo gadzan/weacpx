@@ -50,7 +50,7 @@ test("upserts a workspace while preserving transport and agents", async () => {
     type: "acpx-bridge",
     command: "acpx",
     permissionMode: "approve-all",
-    nonInteractivePermissions: "fail",
+    nonInteractivePermissions: "deny",
   });
   expect(config.agents.codex).toEqual({
     driver: "codex",
@@ -95,7 +95,7 @@ test("removes a workspace and keeps the rest of the config intact", async () => 
     type: "acpx-cli",
     command: "acpx",
     permissionMode: "approve-all",
-    nonInteractivePermissions: "fail",
+    nonInteractivePermissions: "deny",
   });
   expect(config.agents).toEqual({ claude: { driver: "claude" } });
   expect(config.workspaces).toEqual({ frontend: { cwd: "/tmp/frontend" } });
@@ -115,7 +115,7 @@ test("updates transport permissions while preserving unrelated transport config"
         command: "custom-acpx",
         sessionInitTimeoutMs: 45000,
         permissionMode: "approve-all",
-        nonInteractivePermissions: "fail",
+        nonInteractivePermissions: "deny",
       },
       agents: { codex: { driver: "codex" } },
       workspaces: { backend: { cwd: "/tmp/backend" } },
@@ -125,7 +125,7 @@ test("updates transport permissions while preserving unrelated transport config"
   const store = new ConfigStore(path);
   const config = await store.updateTransport({
     permissionMode: "approve-reads",
-    nonInteractivePermissions: "allow",
+    nonInteractivePermissions: "deny",
   });
 
   expect(config.transport).toEqual({
@@ -133,7 +133,7 @@ test("updates transport permissions while preserving unrelated transport config"
     command: "custom-acpx",
     sessionInitTimeoutMs: 45000,
     permissionMode: "approve-reads",
-    nonInteractivePermissions: "allow",
+    nonInteractivePermissions: "deny",
   });
 
   const saved = JSON.parse(await readFile(path, "utf8")) as {
@@ -144,7 +144,47 @@ test("updates transport permissions while preserving unrelated transport config"
     command: "custom-acpx",
     sessionInitTimeoutMs: 45000,
     permissionMode: "approve-reads",
-    nonInteractivePermissions: "allow",
+    nonInteractivePermissions: "deny",
+  });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("updates wechat reply mode while preserving unrelated config", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-store-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: {
+        type: "acpx-cli",
+        command: "custom-acpx",
+        permissionMode: "approve-all",
+        nonInteractivePermissions: "deny",
+      },
+      wechat: {
+        replyMode: "stream",
+      },
+      agents: { codex: { driver: "codex" } },
+      workspaces: { backend: { cwd: "/tmp/backend" } },
+    }),
+  );
+
+  const store = new ConfigStore(path);
+  const config = await store.updateWechat({
+    replyMode: "final",
+  });
+
+  expect(config.wechat).toEqual({
+    replyMode: "final",
+  });
+
+  const saved = JSON.parse(await readFile(path, "utf8")) as {
+    wechat: Record<string, unknown>;
+  };
+  expect(saved.wechat).toEqual({
+    replyMode: "final",
   });
 
   await rm(dir, { recursive: true, force: true });

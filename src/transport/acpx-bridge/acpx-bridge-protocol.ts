@@ -1,4 +1,4 @@
-export type BridgeMethod = "ping" | "shutdown" | "ensureSession" | "hasSession" | "prompt" | "setMode" | "cancel";
+export type BridgeMethod = "ping" | "shutdown" | "updatePermissionPolicy" | "ensureSession" | "hasSession" | "prompt" | "setMode" | "cancel";
 
 export interface BridgeRequest {
   id: string;
@@ -26,8 +26,22 @@ export interface BridgeErrorResponse {
   };
 }
 
+export interface BridgePromptSegmentEvent {
+  id: string;
+  event: "prompt.segment";
+  text: string;
+}
+
+export type BridgeMessage<TResult = unknown> =
+  | BridgeSuccessResponse<TResult>
+  | BridgeErrorResponse
+  | BridgePromptSegmentEvent;
 export type BridgeResponse<TResult = unknown> = BridgeSuccessResponse<TResult> | BridgeErrorResponse;
 
 export function encodeBridgeRequest(request: BridgeRequest): string {
   return `${JSON.stringify(request)}\n`;
+}
+
+export function encodeBridgePromptSegmentEvent(event: BridgePromptSegmentEvent): string {
+  return `${JSON.stringify(event)}\n`;
 }

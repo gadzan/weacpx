@@ -11,6 +11,20 @@ test("parses session creation flags", () => {
   });
 });
 
+test("parses help commands with and without topics", () => {
+  expect(parseCommand("/help")).toEqual({
+    kind: "help",
+  });
+  expect(parseCommand("/help ss")).toEqual({
+    kind: "help",
+    topic: "ss",
+  });
+  expect(parseCommand("/help workspace")).toEqual({
+    kind: "help",
+    topic: "workspace",
+  });
+});
+
 test("parses session creation aliases", () => {
   expect(parseCommand("/ss new api-fix -a codex --ws backend")).toEqual({
     kind: "session.new",
@@ -37,11 +51,27 @@ test("parses the session shortcut command", () => {
   });
 });
 
+test("parses the session shortcut command with a workspace name", () => {
+  expect(parseCommand("/ss codex --ws weacpx")).toEqual({
+    kind: "session.shortcut",
+    agent: "codex",
+    workspace: "weacpx",
+  });
+});
+
 test("parses the explicit session shortcut create command", () => {
   expect(parseCommand('/ss new codex -d "E:/projects/weacpx"')).toEqual({
     kind: "session.shortcut.new",
     agent: "codex",
     cwd: "E:/projects/weacpx",
+  });
+});
+
+test("parses the explicit session shortcut create command with a workspace name", () => {
+  expect(parseCommand("/ss new codex --ws weacpx")).toEqual({
+    kind: "session.shortcut.new",
+    agent: "codex",
+    workspace: "weacpx",
   });
 });
 
@@ -181,6 +211,23 @@ test("parses mode show and set commands", () => {
   });
 });
 
+test("parses replymode show, set, and reset commands", () => {
+  expect(parseCommand("/replymode")).toEqual({
+    kind: "replymode.show",
+  });
+  expect(parseCommand("/replymode stream")).toEqual({
+    kind: "replymode.set",
+    replyMode: "stream",
+  });
+  expect(parseCommand("/replymode final")).toEqual({
+    kind: "replymode.set",
+    replyMode: "final",
+  });
+  expect(parseCommand("/replymode reset")).toEqual({
+    kind: "replymode.reset",
+  });
+});
+
 test("parses permission mode update commands", () => {
   expect(parseCommand("/pm set allow")).toEqual({
     kind: "permission.mode.set",
@@ -200,10 +247,6 @@ test("parses permission auto commands", () => {
   expect(parseCommand("/pm auto")).toEqual({
     kind: "permission.auto.status",
   });
-  expect(parseCommand("/pm auto allow")).toEqual({
-    kind: "permission.auto.set",
-    policy: "allow",
-  });
   expect(parseCommand("/pm auto deny")).toEqual({
     kind: "permission.auto.set",
     policy: "deny",
@@ -214,6 +257,22 @@ test("parses permission auto commands", () => {
   });
 });
 
+test("parses config show and set commands", () => {
+  expect(parseCommand("/config")).toEqual({
+    kind: "config.show",
+  });
+  expect(parseCommand("/config set wechat.replyMode final")).toEqual({
+    kind: "config.set",
+    path: "wechat.replyMode",
+    value: "final",
+  });
+  expect(parseCommand('/config set workspaces.backend.description "backend repo"')).toEqual({
+    kind: "config.set",
+    path: "workspaces.backend.description",
+    value: "backend repo",
+  });
+});
+
 test("treats plain text as a prompt", () => {
   expect(parseCommand("fix the timeout issue")).toEqual({
     kind: "prompt",
@@ -221,19 +280,67 @@ test("treats plain text as a prompt", () => {
   });
 });
 
-test("returns invalid for /ss new with unsupported flag", () => {
+test("parses the explicit session shortcut create command with the short workspace flag variant", () => {
   expect(parseCommand("/ss new claude -ws weacpx")).toEqual({
+    kind: "session.shortcut.new",
+    agent: "claude",
+    workspace: "weacpx",
+  });
+});
+
+test("parses /session new <agent> --ws <workspace> as shortcut create", () => {
+  expect(parseCommand("/session new claude --ws weacpx")).toEqual({
+    kind: "session.shortcut.new",
+    agent: "claude",
+    workspace: "weacpx",
+  });
+});
+
+test("returns invalid for /session new missing --ws flag", () => {
+  expect(parseCommand("/session new demo --agent codex")).toEqual({
     kind: "invalid",
-    text: "/ss new claude -ws weacpx",
+    text: "/session new demo --agent codex",
     recognizedCommand: "/session",
   });
 });
 
-test("returns invalid for /session new missing --agent flag", () => {
-  expect(parseCommand("/session new claude --ws weacpx")).toEqual({
+test("returns invalid for /session new with trailing junk", () => {
+  expect(parseCommand("/session new demo --agent codex --ws backend extra")).toEqual({
     kind: "invalid",
-    text: "/session new claude --ws weacpx",
+    text: "/session new demo --agent codex --ws backend extra",
     recognizedCommand: "/session",
+  });
+});
+
+test("returns invalid for /session attach missing --name", () => {
+  expect(parseCommand("/session attach review --agent codex --ws backend")).toEqual({
+    kind: "invalid",
+    text: "/session attach review --agent codex --ws backend",
+    recognizedCommand: "/session",
+  });
+});
+
+test("returns invalid for /session attach with trailing junk", () => {
+  expect(parseCommand("/session attach review --agent codex --ws backend --name x extra")).toEqual({
+    kind: "invalid",
+    text: "/session attach review --agent codex --ws backend --name x extra",
+    recognizedCommand: "/session",
+  });
+});
+
+test("returns invalid for /workspace new missing cwd value", () => {
+  expect(parseCommand("/workspace new backend --cwd")).toEqual({
+    kind: "invalid",
+    text: "/workspace new backend --cwd",
+    recognizedCommand: "/workspace",
+  });
+});
+
+test("returns invalid for /workspace new with trailing junk", () => {
+  expect(parseCommand("/workspace new backend --cwd /tmp/backend extra")).toEqual({
+    kind: "invalid",
+    text: "/workspace new backend --cwd /tmp/backend extra",
+    recognizedCommand: "/workspace",
   });
 });
 
@@ -252,6 +359,14 @@ test("returns invalid for /session new with wrong flag", () => {
   });
 });
 
+test("returns invalid for /pm auto allow", () => {
+  expect(parseCommand("/pm auto allow")).toEqual({
+    kind: "invalid",
+    text: "/pm auto allow",
+    recognizedCommand: "/permission",
+  });
+});
+
 test("returns invalid for malformed permission commands", () => {
   expect(parseCommand("/permission set foo")).toEqual({
     kind: "invalid",
@@ -262,5 +377,10 @@ test("returns invalid for malformed permission commands", () => {
     kind: "invalid",
     text: "/permission auto maybe",
     recognizedCommand: "/permission",
+  });
+  expect(parseCommand("/config set wechat.replyMode")).toEqual({
+    kind: "invalid",
+    text: "/config set wechat.replyMode",
+    recognizedCommand: "/config",
   });
 });

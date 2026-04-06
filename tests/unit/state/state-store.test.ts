@@ -59,3 +59,40 @@ test("treats an empty state file as empty state", async () => {
 
   await rm(dir, { recursive: true, force: true });
 });
+
+
+test("rejects states whose sessions field is not an object", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+
+  await Bun.write(path, JSON.stringify({ sessions: [], chat_contexts: {} }));
+
+  await expect(store.load()).rejects.toThrow('state file "' + path + '" must contain an object field "sessions"');
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("rejects states whose chat_contexts field is not an object", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+
+  await Bun.write(path, JSON.stringify({ sessions: {}, chat_contexts: [] }));
+
+  await expect(store.load()).rejects.toThrow('state file "' + path + '" must contain an object field "chat_contexts"');
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("includes the state file path when JSON is malformed", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+
+  await Bun.write(path, "{not-json");
+
+  await expect(store.load()).rejects.toThrow('failed to parse state file "' + path + '"');
+
+  await rm(dir, { recursive: true, force: true });
+});

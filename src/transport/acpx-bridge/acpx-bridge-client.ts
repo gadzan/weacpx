@@ -4,25 +4,36 @@ import { createInterface } from "node:readline";
 
 import {
   type BridgeMethod,
+  type BridgeMessage,
   type BridgeResponse,
   encodeBridgeRequest,
 } from "./acpx-bridge-protocol";
 import { PromptCommandError } from "../prompt-output";
 
-type WriteLine = (line: string) => void;
+type WriteLine = (line: string) => boolean | void;
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
   reject: (error: unknown) => void;
+  onEvent?: (event: { type: "prompt.segment"; text: string }) => void;
 }
 
 export class AcpxBridgeClient {
   private nextId = 1;
   private readonly pending = new Map<string, PendingRequest>();
+  private terminalError: Error | null = null;
 
   constructor(private readonly writeLine: WriteLine) {}
 
-  request<TResult>(method: BridgeMethod, params: Record<string, unknown>): Promise<TResult> {
+  request<TResult>(
+    method: BridgeMethod,
+    params: Record<string, unknown>,
+    onEvent?: (event: { type: "prompt.segment"; text: string }) => void,
+  ): Promise<TResult> {
+    if (this.terminalError) {
+      return Promise.reject(this.terminalError);
+    }
+
     const id = String(this.nextId);
     this.nextId += 1;
 
@@ -30,24 +41,53 @@ export class AcpxBridgeClient {
       this.pending.set(id, {
         resolve: (value) => resolve(value as TResult),
         reject,
+        onEvent,
       });
-      this.writeLine(
-        encodeBridgeRequest({
-          id,
-          method,
-          params,
-        }),
-      );
+
+      try {
+        const didWrite = this.writeLine(
+          encodeBridgeRequest({
+            id,
+            method,
+            params,
+          }),
+        );
+
+        if (didWrite === false) {
+          this.pending.delete(id);
+          reject(new Error("bridge write buffer is full"));
+        }
+      } catch (error) {
+        this.pending.delete(id);
+        reject(error);
+      }
     });
   }
 
   handleLine(line: string): void {
-    const response = JSON.parse(line) as BridgeResponse;
-    const pending = this.pending.get(response.id);
+    let message: BridgeMessage;
+    try {
+      message = JSON.parse(line) as BridgeMessage;
+    } catch {
+      return;
+    }
+
+    const pending = this.pending.get(message.id);
     if (!pending) {
       return;
     }
 
+    if ("event" in message) {
+      if (message.event === "prompt.segment") {
+        pending.onEvent?.({
+          type: "prompt.segment",
+          text: message.text,
+        });
+      }
+      return;
+    }
+
+    const response = message as BridgeResponse;
     this.pending.delete(response.id);
     if (response.ok) {
       pending.resolve(response.result);
@@ -69,6 +109,7 @@ export class AcpxBridgeClient {
   }
 
   handleExit(error: Error): void {
+    this.terminalError = error;
     const pendingRequests = [...this.pending.values()];
     this.pending.clear();
 
@@ -123,14 +164,12 @@ export async function spawnAcpxBridgeClient(
       ...process.env,
       WEACPX_BRIDGE_ACPX_COMMAND: options.acpxCommand ?? "acpx",
       WEACPX_BRIDGE_PERMISSION_MODE: options.permissionMode ?? "approve-all",
-      WEACPX_BRIDGE_NON_INTERACTIVE_PERMISSIONS: options.nonInteractivePermissions ?? "fail",
+      WEACPX_BRIDGE_NON_INTERACTIVE_PERMISSIONS: options.nonInteractivePermissions ?? "deny",
     },
     stdio: ["pipe", "pipe", "inherit"],
   });
 
-  const client = new AcpxBridgeClient((line) => {
-    child.stdin.write(line);
-  }) as ManagedBridgeClient;
+  const client = new AcpxBridgeClient((line) => child.stdin.write(line)) as ManagedBridgeClient;
   const output = createInterface({
     input: child.stdout,
     crlfDelay: Infinity,

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { parseDryRunArgs, runDryRun } from "../../src/dry-run";
+import { executeDryRun, parseDryRunArgs, runDryRun } from "../../src/dry-run";
 import type { WechatAgent } from "../../src/wechat-types";
 
 test("parses chat key and messages from dry-run args", () => {
@@ -68,4 +68,49 @@ test("replays a transcript through the shared agent interface", async () => {
     { input: "/help", output: "reply:/help" },
     { input: "hello", output: "reply:hello" },
   ]);
+});
+
+
+test("executes dry-run with runtime disposal on success", async () => {
+  const calls: string[] = [];
+  const transcript = await executeDryRun(
+    {
+      agent: {
+        async chat(request) {
+          calls.push(`chat:${request.text}`);
+          return { text: `reply:${request.text}` };
+        },
+      },
+      async dispose() {
+        calls.push("dispose");
+      },
+    },
+    { turns: [{ chatKey: "wx:test", input: "/help" }] },
+  );
+
+  expect(transcript).toEqual([{ input: "/help", output: "reply:/help" }]);
+  expect(calls).toEqual(["chat:/help", "dispose"]);
+});
+
+test("executes dry-run with runtime disposal on failure", async () => {
+  const calls: string[] = [];
+
+  await expect(
+    executeDryRun(
+      {
+        agent: {
+          async chat() {
+            calls.push("chat");
+            throw new Error("boom");
+          },
+        },
+        async dispose() {
+          calls.push("dispose");
+        },
+      },
+      { turns: [{ chatKey: "wx:test", input: "/help" }] },
+    ),
+  ).rejects.toThrow("boom");
+
+  expect(calls).toEqual(["chat", "dispose"]);
 });

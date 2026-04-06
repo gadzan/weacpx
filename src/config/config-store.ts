@@ -58,4 +58,14 @@ export class ConfigStore {
     await this.save(config);
     return config;
   }
+
+  async updateWechat(wechat: Partial<AppConfig["wechat"]>): Promise<AppConfig> {
+    const config = await this.load();
+    config.wechat = {
+      ...config.wechat,
+      ...wechat,
+    };
+    await this.save(config);
+    return config;
+  }
 }

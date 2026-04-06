@@ -87,6 +87,27 @@ export class SessionService {
     await this.persist();
   }
 
+  async setCurrentSessionReplyMode(chatKey: string, replyMode: "stream" | "final" | undefined): Promise<void> {
+    const currentAlias = this.state.chat_contexts[chatKey]?.current_session;
+    if (!currentAlias) {
+      throw new Error("no current session selected");
+    }
+
+    const session = this.state.sessions[currentAlias];
+    if (!session) {
+      throw new Error("no current session selected");
+    }
+
+    if (replyMode) {
+      session.reply_mode = replyMode;
+    } else {
+      delete session.reply_mode;
+    }
+
+    session.last_used_at = new Date().toISOString();
+    await this.persist();
+  }
+
   async getCurrentSession(chatKey: string): Promise<ResolvedSession | null> {
     const currentAlias = this.state.chat_contexts[chatKey]?.current_session;
     if (!currentAlias) {
@@ -114,7 +135,20 @@ export class SessionService {
   }
 
   private toResolvedSession(session: LogicalSession): ResolvedSession {
-    const agentConfig = this.config.agents[session.agent]!;
+    const agentConfig = this.config.agents[session.agent];
+    if (!agentConfig) {
+      throw new Error(
+        `session "${session.alias}" references agent "${session.agent}", but that agent is no longer registered`,
+      );
+    }
+
+    const workspaceConfig = this.config.workspaces[session.workspace];
+    if (!workspaceConfig) {
+      throw new Error(
+        `session "${session.alias}" references workspace "${session.workspace}", but that workspace is no longer registered`,
+      );
+    }
+
     return {
       alias: session.alias,
       agent: session.agent,
@@ -122,7 +156,8 @@ export class SessionService {
       workspace: session.workspace,
       transportSession: session.transport_session,
       modeId: session.mode_id,
-      cwd: this.config.workspaces[session.workspace]!.cwd,
+      replyMode: session.reply_mode,
+      cwd: workspaceConfig.cwd,
     };
   }
 
@@ -169,6 +204,7 @@ export class SessionService {
           ? { transport_agent_command: existingSession.transport_agent_command }
           : {}),
       mode_id: existingSession?.mode_id,
+      reply_mode: existingSession?.reply_mode,
       created_at: existingSession?.created_at ?? now,
       last_used_at: now,
     };
@@ -179,7 +215,18 @@ export class SessionService {
   }
 
   private validateSession(alias: string, agent: string, workspace: string): void {
-    void alias;
+    if (alias.trim().length === 0) {
+      throw new Error("session alias must be a non-empty string");
+    }
+
+    if (agent.trim().length === 0) {
+      throw new Error("agent must be a non-empty string");
+    }
+
+    if (workspace.trim().length === 0) {
+      throw new Error("workspace must be a non-empty string");
+    }
+
     if (!this.config.workspaces[workspace]) {
       throw new Error(`workspace "${workspace}" is not registered`);
     }

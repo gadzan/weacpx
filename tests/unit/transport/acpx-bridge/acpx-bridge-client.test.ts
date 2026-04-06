@@ -67,6 +67,22 @@ test("rejects pending requests when the bridge exits before replying", async () 
   await expect(pending).rejects.toThrow("bridge process exited before responding");
 });
 
+test("delivers prompt segment events before resolving the final response", async () => {
+  const events: string[] = [];
+  const client = new AcpxBridgeClient(() => {});
+
+  const pending = client.request("prompt", {}, (event) => {
+    if (event.type === "prompt.segment") {
+      events.push(event.text);
+    }
+  });
+  client.handleLine('{"id":"1","event":"prompt.segment","text":"hello"}');
+  client.handleLine('{"id":"1","ok":true,"result":{"text":"done"}}');
+
+  await expect(pending).resolves.toEqual({ text: "done" });
+  expect(events).toEqual(["hello"]);
+});
+
 test("uses direct node execution instead of `node run` when spawning the bridge", () => {
   expect(
     buildBridgeSpawnSpec({
@@ -89,4 +105,32 @@ test("keeps bun's `run` subcommand when spawning the bridge under bun", () => {
     command: "/usr/local/bin/bun",
     args: ["run", "/app/src/bridge/bridge-main.ts"],
   });
+});
+
+test("ignores malformed bridge output and keeps the pending request alive", async () => {
+  const client = new AcpxBridgeClient(() => {});
+
+  const pending = client.request("ping", {});
+  expect(() => client.handleLine("not-json")).not.toThrow();
+  client.handleLine('{"id":"1","ok":true,"result":{}}');
+
+  await expect(pending).resolves.toEqual({});
+});
+
+test("rejects new requests after the bridge exits", async () => {
+  const client = new AcpxBridgeClient(() => {});
+  client.handleExit(new Error("bridge exited"));
+
+  await expect(client.request("ping", {})).rejects.toThrow("bridge exited");
+});
+
+test("rejects requests when the writer signals backpressure", async () => {
+  const writes: string[] = [];
+  const client = new AcpxBridgeClient((line) => {
+    writes.push(line);
+    return false;
+  });
+
+  await expect(client.request("ping", {})).rejects.toThrow("bridge write buffer is full");
+  expect(writes).toEqual(['{"id":"1","method":"ping","params":{}}\n']);
 });

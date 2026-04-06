@@ -8,7 +8,9 @@ import { SessionService } from "../../../src/sessions/session-service";
 
 function createConfig(): AppConfig {
   return {
-    transport: { type: "acpx-cli", command: "acpx" },
+    transport: { type: "acpx-cli", command: "acpx", permissionMode: "approve-all", nonInteractivePermissions: "deny" },
+    logging: { level: "info", maxSizeBytes: 1024, maxFiles: 2, retentionDays: 1 },
+    wechat: { replyMode: "stream" },
     agents: {
       codex: { driver: "codex" },
       claude: { driver: "claude" },
@@ -139,11 +141,32 @@ test("stores and resolves the current session mode", async () => {
   });
 });
 
+test("stores and resolves the current session reply mode", async () => {
+  const store = new MemoryStateStore();
+  const service = new SessionService(createConfig(), store, createEmptyState());
+
+  await service.createSession("api-fix", "codex", "backend");
+  await service.useSession("wx:user", "api-fix");
+  await service.setCurrentSessionReplyMode("wx:user", "final");
+
+  await expect(service.getCurrentSession("wx:user")).resolves.toMatchObject({
+    alias: "api-fix",
+    replyMode: "final",
+  });
+});
+
 test("rejects unknown workspaces", async () => {
   const store = new MemoryStateStore();
   const service = new SessionService(createConfig(), store, createEmptyState());
 
   await expect(service.createSession("x", "codex", "missing")).rejects.toThrow('workspace "missing"');
+});
+
+test("rejects blank session aliases", async () => {
+  const store = new MemoryStateStore();
+  const service = new SessionService(createConfig(), store, createEmptyState());
+
+  await expect(service.createSession("   ", "codex", "backend")).rejects.toThrow('session alias must be a non-empty string');
 });
 
 test("allows any registered agent in a registered workspace", async () => {
@@ -172,4 +195,33 @@ test("lists logical sessions with current markers", async () => {
       isCurrent: true,
     },
   ]);
+});
+
+
+test("returns a descriptive error when resolving a session whose agent was removed", async () => {
+  const store = new MemoryStateStore();
+  const config = createConfig();
+  const state = createEmptyState();
+  const service = new SessionService(config, store, state);
+
+  await service.createSession("api-fix", "codex", "backend");
+  delete config.agents.codex;
+
+  await expect(service.getSession("api-fix")).rejects.toThrow(
+    'session "api-fix" references agent "codex", but that agent is no longer registered',
+  );
+});
+
+test("returns a descriptive error when resolving a session whose workspace was removed", async () => {
+  const store = new MemoryStateStore();
+  const config = createConfig();
+  const state = createEmptyState();
+  const service = new SessionService(config, store, state);
+
+  await service.createSession("api-fix", "codex", "backend");
+  delete config.workspaces.backend;
+
+  await expect(service.getSession("api-fix")).rejects.toThrow(
+    'session "api-fix" references workspace "backend", but that workspace is no longer registered',
+  );
 });

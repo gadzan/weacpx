@@ -53,15 +53,22 @@ npm test
 等价于：
 
 ```bash
+npx tsc --noEmit
 node ./scripts/run-tests.mjs
 ```
 
-默认递归执行 `tests/unit/**/*.test.ts`。
+默认先执行 TypeScript 类型检查，再递归执行 `tests/unit/**/*.test.ts`。
 
 ### 显式运行 unit tests
 
 ```bash
 npm run test:unit
+```
+
+同样会先执行：
+
+```bash
+npx tsc --noEmit
 ```
 
 ### 构建验证

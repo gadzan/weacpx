@@ -11,6 +11,7 @@ import { downloadRemoteImageToTemp } from "../cdn/upload.js";
 import { downloadMediaFromItem } from "../media/media-download.js";
 import { getExtensionFromMime } from "../media/mime.js";
 
+import { executeChatTurn } from "./execute-chat-turn.js";
 import { setContextToken, bodyFromItemList, isMediaItem } from "./inbound.js";
 import { sendWeixinErrorNotice } from "./error-notice.js";
 import { sendWeixinMediaFile } from "./send-media.js";
@@ -44,7 +45,7 @@ function createSaveMediaBuffer(mediaTempDir?: string) {
   };
 }
 
-export type ProcessMessageDeps = {
+export type HandleWeixinMessageTurnDeps = {
   accountId: string;
   agent: Agent;
   baseUrl: string;
@@ -93,9 +94,9 @@ function findMediaItem(itemList?: MessageItem[]): MessageItem | undefined {
   return refItem?.ref_msg?.message_item ?? undefined;
 }
 
-export async function processOneMessage(
+export async function handleWeixinMessageTurn(
   full: WeixinMessage,
-  deps: ProcessMessageDeps,
+  deps: HandleWeixinMessageTurnDeps,
 ): Promise<void> {
   const receivedAt = Date.now();
   const textBody = extractTextBody(full.item_list);
@@ -159,23 +160,29 @@ export async function processOneMessage(
   }
 
   const to = full.from_user_id ?? "";
-  const reply = async (text: string): Promise<void> => {
+  const sendReplySegment = async (text: string): Promise<boolean> => {
+    const plainText = markdownToPlainText(text).trim();
+    if (plainText.length === 0) {
+      return false;
+    }
+
     try {
       await sendMessageWeixin({
         to,
-        text: markdownToPlainText(text),
+        text: plainText,
         opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
       });
+      return true;
     } catch (err) {
       deps.errLog(`intermediate reply failed: ${String(err)}`);
+      return false;
     }
   };
 
-  const request: ChatRequest = {
+  const request: Omit<ChatRequest, "reply"> = {
     conversationId: full.from_user_id ?? "",
     text: bodyFromItemList(full.item_list),
     media,
-    reply,
   };
 
   let typingTimer: ReturnType<typeof setInterval> | undefined;
@@ -197,11 +204,15 @@ export async function processOneMessage(
   }
 
   try {
-    const response = await deps.agent.chat(request);
+    const turn = await executeChatTurn({
+      agent: deps.agent,
+      request,
+      onReplySegment: sendReplySegment,
+    });
 
-    if (response.media) {
+    if (turn.media) {
       let filePath: string;
-      const mediaUrl = response.media.url;
+      const mediaUrl = turn.media.url;
       if (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://")) {
         filePath = await downloadRemoteImageToTemp(
           mediaUrl,
@@ -213,20 +224,24 @@ export async function processOneMessage(
       await sendWeixinMediaFile({
         filePath,
         to,
-        text: response.text ? markdownToPlainText(response.text) : "",
+        text: turn.text ? markdownToPlainText(turn.text) : "",
         opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
         cdnBaseUrl: deps.cdnBaseUrl,
       });
-    } else if (response.text) {
+    } else if (turn.text) {
+      const finalText = markdownToPlainText(turn.text).trim();
+      if (finalText.length === 0) {
+        return;
+      }
       await sendMessageWeixin({
         to,
-        text: markdownToPlainText(response.text),
+        text: finalText,
         opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
       });
     }
   } catch (err) {
     const errorText = err instanceof Error ? err.stack ?? err.message : JSON.stringify(err);
-    deps.errLog(`processOneMessage: agent or send failed: ${errorText}`);
+    deps.errLog(`handleWeixinMessageTurn: agent or send failed: ${errorText}`);
     void sendWeixinErrorNotice({
       to,
       contextToken,

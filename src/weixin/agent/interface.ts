@@ -29,15 +29,19 @@ export interface ChatRequest {
     fileName?: string;
   };
   /**
-   * Optional callback for sending intermediate replies during long-running
-   * agent processing. When provided, the agent may call this function
-   * multiple times to deliver partial results before the final response.
+   * Optional callback for streaming text out during long-running agent
+   * processing. When the channel delivers any non-empty reply segment,
+   * callers may treat it as the text output channel for that turn and
+   * suppress `ChatResponse.text`.
    */
   reply?: (text: string) => Promise<void>;
 }
 
 export interface ChatResponse {
-  /** Reply text (may contain markdown — will be converted to plain text before sending). */
+  /**
+   * Final reply text when no streamed `reply()` output was delivered for
+   * the same turn. May contain markdown and will be normalized before send.
+   */
   text?: string;
   /** Reply media file. */
   media?: {

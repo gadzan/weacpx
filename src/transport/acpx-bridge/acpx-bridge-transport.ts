@@ -1,8 +1,12 @@
-import type { ResolvedSession, SessionTransport } from "../types";
+import type { PermissionPolicy, ResolvedSession, SessionTransport } from "../types";
 import type { BridgeMethod } from "./acpx-bridge-protocol";
 
 interface BridgeRequestClient {
-  request<TResult>(method: BridgeMethod, params: Record<string, unknown>): Promise<TResult>;
+  request<TResult>(
+    method: BridgeMethod,
+    params: Record<string, unknown>,
+    onEvent?: (event: { type: "prompt.segment"; text: string }) => void,
+  ): Promise<TResult>;
 }
 
 export class AcpxBridgeTransport implements SessionTransport {
@@ -12,10 +16,14 @@ export class AcpxBridgeTransport implements SessionTransport {
     await this.client.request("ensureSession", this.toParams(session));
   }
 
-  async prompt(session: ResolvedSession, text: string, _reply?: (text: string) => Promise<void>): Promise<{ text: string }> {
+  async prompt(session: ResolvedSession, text: string, reply?: (text: string) => Promise<void>): Promise<{ text: string }> {
     return await this.client.request("prompt", {
       ...this.toParams(session),
       text,
+    }, (event) => {
+      if (event.type === "prompt.segment") {
+        void reply?.(event.text);
+      }
     });
   }
 
@@ -35,6 +43,10 @@ export class AcpxBridgeTransport implements SessionTransport {
     return result.exists;
   }
 
+
+  async updatePermissionPolicy(policy: PermissionPolicy): Promise<void> {
+    await this.client.request("updatePermissionPolicy", { ...policy });
+  }
   async dispose(): Promise<void> {
     await this.client.dispose?.();
   }

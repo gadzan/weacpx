@@ -48,7 +48,8 @@ test("rejects session creation when acpx reports success but the named session i
 
   const reply = await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
 
-  expect(reply.text).toContain("当前还不能直接在微信里创建新会话");
+  expect(reply.text).toContain("会话创建失败");
+  expect(reply.text).toContain("错误信息：未检测到可用的后端会话。");
   expect(reply.text).toContain("/session attach api-fix --agent codex --ws backend --name <会话名>");
   expect(await sessions.listSessions("wx:user")).toEqual([]);
   await expect(sessions.getCurrentSession("wx:user")).resolves.toBeNull();
@@ -136,6 +137,25 @@ test("creates a session via the short alias and agent flag", async () => {
   expect(reply.text).toBe('会话「api-fix」已创建并切换');
 });
 
+
+
+test("does not create a workspace from the shortcut command when the agent is invalid", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-shortcut-"));
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+  const workspaceName = basename(dir);
+
+  const reply = await router.handle("wx:user", `/ss missing-agent -d "${dir}"`);
+
+  expect(reply.text).toContain('agent "missing-agent"');
+  expect(config.workspaces[workspaceName]).toBeUndefined();
+  expect(await sessions.listSessions("wx:user")).toEqual([]);
+
+  await rm(dir, { recursive: true, force: true });
+});
+
 test("creates a workspace and session from the shortcut command", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-shortcut-"));
   const config = createConfig();
@@ -159,6 +179,37 @@ test("creates a workspace and session from the shortcut command", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test("reuses an existing workspace and session from the workspace shortcut command", async () => {
+  const config = createConfig();
+  config.workspaces.weacpx = { cwd: "/tmp/weacpx" };
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle("wx:user", "/ss codex --ws weacpx");
+
+  expect(reply.text).toContain("已创建并切换到会话「weacpx:codex」");
+  expect(reply.text).toContain("复用工作区：weacpx");
+  expect(reply.text).toContain("新增会话：weacpx:codex");
+  expect(await sessions.getCurrentSession("wx:user")).toMatchObject({
+    alias: "weacpx:codex",
+    workspace: "weacpx",
+    transportSession: "weacpx:weacpx:codex",
+  });
+});
+
+test("rejects the workspace shortcut command when the workspace is missing", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle("wx:user", "/ss codex --ws missing");
+
+  expect(reply.text).toBe('workspace "missing" is not registered');
+  expect(await sessions.listSessions("wx:user")).toEqual([]);
+});
+
 test("reuses the derived workspace and session from the shortcut command", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-shortcut-"));
   const config = createConfig();
@@ -176,6 +227,23 @@ test("reuses the derived workspace and session from the shortcut command", async
   expect((transport.ensureSession as ReturnType<typeof mock>).mock.calls).toHaveLength(1);
 
   await rm(dir, { recursive: true, force: true });
+});
+
+test("creates uniquely named sessions for the explicit workspace shortcut create command", async () => {
+  const config = createConfig();
+  config.workspaces.weacpx = { cwd: "/tmp/weacpx" };
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  await router.handle("wx:user", "/ss new codex --ws weacpx");
+  const reply = await router.handle("wx:user", "/ss new codex --ws weacpx");
+
+  expect(reply.text).toContain("已创建并切换到会话「weacpx:codex-2」");
+  expect(await sessions.getCurrentSession("wx:user")).toMatchObject({
+    alias: "weacpx:codex-2",
+    transportSession: "weacpx:weacpx:codex-2",
+  });
 });
 
 test("auto-renames the derived workspace when the basename already exists for another path", async () => {
@@ -281,4 +349,37 @@ test("rejects mode commands when no session is selected", async () => {
 
   expect(reply.text).toContain("/session new");
   expect(reply.text).toContain("/use");
+});
+
+test("shows the effective reply mode for the current session", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
+
+  const reply = await router.handle("wx:user", "/replymode");
+
+  expect(reply.text).toContain("全局默认：stream");
+  expect(reply.text).toContain("当前会话覆盖：未设置");
+  expect(reply.text).toContain("当前生效：stream");
+});
+
+test("sets and resets the current session reply mode override", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
+
+  const setReply = await router.handle("wx:user", "/replymode final");
+  const showReply = await router.handle("wx:user", "/replymode");
+  const resetReply = await router.handle("wx:user", "/replymode reset");
+
+  expect(setReply.text).toContain("final");
+  expect(showReply.text).toContain("当前会话覆盖：final");
+  expect(showReply.text).toContain("当前生效：final");
+  expect(resetReply.text).toContain("已重置");
 });

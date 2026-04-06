@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.2.0] - 2026-04-06
+
+### Added
+
+- **命令模块重构：** 将 `CommandRouter` 拆分为独立 handler 模块（`handlers/session-handler`、`handlers/agent-handler`、`handlers/workspace-handler`、`handlers/permission-handler`、`handlers/config-handler`、`handlers/help-handler` 等），提升可维护性和可测试性。
+- **`/mode` 命令：** 新增 `/mode <modeId>` 和 `/mode show` 命令，支持在会话中切换 acpx 模式（如 code、plan 等）。
+- **`/reply-mode` 命令：** 新增 `/reply-mode stream|final` 和 `/reply-mode show` 命令，支持按会话设置微信回复模式（流式分段回复或最终一次性回复）。
+- **`/config` 命令：** 新增 `/config show` 和 `/config set <path> <value>` 命令，支持运行时查看和修改配置。
+- **Bridge 流式 prompt：** Bridge 子进程新增流式 prompt 支持，通过 `prompt.segment` 事件实时回传中间输出；bridge server 新增 `setMode`、`updatePermissionPolicy` 方法。
+- **消费者锁（Consumer Lock）：** 新增微信消费者锁机制（`consumer-lock`），防止多个 weacpx 进程同时消费微信消息，守护进程启动时自动获取锁，退出时释放。
+- **会话索引解析：** 新增 `acpx-session-index` 模块，从 acpx sessions index 中解析 `agentCommand`，会话创建时自动记录并复用。
+- **会话增强字段：** 逻辑会话新增 `transport_agent_command`、`mode_id`、`reply_mode` 字段，支持更完整的会话状态持久化。
+- **`parseConfig` 导出：** `load-config` 的 `parseConfig` 函数现在公开导出，供 `ensure-config` 等模块复用。
+- **`wechat.replyMode` 配置：** 新增 `wechat.replyMode`（`stream` | `final`）配置项，全局控制微信回复模式，默认 `stream`。
+- **新增文档：** `docs/commands-module.md`、`docs/config-command.md`、`docs/daemon-module.md`。
+- **新增测试：** bridge-env、bridge-runtime、command-router-config、command-router-interaction、command-router-recovery、command-router-session、ensure-config、run-console-consumer-lock、consumer-lock、execute-chat-turn、handle-weixin-message-turn 等。
+
+### Changed
+
+- **版本升级至 0.2.0**，acpx 依赖升级至 `^0.4.1`。
+- **`nonInteractivePermissions` 默认值** 从 `"fail"` 改为 `"deny"`，同时移除了 `"allow"` 选项。
+- **`SessionTransport` 接口变更：** 新增 `setMode`、`updatePermissionPolicy` 方法，移除 `listSessions` 方法。
+- **Bridge server 请求校验增强：** 新增 `BridgeInvalidRequestError`，对 JSON 格式、字段类型、方法白名单进行严格校验，错误码区分 `BRIDGE_INVALID_REQUEST` 与 `BRIDGE_INTERNAL_ERROR`。
+- **Bridge client 增强：** 新增 `terminalError` 状态，子进程退出后自动拒绝后续请求；writeLine 失败时直接 reject 而非静默忽略；支持流式事件分发。
+- **`SessionService` 增强：** 新增 `getSession`、`setCurrentSessionMode`、`setCurrentSessionReplyMode`、`setSessionTransportAgentCommand` 方法；`toResolvedSession` 中对缺失的 agent/workspace 配置给出明确错误信息。
+- **`StateStore` 增强解析：** 新增 `parseState` 函数，对 state JSON 进行结构校验，解析失败时给出更具诊断价值的错误信息。
+- **守护进程状态区分：** `DaemonController` 新增 `indeterminate` 状态，当 PID 存在但状态文件缺失时阻止重复启动并给出明确错误提示。
+- **进程树终止改进：** `terminateProcessTree` 现在使用进程组 ID（负 PID）发送信号，确保完整终止子进程树。
+- **`runConsole` 消费者锁集成：** 启动时自动获取微信消费者锁，关闭时自动释放；冲突时记录详细日志。
+- **微信消息处理重构：** 移除 `process-message.ts`，替换为 `execute-chat-turn.ts` 和 `handle-weixin-message-turn.ts` 模块。
+- **命令路由测试重组：** 移除单一大文件 `command-router.test.ts`，拆分为 `command-router-session`、`command-router-config`、`command-router-interaction`、`command-router-recovery` 等专项测试文件。
+- **package.json 描述更新：** `"使用微信 ClawBot 随时随地通过 acpx 控制 Claude Code、Codex 等 Agents。"`
+
+### Removed
+
+- 移除 `src/weixin/messaging/process-message.ts`（被新模块替代）。
+- 移除 `nonInteractivePermissions: "allow"` 选项。
+- 移除 `SessionTransport.listSessions` 方法。
+- 移除 `render-text.ts` 中不再使用的辅助函数。
+- 移除 `src/formatting/render-text.ts` 中的 `renderHelpText`、`renderAgents`、`renderWorkspaces`（迁移至各自 handler）。
+
 ## [0.1.7] - 2026-04-01
 
 ### Added
