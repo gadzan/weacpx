@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
-import { posix, win32 } from "node:path";
 import { createRequire } from "node:module";
+import { posix, win32 } from "node:path";
+
+export type AcpxCommandSource = "config" | "bundled" | "PATH";
 
 interface ResolveAcpxCommandOptions {
   configuredCommand?: string;
@@ -9,11 +11,25 @@ interface ResolveAcpxCommandOptions {
   readPackageJson?: (path: string) => { bin?: string | Record<string, string> };
 }
 
+export interface AcpxCommandMetadata {
+  command: string;
+  source: AcpxCommandSource;
+  explanation: string;
+}
+
 const require = createRequire(import.meta.url);
 
 export function resolveAcpxCommand(options: ResolveAcpxCommandOptions = {}): string {
+  return resolveAcpxCommandMetadata(options).command;
+}
+
+export function resolveAcpxCommandMetadata(options: ResolveAcpxCommandOptions = {}): AcpxCommandMetadata {
   if (options.configuredCommand) {
-    return options.configuredCommand;
+    return {
+      command: options.configuredCommand,
+      source: "config",
+      explanation: "transport.command is set, so the configured command wins.",
+    };
   }
 
   const platform = options.platform ?? process.platform;
@@ -36,11 +52,19 @@ export function resolveAcpxCommand(options: ResolveAcpxCommandOptions = {}): str
           : null;
 
     if (binPath) {
-      return pathApi.resolve(packageDir, binPath);
+      return {
+        command: pathApi.resolve(packageDir, binPath),
+        source: "bundled",
+        explanation: "transport.command is unset, so the bundled acpx dependency is used.",
+      };
     }
   } catch {
     // Fall back to PATH resolution below.
   }
 
-  return "acpx";
+  return {
+    command: "acpx",
+    source: "PATH",
+    explanation: "transport.command is unset and no bundled acpx was found, so PATH is the fallback.",
+  };
 }

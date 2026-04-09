@@ -1,7 +1,7 @@
 {
   "name": "weacpx",
   "description": "使用微信 ClawBot 随时随地通过 `acpx` 控制 Claude Code、Codex 等 Agents。",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "main": "index.js",
   "directories": {
     "doc": "docs",

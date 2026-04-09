@@ -8,6 +8,8 @@ import { resolveDaemonPaths } from "./daemon/daemon-files";
 import type { DaemonController } from "./daemon/daemon-controller";
 import { DaemonRuntime } from "./daemon/daemon-runtime";
 import type { DaemonStatus } from "./daemon/daemon-status";
+import type { DoctorRunOptions } from "./doctor/doctor-types";
+import { readVersion } from "./version.js";
 import { createWeixinConsumerLock } from "./weixin/monitor/consumer-lock";
 
 interface StatusStopped {
@@ -46,6 +48,7 @@ interface CliDeps {
   login?: () => Promise<void>;
   logout?: () => Promise<void>;
   run?: () => Promise<void>;
+  doctor?: (options: DoctorRunOptions) => number | Promise<number>;
   controller?: CliController;
   print?: (line: string) => void;
 }
@@ -58,14 +61,27 @@ const HELP_LINES = [
   "weacpx start  - 后台启动",
   "weacpx status - 查看状态",
   "weacpx stop   - 停止服务",
+  "weacpx doctor - 运行诊断",
+  "weacpx version - 查看版本",
 ];
 
 export async function runCli(args: string[], deps: CliDeps = {}): Promise<number> {
   const command = args[0];
   const print = deps.print ?? ((line: string) => console.log(line));
-  const controller = deps.controller ?? createDefaultController();
 
   switch (command) {
+    case "version":
+    case "--version":
+    case "-v":
+      print(readVersion());
+      return 0;
+    case "--help":
+    case "-h": {
+      for (const line of HELP_LINES) {
+        print(line);
+      }
+      return 0;
+    }
     case "login":
       await (deps.login ?? defaultLogin)();
       return 0;
@@ -75,7 +91,19 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
     case "run":
       await (deps.run ?? defaultRun)();
       return 0;
+    case "doctor": {
+      const parsed = parseDoctorArgs(args.slice(1));
+      if (!parsed.ok) {
+        for (const line of HELP_LINES) {
+          print(line);
+        }
+        return 1;
+      }
+
+      return await (deps.doctor ?? defaultDoctor)(parsed.options);
+    }
     case "start": {
+      const controller = deps.controller ?? createDefaultController();
       const result = await controller.start();
       if (result.state === "already-running") {
         print("weacpx 已在后台运行");
@@ -88,6 +116,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       return 0;
     }
     case "status": {
+      const controller = deps.controller ?? createDefaultController();
       const status = await controller.getStatus();
       if (status.state === "indeterminate") {
         print("weacpx 进程仍在运行，但状态元数据缺失");
@@ -112,6 +141,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       return 0;
     }
     case "stop": {
+      const controller = deps.controller ?? createDefaultController();
       const result = await controller.stop();
       if (result.detail === "not-running") {
         print("weacpx 未运行");
@@ -165,6 +195,11 @@ async function defaultRun(): Promise<void> {
   });
 }
 
+async function defaultDoctor(options: DoctorRunOptions): Promise<number> {
+  const { main } = await import("./doctor/index");
+  return await main(options);
+}
+
 function createDefaultController(): CliController {
   const daemonPaths = resolveDaemonPaths({ home: requireHome() });
   return createDaemonController(daemonPaths, {
@@ -191,8 +226,44 @@ function resolveCliEntryPath(): string {
   return fileURLToPath(import.meta.url);
 }
 
+function parseDoctorArgs(args: string[]): { ok: true; options: DoctorRunOptions } | { ok: false } {
+  const options: DoctorRunOptions = {};
+
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    switch (arg) {
+      case "--verbose":
+        options.verbose = true;
+        break;
+      case "--smoke":
+        options.smoke = true;
+        break;
+      case "--agent": {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          return { ok: false };
+        }
+        options.agent = value;
+        index++;
+        break;
+      }
+      case "--workspace": {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          return { ok: false };
+        }
+        options.workspace = value;
+        index++;
+        break;
+      }
+      default:
+        return { ok: false };
+    }
+  }
+
+  return { ok: true, options };
+}
+
 if (import.meta.main) {
   process.exitCode = await runCli(process.argv.slice(2));
 }
-
-

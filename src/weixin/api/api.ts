@@ -1,7 +1,5 @@
 import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { readVersion } from "../../version.js";
 
 import { loadConfigRouteTag } from "../auth/accounts.js";
 import { logger } from "../util/logger.js";
@@ -30,18 +28,7 @@ export type WeixinApiOptions = {
 // BaseInfo — attached to every outgoing CGI request
 // ---------------------------------------------------------------------------
 
-function readChannelVersion(): string {
-  try {
-    const dir = path.dirname(fileURLToPath(import.meta.url));
-    const pkgPath = path.resolve(dir, "..", "..", "package.json");
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as { version?: string };
-    return pkg.version ?? "unknown";
-  } catch {
-    return "unknown";
-  }
-}
-
-const CHANNEL_VERSION = readChannelVersion();
+const CHANNEL_VERSION = readVersion();
 
 /** Build the `base_info` payload included in every API request. */
 export function buildBaseInfo(): BaseInfo {

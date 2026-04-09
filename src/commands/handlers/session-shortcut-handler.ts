@@ -56,7 +56,7 @@ export async function handleSessionShortcutCommand(
     };
   }
 
-  const session = ops.resolveSession(alias, agent, workspace.name, `${workspace.name}:${alias}`);
+  const session = ops.resolveSession(alias, agent, workspace.name, alias);
   try {
     await ops.ensureTransportSession(session);
     const exists = await ops.checkTransportSession(session);

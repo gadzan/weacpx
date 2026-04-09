@@ -71,7 +71,9 @@ bun add -g weacpx
 hello
 ```
 
-如果任务比较长，`weacpx` 会优先把 Agent 的中间回复分段发回微信，而不是一直等到最后一条结果。
+如果任务比较长，`weacpx` 在支持流式中间回复的 transport（当前主要是 `acpx-cli`）下，会优先把 Agent 的中间回复分段发回微信，而不是一直等到最后一条结果。
+
+如果你更想要“一次性只回最终结果”，可以配置全局默认 `wechat.replyMode`，或在当前会话里用 `/replymode final` 临时覆盖。
 
 如果你是从源码仓库直接使用：
 
@@ -96,14 +98,55 @@ bun run dev
 - `weacpx start`
 - `weacpx status`
 - `weacpx stop`
+- `weacpx doctor`
+- `weacpx version`
 
-说明：
+其他说明：
 
 - `run` 前台运行，适合调试
 - `start` 后台启动
 - `status` 查看后台状态、PID、配置路径和日志路径
 - `stop` 停止后台实例
 - `logout` 清除本机已保存的微信登录凭证；如果当前没有已登录账号，会直接提示
+- `doctor` 运行诊断，默认检查 config / runtime / daemon / wechat / acpx / bridge
+- `version` 输出当前安装的 `weacpx` 版本号，可用于排查环境或确认升级是否生效
+
+### doctor 诊断
+
+`weacpx doctor` 用来快速检查本机环境是否能正常运行。
+
+```bash
+weacpx doctor
+weacpx doctor --verbose
+weacpx doctor --smoke
+weacpx doctor --smoke --agent codex --workspace backend
+```
+
+说明：
+
+- `--verbose` 会展开每个检查的技术细节，方便定位问题
+- `--smoke` 会额外执行一次真实 transport 级别的最小 prompt 检查
+- `--agent` / `--workspace` 只影响 `--smoke`，不会改变默认诊断检查
+- `--smoke` 可能留下一个临时的底层 `acpx` session；这是为了换取真实链路验证能力
+- 如果不传 `--smoke`，相关 smoke 检查会被标记为 `SKIP`
+
+### version 查看版本
+
+`weacpx version` 用来输出当前安装的 CLI 版本号。
+
+```bash
+weacpx version
+weacpx --version
+weacpx -v
+```
+
+说明：
+
+- 三种写法都会输出同一个版本号
+- 适合在升级后确认当前生效的是哪个版本
+- 排查用户环境问题时，建议先附上这里输出的版本信息
+
+### logout 退出登录
 
 说明：
 
@@ -170,14 +213,18 @@ bun run dev
 | 命令 | 说明 |
 |------|------|
 | `/sessions` / `/session` / `/ss` | 查看当前已添加的会话 |
-| `/ss <agent> -d <path>` | 新建会话（自动按目录名推导并创建或复用 workspace，再创建或复用 session） |
-| `/ss new <agent> -d <path>` | 强制新建会话 |
+| `/ss <agent> (-d <path> | --ws <name>)` | 新建会话；传 `-d` 时按目录自动创建或复用 workspace，传 `--ws` 时复用已注册 workspace |
+| `/ss new <agent> (-d <path> | --ws <name>)` | 强制新建会话；`--ws` 只复用已注册 workspace |
 | `/ss new <alias> -a <name> --ws <name>` | 强制新建会话，并指定 agent 和 workspace |
 | `/ss attach <alias> -a <name> --ws <name> --name <transport-session>` | 恢复已存在的会话 |
 | `/use <alias>` | 切换当前会话 |
 | `/status` | 查看当前会话状态 |
 | `/mode` | 查看当前会话已保存的 mode |
 | `/mode <id>` | 设置当前会话 mode，例如 `/mode plan` |
+| `/replymode` | 查看当前会话的回复输出模式（全局默认 / 当前覆盖 / 实际生效） |
+| `/replymode stream` | 当前逻辑会话使用流式回复 |
+| `/replymode final` | 当前逻辑会话只发送最终文本结果 |
+| `/replymode reset` | 清除当前逻辑会话覆盖，回退到全局默认 |
 | `/session reset` | 重置当前会话上下文，保留 alias/agent/workspace，但重新绑定到一个新的后端 session |
 | `/clear` | `/session reset` 的快捷别名 |
 | `/cancel` | 取消当前会话 |
@@ -186,12 +233,44 @@ bun run dev
 说明：
 
 - `/ss <agent> -d <path>` 是最常用入口，会自动按目录名推导并创建或复用 workspace，再创建或复用 session
-- `/ss new <agent> -d <path>` 表示强制新建 session
+- `/ss <agent> --ws <name>` 会直接复用已注册 workspace，再创建或复用 session
+- `/ss new <agent> (-d <path> | --ws <name>)` 表示强制新建 session
 - `/use <alias>` 用来切换当前会话
 - `/mode` 会显示当前逻辑会话里保存的 mode；如果还没设置过，会显示“未设置”
 - `/mode <id>` 会把 mode 透传给底层 `acpx set-mode`，成功后再写回当前逻辑会话
+- `/replymode` 修改的是**当前逻辑会话**的 reply mode override，不是底层 transport session 的全局属性
+- `wechat.replyMode` 是全局默认值；`/replymode reset` 会回退到这个默认值
+- `final` 只影响微信侧是否实时发送文本流式片段，不改变 acpx transport 本身的生成方式
 - `/session reset` 和 `/clear` 会保留当前逻辑会话名，但重新创建一个新的后端 session，从空上下文重新开始
 - 非 `/` 开头的文本会发送到当前 session
+
+### 配置命令
+
+`/config` 用来查看和修改一小部分**受支持的配置字段**，不是任意 JSON 编辑器。
+
+| 命令 | 说明 |
+|------|------|
+| `/config` | 查看当前支持通过微信修改的配置路径 |
+| `/config set <path> <value>` | 修改一个受支持的配置值 |
+
+常见示例：
+
+```text
+/config
+/config set wechat.replyMode final
+/config set logging.level debug
+/config set transport.permissionMode approve-reads
+/config set workspaces.backend.description backend repo
+```
+
+说明：
+
+- `/config` 只允许修改白名单字段，不支持任意路径写入
+- `agents.<name>.*` / `workspaces.<name>.*` 这类动态路径要求目标已经存在，不会自动创建
+- `/config set wechat.replyMode final` 修改的是**全局默认回复模式**
+- `/replymode final` 修改的是**当前逻辑会话覆盖**
+- 成功修改后会立即写回 `~/.weacpx/config.json`
+- 更完整的边界和支持字段，请参考 [docs/config-command.md](./docs/config-command.md)
 
 ### 权限策略
 
@@ -204,7 +283,6 @@ bun run dev
 | `/pm set read` | 切到 `approve-reads` |
 | `/pm set deny` | 切到 `deny-all` |
 | `/pm auto` | 查看当前非交互策略 |
-| `/pm auto allow` | 切到 `allow` |
 | `/pm auto deny` | 切到 `deny` |
 | `/pm auto fail` | 切到 `fail` |
 
@@ -283,7 +361,7 @@ bun run dev
     "type": "acpx-bridge",
     "sessionInitTimeoutMs": 120000,
     "permissionMode": "approve-all",
-    "nonInteractivePermissions": "fail"
+    "nonInteractivePermissions": "deny"
   }
 }
 ```
@@ -291,8 +369,8 @@ bun run dev
 说明：
 
 - `permissionMode`: `approve-all`、`approve-reads`、`deny-all`
-- `nonInteractivePermissions`: `allow`、`deny`、`fail`
-- 默认值分别是 `approve-all` 和 `fail`
+- `nonInteractivePermissions`: `deny`、`fail`
+- 默认值分别是 `approve-all` 和 `deny`
 - 也可以直接在微信里通过 `/pm` 和 `/pm auto` 修改
 
 ### 日志配置

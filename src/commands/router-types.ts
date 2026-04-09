@@ -5,7 +5,7 @@ import type { SessionService } from "../sessions/session-service";
 import type { SessionTransport } from "../transport/types";
 
 export interface RouterResponse {
-  text: string;
+  text?: string;
 }
 
 export type WritableConfigStore = Pick<

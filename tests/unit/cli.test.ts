@@ -140,5 +140,148 @@ test("prints help for unknown commands", async () => {
     "weacpx start  - 后台启动",
     "weacpx status - 查看状态",
     "weacpx stop   - 停止服务",
+    "weacpx doctor - 运行诊断",
+    "weacpx version - 查看版本",
   ]);
+});
+
+test("dispatches doctor", async () => {
+  const events: Array<string | Record<string, unknown>> = [];
+
+  await expect(
+    runCli(["doctor"], {
+      doctor: async (options) => {
+        events.push(options);
+        return 7;
+      },
+      print: (line) => {
+        events.push(line);
+      },
+    }),
+  ).resolves.toBe(7);
+
+  expect(events).toEqual([{}]);
+});
+
+test("uses the default doctor entrypoint when no dependency is provided", async () => {
+  const lines: string[] = [];
+
+  await expect(
+    runCli(["doctor"], {
+      print: (line) => {
+        lines.push(line);
+      },
+    }),
+  ).resolves.toBe(0);
+
+  expect(lines).toEqual([]);
+});
+
+test("passes doctor options through unchanged", async () => {
+  const received: Array<Record<string, unknown>> = [];
+
+  await expect(
+    runCli(["doctor", "--verbose", "--smoke", "--agent", "codex", "--workspace", "backend"], {
+      doctor: async (options) => {
+        received.push(options);
+        return 0;
+      },
+    }),
+  ).resolves.toBe(0);
+
+  expect(received).toEqual([
+    {
+      verbose: true,
+      smoke: true,
+      agent: "codex",
+      workspace: "backend",
+    },
+  ]);
+});
+
+test("prints doctor in help output", async () => {
+  const lines: string[] = [];
+
+  await expect(
+    runCli(["doctor", "--help"], {
+      print: (line) => {
+        lines.push(line);
+      },
+    }),
+  ).resolves.toBe(1);
+
+  expect(lines).toContain("weacpx doctor - 运行诊断");
+});
+
+test("prints version for 'version' command", async () => {
+  const lines: string[] = [];
+
+  await expect(
+    runCli(["version"], {
+      print: (line) => {
+        lines.push(line);
+      },
+    }),
+  ).resolves.toBe(0);
+
+  expect(lines).toHaveLength(1);
+  expect(lines[0]).toBe("unknown");
+});
+
+test("prints version for '--version' flag", async () => {
+  const lines: string[] = [];
+
+  await expect(
+    runCli(["--version"], {
+      print: (line) => {
+        lines.push(line);
+      },
+    }),
+  ).resolves.toBe(0);
+
+  expect(lines).toHaveLength(1);
+  expect(lines[0]).toBe("unknown");
+});
+
+test("prints version for '-v' flag", async () => {
+  const lines: string[] = [];
+
+  await expect(
+    runCli(["-v"], {
+      print: (line) => {
+        lines.push(line);
+      },
+    }),
+  ).resolves.toBe(0);
+
+  expect(lines).toHaveLength(1);
+  expect(lines[0]).toBe("unknown");
+});
+
+test("prints help for '--help' flag and exits 0", async () => {
+  const lines: string[] = [];
+
+  await expect(
+    runCli(["--help"], {
+      print: (line) => {
+        lines.push(line);
+      },
+    }),
+  ).resolves.toBe(0);
+
+  expect(lines).toContain("weacpx version - 查看版本");
+});
+
+test("prints help for '-h' flag and exits 0", async () => {
+  const lines: string[] = [];
+
+  await expect(
+    runCli(["-h"], {
+      print: (line) => {
+        lines.push(line);
+      },
+    }),
+  ).resolves.toBe(0);
+
+  expect(lines).toContain("weacpx version - 查看版本");
 });

@@ -284,6 +284,18 @@ export async function handleSessionReset(context: SessionHandlerContext, chatKey
   return await context.lifecycle.resetCurrentSession(chatKey);
 }
 
+async function promptWithSession(
+  context: SessionHandlerContext,
+  session: NonNullable<Awaited<ReturnType<SessionHandlerContext["sessions"]["getCurrentSession"]>>>,
+  text: string,
+  reply?: (text: string) => Promise<void>,
+): Promise<RouterResponse> {
+  const effectiveReplyMode = session.replyMode ?? context.config?.wechat.replyMode ?? "stream";
+  const transportReply = effectiveReplyMode === "stream" ? reply : undefined;
+  const result = await context.interaction.promptTransportSession(session, text, transportReply);
+  return { text: transportReply ? undefined : result.text };
+}
+
 export async function handlePrompt(
   context: SessionHandlerContext,
   chatKey: string,
@@ -296,17 +308,11 @@ export async function handlePrompt(
   }
 
   try {
-    const effectiveReplyMode = session.replyMode ?? context.config?.wechat.replyMode ?? "stream";
-    const transportReply = effectiveReplyMode === "stream" ? reply : undefined;
-    const result = await context.interaction.promptTransportSession(session, text, transportReply);
-    return { text: result.text };
+    return await promptWithSession(context, session, text, reply);
   } catch (error) {
     const recovered = await context.recovery.tryRecoverMissingSession(session, error);
     if (recovered) {
-      const effectiveReplyMode = recovered.replyMode ?? context.config?.wechat.replyMode ?? "stream";
-      const transportReply = effectiveReplyMode === "stream" ? reply : undefined;
-      const result = await context.interaction.promptTransportSession(recovered, text, transportReply);
-      return { text: result.text };
+      return await promptWithSession(context, recovered, text, reply);
     }
     return context.recovery.renderTransportError(session, error);
   }

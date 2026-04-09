@@ -130,7 +130,7 @@ export function resolveRuntimePaths(): RuntimePaths {
   };
 }
 
-function resolveBridgeEntryPath(): string {
+export function resolveBridgeEntryPath(): string {
   if (import.meta.url.includes("/dist/")) {
     return fileURLToPath(new URL("./bridge/bridge-main.js", import.meta.url));
   }

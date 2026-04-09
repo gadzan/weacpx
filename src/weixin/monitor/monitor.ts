@@ -59,6 +59,10 @@ export async function monitorWeixinProvider(opts: MonitorWeixinOpts): Promise<vo
 
   const configManager = new WeixinConfigManager({ baseUrl, token }, log);
 
+  const seenMessageIds = new Set<number>();
+  const messageIdOrder: number[] = [];
+  const DEDUP_WINDOW = 100;
+
   let nextTimeoutMs = longPollTimeoutMs ?? DEFAULT_LONG_POLL_TIMEOUT_MS;
   let consecutiveFailures = 0;
 
@@ -118,6 +122,19 @@ export async function monitorWeixinProvider(opts: MonitorWeixinOpts): Promise<vo
 
       const list = resp.msgs ?? [];
       for (const full of list) {
+        const msgId = full.message_id;
+        if (msgId != null) {
+          if (seenMessageIds.has(msgId)) {
+            aLog.info(`duplicate message skipped: message_id=${msgId}`);
+            continue;
+          }
+          seenMessageIds.add(msgId);
+          messageIdOrder.push(msgId);
+          if (messageIdOrder.length > DEDUP_WINDOW) {
+            seenMessageIds.delete(messageIdOrder.shift()!);
+          }
+        }
+
         aLog.info(
           `inbound: from=${full.from_user_id} types=${full.item_list?.map((i) => i.type).join(",") ?? "none"}`,
         );

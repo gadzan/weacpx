@@ -1,5 +1,7 @@
+import { copyFile, readdir } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 
 import type { NonInteractivePermissions, PermissionMode } from "../config/types";
 import { resolveSpawnCommand } from "../process/spawn-command";
@@ -102,19 +104,21 @@ export class BridgeRuntime {
     }
 
     const createSpec = resolveSpawnCommand(this.command, this.buildSessionArgs(input, ["sessions", "new", "--name", input.name]));
-    const createdWithHelper = await this.runSessionCreate(createSpec.command, createSpec.args, input.cwd);
+    const created = await this.runSessionCreate(createSpec.command, createSpec.args, input.cwd);
 
-    if (createdWithHelper.code !== 0) {
-      throw new Error(
-        createdWithHelper.stderr ||
-          createdWithHelper.stdout ||
-          ensured.stderr ||
-          ensured.stdout ||
-          "failed to create session",
-      );
+    if (created.code === 0) {
+      return {};
     }
 
-    return {};
+    const output = created.stderr || created.stdout || "";
+    if (output.includes("EPERM") && await tryRepairAcpxSessionIndex()) {
+      const repaired = await this.run(existingSpec.command, existingSpec.args);
+      if (repaired.code === 0) {
+        return {};
+      }
+    }
+
+    throw new Error(output || ensured.stderr || ensured.stdout || "failed to create session");
   }
 
   async prompt(input: {
@@ -342,9 +346,9 @@ async function shellSessionCreateRunner(
   args: string[],
   cwd: string,
 ): Promise<CommandResult> {
-  const helperPath = fileURLToPath(new URL("../../scripts/acpx-session-new-helper.sh", import.meta.url));
   return await new Promise((resolve, reject) => {
-    const child = spawn("/bin/zsh", [helperPath, command, cwd, ...args], {
+    const child = spawn(command, args, {
+      cwd,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -361,4 +365,59 @@ async function shellSessionCreateRunner(
       resolve({ code: code ?? 1, stdout, stderr });
     });
   });
+}
+
+/**
+ * On Windows, acpx uses rename() to atomically update the session index,
+ * but antivirus or file system lockers can block this operation (EPERM).
+ * This function finds the latest tmp file written by acpx and copies it
+ * over the index.json as a fallback.
+ */
+async function tryRepairAcpxSessionIndex(): Promise<boolean> {
+  if (process.platform !== "win32") {
+    return false;
+  }
+
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? homedir();
+  if (!home) {
+    return false;
+  }
+
+  const sessionsDir = join(home, ".acpx", "sessions");
+  const indexPath = join(sessionsDir, "index.json");
+
+  let files: string[];
+  try {
+    files = await readdir(sessionsDir);
+  } catch {
+    return false;
+  }
+
+  const tmpFiles = files.filter(
+    (f) => f.startsWith("index.json.") && f.endsWith(".tmp"),
+  );
+  if (tmpFiles.length === 0) {
+    return false;
+  }
+
+  let latestTmp = "";
+  let latestTime = 0;
+  for (const f of tmpFiles) {
+    const match = f.match(/^index\.json\.\d+\.(\d+)\.tmp$/);
+    if (match && Number(match[1]) > latestTime) {
+      latestTime = Number(match[1]);
+      latestTmp = f;
+    }
+  }
+
+  if (!latestTmp) {
+    return false;
+  }
+
+  try {
+    await copyFile(join(sessionsDir, latestTmp), indexPath);
+    return true;
+  } catch {
+    return false;
+  }
 }

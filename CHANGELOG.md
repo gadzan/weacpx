@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.1] - 2026-04-09
+
+### Added
+
+- **`weacpx doctor` 命令：** 新增本机环境诊断工具，默认检查 config / runtime / daemon / wechat / acpx / bridge 六个维度；支持 `--verbose` 展开技术细节、`--smoke` 执行真实 transport 级 prompt 检查、`--agent` / `--workspace` 指定 smoke 参数。
+- **`weacpx version` 命令：** 新增版本查看，支持 `weacpx version`、`weacpx --version`、`weacpx -v` 三种写法。
+- **CLI 新增 `--help` / `-h` 快捷参数。**
+
+### Fixed
+
+- **微信消息重复处理：** 新增滑动窗口去重机制，避免同一条消息被重复执行。
+- **下划线内容被错误清理：** 修复包含下划线的 workspace 名称（如 `ec_fenqile_m`）和 Windows 路径在微信消息中被错误转换的问题。
+- **会话快捷创建名称重复：** `/ss <agent> -d <path>` 生成的会话名不再重复包含 workspace 名（如 `weacpx:weacpx:codex` → `weacpx:codex`）。
+- **Windows 下第三方文件锁导致会话创建失败：** 新增自动修复机制，当 `acpx sessions new` 因 EPERM 失败时自动恢复并重试。
+- **Bridge transport 现已完整支持 Windows：** 会话创建不再依赖 Unix shell 脚本，直接调用 acpx。
+
 ## [0.2.0] - 2026-04-06
 
 ### Added

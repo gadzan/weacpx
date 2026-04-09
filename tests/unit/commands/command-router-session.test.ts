@@ -172,7 +172,7 @@ test("creates a workspace and session from the shortcut command", async () => {
   expect(await sessions.getCurrentSession("wx:user")).toMatchObject({
     alias: `${workspaceName}:codex`,
     workspace: workspaceName,
-    transportSession: `${workspaceName}:${workspaceName}:codex`,
+    transportSession: `${workspaceName}:codex`,
     cwd: dir,
   });
 
@@ -194,7 +194,7 @@ test("reuses an existing workspace and session from the workspace shortcut comma
   expect(await sessions.getCurrentSession("wx:user")).toMatchObject({
     alias: "weacpx:codex",
     workspace: "weacpx",
-    transportSession: "weacpx:weacpx:codex",
+    transportSession: "weacpx:codex",
   });
 });
 
@@ -242,7 +242,7 @@ test("creates uniquely named sessions for the explicit workspace shortcut create
   expect(reply.text).toContain("已创建并切换到会话「weacpx:codex-2」");
   expect(await sessions.getCurrentSession("wx:user")).toMatchObject({
     alias: "weacpx:codex-2",
-    transportSession: "weacpx:weacpx:codex-2",
+    transportSession: "weacpx:codex-2",
   });
 });
 
@@ -283,7 +283,7 @@ test("creates uniquely named sessions for the explicit shortcut create command",
   expect(reply.text).toContain(`已创建并切换到会话「${workspaceName}:codex-2」`);
   expect(await sessions.getCurrentSession("wx:user")).toMatchObject({
     alias: `${workspaceName}:codex-2`,
-    transportSession: `${workspaceName}:${workspaceName}:codex-2`,
+    transportSession: `${workspaceName}:codex-2`,
   });
 
   await rm(dir, { recursive: true, force: true });
