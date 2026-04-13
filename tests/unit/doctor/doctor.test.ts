@@ -62,9 +62,7 @@ test("config check passes for a valid config file", async () => {
     });
 
     expect(result.severity).toBe("pass");
-    expect(result.metadata?.configPath).toContain(
-      join(home, ".weacpx", "config.json"),
-    );
+    expect(result.metadata?.configPath).toContain(join(home, ".weacpx", "config.json"));
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -84,9 +82,7 @@ test("config check fails with config path detail when parsing fails", async () =
     });
 
     expect(result.severity).toBe("fail");
-    expect(result.details).toContain(
-      `config path: ${join(home, ".weacpx", "config.json")}`,
-    );
+    expect(result.details).toContain(`config path: ${join(home, ".weacpx", "config.json")}`);
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -107,15 +103,9 @@ test("runtime check passes on a fresh install when runtime paths are creatable",
     });
 
     expect(result.severity).toBe("pass");
-    expect(result.details?.join("\n") ?? "").toContain(
-      `runtimeDir: ${join(home, ".weacpx", "runtime")}`,
-    );
+    expect(result.details?.join("\n") ?? "").toContain(`runtimeDir: ${join(home, ".weacpx", "runtime")}`);
     expect(probe.accessModesByPath.get(home)?.length ?? 0).toBeGreaterThan(0);
-    expect(
-      probe.accessModesByPath
-        .get(home)
-        ?.every((mode) => mode === constants.W_OK),
-    ).toBe(true);
+    expect(probe.accessModesByPath.get(home)?.every((mode) => mode === constants.W_OK)).toBe(true);
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -236,18 +226,10 @@ test("wechat check passes when at least one account is logged in", async () => {
 
   try {
     await mkdir(accountStoreDir, { recursive: true });
-    await writeFile(
-      join(accountsDir, "accounts.json"),
-      JSON.stringify([accountId], null, 2),
-      "utf8",
-    );
+    await writeFile(join(accountsDir, "accounts.json"), JSON.stringify([accountId], null, 2), "utf8");
     await writeFile(
       join(accountStoreDir, `${accountId}.json`),
-      JSON.stringify(
-        { token: "test-token", baseUrl: "https://example.com" },
-        null,
-        2,
-      ),
+      JSON.stringify({ token: "test-token", baseUrl: "https://example.com" }, null, 2),
       "utf8",
     );
 
@@ -283,18 +265,10 @@ test("wechat check passes when a later account is configured even if the first i
       JSON.stringify([firstAccountId, secondAccountId], null, 2),
       "utf8",
     );
-    await writeFile(
-      join(accountStoreDir, `${firstAccountId}.json`),
-      JSON.stringify({}, null, 2),
-      "utf8",
-    );
+    await writeFile(join(accountStoreDir, `${firstAccountId}.json`), JSON.stringify({}, null, 2), "utf8");
     await writeFile(
       join(accountStoreDir, `${secondAccountId}.json`),
-      JSON.stringify(
-        { token: "test-token", baseUrl: "https://example.com" },
-        null,
-        2,
-      ),
+      JSON.stringify({ token: "test-token", baseUrl: "https://example.com" }, null, 2),
       "utf8",
     );
 
@@ -344,14 +318,13 @@ test("bridge check passes when acpx-bridge client starts and pings", async () =>
   let disposed = false;
 
   const result = await checkBridge({
-    loadConfig: async () =>
-      ({
-        transport: {
-          type: "acpx-bridge",
-          permissionMode: "approve-all",
-          nonInteractivePermissions: "deny",
-        },
-      }) as any,
+    loadConfig: async () => ({
+      transport: {
+        type: "acpx-bridge",
+        permissionMode: "approve-all",
+        nonInteractivePermissions: "deny",
+      },
+    }) as any,
     resolveAcpxCommandMetadata: () => ({
       command: "/resolved/acpx",
       source: "bundled",
@@ -389,14 +362,13 @@ test("bridge check passes when acpx-bridge client starts and pings", async () =>
 
 test("bridge check skips when transport type is acpx-cli", async () => {
   const result = await checkBridge({
-    loadConfig: async () =>
-      ({
-        transport: {
-          type: "acpx-cli",
-          permissionMode: "approve-all",
-          nonInteractivePermissions: "deny",
-        },
-      }) as any,
+    loadConfig: async () => ({
+      transport: {
+        type: "acpx-cli",
+        permissionMode: "approve-all",
+        nonInteractivePermissions: "deny",
+      },
+    }) as any,
   });
 
   expect(result.severity).toBe("skip");
@@ -405,14 +377,13 @@ test("bridge check skips when transport type is acpx-cli", async () => {
 
 test("bridge check fails when bridge startup fails", async () => {
   const result = await checkBridge({
-    loadConfig: async () =>
-      ({
-        transport: {
-          type: "acpx-bridge",
-          permissionMode: "approve-all",
-          nonInteractivePermissions: "deny",
-        },
-      }) as any,
+    loadConfig: async () => ({
+      transport: {
+        type: "acpx-bridge",
+        permissionMode: "approve-all",
+        nonInteractivePermissions: "deny",
+      },
+    }) as any,
     resolveAcpxCommandMetadata: () => ({
       command: "/resolved/acpx",
       source: "config",
@@ -472,6 +443,7 @@ function createErrno(code: string, path: string): NodeJS.ErrnoException {
   return error;
 }
 
+
 test("doctor orchestrator runs baseline checks in stable order and records smoke skip when not requested", async () => {
   const calls: string[] = [];
   const createCheck = (id: string) => async (): Promise<DoctorCheckResult> => {
@@ -496,14 +468,7 @@ test("doctor orchestrator runs baseline checks in stable order and records smoke
     },
   );
 
-  expect(calls).toEqual([
-    "config",
-    "runtime",
-    "daemon",
-    "wechat",
-    "acpx",
-    "bridge",
-  ]);
+  expect(calls).toEqual(["config", "runtime", "daemon", "wechat", "acpx", "bridge"]);
   expect(result.report.checks.map((check) => check.id)).toEqual([
     "config",
     "runtime",
@@ -525,42 +490,12 @@ test("doctor orchestrator runs the real smoke check only when --smoke is true", 
   const withoutSmoke = await runDoctor(
     {},
     {
-      checkConfig: async () => ({
-        id: "config",
-        label: "Config",
-        severity: "pass",
-        summary: "ok",
-      }),
-      checkRuntime: async () => ({
-        id: "runtime",
-        label: "Runtime",
-        severity: "pass",
-        summary: "ok",
-      }),
-      checkDaemon: async () => ({
-        id: "daemon",
-        label: "Daemon",
-        severity: "pass",
-        summary: "ok",
-      }),
-      checkWechat: async () => ({
-        id: "wechat",
-        label: "WeChat",
-        severity: "pass",
-        summary: "ok",
-      }),
-      checkAcpx: async () => ({
-        id: "acpx",
-        label: "acpx",
-        severity: "pass",
-        summary: "ok",
-      }),
-      checkBridge: async () => ({
-        id: "bridge",
-        label: "Bridge",
-        severity: "pass",
-        summary: "ok",
-      }),
+      checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }),
+      checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "pass", summary: "ok" }),
+      checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "pass", summary: "ok" }),
+      checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
+      checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
+      checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "pass", summary: "ok" }),
       checkSmoke: async () => {
         smokeCalls += 1;
         return { id: "smoke", label: "Smoke", severity: "pass", summary: "ok" };
@@ -571,64 +506,22 @@ test("doctor orchestrator runs the real smoke check only when --smoke is true", 
   const withSmoke = await runDoctor(
     { smoke: true },
     {
-      checkConfig: async () => ({
-        id: "config",
-        label: "Config",
-        severity: "pass",
-        summary: "ok",
-      }),
-      checkRuntime: async () => ({
-        id: "runtime",
-        label: "Runtime",
-        severity: "pass",
-        summary: "ok",
-      }),
-      checkDaemon: async () => ({
-        id: "daemon",
-        label: "Daemon",
-        severity: "pass",
-        summary: "ok",
-      }),
-      checkWechat: async () => ({
-        id: "wechat",
-        label: "WeChat",
-        severity: "pass",
-        summary: "ok",
-      }),
-      checkAcpx: async () => ({
-        id: "acpx",
-        label: "acpx",
-        severity: "pass",
-        summary: "ok",
-      }),
-      checkBridge: async () => ({
-        id: "bridge",
-        label: "Bridge",
-        severity: "pass",
-        summary: "ok",
-      }),
+      checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }),
+      checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "pass", summary: "ok" }),
+      checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "pass", summary: "ok" }),
+      checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
+      checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
+      checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "pass", summary: "ok" }),
       checkSmoke: async () => {
         smokeCalls += 1;
-        return {
-          id: "smoke",
-          label: "Smoke",
-          severity: "warn",
-          summary: "probe ran",
-        };
+        return { id: "smoke", label: "Smoke", severity: "warn", summary: "probe ran" };
       },
     },
   );
 
   expect(smokeCalls).toBe(1);
-  expect(withoutSmoke.report.checks.at(-1)).toMatchObject({
-    id: "smoke",
-    severity: "skip",
-  });
-  expect(withSmoke.report.checks.at(-1)).toMatchObject({
-    id: "smoke",
-    severity: "warn",
-    summary: "probe ran",
-  });
+  expect(withoutSmoke.report.checks.at(-1)).toMatchObject({ id: "smoke", severity: "skip" });
+  expect(withSmoke.report.checks.at(-1)).toMatchObject({ id: "smoke", severity: "warn", summary: "probe ran" });
 });
 
 test("doctor orchestrator uses injected home coherently for runtime and config-based checks", async () => {
@@ -647,49 +540,24 @@ test("doctor orchestrator uses injected home coherently for runtime and config-b
       home,
       checkConfig: async (options) => {
         seen.configPath = options.resolveRuntimePaths?.().configPath;
-        return {
-          id: "config",
-          label: "Config",
-          severity: "pass",
-          summary: "ok",
-        };
+        return { id: "config", label: "Config", severity: "pass", summary: "ok" };
       },
       checkRuntime: async (options) => {
         seen.runtimeHome = options.home;
-        return {
-          id: "runtime",
-          label: "Runtime",
-          severity: "pass",
-          summary: "ok",
-        };
+        return { id: "runtime", label: "Runtime", severity: "pass", summary: "ok" };
       },
       checkDaemon: async (options) => {
         seen.daemonHome = options.home;
-        return {
-          id: "daemon",
-          label: "Daemon",
-          severity: "pass",
-          summary: "ok",
-        };
+        return { id: "daemon", label: "Daemon", severity: "pass", summary: "ok" };
       },
-      checkWechat: async () => ({
-        id: "wechat",
-        label: "WeChat",
-        severity: "pass",
-        summary: "ok",
-      }),
+      checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
       checkAcpx: async (options) => {
         seen.acpxPath = options.resolveRuntimePaths?.().configPath;
         return { id: "acpx", label: "acpx", severity: "pass", summary: "ok" };
       },
       checkBridge: async (options) => {
         seen.bridgePath = options.resolveRuntimePaths?.().configPath;
-        return {
-          id: "bridge",
-          label: "Bridge",
-          severity: "pass",
-          summary: "ok",
-        };
+        return { id: "bridge", label: "Bridge", severity: "pass", summary: "ok" };
       },
     },
   );
@@ -706,42 +574,12 @@ test("doctor orchestrator returns exit code 1 when any check fails", async () =>
   const result = await runDoctor(
     {},
     {
-      checkConfig: async () => ({
-        id: "config",
-        label: "Config",
-        severity: "pass",
-        summary: "ok",
-      }),
-      checkRuntime: async () => ({
-        id: "runtime",
-        label: "Runtime",
-        severity: "fail",
-        summary: "broken",
-      }),
-      checkDaemon: async () => ({
-        id: "daemon",
-        label: "Daemon",
-        severity: "warn",
-        summary: "warn",
-      }),
-      checkWechat: async () => ({
-        id: "wechat",
-        label: "WeChat",
-        severity: "pass",
-        summary: "ok",
-      }),
-      checkAcpx: async () => ({
-        id: "acpx",
-        label: "acpx",
-        severity: "pass",
-        summary: "ok",
-      }),
-      checkBridge: async () => ({
-        id: "bridge",
-        label: "Bridge",
-        severity: "skip",
-        summary: "skip",
-      }),
+      checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }),
+      checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "fail", summary: "broken" }),
+      checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "warn", summary: "warn" }),
+      checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
+      checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
+      checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "skip", summary: "skip" }),
     },
   );
 
@@ -753,42 +591,12 @@ test("doctor orchestrator returns exit code 0 when report only contains pass war
   const result = await runDoctor(
     {},
     {
-      checkConfig: async () => ({
-        id: "config",
-        label: "Config",
-        severity: "pass",
-        summary: "ok",
-      }),
-      checkRuntime: async () => ({
-        id: "runtime",
-        label: "Runtime",
-        severity: "warn",
-        summary: "warn",
-      }),
-      checkDaemon: async () => ({
-        id: "daemon",
-        label: "Daemon",
-        severity: "pass",
-        summary: "ok",
-      }),
-      checkWechat: async () => ({
-        id: "wechat",
-        label: "WeChat",
-        severity: "pass",
-        summary: "ok",
-      }),
-      checkAcpx: async () => ({
-        id: "acpx",
-        label: "acpx",
-        severity: "pass",
-        summary: "ok",
-      }),
-      checkBridge: async () => ({
-        id: "bridge",
-        label: "Bridge",
-        severity: "skip",
-        summary: "skip",
-      }),
+      checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }),
+      checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "warn", summary: "warn" }),
+      checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "pass", summary: "ok" }),
+      checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
+      checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
+      checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "skip", summary: "skip" }),
     },
   );
 
@@ -812,20 +620,14 @@ test("doctor index main runs orchestrator and prints rendered output", async () 
           report: {
             checks: [],
           },
-          output: [
-            "PASS Config: ok",
-            "Summary: PASS 1, WARN 0, FAIL 0, SKIP 0",
-          ],
+          output: ["PASS Config: ok", "Summary: PASS 1, WARN 0, FAIL 0, SKIP 0"],
           exitCode: 0,
         }),
       },
     );
 
     expect(exitCode).toBe(0);
-    expect(lines).toEqual([
-      "PASS Config: ok",
-      "Summary: PASS 1, WARN 0, FAIL 0, SKIP 0",
-    ]);
+    expect(lines).toEqual(["PASS Config: ok", "Summary: PASS 1, WARN 0, FAIL 0, SKIP 0"]);
   } finally {
     console.log = restore;
   }

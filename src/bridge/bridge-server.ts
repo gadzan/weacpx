@@ -4,6 +4,7 @@ import {
   type BridgeResponse,
 } from "../transport/acpx-bridge/acpx-bridge-protocol";
 import { PromptCommandError } from "../transport/prompt-output";
+import { BridgeRequestScheduler, type BridgeRequestLane } from "./bridge-request-scheduler";
 import { BridgeRuntime } from "./bridge-runtime";
 
 interface BridgeRequest {
@@ -25,7 +26,11 @@ const BRIDGE_METHODS = new Set<BridgeMethod>([
   "cancel",
 ]);
 
+const SESSION_SCOPED_METHODS = new Set<BridgeMethod>(["hasSession", "ensureSession", "prompt", "setMode", "cancel"]);
+
 export class BridgeServer {
+  private readonly scheduler = new BridgeRequestScheduler();
+
   constructor(private readonly runtime: BridgeRuntime) {}
 
   async handleLine(line: string, writeLine?: (line: string) => void): Promise<string> {
@@ -35,7 +40,7 @@ export class BridgeServer {
       const request = parseBridgeRequest(line);
       requestId = request.id;
 
-      const result = await this.dispatch(request.id, request.method, request.params, writeLine);
+      const result = await this.dispatchRequest(request.id, request.method, request.params, writeLine);
       return `${JSON.stringify({
         id: request.id,
         ok: true,
@@ -61,6 +66,30 @@ export class BridgeServer {
         },
       } satisfies BridgeResponse)}\n`;
     }
+  }
+
+  private async dispatchRequest(
+    requestId: string,
+    method: BridgeMethod,
+    params: Record<string, unknown>,
+    writeLine?: (line: string) => void,
+  ): Promise<unknown> {
+    if (!SESSION_SCOPED_METHODS.has(method)) {
+      return await this.dispatch(requestId, method, params, writeLine);
+    }
+
+    const sessionName = getSessionName(params);
+    if (!sessionName) {
+      return await this.dispatch(requestId, method, params, writeLine);
+    }
+
+    const sessionKey = getSessionScheduleKey(params);
+    if (!sessionKey) {
+      return await this.dispatch(requestId, method, params, writeLine);
+    }
+
+    const lane: BridgeRequestLane = method === "cancel" ? "control" : "normal";
+    return await this.scheduler.run(sessionKey, lane, () => this.dispatch(requestId, method, params, writeLine));
   }
 
   private async dispatch(
@@ -180,6 +209,30 @@ function parseBridgeRequest(line: string): BridgeRequest {
     method: method as BridgeMethod,
     params: params as Record<string, unknown>,
   };
+}
+
+function getSessionName(params: Record<string, unknown>): string | undefined {
+  return asNonEmptyString(params.name);
+}
+
+function getSessionScheduleKey(params: Record<string, unknown>): string | undefined {
+  const name = asNonEmptyString(params.name);
+  const cwd = asNonEmptyString(params.cwd);
+  const agentIdentity = asNonEmptyString(params.agentCommand) ?? asNonEmptyString(params.agent);
+  if (!name || !cwd || !agentIdentity) {
+    return undefined;
+  }
+
+  return JSON.stringify([agentIdentity, cwd, name]);
+}
+
+
+function asNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length === 0) {
+    return undefined;
+  }
+
+  return value;
 }
 
 function requireString(params: Record<string, unknown>, key: string): string {

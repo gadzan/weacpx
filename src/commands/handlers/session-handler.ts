@@ -276,6 +276,11 @@ export async function handleCancel(context: SessionHandlerContext, chatKey: stri
     const result = await context.interaction.cancelTransportSession(session);
     return { text: result.message || "cancelled" };
   } catch (error) {
+    const recovered = await context.recovery.tryRecoverMissingSession(session, error);
+    if (recovered) {
+      const result = await context.interaction.cancelTransportSession(recovered);
+      return { text: result.message || "cancelled" };
+    }
     return context.recovery.renderTransportError(session, error);
   }
 }

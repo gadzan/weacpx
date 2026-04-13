@@ -2,7 +2,11 @@ import { expect, mock, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { handleWeixinMessageTurn, resolveMediaTempDir } from "../../../src/weixin/messaging/handle-weixin-message-turn";
+import {
+  getWeixinMessageTurnLane,
+  handleWeixinMessageTurn,
+  resolveMediaTempDir,
+} from "../../../src/weixin/messaging/handle-weixin-message-turn";
 import type { Agent, ChatResponse } from "../../../src/weixin/agent/interface";
 import type { HandleWeixinMessageTurnDeps } from "../../../src/weixin/messaging/handle-weixin-message-turn";
 import type { WeixinMessage } from "../../../src/weixin/api/types";
@@ -45,6 +49,22 @@ test("handleWeixinMessageTurn passes reply callback to agent.chat", async () => 
 
   await handleWeixinMessageTurn(makeMessage("hello"), deps);
   expect(typeof capturedReply).toBe("function");
+});
+
+test("getWeixinMessageTurnLane classifies /cancel as control", () => {
+  expect(getWeixinMessageTurnLane(makeMessage("/cancel"))).toBe("control");
+});
+
+test("getWeixinMessageTurnLane classifies /stop as control", () => {
+  expect(getWeixinMessageTurnLane(makeMessage("/stop"))).toBe("control");
+});
+
+test("getWeixinMessageTurnLane keeps normal text on the normal lane", () => {
+  expect(getWeixinMessageTurnLane(makeMessage("hello there"))).toBe("normal");
+});
+
+test("getWeixinMessageTurnLane keeps /clear on the normal lane", () => {
+  expect(getWeixinMessageTurnLane(makeMessage("/clear"))).toBe("normal");
 });
 
 test("resolveMediaTempDir uses injected root when provided", () => {

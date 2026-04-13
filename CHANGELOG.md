@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.2] - 2026-04-13
+
+### Added
+
+- **Bridge 请求调度器：** 新增 `BridgeRequestScheduler` 模块，支持在 Bridge 侧对请求进行调度，使 `/cancel` 可以绕过卡住的 prompt 而不会与其他 cwd/agent 的请求冲突。
+
+### Fixed
+
+- **`/cancel` 会话恢复：** 当底层 transport session 丢失时（如进程异常退出），`/cancel` 会自动尝试恢复会话后再执行取消操作。
+- **微信消息流阻塞：** 修复 normal 类型的微信消息在特定场景下被阻塞的问题，现在 `/cancel` 可以绕过阻塞继续执行。
+
 ## [0.2.1] - 2026-04-09
 
 ### Added

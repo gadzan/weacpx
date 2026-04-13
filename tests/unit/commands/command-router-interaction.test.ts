@@ -1,5 +1,6 @@
-import { expect, test } from "bun:test";
+import { expect, mock, test } from "bun:test";
 import { CommandRouter } from "../../../src/commands/command-router";
+import type { SessionAgentCommandResolver } from "./command-router-test-support";
 import {
   MemoryStateStore,
   SessionService,
@@ -58,6 +59,35 @@ test("cancels the current session", async () => {
   const reply = await router.handle("wx:user", "/cancel");
 
   expect(reply.text).toContain("cancelled");
+});
+
+test("retries cancel after recovering a missing transport session", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const resolveSessionAgentCommand = mock<SessionAgentCommandResolver>()
+    .mockImplementationOnce(async () => undefined)
+    .mockImplementationOnce(async () => "npx @zed-industries/codex-acp@^0.9.5");
+  const cancelMock = getCancelMock(transport);
+  cancelMock
+    .mockImplementationOnce(async () => {
+      throw new Error("No acpx session found");
+    })
+    .mockImplementationOnce(async () => ({
+      cancelled: true,
+      message: "cancelled after recovery",
+    }));
+  const router = new CommandRouter(sessions, transport, undefined, undefined, undefined, resolveSessionAgentCommand);
+
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
+  const reply = await router.handle("wx:user", "/cancel");
+
+  expect(reply.text).toContain("cancelled after recovery");
+  expect(cancelMock.mock.calls).toHaveLength(2);
+  expect(cancelMock.mock.calls.at(-1)?.[0]).toMatchObject({
+    alias: "api-fix",
+    transportSession: "backend:api-fix",
+    agentCommand: "npx @zed-industries/codex-acp@^0.9.5",
+  });
 });
 
 test("treats stop as cancel", async () => {

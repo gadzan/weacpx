@@ -2,7 +2,8 @@ import type { Agent } from "../agent/interface.js";
 import { getUpdates } from "../api/api.js";
 import { WeixinConfigManager } from "../api/config-cache.js";
 import { SESSION_EXPIRED_ERRCODE, pauseSession, getRemainingPauseMs } from "../api/session-guard.js";
-import { handleWeixinMessageTurn } from "../messaging/handle-weixin-message-turn.js";
+import { createConversationExecutor } from "../messaging/conversation-executor.js";
+import { getWeixinMessageTurnLane, handleWeixinMessageTurn } from "../messaging/handle-weixin-message-turn.js";
 import { getSyncBufFilePath, loadGetUpdatesBuf, saveGetUpdatesBuf } from "../storage/sync-buf.js";
 import { logger } from "../util/logger.js";
 import { redactBody } from "../util/redact.js";
@@ -58,6 +59,7 @@ export async function monitorWeixinProvider(opts: MonitorWeixinOpts): Promise<vo
   }
 
   const configManager = new WeixinConfigManager({ baseUrl, token }, log);
+  const conversationExecutor = createConversationExecutor();
 
   const seenMessageIds = new Set<number>();
   const messageIdOrder: number[] = [];
@@ -142,16 +144,22 @@ export async function monitorWeixinProvider(opts: MonitorWeixinOpts): Promise<vo
         const fromUserId = full.from_user_id ?? "";
         const cachedConfig = await configManager.getForUser(fromUserId, full.context_token);
 
-        await handleWeixinMessageTurn(full, {
-          accountId,
-          agent,
-          baseUrl,
-          cdnBaseUrl,
-          token,
-          typingTicket: cachedConfig.typingTicket,
-          log,
-          errLog,
-        });
+        void conversationExecutor
+          .run(full.from_user_id ?? "", getWeixinMessageTurnLane(full), () =>
+            handleWeixinMessageTurn(full, {
+              accountId,
+              agent,
+              baseUrl,
+              cdnBaseUrl,
+              token,
+              typingTicket: cachedConfig.typingTicket,
+              log,
+              errLog,
+            }),
+          )
+          .catch((err) => {
+            errLog(`[weixin] message turn failed: ${String(err)}`);
+          });
       }
     } catch (err) {
       if (abortSignal?.aborted) {

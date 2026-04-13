@@ -67,6 +67,11 @@ function extractTextBody(itemList?: MessageItem[]): string {
   return "";
 }
 
+export function getWeixinMessageTurnLane(full: WeixinMessage): "normal" | "control" {
+  const textBody = extractTextBody(full.item_list).trim().toLowerCase();
+  return textBody === "/cancel" || textBody === "/stop" ? "control" : "normal";
+}
+
 const hasDownloadableMedia = (media?: { encrypt_query_param?: string; full_url?: string }) =>
   media?.encrypt_query_param || media?.full_url;
 

@@ -637,6 +637,395 @@ test("streams prompt segment events before the final prompt response", async () 
   expect(response).toBe('{"id":"1","ok":true,"result":{"text":"done"}}\n');
 });
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
+async function waitForQueuedWork() {
+  await new Promise<void>((resolve) => queueMicrotask(resolve));
+}
+
+test("cancel bypasses a blocked prompt for the same session", async () => {
+  const promptStarted = createDeferred<void>();
+  const releasePrompt = createDeferred<void>();
+  const calls: string[] = [];
+  const runtime = {
+    shutdown: async () => ({}),
+    updatePermissionPolicy: async () => ({}),
+    hasSession: async () => ({ exists: true }),
+    ensureSession: async () => ({}),
+    prompt: async () => {
+      calls.push("prompt");
+      promptStarted.resolve();
+      await releasePrompt.promise;
+      return { text: "done" };
+    },
+    setMode: async () => ({}),
+    cancel: async () => {
+      calls.push("cancel");
+      return { cancelled: true, message: "cancelled" };
+    },
+  } as unknown as BridgeRuntime;
+  const server = new BridgeServer(runtime);
+
+  const promptResponse = server.handleLine(JSON.stringify({
+    id: "prompt-1",
+    method: "prompt",
+    params: {
+      agent: "codex",
+      cwd: "/repo",
+      name: "demo",
+      text: "hello",
+    },
+  }));
+
+  await promptStarted.promise;
+
+  await expect(server.handleLine(JSON.stringify({
+    id: "cancel-1",
+    method: "cancel",
+    params: {
+      agent: "codex",
+      cwd: "/repo",
+      name: "demo",
+    },
+  }))).resolves.toBe(
+    '{"id":"cancel-1","ok":true,"result":{"cancelled":true,"message":"cancelled"}}\n',
+  );
+
+  expect(calls).toEqual(["prompt", "cancel"]);
+
+  releasePrompt.resolve();
+  await expect(promptResponse).resolves.toBe(
+    '{"id":"prompt-1","ok":true,"result":{"text":"done"}}\n',
+  );
+});
+
+test("another normal request for the same session waits behind a blocked prompt", async () => {
+  const promptStarted = createDeferred<void>();
+  const releasePrompt = createDeferred<void>();
+  const promptFinished = createDeferred<void>();
+  const calls: string[] = [];
+  const runtime = {
+    shutdown: async () => ({}),
+    updatePermissionPolicy: async () => ({}),
+    hasSession: async () => ({ exists: true }),
+    ensureSession: async () => ({}),
+    prompt: async () => {
+      calls.push("prompt:start");
+      promptStarted.resolve();
+      await releasePrompt.promise;
+      calls.push("prompt:end");
+      promptFinished.resolve();
+      return { text: "done" };
+    },
+    setMode: async () => {
+      calls.push("setMode");
+      return {};
+    },
+    cancel: async () => ({ cancelled: true, message: "cancelled" }),
+  } as unknown as BridgeRuntime;
+  const server = new BridgeServer(runtime);
+
+  const promptResponse = server.handleLine(JSON.stringify({
+    id: "prompt-2",
+    method: "prompt",
+    params: {
+      agent: "codex",
+      cwd: "/repo",
+      name: "demo",
+      text: "hello",
+    },
+  }));
+
+  await promptStarted.promise;
+
+  let setModeResolved = false;
+  const setModeResponse = server.handleLine(JSON.stringify({
+    id: "mode-1",
+    method: "setMode",
+    params: {
+      agent: "codex",
+      cwd: "/repo",
+      name: "demo",
+      modeId: "plan",
+    },
+  })).then((value) => {
+    setModeResolved = true;
+    return value;
+  });
+
+  await Promise.resolve();
+  expect(calls).toEqual(["prompt:start"]);
+  expect(setModeResolved).toBe(false);
+
+  releasePrompt.resolve();
+  await promptFinished.promise;
+
+  await expect(promptResponse).resolves.toBe(
+    '{"id":"prompt-2","ok":true,"result":{"text":"done"}}\n',
+  );
+  await expect(setModeResponse).resolves.toBe(
+    '{"id":"mode-1","ok":true,"result":{}}\n',
+  );
+  expect(calls).toEqual(["prompt:start", "prompt:end", "setMode"]);
+});
+
+test("requests without a session name bypass the session scheduler", async () => {
+  const promptStarted = createDeferred<void>();
+  const releasePrompt = createDeferred<void>();
+  const calls: string[] = [];
+  const runtime = {
+    shutdown: async () => ({}),
+    updatePermissionPolicy: async () => {
+      calls.push("updatePermissionPolicy");
+      return {};
+    },
+    hasSession: async () => ({ exists: true }),
+    ensureSession: async () => ({}),
+    prompt: async () => {
+      calls.push("prompt");
+      promptStarted.resolve();
+      await releasePrompt.promise;
+      return { text: "done" };
+    },
+    setMode: async () => ({}),
+    cancel: async () => ({ cancelled: true, message: "cancelled" }),
+  } as unknown as BridgeRuntime;
+  const server = new BridgeServer(runtime);
+
+  const promptResponse = server.handleLine(JSON.stringify({
+    id: "prompt-3",
+    method: "prompt",
+    params: {
+      agent: "codex",
+      cwd: "/repo",
+      name: "demo",
+      text: "hello",
+    },
+  }));
+
+  await promptStarted.promise;
+
+  await expect(server.handleLine(JSON.stringify({
+    id: "policy-1",
+    method: "updatePermissionPolicy",
+    params: {
+      permissionMode: "approve-all",
+      nonInteractivePermissions: "deny",
+    },
+  }))).resolves.toBe(
+    '{"id":"policy-1","ok":true,"result":{}}\n',
+  );
+
+  expect(calls).toEqual(["prompt", "updatePermissionPolicy"]);
+
+  releasePrompt.resolve();
+  await expect(promptResponse).resolves.toBe(
+    '{"id":"prompt-3","ok":true,"result":{"text":"done"}}\n',
+  );
+});
+
+test("session-scoped methods missing name bypass scheduler and fail immediately", async () => {
+  const promptStarted = createDeferred<void>();
+  const releasePrompt = createDeferred<void>();
+  const calls: string[] = [];
+  const runtime = {
+    shutdown: async () => ({}),
+    updatePermissionPolicy: async () => {
+      calls.push("updatePermissionPolicy");
+      return {};
+    },
+    hasSession: async () => ({ exists: true }),
+    ensureSession: async () => ({}),
+    prompt: async () => {
+      calls.push("prompt");
+      promptStarted.resolve();
+      await releasePrompt.promise;
+      return { text: "done" };
+    },
+    setMode: async () => ({}),
+    cancel: async () => ({ cancelled: true, message: "cancelled" }),
+  } as unknown as BridgeRuntime;
+  const server = new BridgeServer(runtime);
+
+  const promptResponse = server.handleLine(JSON.stringify({
+    id: "prompt-5",
+    method: "prompt",
+    params: {
+      agent: "codex",
+      cwd: "/repo",
+      name: "demo",
+      text: "hello",
+    },
+  }));
+
+  await promptStarted.promise;
+
+  await expect(server.handleLine(JSON.stringify({
+    id: "prompt-missing-name",
+    method: "prompt",
+    params: {
+      agent: "codex",
+      cwd: "/repo",
+      text: "hello",
+    },
+  }))).resolves.toBe(
+    '{"id":"prompt-missing-name","ok":false,"error":{"code":"BRIDGE_INVALID_REQUEST","message":"name must be a non-empty string"}}\n',
+  );
+
+  expect(calls).toEqual(["prompt"]);
+
+  releasePrompt.resolve();
+  await expect(promptResponse).resolves.toBe(
+    '{"id":"prompt-5","ok":true,"result":{"text":"done"}}\n',
+  );
+});
+
+test("non-session-scoped methods ignore scheduler even with session-like params", async () => {
+  const promptStarted = createDeferred<void>();
+  const releasePrompt = createDeferred<void>();
+  const calls: string[] = [];
+  const runtime = {
+    shutdown: async () => ({}),
+    updatePermissionPolicy: async () => {
+      calls.push("updatePermissionPolicy");
+      return {};
+    },
+    hasSession: async () => ({ exists: true }),
+    ensureSession: async () => ({}),
+    prompt: async () => {
+      calls.push("prompt");
+      promptStarted.resolve();
+      await releasePrompt.promise;
+      return { text: "done" };
+    },
+    setMode: async () => ({}),
+    cancel: async () => ({ cancelled: true, message: "cancelled" }),
+  } as unknown as BridgeRuntime;
+  const server = new BridgeServer(runtime);
+
+  const promptResponse = server.handleLine(JSON.stringify({
+    id: "prompt-4",
+    method: "prompt",
+    params: {
+      agent: "codex",
+      cwd: "/repo",
+      name: "demo",
+      text: "hello",
+    },
+  }));
+
+  await promptStarted.promise;
+
+  const policyResponse = server.handleLine(JSON.stringify({
+    id: "policy-2",
+    method: "updatePermissionPolicy",
+    params: {
+      agent: "codex",
+      cwd: "/repo",
+      name: "demo",
+      permissionMode: "approve-all",
+      nonInteractivePermissions: "deny",
+    },
+  }));
+
+  await waitForQueuedWork();
+  expect(calls).toEqual(["prompt", "updatePermissionPolicy"]);
+
+  await expect(policyResponse).resolves.toBe(
+    '{"id":"policy-2","ok":true,"result":{}}\n',
+  );
+
+  releasePrompt.resolve();
+  await expect(promptResponse).resolves.toBe(
+    '{"id":"prompt-4","ok":true,"result":{"text":"done"}}\n',
+  );
+});
+
+test("same session name in different cwd does not block through the scheduler", async () => {
+  const firstPromptStarted = createDeferred<void>();
+  const secondPromptStarted = createDeferred<void>();
+  const releaseFirstPrompt = createDeferred<void>();
+  const releaseSecondPrompt = createDeferred<void>();
+  const calls: string[] = [];
+  const runtime = {
+    shutdown: async () => ({}),
+    updatePermissionPolicy: async () => ({}),
+    hasSession: async () => ({ exists: true }),
+    ensureSession: async () => ({}),
+    prompt: async (input: Record<string, unknown>) => {
+      const cwd = input.cwd as string;
+      calls.push(`prompt:${cwd}:start`);
+      if (cwd === "/repo-a") {
+        firstPromptStarted.resolve();
+        await releaseFirstPrompt.promise;
+        calls.push(`prompt:${cwd}:end`);
+      }
+      if (cwd === "/repo-b") {
+        secondPromptStarted.resolve();
+        await releaseSecondPrompt.promise;
+        calls.push(`prompt:${cwd}:end`);
+      }
+      return { text: cwd };
+    },
+    setMode: async () => ({}),
+    cancel: async () => ({ cancelled: true, message: "cancelled" }),
+  } as unknown as BridgeRuntime;
+  const server = new BridgeServer(runtime);
+
+  const firstPromptResponse = server.handleLine(JSON.stringify({
+    id: "prompt-a",
+    method: "prompt",
+    params: {
+      agent: "codex",
+      cwd: "/repo-a",
+      name: "demo",
+      text: "hello",
+    },
+  }));
+
+  await firstPromptStarted.promise;
+
+  const secondPromptResponse = server.handleLine(JSON.stringify({
+    id: "prompt-b",
+    method: "prompt",
+    params: {
+      agent: "codex",
+      cwd: "/repo-b",
+      name: "demo",
+      text: "hello",
+    },
+  }));
+
+  await waitForQueuedWork();
+  expect(calls).toEqual([
+    "prompt:/repo-a:start",
+    "prompt:/repo-b:start",
+  ]);
+
+  releaseSecondPrompt.resolve();
+  await expect(secondPromptStarted.promise).resolves.toBeUndefined();
+  await expect(secondPromptResponse).resolves.toBe(
+    '{"id":"prompt-b","ok":true,"result":{"text":"/repo-b"}}\n',
+  );
+
+  releaseFirstPrompt.resolve();
+  await expect(firstPromptResponse).resolves.toBe(
+    '{"id":"prompt-a","ok":true,"result":{"text":"/repo-a"}}\n',
+  );
+  expect(calls).toEqual([
+    "prompt:/repo-a:start",
+    "prompt:/repo-b:start",
+    "prompt:/repo-b:end",
+    "prompt:/repo-a:end",
+  ]);
+});
+
 test("includes prompt diagnostics in bridge error responses", async () => {
   const runtime = {
     shutdown: async () => ({}),
