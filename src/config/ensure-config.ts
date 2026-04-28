@@ -19,8 +19,30 @@ export async function ensureConfigExists(path: string): Promise<void> {
 }
 
 async function loadDefaultConfigTemplate(): Promise<AppConfig> {
-  const templatePath = new URL("../../config.example.json", import.meta.url);
-  return normalizeDefaultConfigTemplate(JSON.parse(await readFile(templatePath, "utf8")) as unknown);
+  const candidates = [
+    new URL("../../config.example.json", import.meta.url),
+    new URL("../config.example.json", import.meta.url),
+  ];
+
+  let raw: string | undefined;
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      raw = await readFile(candidate, "utf8");
+      break;
+    } catch (error) {
+      if (!isMissingFileError(error)) {
+        throw error;
+      }
+      lastError = error;
+    }
+  }
+
+  if (!raw) {
+    throw lastError;
+  }
+
+  return normalizeDefaultConfigTemplate(JSON.parse(raw) as unknown);
 }
 
 export function normalizeDefaultConfigTemplate(raw: unknown): AppConfig {
