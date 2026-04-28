@@ -633,6 +633,36 @@ test("runDoctor includes the orchestration-health check result", async () => {
   expect(result.report.checks.some((c) => c.id === "orchestration")).toBe(true);
 });
 
+test("runDoctor skips orchestration-health instead of throwing when config cannot be loaded", async () => {
+  const home = await createTempHome();
+  const configPath = join(home, ".weacpx", "config.json");
+
+  try {
+    const result = await runDoctor(
+      {},
+      {
+        home,
+        loadConfig: async () => {
+          throw createErrno("ENOENT", configPath);
+        },
+        checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "pass", summary: "ok" }),
+        checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "pass", summary: "ok" }),
+        checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
+      },
+    );
+
+    expect(result.report.checks.find((check) => check.id === "config")).toMatchObject({
+      severity: "fail",
+    });
+    expect(result.report.checks.find((check) => check.id === "orchestration")).toMatchObject({
+      severity: "skip",
+      summary: "orchestration check skipped because configuration could not be loaded",
+    });
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("doctor index main runs orchestrator and prints rendered output", async () => {
   const lines: string[] = [];
   const restore = console.log;

@@ -79,15 +79,10 @@ export async function runDoctor(options: DoctorRunOptions = {}, deps: DoctorDeps
     }),
   );
   checks.push(
-    await (deps.checkOrchestrationHealth ?? (async () => {
-      const config = await sharedLoadConfig(runtimePaths.configPath);
-      const store = new StateStore(runtimePaths.statePath);
-      return checkOrchestrationHealth({
-        loadState: () => store.load(),
-        now: () => new Date(),
-        heartbeatThresholdSeconds: config.orchestration.progressHeartbeatSeconds,
-      });
-    }))(),
+    await (deps.checkOrchestrationHealth ?? (() => defaultCheckOrchestrationHealth({
+      runtimePaths,
+      loadConfig: sharedLoadConfig,
+    })))(),
   );
   checks.push(
     options.smoke === true
@@ -160,4 +155,44 @@ function createSmokeSkipResult(summary: string): DoctorCheckResult {
     severity: "skip",
     summary,
   };
+}
+
+async function defaultCheckOrchestrationHealth(deps: {
+  runtimePaths: RuntimePaths;
+  loadConfig: (configPath: string) => Promise<AppConfig>;
+}): Promise<DoctorCheckResult> {
+  let config: AppConfig;
+  try {
+    config = await deps.loadConfig(deps.runtimePaths.configPath);
+  } catch (error) {
+    return {
+      id: "orchestration",
+      label: "Orchestration",
+      severity: "skip",
+      summary: "orchestration check skipped because configuration could not be loaded",
+      details: [`config path: ${deps.runtimePaths.configPath}`, `error: ${formatError(error)}`],
+      suggestions: ["fix the Config check first, then run: weacpx doctor"],
+    };
+  }
+
+  try {
+    const store = new StateStore(deps.runtimePaths.statePath);
+    return await checkOrchestrationHealth({
+      loadState: () => store.load(),
+      now: () => new Date(),
+      heartbeatThresholdSeconds: config.orchestration.progressHeartbeatSeconds,
+    });
+  } catch (error) {
+    return {
+      id: "orchestration",
+      label: "Orchestration",
+      severity: "fail",
+      summary: "orchestration health check failed",
+      details: [`state path: ${deps.runtimePaths.statePath}`, `error: ${formatError(error)}`],
+    };
+  }
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
