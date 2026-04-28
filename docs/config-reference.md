@@ -14,7 +14,7 @@
     "sessionInitTimeoutMs": 120000
   },
   "wechat": {
-    "replyMode": "stream"
+    "replyMode": "verbose"
   },
   "agents": {
     "codex": {
@@ -29,6 +29,12 @@
       "cwd": "/absolute/path/to/backend",
       "description": "backend repo"
     }
+  },
+  "orchestration": {
+    "maxPendingAgentRequestsPerCoordinator": 3,
+    "allowWorkerChainedRequests": false,
+    "allowedAgentRequestTargets": [],
+    "allowedAgentRequestRoles": []
   }
 }
 ```
@@ -68,6 +74,25 @@
 
 显式指定 `command` 会覆盖上述行为。
 
+### orchestration MCP 自动注入
+
+weacpx 会在向 acpx session 发送普通 prompt 前，临时启动 acpx 的 queue owner，并通过 `ACPX_QUEUE_OWNER_PAYLOAD` 注入 `weacpx-orchestration` stdio MCP server。这样被 acpx 管理的 agent 可以看到 `delegate_request` 等 orchestration 工具。
+
+这个兼容路径不会写入工作目录的 `.acpxrc.json`，也不会修改 `~/.acpx/config.json` 或替换 acpx home，因此不会影响 acpx 既有 sessions、流日志和 `index.json` 映射关系。
+
+默认注入命令按以下顺序解析：
+
+1. `WEACPX_CLI_COMMAND`
+2. `WEACPX_DAEMON_ARG0` + 当前 Node 可执行文件
+3. 当前进程入口 `process.argv[1]` + 当前 Node 可执行文件
+4. `weacpx`
+
+如果 weacpx 不是通过标准 CLI/daemon 启动，或路径需要特殊包装，可以显式设置 `WEACPX_CLI_COMMAND`，例如：
+
+```bash
+WEACPX_CLI_COMMAND="node /path/to/weacpx/dist/cli.js" weacpx run
+```
+
 ---
 
 ## `wechat`
@@ -78,12 +103,13 @@
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `replyMode` | `"stream"` \| `"final"` | 否 | 微信回复模式。默认 `"stream"` |
+| `replyMode` | `"stream"` \| `"final"` \| `"verbose"` | 否 | 微信回复模式。默认 `"verbose"` |
 
 说明：
 
 - `stream`：有中间文本分段时，优先流式发送到微信
 - `final`：抑制中间文本分段，只在最后发送一次最终文本
+- `verbose`：在 stream 基础上额外发送工具调用等实时事件
 - 这个配置是**全局默认值**
 - 可以通过 `/replymode` 为**当前逻辑会话**设置覆盖值
 - `/replymode reset` 会清除当前会话覆盖，回退到 `wechat.replyMode`
@@ -94,7 +120,7 @@
 ```json
 {
   "wechat": {
-    "replyMode": "stream"
+    "replyMode": "verbose"
   }
 }
 ```
@@ -177,6 +203,34 @@
 
 ---
 
+## `orchestration`
+
+控制 agent 发起委派请求时的默认守卫策略。
+
+### `orchestration.*`
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `maxPendingAgentRequestsPerCoordinator` | `number` | 否 | `3` | 单个 coordinator 下允许同时处于 `needs_confirmation` / `running` 的 agent 发起委派任务上限 |
+| `allowWorkerChainedRequests` | `boolean` | 否 | `false` | 是否允许 worker 会话再发起委派请求。默认拒绝，避免多跳扩散 |
+| `allowedAgentRequestTargets` | `string[]` | 否 | `[]` | 允许 agent 发起委派时指定的目标 agent 白名单。空数组表示不额外限制 |
+| `allowedAgentRequestRoles` | `string[]` | 否 | `[]` | 允许 agent 发起委派时使用的 role 白名单。空数组表示不额外限制 |
+
+### 示例
+
+```json
+{
+  "orchestration": {
+    "maxPendingAgentRequestsPerCoordinator": 5,
+    "allowWorkerChainedRequests": false,
+    "allowedAgentRequestTargets": ["claude", "codex"],
+    "allowedAgentRequestRoles": ["reviewer", "planner"]
+  }
+}
+```
+
+---
+
 ## 环境变量覆盖
 
 以下环境变量可覆盖配置文件路径：
@@ -197,7 +251,8 @@
 {
   "transport": {},
   "agents": {},
-  "workspaces": {}
+  "workspaces": {},
+  "orchestration": {}
 }
 ```
 

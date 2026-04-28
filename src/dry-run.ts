@@ -49,6 +49,7 @@ export async function runDryRun(agent: WechatAgent, options: DryRunOptions): Pro
 
   for (const turn of options.turns) {
     const response = await agent.chat({
+      accountId: "dry-run",
       conversationId: turn.chatKey,
       text: turn.input,
     });

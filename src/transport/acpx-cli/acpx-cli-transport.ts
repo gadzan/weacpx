@@ -4,10 +4,20 @@ import { spawn as spawnPty } from "node-pty";
 
 import { resolveSpawnCommand } from "../../process/spawn-command";
 import type { NonInteractivePermissions, PermissionMode } from "../../config/types";
-import type { PermissionPolicy, ResolvedSession, SessionTransport } from "../types";
+import type {
+  EnsureSessionProgress,
+  PermissionPolicy,
+  ReplyQuotaContext,
+  ResolvedSession,
+  SessionTransport,
+} from "../types";
 import { getPromptText, normalizeCommandError } from "../prompt-output";
 import { createStreamingPromptState, parseStreamingDataChunk } from "../streaming-prompt";
+import { buildOverflowSummary, createQuotaGatedReplySink } from "../quota-gated-reply-sink";
 import { ensureNodePtyHelperExecutable, resolveNodePtyHelperPath } from "./node-pty-helper";
+import { terminateProcessTree } from "../../process/terminate-process-tree";
+import { AcpxQueueOwnerLauncher } from "../acpx-queue-owner-launcher";
+import { permissionModeToFlag } from "../permission-mode-flag";
 
 interface AcpxCliTransportOptions {
   command?: string;
@@ -39,7 +49,7 @@ async function defaultRunner(command: string, args: string[], options?: RunOptio
 
     const timeoutId = options?.timeoutMs
       ? setTimeout(() => {
-          child.kill("SIGTERM");
+          void terminateProcessTree(child.pid ?? 0);
           reject(new Error(`acpx command timed out after ${options.timeoutMs}ms: ${renderCommandForError(args)}`));
         }, options.timeoutMs)
       : undefined;
@@ -105,11 +115,13 @@ export class AcpxCliTransport implements SessionTransport {
   private nonInteractivePermissions: NonInteractivePermissions;
   private readonly runCommand: CommandRunner;
   private readonly runPtyCommand: PtyRunner;
+  private readonly queueOwnerLauncher: Pick<AcpxQueueOwnerLauncher, "launch">;
 
   constructor(
     options: AcpxCliTransportOptions,
     runCommand: CommandRunner = defaultRunner,
     runPtyCommand: PtyRunner = defaultPtyRunner,
+    queueOwnerLauncher?: Pick<AcpxQueueOwnerLauncher, "launch">,
   ) {
     this.command = options.command ?? "acpx";
     this.sessionInitTimeoutMs = options.sessionInitTimeoutMs ?? 120_000;
@@ -117,9 +129,15 @@ export class AcpxCliTransport implements SessionTransport {
     this.nonInteractivePermissions = options.nonInteractivePermissions ?? "deny";
     this.runCommand = runCommand;
     this.runPtyCommand = runPtyCommand;
+    this.queueOwnerLauncher = queueOwnerLauncher ?? new AcpxQueueOwnerLauncher({
+      acpxCommand: this.command,
+    });
   }
 
-  async ensureSession(session: ResolvedSession): Promise<void> {
+  // acpx-cli transport does not stream stderr back to the caller, so "note" progress
+  // is never emitted. Users on this transport still see the initial "spawn" hint from
+  // CommandRouter (emitted before the call) but will not receive mid-flight updates.
+  async ensureSession(session: ResolvedSession, _onProgress?: (progress: EnsureSessionProgress) => void): Promise<void> {
     const args = this.buildArgs(session, [
       "sessions",
       "new",
@@ -132,11 +150,32 @@ export class AcpxCliTransport implements SessionTransport {
     });
   }
 
-  async prompt(session: ResolvedSession, text: string, reply?: (text: string) => Promise<void>): Promise<{ text: string }> {
+  async prompt(
+    session: ResolvedSession,
+    text: string,
+    reply?: (text: string) => Promise<void>,
+    replyContext?: ReplyQuotaContext,
+  ): Promise<{ text: string }> {
+    await this.launchMcpQueueOwnerIfNeeded(session);
     const args = this.buildPromptArgs(session, text);
     if (reply) {
-      const result = await this.runStreamingPrompt(this.command, args, reply);
-      return { text: getPromptText(result) };
+      const formatToolCalls = session.replyMode === "verbose";
+      const { result, overflowCount } = await this.runStreamingPrompt(
+        this.command,
+        args,
+        reply,
+        30_000,
+        formatToolCalls,
+        replyContext,
+      );
+      const baseText = getPromptText(result);
+      const summary = buildOverflowSummary(overflowCount);
+      // Streaming mode already pushed every segment through reply() (mid quota).
+      // Returning baseText again would duplicate what the user just saw. Only
+      // surface a final-tier text when overflow happened — in that case the
+      // summary is new info AND baseText carries the agent's final answer that
+      // may have been partially or fully dropped from the stream.
+      return { text: summary ? `${summary}\n\n${baseText}` : "" };
     }
     const result = await this.runCommand(this.command, args);
     return { text: getPromptText(result) };
@@ -168,6 +207,23 @@ export class AcpxCliTransport implements SessionTransport {
     this.permissionMode = policy.permissionMode;
     this.nonInteractivePermissions = policy.nonInteractivePermissions;
   }
+
+  async removeSession(session: ResolvedSession): Promise<void> {
+    const result = await this.runCommand(this.command, this.buildArgs(session, [
+      "sessions",
+      "close",
+      session.transportSession,
+    ]));
+    if (result.code === 0) {
+      return;
+    }
+    if (isMissingAcpxSessionError(result.stderr, result.stdout)) {
+      return;
+    }
+    const detail = normalizeCommandError(result) ?? `command failed with exit code ${result.code}`;
+    throw new Error(detail);
+  }
+
   async hasSession(session: ResolvedSession): Promise<boolean> {
     const result = await this.runCommand(this.command, this.buildArgs(session, [
       "sessions",
@@ -176,6 +232,49 @@ export class AcpxCliTransport implements SessionTransport {
     ]));
 
     return result.code === 0;
+  }
+
+  private async launchMcpQueueOwnerIfNeeded(session: ResolvedSession): Promise<void> {
+    if (!session.mcpCoordinatorSession) {
+      return;
+    }
+    const record = await this.readSessionRecord(session);
+    await this.queueOwnerLauncher.launch({
+      acpxRecordId: record.acpxRecordId,
+      coordinatorSession: session.mcpCoordinatorSession,
+      ...(session.mcpSourceHandle ? { sourceHandle: session.mcpSourceHandle } : {}),
+      permissionMode: this.permissionMode,
+      nonInteractivePermissions: this.nonInteractivePermissions,
+    });
+  }
+
+  private async readSessionRecord(session: ResolvedSession): Promise<{ acpxRecordId: string }> {
+    const result = await this.runCommand(this.command, this.buildArgs(session, [
+      "sessions",
+      "show",
+      session.transportSession,
+    ]));
+    if (result.code !== 0) {
+      const detail = normalizeCommandError(result) ?? `command failed with exit code ${result.code}`;
+      throw new Error(detail);
+    }
+    try {
+      const parsed = JSON.parse(result.stdout) as { acpxRecordId?: unknown; id?: unknown };
+      const acpxRecordId = typeof parsed.acpxRecordId === "string"
+        ? parsed.acpxRecordId
+        : typeof parsed.id === "string"
+          ? parsed.id
+          : undefined;
+      if (acpxRecordId) {
+        return { acpxRecordId };
+      }
+    } catch {
+      const firstLine = result.stdout.trim().split(/\r?\n/, 1)[0];
+      if (firstLine && /^[\w.:-]+$/.test(firstLine) && firstLine.length >= 8) {
+        return { acpxRecordId: firstLine };
+      }
+    }
+    throw new Error("failed to resolve acpx session record id");
   }
 
   private async run(args: string[], options?: RunOptions): Promise<string> {
@@ -230,20 +329,27 @@ export class AcpxCliTransport implements SessionTransport {
     args: string[],
     reply: (text: string) => Promise<void>,
     maxSegmentWaitMs: number = 30_000,
-  ): Promise<CommandResult> {
+    formatToolCalls: boolean = false,
+    replyContext?: ReplyQuotaContext,
+  ): Promise<{ result: CommandResult; overflowCount: number }> {
     return await new Promise((resolve, reject) => {
       const spawnSpec = resolveSpawnCommand(command, args);
       const child = spawn(spawnSpec.command, spawnSpec.args, { stdio: ["ignore", "pipe", "pipe"] });
       let stdout = "";
       let stderr = "";
-      const state = createStreamingPromptState();
+      const state = createStreamingPromptState(formatToolCalls);
       let lastReplyAt = Date.now();
+
+      const sink = createQuotaGatedReplySink({
+        reply,
+        ...(replyContext ? { replyContext } : {}),
+      });
 
       const flushBuffer = () => {
         const remaining = state.buffer.trim();
         if (remaining.length > 0) {
           state.buffer = "";
-          void reply(remaining).catch(() => {});
+          sink.feedSegment(remaining);
           lastReplyAt = Date.now();
         }
       };
@@ -260,7 +366,7 @@ export class AcpxCliTransport implements SessionTransport {
         stdout += String(chunk);
         parseStreamingDataChunk(state, String(chunk));
         for (const segment of state.segments.splice(0)) {
-          void reply(segment).catch(() => {});
+          sink.feedSegment(segment);
           lastReplyAt = Date.now();
         }
       });
@@ -277,9 +383,27 @@ export class AcpxCliTransport implements SessionTransport {
         clearInterval(timer);
         const remaining = state.finalize();
         if (remaining.length > 0) {
-          void reply(remaining).catch(() => {});
+          sink.feedSegment(remaining);
         }
-        resolve({ code: code ?? 1, stdout, stderr });
+        const { overflowCount } = sink.finalize();
+        // Note: any aggregator trailing text is folded into the overflow
+        // summary path via the final agent message (caller appends summary).
+        // Wait for all in-flight reply() rejections to settle before deciding
+        // whether to reject the prompt with a QuotaDeferredError. Without
+        // draining, the deferred error from an outbound pushReply could
+        // arrive after we already resolved, and the wake-coordinator catch
+        // would never see it — silently clearing injectionPending.
+        void sink.drain({ timeoutMs: 30_000 }).then(() => {
+          const deferred = sink.getPendingError();
+          if (deferred) {
+            reject(deferred);
+            return;
+          }
+          resolve({
+            result: { code: code ?? 1, stdout, stderr },
+            overflowCount,
+          });
+        });
       });
     });
   }
@@ -318,15 +442,21 @@ export class AcpxCliTransport implements SessionTransport {
   }
 
   private buildPermissionArgs(): string[] {
-    const modeFlag =
-      this.permissionMode === "approve-reads"
-        ? "--approve-reads"
-        : this.permissionMode === "deny-all"
-          ? "--deny-all"
-          : "--approve-all";
+    const modeFlag = permissionModeToFlag(this.permissionMode);
 
     return [modeFlag, "--non-interactive-permissions", this.nonInteractivePermissions];
   }
+}
+
+function isMissingAcpxSessionError(stderr: string, stdout: string): boolean {
+  const combined = `${stderr}\n${stdout}`.toLowerCase();
+  return (
+    combined.includes("no named session") ||
+    combined.includes("no cwd session") ||
+    combined.includes("session not found") ||
+    combined.includes("unknown session") ||
+    combined.includes("no acpx session found")
+  );
 }
 
 function renderCommandForError(args: string[]): string {

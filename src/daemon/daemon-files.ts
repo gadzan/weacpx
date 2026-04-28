@@ -1,4 +1,6 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+
+import { resolveOrchestrationEndpoint } from "../orchestration/orchestration-ipc";
 
 export interface DaemonPaths {
   runtimeDir: string;
@@ -25,4 +27,15 @@ export function resolveDaemonPaths(options: ResolveDaemonPathsOptions): DaemonPa
     stderrLog: join(runtimeDir, "stderr.log"),
     appLog: join(runtimeDir, "app.log"),
   };
+}
+
+export function resolveRuntimeDirFromConfigPath(configPath: string): string {
+  return join(dirname(configPath), "runtime");
+}
+
+export function resolveDaemonOrchestrationSocketPath(
+  runtimeDir: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  return resolveOrchestrationEndpoint(runtimeDir, platform).path;
 }

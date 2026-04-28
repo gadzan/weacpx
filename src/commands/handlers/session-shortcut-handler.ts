@@ -1,8 +1,6 @@
-import { access } from "node:fs/promises";
-import { basename, normalize } from "node:path";
-import { homedir } from "node:os";
-
+import { basenameForWorkspacePath, normalizeWorkspacePath, pathExists, sameWorkspacePath } from "../workspace-path";
 import type { CommandRouterContext, RouterResponse, SessionShortcutOps } from "../router-types";
+import { AutoInstallFailedError } from "../../recovery/errors";
 
 interface ShortcutWorkspaceResolution {
   name: string;
@@ -24,7 +22,11 @@ export async function handleSessionShortcutCommand(
   }
 
   if (!context.config.agents[agent]) {
-    return { text: `agent "${agent}" is not registered` };
+    const agents = Object.keys(context.config.agents);
+    const hint = agents.length > 0
+      ? `当前可用：${agents.join("、")}`
+      : "当前没有已注册的 Agent，请先执行 /agent add <模板>";
+    return { text: `Agent「${agent}」未注册。${hint}` };
   }
 
   const workspace = await resolveShortcutWorkspace(context, target);
@@ -63,7 +65,8 @@ export async function handleSessionShortcutCommand(
     if (!exists) {
       return renderShortcutSessionCreationError(workspace, alias);
     }
-  } catch {
+  } catch (err) {
+    if (err instanceof AutoInstallFailedError) throw err;
     return renderShortcutSessionCreationError(workspace, alias);
   }
 
@@ -93,7 +96,11 @@ async function resolveShortcutWorkspace(
   if (target.workspace) {
     const workspace = context.config?.workspaces[target.workspace];
     if (!workspace) {
-      return { error: `workspace "${target.workspace}" is not registered` };
+      const workspaces = Object.keys(context.config?.workspaces ?? {});
+      const hint = workspaces.length > 0
+        ? `当前可用：${workspaces.join("、")}`
+        : "当前没有已注册的工作区，请先执行 /ws new <名称> -d <路径>";
+      return { error: `工作区「${target.workspace}」未注册。${hint}` };
     }
 
     return {
@@ -104,7 +111,7 @@ async function resolveShortcutWorkspace(
   }
 
   const cwdInput = target.cwd ?? "";
-  const cwd = normalizePathForWorkspace(cwdInput);
+  const cwd = normalizeWorkspacePath(cwdInput);
   if (!(await pathExists(cwd))) {
     return { error: `工作区路径不存在：${cwdInput}` };
   }
@@ -120,7 +127,7 @@ async function resolveShortcutWorkspace(
     };
   }
 
-  const workspaceName = allocateWorkspaceName(context, basename(cwd));
+  const workspaceName = allocateWorkspaceName(context, basenameForWorkspacePath(cwd));
   const updated = await context.configStore!.upsertWorkspace(workspaceName, cwd);
   context.replaceConfig(updated);
 
@@ -179,27 +186,3 @@ function renderShortcutSessionCreationError(
   };
 }
 
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function normalizePathForWorkspace(path: string): string {
-  const expanded = path.startsWith("~") ? homedir() + path.slice(1) : path;
-  return normalize(expanded);
-}
-
-function sameWorkspacePath(left: string, right: string): boolean {
-  const normalizedLeft = normalizePathForWorkspace(left);
-  const normalizedRight = normalizePathForWorkspace(right);
-
-  if (process.platform === "win32") {
-    return normalizedLeft.toLowerCase() === normalizedRight.toLowerCase();
-  }
-
-  return normalizedLeft === normalizedRight;
-}

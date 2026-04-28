@@ -465,10 +465,11 @@ test("doctor orchestrator runs baseline checks in stable order and records smoke
       checkWechat: createCheck("wechat"),
       checkAcpx: createCheck("acpx"),
       checkBridge: createCheck("bridge"),
+      checkOrchestrationHealth: createCheck("orchestration"),
     },
   );
 
-  expect(calls).toEqual(["config", "runtime", "daemon", "wechat", "acpx", "bridge"]);
+  expect(calls).toEqual(["config", "runtime", "daemon", "wechat", "acpx", "bridge", "orchestration"]);
   expect(result.report.checks.map((check) => check.id)).toEqual([
     "config",
     "runtime",
@@ -476,6 +477,7 @@ test("doctor orchestrator runs baseline checks in stable order and records smoke
     "wechat",
     "acpx",
     "bridge",
+    "orchestration",
     "smoke",
   ]);
   expect(result.report.checks.at(-1)).toMatchObject({
@@ -496,6 +498,7 @@ test("doctor orchestrator runs the real smoke check only when --smoke is true", 
       checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
       checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
       checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "pass", summary: "ok" }),
+      checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }),
       checkSmoke: async () => {
         smokeCalls += 1;
         return { id: "smoke", label: "Smoke", severity: "pass", summary: "ok" };
@@ -512,6 +515,7 @@ test("doctor orchestrator runs the real smoke check only when --smoke is true", 
       checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
       checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
       checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "pass", summary: "ok" }),
+      checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }),
       checkSmoke: async () => {
         smokeCalls += 1;
         return { id: "smoke", label: "Smoke", severity: "warn", summary: "probe ran" };
@@ -559,6 +563,7 @@ test("doctor orchestrator uses injected home coherently for runtime and config-b
         seen.bridgePath = options.resolveRuntimePaths?.().configPath;
         return { id: "bridge", label: "Bridge", severity: "pass", summary: "ok" };
       },
+      checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }),
     },
   );
 
@@ -580,11 +585,12 @@ test("doctor orchestrator returns exit code 1 when any check fails", async () =>
       checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
       checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
       checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "skip", summary: "skip" }),
+      checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }),
     },
   );
 
   expect(result.exitCode).toBe(1);
-  expect(result.output).toContain("Summary: PASS 3, WARN 1, FAIL 1, SKIP 2");
+  expect(result.output).toContain("Summary: PASS 4, WARN 1, FAIL 1, SKIP 2");
 });
 
 test("doctor orchestrator returns exit code 0 when report only contains pass warn and skip", async () => {
@@ -597,11 +603,34 @@ test("doctor orchestrator returns exit code 0 when report only contains pass war
       checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
       checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
       checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "skip", summary: "skip" }),
+      checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }),
     },
   );
 
   expect(result.exitCode).toBe(0);
-  expect(result.output).toContain("Summary: PASS 4, WARN 1, FAIL 0, SKIP 2");
+  expect(result.output).toContain("Summary: PASS 5, WARN 1, FAIL 0, SKIP 2");
+});
+
+test("runDoctor includes the orchestration-health check result", async () => {
+  let called = false;
+  const result = await runDoctor(
+    {},
+    {
+      checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }),
+      checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "pass", summary: "ok" }),
+      checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "pass", summary: "ok" }),
+      checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
+      checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
+      checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "pass", summary: "ok" }),
+      checkOrchestrationHealth: async () => {
+        called = true;
+        return { id: "orchestration", label: "Orchestration", severity: "pass", summary: "orchestration state healthy" };
+      },
+    },
+  );
+
+  expect(called).toBe(true);
+  expect(result.report.checks.some((c) => c.id === "orchestration")).toBe(true);
 });
 
 test("doctor index main runs orchestrator and prints rendered output", async () => {

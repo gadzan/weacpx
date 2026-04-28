@@ -1,6 +1,7 @@
 import { expect, mock, test } from "bun:test";
 
 import { AcpxCliTransport } from "../../../../src/transport/acpx-cli/acpx-cli-transport";
+import type { AcpxQueueOwnerLauncher } from "../../../../src/transport/acpx-queue-owner-launcher";
 import type { ResolvedSession } from "../../../../src/transport/types";
 
 const session: ResolvedSession = {
@@ -704,4 +705,44 @@ test("keeps the extracted agent reply when prompt exits non-zero without a struc
   await expect(transport.prompt(session, "hello")).resolves.toEqual({
     text: "让我更新任务状态并继续执行测试验证。",
   });
+});
+
+test("starts a queue owner with orchestration MCP before prompting an MCP-bound session", async () => {
+  const mcpSession: ResolvedSession = {
+    ...session,
+    mcpCoordinatorSession: "backend:main",
+    mcpSourceHandle: "backend:claude:backend:main",
+  };
+  const run = mock(async (_command: string, args: string[]) => {
+    if (args.includes("show")) {
+      return {
+        code: 0,
+        stdout: JSON.stringify({ acpxRecordId: "acpx-record-1" }),
+        stderr: "",
+      };
+    }
+    return { code: 0, stdout: "worker response", stderr: "" };
+  });
+  const launches: unknown[] = [];
+  const queueOwnerLauncher = {
+    launch: async (input: unknown) => {
+      launches.push(input);
+    },
+  } as Pick<AcpxQueueOwnerLauncher, "launch">;
+  const transport = new AcpxCliTransport(
+    { command: "acpx" },
+    run,
+    undefined,
+    queueOwnerLauncher,
+  );
+
+  await expect(transport.prompt(mcpSession, "hello")).resolves.toEqual({ text: "worker response" });
+
+  expect(launches).toEqual([{
+    acpxRecordId: "acpx-record-1",
+    coordinatorSession: "backend:main",
+    sourceHandle: "backend:claude:backend:main",
+    permissionMode: "approve-all",
+    nonInteractivePermissions: "deny",
+  }]);
 });

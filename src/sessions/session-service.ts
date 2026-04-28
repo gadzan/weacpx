@@ -1,5 +1,5 @@
 import { resolveAgentCommand } from "../config/resolve-agent-command";
-import type { AppConfig } from "../config/types";
+import type { AppConfig, WechatReplyMode } from "../config/types";
 import type { StateStore } from "../state/state-store";
 import type { AppState, LogicalSession } from "../state/types";
 import type { ResolvedSession } from "../transport/types";
@@ -54,6 +54,20 @@ export class SessionService {
     return this.toResolvedSession(session);
   }
 
+  async getPreferredSessionForTransport(transportSession: string): Promise<ResolvedSession | null> {
+    const matches = Object.values(this.state.sessions)
+      .filter((session) => session.transport_session === transportSession)
+      .sort((left, right) => right.last_used_at.localeCompare(left.last_used_at));
+
+    const expectedAlias = transportSession.split(":").at(-1);
+    const expectedWorkspace = transportSession.split(":")[0];
+    const preferred =
+      matches.find(
+        (session) => session.alias === expectedAlias && session.workspace === expectedWorkspace,
+      ) ?? matches[0];
+    return preferred ? this.toResolvedSession(preferred) : null;
+  }
+
   async useSession(chatKey: string, alias: string): Promise<void> {
     const session = this.state.sessions[alias];
     if (!session) {
@@ -87,7 +101,7 @@ export class SessionService {
     await this.persist();
   }
 
-  async setCurrentSessionReplyMode(chatKey: string, replyMode: "stream" | "final" | undefined): Promise<void> {
+  async setCurrentSessionReplyMode(chatKey: string, replyMode: "stream" | "final" | "verbose" | undefined): Promise<void> {
     const currentAlias = this.state.chat_contexts[chatKey]?.current_session;
     if (!currentAlias) {
       throw new Error("no current session selected");
@@ -132,6 +146,42 @@ export class SessionService {
       workspace: session.workspace,
       isCurrent: session.alias === currentAlias,
     }));
+  }
+
+  countAliasesSharingTransport(transportSession: string, excludeAlias?: string): number {
+    let count = 0;
+    for (const session of Object.values(this.state.sessions)) {
+      if (session.transport_session !== transportSession) {
+        continue;
+      }
+      if (excludeAlias !== undefined && session.alias === excludeAlias) {
+        continue;
+      }
+      count += 1;
+    }
+    return count;
+  }
+
+  async removeSession(alias: string): Promise<{ wasActive: boolean }> {
+    const session = this.state.sessions[alias];
+    if (!session) {
+      throw new Error(`session "${alias}" does not exist`);
+    }
+
+    const wasActive = Object.values(this.state.chat_contexts).some(
+      (ctx) => ctx.current_session === alias,
+    );
+
+    delete this.state.sessions[alias];
+
+    for (const [chatKey, ctx] of Object.entries(this.state.chat_contexts)) {
+      if (ctx.current_session === alias) {
+        delete this.state.chat_contexts[chatKey];
+      }
+    }
+
+    await this.persist();
+    return { wasActive };
   }
 
   private toResolvedSession(session: LogicalSession): ResolvedSession {
@@ -228,11 +278,11 @@ export class SessionService {
     }
 
     if (!this.config.workspaces[workspace]) {
-      throw new Error(`workspace "${workspace}" is not registered`);
+      throw new Error(`工作区「${workspace}」未注册`);
     }
 
     if (!this.config.agents[agent]) {
-      throw new Error(`agent "${agent}" is not registered`);
+      throw new Error(`Agent「${agent}」未注册`);
     }
   }
 }

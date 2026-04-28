@@ -1,6 +1,6 @@
 export type PermissionMode = "approve-all" | "approve-reads" | "deny-all";
 export type NonInteractivePermissions = "deny" | "fail";
-export type WechatReplyMode = "stream" | "final";
+export type WechatReplyMode = "stream" | "final" | "verbose";
 
 export interface TransportConfig {
   type: "acpx-cli" | "acpx-bridge";
@@ -33,10 +33,19 @@ export interface WorkspaceConfig {
   description?: string;
 }
 
+export interface OrchestrationConfig {
+  maxPendingAgentRequestsPerCoordinator: number;
+  allowWorkerChainedRequests: boolean;
+  allowedAgentRequestTargets: string[];
+  allowedAgentRequestRoles: string[];
+  progressHeartbeatSeconds: number;
+}
+
 export interface AppConfig {
   transport: TransportConfig;
   logging: LoggingConfig;
   wechat: WechatConfig;
   agents: Record<string, AgentConfig>;
   workspaces: Record<string, WorkspaceConfig>;
+  orchestration: OrchestrationConfig;
 }

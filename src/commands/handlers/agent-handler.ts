@@ -9,7 +9,7 @@ export const agentHelp: HelpTopicMetadata = {
   summary: "管理已注册的 Agent。",
   commands: [
     { usage: "/agents", description: "查看当前已注册的 Agent" },
-    { usage: "/agent add <codex|claude>", description: "添加内置 Agent 模板" },
+    { usage: "/agent add <codex|claude|opencode|gemini>", description: "添加内置 Agent 模板" },
     { usage: "/agent rm <name>", description: "删除一个 Agent" },
   ],
   examples: ["/agent add claude", "/agent rm codex"],

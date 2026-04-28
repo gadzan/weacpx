@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { BridgeRuntime } from "../../../src/bridge/bridge-runtime";
+import { BridgeRuntime, EnsureSessionFailedError } from "../../../src/bridge/bridge-runtime";
 import { BridgeServer } from "../../../src/bridge/bridge-server";
 import { PromptCommandError } from "../../../src/transport/prompt-output";
 
@@ -49,6 +49,7 @@ test("reuses an existing session when ensure fails but status probe finds it", a
       "--approve-all",
       "--non-interactive-permissions",
       "deny",
+      "--verbose",
       "codex",
       "sessions",
       "ensure",
@@ -109,6 +110,7 @@ test("creates a new session when ensure fails and no existing session is found",
       "--approve-all",
       "--non-interactive-permissions",
       "deny",
+      "--verbose",
       "codex",
       "sessions",
       "ensure",
@@ -140,6 +142,7 @@ test("creates a new session when ensure fails and no existing session is found",
         "--approve-all",
         "--non-interactive-permissions",
         "deny",
+        "--verbose",
         "codex",
         "sessions",
         "new",
@@ -192,6 +195,7 @@ test("runs a resolved JavaScript acpx entry with the current node executable", a
         "--approve-all",
         "--non-interactive-permissions",
         "deny",
+        "--verbose",
         "codex",
         "sessions",
         "ensure",
@@ -229,6 +233,7 @@ test("runs a resolved JavaScript acpx entry with the current node executable", a
         "--approve-all",
         "--non-interactive-permissions",
         "deny",
+        "--verbose",
         "codex",
         "sessions",
         "new",
@@ -500,6 +505,37 @@ test("streams prompt segments from the runtime prompt runner", async () => {
     ),
   ).resolves.toEqual({ text: "done" });
   expect(segments).toEqual(["hello", "world"]);
+});
+
+test("streams formatted tool_call segments when replyMode is verbose", async () => {
+  const segments: string[] = [];
+  const runtime = new BridgeRuntime(
+    "acpx",
+    async () => ({ code: 0, stdout: "", stderr: "" }),
+    async () => ({ code: 0, stdout: "", stderr: "" }),
+    {},
+    async (_command, _args, onEvent, _options) => {
+      onEvent?.({ type: "prompt.segment", text: "📖 sed -n '1,100p' src/main.ts" });
+      onEvent?.({ type: "prompt.segment", text: "done" });
+      return { code: 0, stdout: "", stderr: "" };
+    },
+  );
+
+  await runtime.prompt(
+    {
+      agent: "codex",
+      cwd: "/repo",
+      name: "demo",
+      text: "hello",
+      replyMode: "verbose",
+    },
+    (event) => {
+      if (event.type === "prompt.segment") {
+        segments.push(event.text);
+      }
+    },
+  );
+  expect(segments).toEqual(["📖 sed -n '1,100p' src/main.ts", "done"]);
 });
 
 test("keeps the extracted agent reply when prompt exits non-zero without a structured error", async () => {
@@ -1117,6 +1153,58 @@ test("returns invalid-request for unknown bridge methods", async () => {
 });
 
 
+
+test("bridge-server forwards session.progress via writeLine", async () => {
+  const writes: string[] = [];
+  const fakeRuntime = {
+    ensureSession: async (
+      _input: unknown,
+      onProgress?: (stage: "spawn" | "initializing" | "ready") => void,
+    ) => {
+      onProgress?.("spawn");
+      onProgress?.("initializing");
+      onProgress?.("ready");
+      return {};
+    },
+  };
+  const server = new BridgeServer(fakeRuntime as never);
+  const response = await server.handleLine(
+    JSON.stringify({
+      id: "7",
+      method: "ensureSession",
+      params: { agent: "x", cwd: "/c", name: "n" },
+    }),
+    (line) => writes.push(line),
+  );
+  const progressEvents = writes
+    .map((line) => JSON.parse(line))
+    .filter((m) => m.event === "session.progress");
+  expect(progressEvents.map((e) => e.stage)).toEqual(["spawn", "initializing", "ready"]);
+  expect(JSON.parse(response).ok).toBe(true);
+});
+
+test("bridge-server serializes structured missing_optional_dep error", async () => {
+  const fakeRuntime = {
+    ensureSession: async () => {
+      throw new EnsureSessionFailedError("boom", "missing_optional_dep", {
+        package: "opencode-windows-x64",
+        parentPackagePath: null,
+      });
+    },
+  };
+  const server = new BridgeServer(fakeRuntime as never);
+  const response = await server.handleLine(
+    JSON.stringify({
+      id: "8",
+      method: "ensureSession",
+      params: { agent: "x", cwd: "/c", name: "n" },
+    }),
+  );
+  const parsed = JSON.parse(response);
+  expect(parsed.ok).toBe(false);
+  expect(parsed.error.kind).toBe("missing_optional_dep");
+  expect(parsed.error.data.package).toBe("opencode-windows-x64");
+});
 
 test("updates bridge runtime permission policy for later commands", async () => {
   const calls: string[][] = [];

@@ -96,7 +96,7 @@
 
 例如：
 
-- `wechat.replyMode` 只支持 `stream` / `final`
+- `wechat.replyMode` 只支持 `stream` / `final` / `verbose`
 - `transport.permissionMode` 只支持 `approve-all` / `approve-reads` / `deny-all`
 - `logging.maxFiles`、`logging.maxSizeBytes`、`logging.retentionDays`、`transport.sessionInitTimeoutMs` 必须是正数
 

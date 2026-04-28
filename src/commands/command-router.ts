@@ -3,8 +3,9 @@ import type { AppConfig } from "../config/types";
 import type { AppLogger } from "../logging/app-logger";
 import { createNoopAppLogger } from "../logging/app-logger";
 import type { SessionService } from "../sessions/session-service";
-import type { SessionTransport } from "../transport/types";
+import type { ReplyQuotaContext, SessionTransport } from "../transport/types";
 import type { ResolvedSession } from "../transport/types";
+import type { QuotaManager } from "../weixin/messaging/quota-manager.js";
 import { resolveSessionAgentCommandFromIndex, type SessionAgentCommandResolver } from "../transport/acpx-session-index";
 import { PromptCommandError } from "../transport/prompt-output";
 import { parseCommand } from "./parse-command";
@@ -20,6 +21,7 @@ import {
   handleReplyModeShow,
   handleSessionAttach,
   handleSessionNew,
+  handleSessionRemove,
   handleSessionReset,
   handleSessions,
   handleSessionShortcut,
@@ -27,6 +29,20 @@ import {
   handleStatus,
   type SessionHandlerContext,
 } from "./handlers/session-handler";
+import {
+  handleDelegateRequest,
+  handleGroupCancel,
+  handleGroupCreate,
+  handleGroupDelegate,
+  handleGroupGet,
+  handleGroupList,
+  handleTaskApprove,
+  handleTaskCancel,
+  handleTaskGet,
+  handleTaskList,
+  handleTaskReject,
+  handleTasksClean,
+} from "./handlers/orchestration-handler";
 import {
   isPartialPromptOutputError,
   summarizeTransportDiagnostic,
@@ -39,6 +55,11 @@ import { handleAgents, handleAgentAdd, handleAgentRemove } from "./handlers/agen
 import { handleWorkspaces, handleWorkspaceCreate, handleWorkspaceRemove } from "./handlers/workspace-handler";
 import { handleSessionShortcutCommand } from "./handlers/session-shortcut-handler";
 import { renderSessionCreationError, renderSessionCreationVerificationError, renderTransportError, tryRecoverMissingSession } from "./handlers/session-recovery-handler";
+import { autoInstallOptionalDep as defaultAutoInstall } from "../recovery/auto-install-optional-dep";
+import { discoverParentPackagePaths as defaultDiscoverPaths } from "../recovery/discover-parent-package-paths";
+import { AutoInstallFailedError, MissingOptionalDepError } from "../recovery/errors";
+import type { EnsureSessionProgress } from "../transport/types";
+import { translateAcpxNote } from "./translate-acpx-note";
 import { handleSessionResetCommand } from "./handlers/session-reset-handler";
 import type {
   CommandRouterContext,
@@ -49,11 +70,25 @@ import type {
   SessionRenderRecoveryOps,
   SessionResetOps,
   SessionShortcutOps,
+  OrchestrationRouterOps,
   WritableConfigStore,
 } from "./router-types";
 
+type AutoInstallFn = typeof defaultAutoInstall;
+type DiscoverPathsFn = typeof defaultDiscoverPaths;
+
 export class CommandRouter {
   private readonly logger: AppLogger;
+  private autoInstall: AutoInstallFn = defaultAutoInstall;
+  private discoverPaths: DiscoverPathsFn = defaultDiscoverPaths;
+
+  __setAutoInstallForTest(fn: AutoInstallFn): void {
+    this.autoInstall = fn;
+  }
+
+  __setDiscoverPathsForTest(fn: DiscoverPathsFn): void {
+    this.discoverPaths = fn;
+  }
 
   constructor(
     private readonly sessions: SessionService,
@@ -62,11 +97,19 @@ export class CommandRouter {
     private readonly configStore?: WritableConfigStore,
     logger?: AppLogger,
     private readonly resolveSessionAgentCommand: SessionAgentCommandResolver = resolveSessionAgentCommandFromIndex,
+    private readonly orchestration?: OrchestrationRouterOps,
+    private readonly quota?: QuotaManager,
   ) {
     this.logger = logger ?? createNoopAppLogger();
   }
 
-  async handle(chatKey: string, input: string, reply?: (text: string) => Promise<void>): Promise<RouterResponse> {
+  async handle(
+    chatKey: string,
+    input: string,
+    reply?: (text: string) => Promise<void>,
+    replyContextToken?: string,
+    accountId?: string,
+  ): Promise<RouterResponse> {
     const startedAt = Date.now();
     const command = parseCommand(input);
     await this.logger.debug("command.parsed", "parsed inbound command", {
@@ -118,19 +161,19 @@ export class CommandRouter {
           return await handleSessions(this.createSessionHandlerContext(), chatKey);
         case "session.new":
           return await handleSessionNew(
-            this.createSessionHandlerContext(),
+            this.createSessionHandlerContext(reply),
             chatKey,
             command.alias,
             command.agent,
             command.workspace,
           );
         case "session.shortcut":
-          return await handleSessionShortcut(this.createSessionHandlerContext(), chatKey, command.agent, command, false);
+          return await handleSessionShortcut(this.createSessionHandlerContext(reply), chatKey, command.agent, command, false);
         case "session.shortcut.new":
-          return await handleSessionShortcut(this.createSessionHandlerContext(), chatKey, command.agent, command, true);
+          return await handleSessionShortcut(this.createSessionHandlerContext(reply), chatKey, command.agent, command, true);
         case "session.attach":
           return await handleSessionAttach(
-            this.createSessionHandlerContext(),
+            this.createSessionHandlerContext(reply),
             chatKey,
             command.alias,
             command.agent,
@@ -154,9 +197,60 @@ export class CommandRouter {
         case "cancel":
           return await handleCancel(this.createSessionHandlerContext(), chatKey);
         case "session.reset":
-          return await handleSessionReset(this.createSessionHandlerContext(), chatKey);
+          return await handleSessionReset(this.createSessionHandlerContext(reply), chatKey);
+        case "session.rm":
+          return await handleSessionRemove(this.createSessionHandlerContext(), chatKey, command.alias);
+        case "groups":
+          return await handleGroupList(this.createHandlerContext(), chatKey, command.filter);
+        case "group.new":
+          return await handleGroupCreate(this.createHandlerContext(), chatKey, command.title);
+        case "group.get":
+          return await handleGroupGet(this.createHandlerContext(), chatKey, command.groupId);
+        case "group.cancel":
+          return await handleGroupCancel(this.createHandlerContext(), chatKey, command.groupId);
+        case "group.delegate":
+          return await handleGroupDelegate(
+            this.createHandlerContext(),
+            chatKey,
+            command.groupId,
+            command.targetAgent,
+            command.task,
+            command.role,
+            replyContextToken,
+            accountId,
+          );
+        case "delegate.request":
+          return await handleDelegateRequest(
+            this.createHandlerContext(),
+            chatKey,
+            command.targetAgent,
+            command.task,
+            command.role,
+            command.groupId,
+            replyContextToken,
+            accountId,
+          );
+        case "tasks":
+          return await handleTaskList(this.createHandlerContext(), chatKey, command.filter);
+        case "tasks.clean":
+          return await handleTasksClean(this.createHandlerContext(), chatKey);
+        case "task.get":
+          return await handleTaskGet(this.createHandlerContext(), chatKey, command.taskId);
+        case "task.approve":
+          return await handleTaskApprove(this.createHandlerContext(), chatKey, command.taskId);
+        case "task.reject":
+          return await handleTaskReject(this.createHandlerContext(), chatKey, command.taskId);
+        case "task.cancel":
+          return await handleTaskCancel(this.createHandlerContext(), chatKey, command.taskId);
         case "prompt":
-          return await handlePrompt(this.createSessionHandlerContext(), chatKey, command.text, reply);
+          return await handlePrompt(
+            this.createSessionHandlerContext(),
+            chatKey,
+            command.text,
+            reply,
+            replyContextToken,
+            accountId,
+          );
       }
     });
   }
@@ -169,32 +263,44 @@ export class CommandRouter {
     return {
       sessions: this.sessions,
       transport: this.transport,
+      orchestration: this.orchestration,
       config: this.config,
       configStore: this.configStore,
       logger: this.logger,
       replaceConfig: (updated) => this.replaceConfig(updated),
+      ...(this.quota ? { quota: this.quota } : {}),
     };
   }
 
-  private createSessionHandlerContext(): SessionHandlerContext {
+  private createSessionHandlerContext(reply?: (text: string) => Promise<void>): SessionHandlerContext {
     return {
       ...this.createHandlerContext(),
-      lifecycle: this.createSessionLifecycleOps(),
+      lifecycle: this.createSessionLifecycleOps(reply),
       interaction: this.createSessionInteractionOps(),
       recovery: this.createSessionRenderRecoveryOps(),
     };
   }
 
 
-  private createSessionLifecycleOps(): SessionLifecycleOps {
+  private createSessionLifecycleOps(reply?: (text: string) => Promise<void>): SessionLifecycleOps {
     return {
       resolveSession: (alias, agent, workspace, transportSession) =>
         this.sessions.resolveSession(alias, agent, workspace, transportSession),
-      ensureTransportSession: (session) => this.ensureTransportSession(session),
+      ensureTransportSession: (session, replyOverride) => this.ensureTransportSession(session, replyOverride ?? reply),
       checkTransportSession: (session) => this.checkTransportSession(session),
-      handleSessionShortcut: (chatKey, agent, target, createNew) =>
-        handleSessionShortcutCommand(this.createHandlerContext(), this.createSessionShortcutOps(), chatKey, agent, target, createNew),
-      resetCurrentSession: (chatKey) => handleSessionResetCommand(this.createHandlerContext(), this.createSessionResetOps(), chatKey),
+      handleSessionShortcut: async (chatKey, agent, target, createNew, replyOverride) => {
+        try {
+          return await handleSessionShortcutCommand(this.createHandlerContext(), this.createSessionShortcutOps(replyOverride ?? reply), chatKey, agent, target, createNew);
+        } catch (err) {
+          if (err instanceof AutoInstallFailedError) {
+            // Find a dummy session for rendering — use agent/workspace as best-effort
+            const session = this.sessions.resolveSession(`${agent}`, agent, target.workspace ?? "", `${agent}`);
+            return renderSessionCreationError(session, err);
+          }
+          throw err;
+        }
+      },
+      resetCurrentSession: (chatKey, replyOverride) => handleSessionResetCommand(this.createHandlerContext(), this.createSessionResetOps(replyOverride ?? reply), chatKey),
       refreshSessionTransportAgentCommand: (alias) => this.refreshSessionTransportAgentCommand(alias),
     };
   }
@@ -203,7 +309,8 @@ export class CommandRouter {
     return {
       setModeTransportSession: (session, modeId) => this.setModeTransportSession(session, modeId),
       cancelTransportSession: (session) => this.cancelTransportSession(session),
-      promptTransportSession: (session, text, reply) => this.promptTransportSession(session, text, reply),
+      promptTransportSession: (session, text, reply, replyContext) =>
+        this.promptTransportSession(session, text, reply, replyContext),
     };
   }
 
@@ -216,9 +323,9 @@ export class CommandRouter {
     };
   }
 
-  private createSessionResetOps(): SessionResetOps {
+  private createSessionResetOps(reply?: (text: string) => Promise<void>): SessionResetOps {
     return {
-      ensureTransportSession: (session) => this.ensureTransportSession(session),
+      ensureTransportSession: (session, replyOverride) => this.ensureTransportSession(session, replyOverride ?? reply),
       checkTransportSession: (session) => this.checkTransportSession(session),
       resolveSession: (alias, agent, workspace, transportSession) =>
         this.sessions.resolveSession(alias, agent, workspace, transportSession),
@@ -235,11 +342,11 @@ export class CommandRouter {
     };
   }
 
-  private createSessionShortcutOps(): SessionShortcutOps {
+  private createSessionShortcutOps(reply?: (text: string) => Promise<void>): SessionShortcutOps {
     return {
       resolveSession: (alias, agent, workspace, transportSession) =>
         this.sessions.resolveSession(alias, agent, workspace, transportSession),
-      ensureTransportSession: (session) => this.ensureTransportSession(session),
+      ensureTransportSession: (session, replyOverride) => this.ensureTransportSession(session, replyOverride ?? reply),
       checkTransportSession: (session) => this.checkTransportSession(session),
       refreshSessionTransportAgentCommand: (alias) => this.refreshSessionTransportAgentCommand(alias),
     };
@@ -285,8 +392,101 @@ export class CommandRouter {
     }
   }
 
-  private async ensureTransportSession(session: ResolvedSession): Promise<void> {
-    await this.measureTransportCall("ensure_session", session, () => this.transport.ensureSession(session));
+  private async ensureTransportSession(
+    session: ResolvedSession,
+    reply?: (text: string) => Promise<void>,
+  ): Promise<void> {
+    const attemptSession = (operation: string): Promise<void> => {
+      const { handler, dispose } = this.createProgressHandler(session, reply);
+      return this.measureTransportCall(operation, session, () =>
+        this.transport.ensureSession(session, handler),
+      ).finally(dispose);
+    };
+
+    try {
+      await attemptSession("ensure_session");
+    } catch (err) {
+      if (!(err instanceof MissingOptionalDepError)) throw err;
+      await reply?.(`📦 检测到缺失依赖 \`${err.package}\`，正在自动安装…`);
+
+      const paths = await this.discoverPaths(err.package, err.parentPackagePath, {
+        cwd: session.cwd,
+      });
+      const result = await this.autoInstall(err.package, paths, {
+        verify: async () => {
+          await reply?.(`🔄 安装完成，正在验证会话启动…`);
+          try {
+            await attemptSession("ensure_session.verify");
+            return true;
+          } catch (retryErr) {
+            if (retryErr instanceof MissingOptionalDepError) return false;
+            throw retryErr;
+          }
+        },
+      });
+
+      if (!result.ok) {
+        throw new AutoInstallFailedError(err, result.errors, result.logPath);
+      }
+    }
+  }
+
+  private createProgressHandler(
+    session: ResolvedSession,
+    reply?: (text: string) => Promise<void>,
+  ): { handler: (progress: EnsureSessionProgress) => void; dispose: () => void } {
+    const startedAt = Date.now();
+    let lastMessageAt = 0;
+    const DEBOUNCE_MS = 3000;
+    const HEARTBEAT_MS = 30_000;
+    // Suppression window smaller than the interval: a message sent within the
+    // last HEARTBEAT_SUPPRESS_MS silences the next heartbeat. Using `<
+    // HEARTBEAT_MS` here would skip the first heartbeat at t=30s because the
+    // `spawn` message near t=0 falls just inside a 30s window due to timer jitter.
+    const HEARTBEAT_SUPPRESS_MS = 10_000;
+
+    const sendHeartbeat = (): void => {
+      if (!reply) return;
+      const now = Date.now();
+      if (now - lastMessageAt < HEARTBEAT_SUPPRESS_MS) return;
+      const elapsed = Math.floor((now - startedAt) / 1000);
+      void reply(`⏳ \`${session.agent}\` 仍在准备中…（已等待 ${elapsed}s）`).catch(() => {});
+      lastMessageAt = now;
+    };
+    const heartbeatTimer = reply
+      ? setInterval(sendHeartbeat, HEARTBEAT_MS)
+      : undefined;
+
+    const handler = (progress: EnsureSessionProgress): void => {
+      if (!reply) return;
+      const now = Date.now();
+      if (typeof progress === "string") {
+        if (progress === "spawn") {
+          void reply(`🚀 正在启动 \`${session.agent}\`…`).catch(() => {});
+          lastMessageAt = now;
+        } else if (progress === "initializing") {
+          if (now - lastMessageAt >= DEBOUNCE_MS) {
+            const elapsed = Math.floor((now - startedAt) / 1000);
+            void reply(`🔧 \`${session.agent}\` 初始化中…（已等待 ${elapsed}s）`).catch(() => {});
+            lastMessageAt = now;
+          }
+        }
+        return;
+      }
+      // progress.kind === "note"
+      if (now - lastMessageAt < DEBOUNCE_MS) return;
+      const translated = translateAcpxNote(progress.text);
+      if (!translated) return;
+      const elapsed = Math.floor((now - startedAt) / 1000);
+      void reply(`${translated}（已等待 ${elapsed}s）`).catch(() => {});
+      lastMessageAt = now;
+    };
+
+    const dispose = (): void => {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+    };
+
+    return { handler, dispose };
   }
 
 
@@ -294,8 +494,16 @@ export class CommandRouter {
     return await this.measureTransportCall("has_session", session, () => this.transport.hasSession(session));
   }
 
-  private async promptTransportSession(session: ResolvedSession, text: string, reply?: (text: string) => Promise<void>) {
-    return await this.measureTransportCall("prompt", session, () => this.transport.prompt(session, text, reply));
+  private async promptTransportSession(
+    session: ResolvedSession,
+    text: string,
+    reply?: (text: string) => Promise<void>,
+    replyContext?: ReplyQuotaContext,
+  ) {
+    session.mcpCoordinatorSession ??= session.transportSession;
+    return await this.measureTransportCall("prompt", session, () =>
+      this.transport.prompt(session, text, reply, replyContext),
+    );
   }
 
   private async setModeTransportSession(session: ResolvedSession, modeId: string) {

@@ -4,10 +4,12 @@ import { join } from "node:path";
 import { loadConfig } from "../config/load-config";
 import type { AppConfig } from "../config/types";
 import { resolveRuntimePaths, type RuntimePaths } from "../main";
+import { StateStore } from "../state/state-store";
 import { checkAcpx } from "./checks/acpx-check";
 import { checkBridge } from "./checks/bridge-check";
 import { checkConfig } from "./checks/config-check";
 import { checkDaemon } from "./checks/daemon-check";
+import { checkOrchestrationHealth } from "./checks/orchestration-health";
 import { checkRuntime } from "./checks/runtime-check";
 import { checkSmoke } from "./checks/smoke-check";
 import { checkWechat } from "./checks/wechat-check";
@@ -30,6 +32,7 @@ interface DoctorDeps {
   checkWechat?: typeof checkWechat;
   checkAcpx?: typeof checkAcpx;
   checkBridge?: typeof checkBridge;
+  checkOrchestrationHealth?: () => Promise<DoctorCheckResult>;
   checkSmoke?: (options: DoctorRunOptions) => Promise<DoctorCheckResult>;
   renderDoctor?: typeof renderDoctor;
 }
@@ -74,6 +77,17 @@ export async function runDoctor(options: DoctorRunOptions = {}, deps: DoctorDeps
       loadConfig: sharedLoadConfig,
       resolveRuntimePaths: () => runtimePaths,
     }),
+  );
+  checks.push(
+    await (deps.checkOrchestrationHealth ?? (async () => {
+      const config = await sharedLoadConfig(runtimePaths.configPath);
+      const store = new StateStore(runtimePaths.statePath);
+      return checkOrchestrationHealth({
+        loadState: () => store.load(),
+        now: () => new Date(),
+        heartbeatThresholdSeconds: config.orchestration.progressHeartbeatSeconds,
+      });
+    }))(),
   );
   checks.push(
     options.smoke === true

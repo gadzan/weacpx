@@ -9,6 +9,10 @@ import type { DaemonController } from "./daemon/daemon-controller";
 import { DaemonRuntime } from "./daemon/daemon-runtime";
 import type { DaemonStatus } from "./daemon/daemon-status";
 import type { DoctorRunOptions } from "./doctor/doctor-types";
+import { runWeacpxMcpServer } from "./mcp/weacpx-mcp-server";
+import { parseCoordinatorSession } from "./mcp/parse-coordinator-session";
+import { parseSourceHandle } from "./mcp/parse-source-handle";
+import { resolveDefaultOrchestrationEndpoint } from "./mcp/resolve-endpoint";
 import { readVersion } from "./version.js";
 import { createWeixinConsumerLock } from "./weixin/monitor/consumer-lock";
 
@@ -49,8 +53,10 @@ interface CliDeps {
   logout?: () => Promise<void>;
   run?: () => Promise<void>;
   doctor?: (options: DoctorRunOptions) => number | Promise<number>;
+  mcpStdio?: (args: string[]) => number | Promise<number>;
   controller?: CliController;
   print?: (line: string) => void;
+  stderr?: (text: string) => void;
 }
 
 const HELP_LINES = [
@@ -63,6 +69,7 @@ const HELP_LINES = [
   "weacpx stop   - 停止服务",
   "weacpx doctor - 运行诊断",
   "weacpx version - 查看版本",
+  "weacpx mcp-stdio --coordinator-session <session> [--source-handle <handle>] - 启动 MCP stdio 服务",
 ];
 
 export async function runCli(args: string[], deps: CliDeps = {}): Promise<number> {
@@ -102,6 +109,8 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
 
       return await (deps.doctor ?? defaultDoctor)(parsed.options);
     }
+    case "mcp-stdio":
+      return await (deps.mcpStdio ?? ((subArgs) => defaultMcpStdio(subArgs, { stderr: deps.stderr })))(args.slice(1));
     case "start": {
       const controller = deps.controller ?? createDefaultController();
       const result = await controller.start();
@@ -198,6 +207,27 @@ async function defaultRun(): Promise<void> {
 async function defaultDoctor(options: DoctorRunOptions): Promise<number> {
   const { main } = await import("./doctor/index");
   return await main(options);
+}
+
+async function defaultMcpStdio(
+  args: string[],
+  deps: { stderr?: (text: string) => void } = {},
+): Promise<number> {
+  const coordinatorSession = parseCoordinatorSession(args, process.env);
+  const sourceHandle = parseSourceHandle(args, process.env);
+  if (!coordinatorSession) {
+    (deps.stderr ?? ((text: string) => process.stderr.write(text)))(
+      "weacpx mcp-stdio 需要 --coordinator-session <handle> 或 WEACPX_COORDINATOR_SESSION 环境变量\n",
+    );
+    return 2;
+  }
+
+  await runWeacpxMcpServer({
+    endpoint: resolveDefaultOrchestrationEndpoint(process.env, process.platform),
+    coordinatorSession,
+    ...(sourceHandle ? { sourceHandle } : {}),
+  });
+  return 0;
 }
 
 function createDefaultController(): CliController {

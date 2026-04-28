@@ -12,6 +12,12 @@ const session: ResolvedSession = {
   cwd: "/tmp/backend",
 };
 
+const mcpSession: ResolvedSession = {
+  ...session,
+  mcpCoordinatorSession: "backend:main",
+  mcpSourceHandle: "backend:claude:backend:main",
+};
+
 test("proxies ensureSession through the bridge client", async () => {
   const request = mock(async () => ({}));
   const transport = new AcpxBridgeTransport({
@@ -25,7 +31,7 @@ test("proxies ensureSession through the bridge client", async () => {
     agentCommand: "./node_modules/.bin/codex-acp",
     cwd: "/tmp/backend",
     name: "backend:api-fix",
-  });
+  }, undefined);
 });
 
 test("proxies hasSession through the bridge client", async () => {
@@ -46,6 +52,18 @@ test("proxies prompt through the bridge client", async () => {
   await expect(transport.prompt(session, "hello")).resolves.toEqual({ text: "ok" });
 });
 
+test("includes orchestration MCP identity in bridge prompt params", async () => {
+  const request = mock(async () => ({ text: "ok" }));
+  const transport = new AcpxBridgeTransport({ request });
+
+  await transport.prompt(mcpSession, "hello");
+
+  expect(request.mock.calls[0]?.[1]).toMatchObject({
+    mcpCoordinatorSession: "backend:main",
+    mcpSourceHandle: "backend:claude:backend:main",
+  });
+});
+
 test("forwards bridge prompt segments into the reply callback", async () => {
   const request = mock(async (_method, _params, onEvent?: (event: { type: string; text: string }) => void) => {
     onEvent?.({ type: "prompt.segment", text: "hello" });
@@ -59,8 +77,13 @@ test("forwards bridge prompt segments into the reply callback", async () => {
 
   await expect(transport.prompt(session, "hello", async (text) => {
     segments.push(text);
-  })).resolves.toEqual({ text: "done" });
-  expect(segments).toEqual(["hello", "world"]);
+  })).resolves.toEqual({ text: "" });
+  // Bridge transport batches mid segments through SegmentAggregator (both
+  // arrive within the 5s window, flushed as one combined payload at finalize).
+  // Returned text is empty because the streamed segments already covered all
+  // user-visible content — a non-empty final would duplicate; only an
+  // overflow_summary justifies a final-tier message.
+  expect(segments).toEqual(["hello\nworld"]);
 });
 
 test("proxies cancel through the bridge client", async () => {
@@ -108,4 +131,22 @@ test("proxies permission policy updates through the bridge client", async () => 
     permissionMode: "approve-reads",
     nonInteractivePermissions: "deny",
   });
+});
+
+test("ensureSession forwards onProgress invocations", async () => {
+  let capturedOnEvent: ((e: { type: string; stage?: string }) => void) | undefined;
+  const client = {
+    request: async (_method: string, _params: unknown, onEvent?: (e: { type: string; stage?: string }) => void) => {
+      capturedOnEvent = onEvent;
+      capturedOnEvent?.({ type: "session.progress", stage: "spawn" });
+      capturedOnEvent?.({ type: "session.progress", stage: "initializing" });
+      return {};
+    },
+  };
+  const transport = new AcpxBridgeTransport(client as never);
+  const stages: string[] = [];
+  await transport.ensureSession({
+    alias: "a", agent: "x", workspace: "w", transportSession: "s", cwd: "/c",
+  }, (stage) => stages.push(stage));
+  expect(stages).toEqual(["spawn", "initializing"]);
 });

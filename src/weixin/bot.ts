@@ -15,6 +15,7 @@ import {
   waitForWeixinLogin,
 } from "./auth/login-qr.js";
 import { monitorWeixinProvider } from "./monitor/monitor.js";
+import type { PendingFinalChunk } from "./messaging/quota-manager.js";
 import { logger } from "./util/logger.js";
 
 export type LoginOptions = {
@@ -31,6 +32,19 @@ export type StartOptions = {
   abortSignal?: AbortSignal;
   /** Log callback (defaults to console.log). */
   log?: (msg: string) => void;
+  /** Reset outbound quota when an inbound message arrives. */
+  onInbound?: (chatKey: string) => void;
+  /** Reserve the per-chat final-tier slot before sending the final reply.
+   * Returns false when the final tier (FINAL_BUDGET) is exhausted; callers
+   * must drop the send and log when this happens. */
+  reserveFinal?: (chatKey: string) => boolean;
+  // v1.4: pagination wiring forwarded into the message turn pipeline.
+  finalRemaining?: (chatKey: string) => number;
+  hasPendingFinal?: (chatKey: string) => boolean;
+  drainPendingFinal?: (chatKey: string, available: number) => PendingFinalChunk[];
+  prependPendingFinal?: (chatKey: string, chunks: PendingFinalChunk[]) => void;
+  enqueuePendingFinal?: (chatKey: string, chunks: PendingFinalChunk[]) => void;
+  dropPendingFinal?: (chatKey: string) => void;
 };
 
 /**
@@ -153,5 +167,13 @@ export async function start(agent: Agent, opts?: StartOptions): Promise<void> {
     agent,
     abortSignal: opts?.abortSignal,
     log,
+    ...(opts?.onInbound ? { onInbound: opts.onInbound } : {}),
+    ...(opts?.reserveFinal ? { reserveFinal: opts.reserveFinal } : {}),
+    ...(opts?.finalRemaining ? { finalRemaining: opts.finalRemaining } : {}),
+    ...(opts?.hasPendingFinal ? { hasPendingFinal: opts.hasPendingFinal } : {}),
+    ...(opts?.drainPendingFinal ? { drainPendingFinal: opts.drainPendingFinal } : {}),
+    ...(opts?.prependPendingFinal ? { prependPendingFinal: opts.prependPendingFinal } : {}),
+    ...(opts?.enqueuePendingFinal ? { enqueuePendingFinal: opts.enqueuePendingFinal } : {}),
+    ...(opts?.dropPendingFinal ? { dropPendingFinal: opts.dropPendingFinal } : {}),
   });
 }

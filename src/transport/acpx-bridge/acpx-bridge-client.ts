@@ -6,16 +6,24 @@ import {
   type BridgeMethod,
   type BridgeMessage,
   type BridgeResponse,
+  type EnsureSessionProgressStage,
   encodeBridgeRequest,
 } from "./acpx-bridge-protocol";
 import { PromptCommandError } from "../prompt-output";
+import { MissingOptionalDepError } from "../../recovery/errors";
+import { terminateProcessTree } from "../../process/terminate-process-tree";
 
 type WriteLine = (line: string) => boolean | void;
+
+export type BridgeEvent =
+  | { type: "prompt.segment"; text: string }
+  | { type: "session.progress"; stage: EnsureSessionProgressStage }
+  | { type: "session.note"; text: string };
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
   reject: (error: unknown) => void;
-  onEvent?: (event: { type: "prompt.segment"; text: string }) => void;
+  onEvent?: (event: BridgeEvent) => void;
 }
 
 export class AcpxBridgeClient {
@@ -28,7 +36,7 @@ export class AcpxBridgeClient {
   request<TResult>(
     method: BridgeMethod,
     params: Record<string, unknown>,
-    onEvent?: (event: { type: "prompt.segment"; text: string }) => void,
+    onEvent?: (event: BridgeEvent) => void,
   ): Promise<TResult> {
     if (this.terminalError) {
       return Promise.reject(this.terminalError);
@@ -83,6 +91,16 @@ export class AcpxBridgeClient {
           type: "prompt.segment",
           text: message.text,
         });
+      } else if (message.event === "session.progress") {
+        pending.onEvent?.({
+          type: "session.progress",
+          stage: message.stage,
+        });
+      } else if (message.event === "session.note") {
+        pending.onEvent?.({
+          type: "session.note",
+          text: message.text,
+        });
       }
       return;
     }
@@ -91,6 +109,17 @@ export class AcpxBridgeClient {
     this.pending.delete(response.id);
     if (response.ok) {
       pending.resolve(response.result);
+      return;
+    }
+
+    if (response.error.kind === "missing_optional_dep" && response.error.data) {
+      pending.reject(
+        new MissingOptionalDepError({
+          package: response.error.data.package,
+          parentPackagePath: response.error.data.parentPackagePath,
+          rawMessage: response.error.message,
+        }),
+      );
       return;
     }
 
@@ -195,7 +224,7 @@ export async function spawnAcpxBridgeClient(
       await client.request("shutdown", {});
     } finally {
       child.stdin.end();
-      child.kill("SIGTERM");
+      await terminateProcessTree(child.pid ?? 0);
     }
   };
 

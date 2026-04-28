@@ -9,5 +9,10 @@ export function cloneAppConfig(config: AppConfig): AppConfig {
     workspaces: Object.fromEntries(
       Object.entries(config.workspaces).map(([name, workspace]) => [name, { ...workspace }]),
     ),
+    orchestration: {
+      ...config.orchestration,
+      allowedAgentRequestTargets: [...config.orchestration.allowedAgentRequestTargets],
+      allowedAgentRequestRoles: [...config.orchestration.allowedAgentRequestRoles],
+    },
   };
 }

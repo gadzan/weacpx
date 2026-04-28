@@ -1,11 +1,47 @@
 import type { ConfigStore } from "../config/config-store";
 import type { AppConfig } from "../config/types";
 import type { AppLogger } from "../logging/app-logger";
+import type { OrchestrationService } from "../orchestration/orchestration-service";
 import type { SessionService } from "../sessions/session-service";
-import type { SessionTransport } from "../transport/types";
+import type { ReplyQuotaContext, SessionTransport } from "../transport/types";
+import type { QuotaManager } from "../weixin/messaging/quota-manager.js";
 
 export interface RouterResponse {
   text?: string;
+}
+
+export interface PromptRouteMetadata {
+  chatKey: string;
+  replyContextToken?: string;
+  accountId?: string;
+}
+
+export interface CoordinatorTaskQuestionRef {
+  taskId: string;
+  questionId: string;
+}
+
+export interface ActiveHumanQuestionPackageContext {
+  packageId: string;
+  promptText: string;
+  awaitingReplyMessageId?: string;
+  deliveredChatKey?: string;
+  deliveryAccountId?: string;
+  routeReplyContextToken?: string;
+  deliveredAt?: string;
+  openTaskIds: string[];
+  messageTaskQuestions?: Array<{
+    taskId: string;
+    questionId: string;
+  }>;
+  openTaskQuestions?: Array<{
+    taskId: string;
+    questionId: string;
+    question: string;
+    whyBlocked: string;
+    whatIsNeeded: string;
+  }>;
+  queuedCount: number;
 }
 
 export type WritableConfigStore = Pick<
@@ -16,24 +52,63 @@ export type WritableConfigStore = Pick<
 export interface CommandRouterContext {
   sessions: SessionService;
   transport: SessionTransport;
+  orchestration?: OrchestrationRouterOps;
   config?: AppConfig;
   configStore?: WritableConfigStore;
   logger: AppLogger;
   replaceConfig: (updated: AppConfig) => void;
+  quota?: QuotaManager;
 }
 
+export interface OrchestrationRouterOps {
+  createGroup: OrchestrationService["createGroup"];
+  getGroupSummary: OrchestrationService["getGroupSummary"];
+  listGroupSummaries: OrchestrationService["listGroupSummaries"];
+  cancelGroup: OrchestrationService["cancelGroup"];
+  requestDelegate: OrchestrationService["requestDelegate"];
+  getTask: OrchestrationService["getTask"];
+  listTasks: OrchestrationService["listTasks"];
+  requestTaskCancellation: OrchestrationService["requestTaskCancellation"];
+  cancelTask: OrchestrationService["cancelTask"];
+  approveTask: OrchestrationService["approveTask"];
+  rejectTask: OrchestrationService["rejectTask"];
+  cleanTasks: OrchestrationService["cleanTasks"];
+  listSessionBlockingTasks: OrchestrationService["listSessionBlockingTasks"];
+  purgeSessionReferences: OrchestrationService["purgeSessionReferences"];
+  listPendingTaskNotices: OrchestrationService["listPendingTaskNotices"];
+  markTaskNoticeDelivered: OrchestrationService["markTaskNoticeDelivered"];
+  markTaskNoticeFailed: OrchestrationService["markTaskNoticeFailed"];
+  listPendingCoordinatorGroups?: OrchestrationService["listPendingCoordinatorGroups"];
+  markCoordinatorGroupsInjected?: OrchestrationService["markCoordinatorGroupsInjected"];
+  markCoordinatorGroupsInjectionFailed?: OrchestrationService["markCoordinatorGroupsInjectionFailed"];
+  listPendingCoordinatorResults: OrchestrationService["listPendingCoordinatorResults"];
+  listPendingCoordinatorBlockers?: OrchestrationService["listPendingCoordinatorBlockers"];
+  listContestedCoordinatorResults?: OrchestrationService["listContestedCoordinatorResults"];
+  markCoordinatorResultsInjected?: OrchestrationService["markCoordinatorResultsInjected"];
+  markTaskInjectionApplied: OrchestrationService["markTaskInjectionApplied"];
+  markTaskInjectionFailed: OrchestrationService["markTaskInjectionFailed"];
+  recordCoordinatorRouteContext?: OrchestrationService["recordCoordinatorRouteContext"];
+  claimActiveHumanReply?: OrchestrationService["claimActiveHumanReply"];
+  getActiveHumanQuestionPackage?: (
+    coordinatorSession: string,
+  ) => Promise<ActiveHumanQuestionPackageContext | null>;
+}
 
 export interface SessionLifecycleOps {
   resolveSession: (alias: string, agent: string, workspace: string, transportSession: string) => import("../transport/types").ResolvedSession;
-  ensureTransportSession: (session: import("../transport/types").ResolvedSession) => Promise<void>;
+  ensureTransportSession: (
+    session: import("../transport/types").ResolvedSession,
+    reply?: (text: string) => Promise<void>,
+  ) => Promise<void>;
   checkTransportSession: (session: import("../transport/types").ResolvedSession) => Promise<boolean>;
   handleSessionShortcut: (
     chatKey: string,
     agent: string,
     target: { cwd?: string; workspace?: string },
     createNew: boolean,
+    reply?: (text: string) => Promise<void>,
   ) => Promise<RouterResponse>;
-  resetCurrentSession: (chatKey: string) => Promise<RouterResponse>;
+  resetCurrentSession: (chatKey: string, reply?: (text: string) => Promise<void>) => Promise<RouterResponse>;
   refreshSessionTransportAgentCommand: (alias: string) => Promise<void>;
 }
 
@@ -46,6 +121,7 @@ export interface SessionInteractionOps {
     session: import("../transport/types").ResolvedSession,
     text: string,
     reply?: (text: string) => Promise<void>,
+    replyContext?: ReplyQuotaContext,
   ) => Promise<{ text: string }>;
 }
 
@@ -61,7 +137,10 @@ export interface SessionRenderRecoveryOps {
 
 export interface SessionShortcutOps {
   resolveSession: (alias: string, agent: string, workspace: string, transportSession: string) => import("../transport/types").ResolvedSession;
-  ensureTransportSession: (session: import("../transport/types").ResolvedSession) => Promise<void>;
+  ensureTransportSession: (
+    session: import("../transport/types").ResolvedSession,
+    reply?: (text: string) => Promise<void>,
+  ) => Promise<void>;
   checkTransportSession: (session: import("../transport/types").ResolvedSession) => Promise<boolean>;
   refreshSessionTransportAgentCommand: (alias: string) => Promise<void>;
 }
@@ -76,7 +155,10 @@ export interface SessionRecoveryOps {
 
 
 export interface SessionResetOps {
-  ensureTransportSession: (session: import("../transport/types").ResolvedSession) => Promise<void>;
+  ensureTransportSession: (
+    session: import("../transport/types").ResolvedSession,
+    reply?: (text: string) => Promise<void>,
+  ) => Promise<void>;
   checkTransportSession: (session: import("../transport/types").ResolvedSession) => Promise<boolean>;
   resolveSession: (alias: string, agent: string, workspace: string, transportSession: string) => import("../transport/types").ResolvedSession;
   refreshSessionTransportAgentCommand: (alias: string) => Promise<void>;

@@ -153,6 +153,7 @@ test("logs active lock holder diagnostics when another consumer already owns the
               logs.push(`error:${event}:${JSON.stringify(context)}`);
             },
             cleanup: async () => {},
+            flush: async () => {},
           },
           dispose: async () => {},
         }),

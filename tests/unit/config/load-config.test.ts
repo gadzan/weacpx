@@ -241,7 +241,78 @@ test("defaults logging to bounded info mode when omitted", async () => {
     retentionDays: 7,
   });
   expect(config.wechat).toEqual({
-    replyMode: "stream",
+    replyMode: "verbose",
+  });
+  expect(config.orchestration).toEqual({
+    maxPendingAgentRequestsPerCoordinator: 3,
+    allowWorkerChainedRequests: false,
+    allowedAgentRequestTargets: [],
+    allowedAgentRequestRoles: [],
+    progressHeartbeatSeconds: 300,
+  });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("loads explicit orchestration guardrail overrides", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-bridge", command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+        },
+      },
+      orchestration: {
+        maxPendingAgentRequestsPerCoordinator: 5,
+        allowWorkerChainedRequests: true,
+        allowedAgentRequestTargets: ["claude", "codex"],
+        allowedAgentRequestRoles: ["reviewer", "planner"],
+      },
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.orchestration).toEqual({
+    maxPendingAgentRequestsPerCoordinator: 5,
+    allowWorkerChainedRequests: true,
+    allowedAgentRequestTargets: ["claude", "codex"],
+    allowedAgentRequestRoles: ["reviewer", "planner"],
+    progressHeartbeatSeconds: 300,
+  });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("defaults orchestration guardrails when omitted", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+        },
+      },
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.orchestration).toEqual({
+    maxPendingAgentRequestsPerCoordinator: 3,
+    allowWorkerChainedRequests: false,
+    allowedAgentRequestTargets: [],
+    allowedAgentRequestRoles: [],
+    progressHeartbeatSeconds: 300,
   });
 
   await rm(dir, { recursive: true, force: true });

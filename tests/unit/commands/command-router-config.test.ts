@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { CommandRouter } from "../../../src/commands/command-router";
+import { normalizeWorkspacePath } from "../../../src/commands/workspace-path";
 import {
   MemoryConfigStore,
   MemoryStateStore,
@@ -50,6 +51,33 @@ test("returns topic help for permission aliases", async () => {
   expect(reply.text).toContain("/pm set <allow|read|deny>");
 });
 
+test("returns topic help for orchestration aliases", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport);
+
+  const byAlias = await router.handle("wx:user", "/help delegate");
+  const byShortAlias = await router.handle("wx:user", "/help dg");
+  const byTaskAlias = await router.handle("wx:user", "/help task");
+  const byGroupAlias = await router.handle("wx:user", "/help group");
+  const byGroupsAlias = await router.handle("wx:user", "/help groups");
+  const byTopic = await router.handle("wx:user", "/help orchestration");
+
+  expect(byAlias.text).toBe(byTopic.text);
+  expect(byShortAlias.text).toBe(byTopic.text);
+  expect(byTaskAlias.text).toBe(byTopic.text);
+  expect(byGroupAlias.text).toBe(byTopic.text);
+  expect(byGroupsAlias.text).toBe(byTopic.text);
+  expect(byTopic.text).toContain("帮助主题：orchestration");
+  expect(byTopic.text).toContain("别名：delegate、dg、task、tasks、group、groups");
+  expect(byTopic.text).toContain("/delegate <agent> <task>");
+  expect(byTopic.text).toContain("/group new <title>");
+  expect(byTopic.text).toContain("/group add <groupId> <agent> <task>");
+  expect(byTopic.text).toContain("/group cancel <groupId>");
+  expect(byTopic.text).toContain("/dg claude 审查当前方案的 3 个最高风险点");
+  expect(byTopic.text).toContain("/task approve <id>");
+});
+
 test("returns a hint for unknown help topics", async () => {
   const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
   const transport = createTransport();
@@ -60,6 +88,7 @@ test("returns a hint for unknown help topics", async () => {
   expect(reply.text).toContain("未知帮助主题：missing");
   expect(reply.text).toContain("可用主题：");
   expect(reply.text).toContain("- session");
+  expect(reply.text).toContain("- orchestration");
 });
 
 test("renders the current permission mode", async () => {
@@ -195,7 +224,7 @@ test("rejects config set with invalid typed values", async () => {
   const modeReply = await router.handle("wx:user", "/config set wechat.replyMode maybe");
   const numberReply = await router.handle("wx:user", "/config set logging.maxFiles 0");
 
-  expect(modeReply.text).toBe("wechat.replyMode 只支持：stream、final");
+  expect(modeReply.text).toBe("wechat.replyMode 只支持：stream、final、verbose");
   expect(numberReply.text).toBe("logging.maxFiles 必须是正数。");
 });
 
@@ -257,7 +286,7 @@ test("returns a chinese hint for unknown agent templates", async () => {
 
   const reply = await router.handle("wx:user", "/agent add kimi");
 
-  expect(reply.text).toBe("暂不支持这个 Agent 模板。当前可用：codex、claude");
+  expect(reply.text).toBe("暂不支持这个 Agent 模板。当前可用：codex、claude、opencode、gemini");
 });
 
 test("removes an agent and reflects it in /agents", async () => {
@@ -321,7 +350,9 @@ test("creates a workspace via command and lists it immediately", async () => {
   const listReply = await router.handle("wx:user", "/workspaces");
 
   expect(createReply.text).toBe('工作区「frontend」已保存');
-  expect(listReply.text).toBe(["已注册的工作区：", "- backend: /tmp/backend", `- frontend: ${dir}`].join("\n"));
+  expect(listReply.text).toBe(
+    ["已注册的工作区：", "- backend: /tmp/backend", `- frontend: ${normalizeWorkspacePath(dir)}`].join("\n"),
+  );
 
   await rm(dir, { recursive: true, force: true });
 });
@@ -336,7 +367,7 @@ test("creates a workspace via the short alias and cwd flag", async () => {
   const reply = await router.handle("wx:user", `/ws new frontend -d "${dir}"`);
 
   expect(reply.text).toBe('工作区「frontend」已保存');
-  expect(config.workspaces.frontend).toEqual({ cwd: dir });
+  expect(config.workspaces.frontend).toEqual({ cwd: normalizeWorkspacePath(dir) });
 
   await rm(dir, { recursive: true, force: true });
 });

@@ -1,8 +1,5 @@
-import { access } from "node:fs/promises";
-import { homedir } from "node:os";
-import { normalize } from "node:path";
-
 import { renderWorkspaces } from "../../formatting/render-text";
+import { normalizeWorkspacePath, pathExists } from "../workspace-path";
 import type { HelpTopicMetadata } from "../help/help-types";
 import type { CommandRouterContext, RouterResponse } from "../router-types";
 
@@ -32,7 +29,7 @@ export async function handleWorkspaceCreate(
     return { text: "当前没有加载可写入的配置。" };
   }
 
-  const normalizedCwd = normalizePathForWorkspace(cwd);
+  const normalizedCwd = normalizeWorkspacePath(cwd);
   if (!(await pathExists(normalizedCwd))) {
     return { text: `工作区路径不存在：${cwd}` };
   }
@@ -55,16 +52,3 @@ export async function handleWorkspaceRemove(
   return { text: `工作区「${workspaceName}」已删除` };
 }
 
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function normalizePathForWorkspace(path: string): string {
-  const expanded = path.startsWith("~") ? homedir() + path.slice(1) : path;
-  return normalize(expanded);
-}

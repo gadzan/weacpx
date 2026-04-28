@@ -4,6 +4,7 @@ import { readVersion } from "../../version.js";
 import { loadConfigRouteTag } from "../auth/accounts.js";
 import { logger } from "../util/logger.js";
 import { redactBody, redactUrl } from "../util/redact.js";
+import { WeixinSendError } from "../messaging/send-errors.js";
 
 import type {
   BaseInfo,
@@ -128,6 +129,13 @@ async function apiFetch(params: {
   timeoutMs: number;
   label: string;
   abortSignal?: AbortSignal;
+  /**
+   * When true, a 2xx response whose JSON body carries a non-zero `errcode`
+   * is treated as a hard failure and a WeixinSendError is thrown. Default
+   * false: long-poll endpoints (getUpdates) want to inspect errcode in the
+   * happy-path return value rather than crash.
+   */
+  throwOnLogicalError?: boolean;
 }): Promise<string> {
   const base = ensureTrailingSlash(params.baseUrl);
   const url = new URL(params.endpoint, base);
@@ -152,7 +160,26 @@ async function apiFetch(params: {
     const rawText = await res.text();
     logger.debug(`${params.label} status=${res.status} raw=${redactBody(rawText)}`);
     if (!res.ok) {
-      throw new Error(`${params.label} ${res.status}: ${rawText}`);
+      throw buildSendError({ endpoint: params.label, httpStatus: res.status, rawText });
+    }
+    // Some endpoints reply 200 but signal logical failure via errcode.
+    // The most relevant case for us is the per-user 24h quota of 10
+    // outbound messages, which surfaces as a non-zero errcode in a 200
+    // body and used to be silently treated as success. Mutation endpoints
+    // opt into throwing so their callers see structured errors; long-poll
+    // (getUpdates) keeps the old return-value behavior so the monitor's
+    // failure-counting logic continues to work.
+    if (params.throwOnLogicalError) {
+      const logicalErr = parseLogicalError(rawText);
+      if (logicalErr) {
+        throw new WeixinSendError({
+          endpoint: params.label,
+          httpStatus: res.status,
+          errcode: logicalErr.errcode,
+          ...(logicalErr.errmsg !== undefined ? { errmsg: logicalErr.errmsg } : {}),
+          textPreview: rawText.slice(0, 500),
+        });
+      }
     }
     return rawText;
   } catch (err) {
@@ -161,6 +188,46 @@ async function apiFetch(params: {
   } finally {
     params.abortSignal?.removeEventListener("abort", onAbort);
   }
+}
+
+function buildSendError(input: {
+  endpoint: string;
+  httpStatus: number;
+  rawText: string;
+}): WeixinSendError {
+  const logical = parseLogicalError(input.rawText);
+  return new WeixinSendError({
+    endpoint: input.endpoint,
+    httpStatus: input.httpStatus,
+    ...(logical?.errcode !== undefined ? { errcode: logical.errcode } : {}),
+    ...(logical?.errmsg !== undefined ? { errmsg: logical.errmsg } : {}),
+    textPreview: input.rawText.slice(0, 500),
+  });
+}
+
+/**
+ * Parse a Weixin response body and return the logical error fields when
+ * present. Returns null for success responses, malformed bodies, and bodies
+ * that don't carry an `errcode` field.
+ *
+ * Note: `errcode === 0` and missing `errcode` both mean "no logical error"
+ * — only an explicit non-zero `errcode` is treated as failure.
+ */
+function parseLogicalError(rawText: string): { errcode: number; errmsg?: string } | null {
+  if (!rawText) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const body = parsed as { errcode?: unknown; errmsg?: unknown };
+  if (typeof body.errcode !== "number" || body.errcode === 0) return null;
+  return {
+    errcode: body.errcode,
+    ...(typeof body.errmsg === "string" ? { errmsg: body.errmsg } : {}),
+  };
 }
 
 /**
@@ -243,6 +310,7 @@ export async function sendMessage(
     token: params.token,
     timeoutMs: params.timeoutMs ?? DEFAULT_API_TIMEOUT_MS,
     label: "sendMessage",
+    throwOnLogicalError: true,
   });
 }
 

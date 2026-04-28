@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 
 import { DaemonController } from "./daemon-controller";
 import type { DaemonPaths } from "./daemon-files";
+import { terminateProcessTree } from "../process/terminate-process-tree";
 
 interface SpawnRequest {
   mode: "direct" | "windows-hidden";
@@ -190,58 +191,4 @@ async function spawnWindowsHiddenProcess(request: SpawnRequest): Promise<number>
 
 async function defaultTerminateProcess(pid: number): Promise<void> {
   await terminateProcessTree(pid);
-}
-
-type ProcessCommandRunner = (command: string, args: string[]) => Promise<number>;
-type KillProcess = (pid: number, signal: NodeJS.Signals) => void;
-type IsProcessRunning = (pid: number) => boolean;
-
-export async function terminateProcessTree(
-  pid: number,
-  platform: NodeJS.Platform = process.platform,
-  runCommand: ProcessCommandRunner = defaultRunProcessCommand,
-  killProcess: KillProcess = (targetPid, signal) => {
-    process.kill(targetPid, signal);
-  },
-  isProcessRunning: IsProcessRunning = defaultIsProcessRunning,
-): Promise<void> {
-  if (platform === "win32") {
-    try {
-      await runCommand("taskkill", ["/PID", String(pid), "/T", "/F"]);
-    } catch {
-      // Process tree already exited or could not be found.
-    }
-    return;
-  }
-
-  const targetPid = pid > 0 ? -pid : pid;
-
-  try {
-    killProcess(targetPid, "SIGTERM");
-  } catch {
-    return;
-  }
-
-  const deadline = Date.now() + 5_000;
-  while (Date.now() < deadline) {
-    if (!isProcessRunning(targetPid)) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-
-  try {
-    killProcess(targetPid, "SIGKILL");
-  } catch {
-    // Process already exited.
-  }
-}
-
-async function defaultRunProcessCommand(command: string, args: string[]): Promise<number> {
-  return await new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: "ignore" });
-
-    child.on("error", reject);
-    child.on("close", (code) => resolve(code ?? 1));
-  });
 }

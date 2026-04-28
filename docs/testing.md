@@ -101,3 +101,32 @@ bun run build
 - `scripts/` 只放运行脚本，不放测试主体
 
 如果以后需要新增测试类型，优先在 `tests/` 下新增子目录，而不是重新把测试塞回 `src/`。
+
+## 会话创建体验（Smoke）
+
+### 平台包缺失自愈
+
+复现：
+1. 删除 opencode 安装目录下的 `node_modules/opencode-windows-x64`。
+2. 在微信中执行 `/ss opencode --ws weacpx`。
+3. 预期消息序列：
+   - 🚀 正在启动 `opencode`…
+   - 📦 检测到缺失依赖 `opencode-windows-x64`，正在自动安装…
+   - 🔄 安装完成，正在验证会话启动…
+   - 🚀 正在启动 `opencode`…（验证阶段的全新进度，计时从 0 开始）
+   - 🔧 `opencode` 初始化中…（已等待 Ns）（仅长耗时时）
+   - ✅ 会话已创建：...
+
+### 自愈失败
+
+两类失败：
+
+- **npm 安装失败**（断网、权限等）：自动尝试精确（每个候选父包路径各一次，覆盖 Bun/npm/pnpm/yarn 全局与本地 node_modules）与全局共 N 次安装都非零退出。最终消息标题为 `❌ 自动安装失败`，列出每次 stderr 摘要（精确步骤会标注具体路径）、手动命令 `npm install -g <pkg>`、日志路径。
+- **安装成功但验证仍失败**（精确安装落在错误的依赖树上、资源已被 acpx 缓存）：安装 exit=0 但重新 ensureSession 仍抛缺失依赖。最终消息标题为 `⚠️ 自动安装已执行但未能修复会话启动问题`，每个步骤显示"安装已执行但验证失败（精确 / <path>｜全局）"，同样附手动命令与日志路径。
+- **跨包管理器发现**：weacpx 在自动安装前会枚举候选父包目录——Bridge 报告的 seed、`require.resolve` 能看到的本地 node_modules、`$BUN_INSTALL`/`~/.bun/install/global/node_modules`、以及 `npm root -g` / `pnpm root -g` / `yarn global dir`。存在 `package.json` 的目录依次作为 "精确" 安装步骤。
+
+### 仅进度反馈
+
+在无错场景下，`/ss <agent>`：
+- < 3s：只看到 🚀 正在启动
+- ≥ 3s：🚀 后再见 🔧 初始化中…（已等待 Ns）

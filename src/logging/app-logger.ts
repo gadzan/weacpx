@@ -27,6 +27,7 @@ export interface AppLogger {
   info: (event: string, message: string, context?: LogContext) => Promise<void>;
   error: (event: string, message: string, context?: LogContext) => Promise<void>;
   cleanup: () => Promise<void>;
+  flush: () => Promise<void>;
 }
 
 export function createNoopAppLogger(): AppLogger {
@@ -35,26 +36,42 @@ export function createNoopAppLogger(): AppLogger {
     info: async () => {},
     error: async () => {},
     cleanup: async () => {},
+    flush: async () => {},
   };
 }
 
 export function createAppLogger(options: CreateAppLoggerOptions): AppLogger {
   const now = options.now ?? (() => new Date());
+  let writeChain = Promise.resolve();
 
   return {
     debug: async (event, message, context) => {
-      await writeLog("debug", event, message, context);
+      await enqueueWrite("debug", event, message, context);
     },
     info: async (event, message, context) => {
-      await writeLog("info", event, message, context);
+      await enqueueWrite("info", event, message, context);
     },
     error: async (event, message, context) => {
-      await writeLog("error", event, message, context);
+      await enqueueWrite("error", event, message, context);
     },
     cleanup: async () => {
       await cleanupExpiredRotatedLogs(options.filePath, options.retentionDays, now);
     },
+    flush: async () => {
+      await writeChain;
+    },
   };
+
+  function enqueueWrite(
+    level: LoggingLevel,
+    event: string,
+    message: string,
+    context: LogContext = {},
+  ): Promise<void> {
+    const writePromise = writeChain.catch(() => {}).then(() => writeLog(level, event, message, context));
+    writeChain = writePromise;
+    return writePromise;
+  }
 
   async function writeLog(
     level: LoggingLevel,

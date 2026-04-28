@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import {
   AcpxBridgeClient,
@@ -6,6 +6,7 @@ import {
 } from "../../../../src/transport/acpx-bridge/acpx-bridge-client";
 import { encodeBridgeRequest } from "../../../../src/transport/acpx-bridge/acpx-bridge-protocol";
 import { PromptCommandError } from "../../../../src/transport/prompt-output";
+import { MissingOptionalDepError } from "../../../../src/recovery/errors";
 
 test("encodes a bridge request as ndjson", () => {
   expect(
@@ -133,4 +134,67 @@ test("rejects requests when the writer signals backpressure", async () => {
 
   await expect(client.request("ping", {})).rejects.toThrow("bridge write buffer is full");
   expect(writes).toEqual(['{"id":"1","method":"ping","params":{}}\n']);
+});
+
+describe("AcpxBridgeClient", () => {
+  test("delivers session.progress events to onEvent", async () => {
+    const writes: string[] = [];
+    const client = new AcpxBridgeClient((line) => { writes.push(line); return true; });
+    const events: Array<{ type: string; stage?: string }> = [];
+    const promise = client.request("ensureSession", {}, (event) => {
+      events.push(event);
+    });
+    const req = JSON.parse(writes[0]);
+    client.handleLine(JSON.stringify({ id: req.id, event: "session.progress", stage: "spawn" }));
+    client.handleLine(JSON.stringify({ id: req.id, event: "session.progress", stage: "initializing" }));
+    client.handleLine(JSON.stringify({ id: req.id, ok: true, result: {} }));
+    await promise;
+    expect(events).toEqual([
+      { type: "session.progress", stage: "spawn" },
+      { type: "session.progress", stage: "initializing" },
+    ]);
+  });
+
+  test("rejects with MissingOptionalDepError when response has kind=missing_optional_dep", async () => {
+    const writes: string[] = [];
+    const client = new AcpxBridgeClient((line) => { writes.push(line); return true; });
+    const promise = client.request("ensureSession", {});
+    const req = JSON.parse(writes[0]);
+    client.handleLine(JSON.stringify({
+      id: req.id,
+      ok: false,
+      error: {
+        code: "BRIDGE_INTERNAL_ERROR",
+        message: "boom",
+        kind: "missing_optional_dep",
+        data: { package: "opencode-windows-x64", parentPackagePath: null },
+      },
+    }));
+    await expect(promise).rejects.toBeInstanceOf(MissingOptionalDepError);
+  });
+
+  test("delivers session.note events to onEvent", async () => {
+    const writes: string[] = [];
+    const client = new AcpxBridgeClient((line) => { writes.push(line); return true; });
+    const events: Array<{ type: string; text?: string }> = [];
+    const promise = client.request("ensureSession", {}, (event) => events.push(event));
+    const req = JSON.parse(writes[0]);
+    client.handleLine(JSON.stringify({ id: req.id, event: "session.note", text: "[acpx] hello" }));
+    client.handleLine(JSON.stringify({ id: req.id, ok: true, result: {} }));
+    await promise;
+    expect(events).toEqual([{ type: "session.note", text: "[acpx] hello" }]);
+  });
+
+  test("ignores late session.progress after response arrives", async () => {
+    const writes: string[] = [];
+    const client = new AcpxBridgeClient((line) => { writes.push(line); return true; });
+    const events: Array<unknown> = [];
+    const promise = client.request("ensureSession", {}, (event) => events.push(event));
+    const req = JSON.parse(writes[0]);
+    client.handleLine(JSON.stringify({ id: req.id, ok: true, result: {} }));
+    await promise;
+    // Now a late event — pending entry already deleted, should be silently dropped
+    client.handleLine(JSON.stringify({ id: req.id, event: "session.progress", stage: "ready" }));
+    expect(events).toHaveLength(0);
+  });
 });

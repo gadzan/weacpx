@@ -1,9 +1,32 @@
-import { expect, test } from "bun:test";
+import { expect, mock, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { buildApp, resolveRuntimePaths } from "../../src/main";
+
+async function readJsonWithRetry<T>(path: string, attempts = 5): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return JSON.parse(await readFile(path, "utf8")) as T;
+    } catch (error) {
+      lastError = error;
+      await Bun.sleep(5);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError ?? "failed to read json"));
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 test("builds the runtime services from config and state paths", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
@@ -30,8 +53,1001 @@ test("builds the runtime services from config and state paths", async () => {
     sessions: expect.anything(),
     stateStore: expect.anything(),
     configStore: expect.anything(),
+    orchestration: expect.anything(),
   });
 
+  await rm(dir, { recursive: true, force: true });
+});
+
+
+
+test("buildApp exposes orchestration IPC runtime state", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex"],
+        },
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    {
+      configPath,
+      statePath,
+      orchestrationSocketPath: join(dir, "runtime", "orchestration.sock"),
+    },
+    {
+      createCliTransport: () => ({
+        ensureSession: async () => {},
+        prompt: async () => ({ text: "ok" }),
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+        listSessions: async () => [],
+      }),
+    },
+  );
+
+  expect(runtime.orchestration.endpoint.path).toBe(join(dir, "runtime", "orchestration.sock"));
+  expect(runtime.orchestration.server).toBeDefined();
+
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("wires orchestration into the runtime router so /delegate creates and persists a task", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const ensureSession = mock(async () => {});
+  const workerPrompt = createDeferred<{ text: string }>();
+  const prompt = mock(async (session) => {
+    if (session.alias === "backend:claude:backend:main") {
+      return await workerPrompt.promise;
+    }
+    return { text: "coordinator wake ok" };
+  });
+  const hasSession = mock(async () => true);
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: {
+        codex: { driver: "codex" },
+        claude: { driver: "claude" },
+      },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex", "claude"],
+        },
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession,
+        prompt,
+        setMode: async () => {},
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession,
+      }),
+    },
+  );
+
+  await runtime.router.handle("wx:user", "/session new main --agent codex --ws backend");
+  const reply = await runtime.router.handle("wx:user", "/delegate claude review the change");
+
+  expect(reply.text).toContain("已创建委派任务");
+  expect(ensureSession.mock.calls).toHaveLength(2);
+  expect(ensureSession.mock.calls.at(0)?.[0]).toMatchObject({
+    alias: "main",
+    agent: "codex",
+    workspace: "backend",
+    transportSession: "backend:main",
+  });
+  expect(ensureSession.mock.calls.at(1)?.[0]).toMatchObject({
+    alias: "backend:claude:backend:main",
+    agent: "claude",
+    workspace: "backend",
+    transportSession: "backend:claude:backend:main",
+  });
+  expect(prompt.mock.calls).toHaveLength(1);
+  expect(prompt.mock.calls.at(0)?.[0]).toMatchObject({
+    alias: "backend:claude:backend:main",
+    agent: "claude",
+    workspace: "backend",
+    transportSession: "backend:claude:backend:main",
+  });
+  expect(prompt.mock.calls.at(0)?.[1]).toContain("这是来自 weacpx 的委派任务。");
+  expect(prompt.mock.calls.at(0)?.[1]).toContain("任务内容: review the change");
+  workerPrompt.resolve({ text: "ok" });
+
+  type SavedState = {
+    orchestration: {
+      tasks: Record<
+        string,
+        {
+          sourceHandle: string;
+          coordinatorSession: string;
+          workerSession?: string;
+          workspace: string;
+          targetAgent: string;
+          task: string;
+          status: string;
+        }
+      >;
+      workerBindings: Record<
+        string,
+        {
+          sourceHandle: string;
+          coordinatorSession: string;
+          workspace: string;
+          targetAgent: string;
+        }
+      >;
+    };
+  };
+  let saved: SavedState = await readJsonWithRetry<SavedState>(statePath);
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    saved = await readJsonWithRetry<SavedState>(statePath);
+    const firstTask = Object.values(saved.orchestration.tasks)[0];
+    if (firstTask?.status === "completed") {
+      break;
+    }
+    await Bun.sleep(10);
+  }
+  const entries = Object.entries(saved.orchestration.tasks);
+  expect(entries).toHaveLength(1);
+  const [taskId, task] = entries[0];
+
+  expect(taskId).toBeDefined();
+  expect(task).toBeDefined();
+  expect(task).toMatchObject({
+    sourceHandle: "backend:main",
+    coordinatorSession: "backend:main",
+    workerSession: "backend:claude:backend:main",
+    workspace: "backend",
+    targetAgent: "claude",
+    task: "review the change",
+    status: "completed",
+    resultText: "ok",
+  });
+  expect(saved.orchestration.workerBindings["backend:claude:backend:main"]).toMatchObject({
+    sourceHandle: "backend:claude:backend:main",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "claude",
+  });
+
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("dispatches worker tasks asynchronously, records completion, and notifies the originating chat", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const ensureSession = mock(async () => {});
+  const hasSession = mock(async () => true);
+  const sendOrchestrationNotice = mock(async () => {});
+  let resolveWorkerPrompt: ((value: { text: string }) => void) | null = null;
+  const workerPrompt = new Promise<{ text: string }>((resolve) => {
+    resolveWorkerPrompt = resolve;
+  });
+  const prompt = mock(async (session) => {
+    if (session.alias === "backend:claude:backend:main") {
+      return await workerPrompt;
+    }
+    return { text: "ok" };
+  });
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: {
+        codex: { driver: "codex" },
+        claude: { driver: "claude" },
+      },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex", "claude"],
+        },
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession,
+        prompt,
+        setMode: async () => {},
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession,
+      }),
+      sendOrchestrationNotice,
+    },
+  );
+
+  await runtime.router.handle("wx:user", "/session new main --agent codex --ws backend");
+
+  let settled = false;
+  const replyPromise = runtime.router
+    .handle("wx:user", "/delegate claude review asynchronously", undefined, "ctx-123", "acc-1")
+    .then((value) => {
+      settled = true;
+      return value;
+    });
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (settled) break;
+    await Bun.sleep(10);
+  }
+
+  expect(settled).toBe(true);
+  const reply = await replyPromise;
+  expect(reply.text).toContain("已创建委派任务");
+
+  const runningState = await readJsonWithRetry<{
+    orchestration: {
+      tasks: Record<string, { status: string; resultText: string; chatKey?: string; replyContextToken?: string; accountId?: string }>;
+    };
+  }> (statePath);
+  const runningTask = Object.values(runningState.orchestration.tasks)[0];
+  expect(runningTask).toMatchObject({
+    status: "running",
+    resultText: "",
+    chatKey: "wx:user",
+    replyContextToken: "ctx-123",
+    accountId: "acc-1",
+  });
+
+  resolveWorkerPrompt?.({ text: "worker finished" });
+  let completedTask:
+    | { status: string; resultText: string; chatKey?: string; replyContextToken?: string; accountId?: string }
+    | undefined;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const completedState = await readJsonWithRetry<{
+      orchestration: {
+        tasks: Record<string, { status: string; resultText: string; chatKey?: string; replyContextToken?: string; accountId?: string }>;
+      };
+    }>(statePath);
+    completedTask = Object.values(completedState.orchestration.tasks)[0];
+    if (completedTask?.status === "completed" && completedTask.resultText === "worker finished") {
+      break;
+    }
+    await Bun.sleep(10);
+  }
+
+  expect(completedTask).toMatchObject({
+    status: "completed",
+    resultText: "worker finished",
+    chatKey: "wx:user",
+    replyContextToken: "ctx-123",
+    accountId: "acc-1",
+  });
+  expect(sendOrchestrationNotice).toHaveBeenCalledTimes(1);
+  expect(sendOrchestrationNotice.mock.calls[0]?.[0]).toMatchObject({
+    status: "completed",
+    resultText: "worker finished",
+    chatKey: "wx:user",
+    replyContextToken: "ctx-123",
+    accountId: "acc-1",
+  });
+
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("keeps the previous orchestration snapshot visible until task completion is persisted", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const taskId = "task-1";
+  const workerSession = "backend:claude:backend:main";
+  const originalTask = {
+    taskId,
+    sourceHandle: workerSession,
+    sourceKind: "worker" as const,
+    coordinatorSession: "backend:main",
+    workerSession,
+    workspace: "backend",
+    targetAgent: "claude",
+    task: "review asynchronously",
+    status: "running" as const,
+    summary: "",
+    resultText: "",
+    createdAt: "2026-04-20T00:00:00.000Z",
+    updatedAt: "2026-04-20T00:00:00.000Z",
+  };
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: {
+        codex: { driver: "codex" },
+        claude: { driver: "claude" },
+      },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex", "claude"],
+        },
+      },
+    }),
+  );
+  await writeFile(
+    statePath,
+    JSON.stringify({
+      sessions: {},
+      chat_contexts: {},
+      orchestration: {
+        tasks: {
+          [taskId]: originalTask,
+        },
+        workerBindings: {},
+        groups: {},
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession: async () => {},
+        prompt: async () => ({ text: "worker finished" }),
+        setMode: async () => {},
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+        listSessions: async () => [],
+      }),
+    },
+  );
+
+  const stateStore = runtime.stateStore as unknown as {
+    save: (state: unknown) => Promise<void>;
+  };
+  const originalSave = stateStore.save.bind(runtime.stateStore);
+  const saveStarted = createDeferred<void>();
+  const releaseSave = createDeferred<void>();
+  stateStore.save = async (nextState) => {
+    saveStarted.resolve();
+    await releaseSave.promise;
+    await originalSave(nextState);
+  };
+
+  const replyPromise = runtime.orchestration.service.recordWorkerReply({
+    taskId,
+    sourceHandle: workerSession,
+    status: "completed",
+    resultText: "worker finished",
+  });
+
+  await saveStarted.promise;
+
+  const inMemoryTask = await runtime.orchestration.service.getTask(taskId);
+  expect(inMemoryTask).toMatchObject({
+    status: "running",
+    resultText: "",
+  });
+
+  const onDiskTask = JSON.parse(await readFile(statePath, "utf8")) as {
+    orchestration: {
+      tasks: Record<string, { status: string; resultText: string }>;
+    };
+  };
+  expect(onDiskTask.orchestration.tasks[taskId]).toMatchObject({
+    status: "running",
+    resultText: "",
+  });
+
+  releaseSave.resolve();
+  await expect(replyPromise).resolves.toMatchObject({
+    status: "completed",
+    resultText: "worker finished",
+  });
+
+  const persistedTask = await readJsonWithRetry<{
+    orchestration: {
+      tasks: Record<string, { status: string; resultText: string }>;
+    };
+  }>(statePath);
+  expect(persistedTask.orchestration.tasks[taskId]).toMatchObject({
+    status: "completed",
+    resultText: "worker finished",
+  });
+
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("does not notify delegated task completion when the originating reply context is missing", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const ensureSession = mock(async () => {});
+  const hasSession = mock(async () => true);
+  const sendOrchestrationNotice = mock(async () => {});
+  const prompt = mock(async (session) => {
+    if (session.alias === "backend:claude:backend:main") {
+      return { text: "worker finished" };
+    }
+    return { text: "ok" };
+  });
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: {
+        codex: { driver: "codex" },
+        claude: { driver: "claude" },
+      },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex", "claude"],
+        },
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession,
+        prompt,
+        setMode: async () => {},
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession,
+      }),
+      sendOrchestrationNotice,
+    },
+  );
+
+  await runtime.router.handle("wx:user", "/session new main --agent codex --ws backend");
+  const reply = await runtime.router.handle("wx:user", "/delegate claude review asynchronously");
+  expect(reply.text).toContain("已创建委派任务");
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const completedState = await readJsonWithRetry<{
+      orchestration: {
+        tasks: Record<string, { status: string; resultText: string; replyContextToken?: string; accountId?: string }>;
+      };
+    }>(statePath);
+    const completedTask = Object.values(completedState.orchestration.tasks)[0];
+    if (completedTask?.status === "completed") {
+      expect(completedTask.replyContextToken).toBeUndefined();
+      break;
+    }
+    await Bun.sleep(10);
+  }
+
+  expect(sendOrchestrationNotice).not.toHaveBeenCalled();
+
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("buildApp dispose waits for in-flight worker dispatches to settle", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const promptStarted = createDeferred<void>();
+  const releasePrompt = createDeferred<void>();
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: {
+        codex: { driver: "codex" },
+        claude: { driver: "claude" },
+      },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex", "claude"],
+        },
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession: async () => {},
+        prompt: async (session) => {
+          if (session.alias === "backend:claude:backend:main") {
+            promptStarted.resolve();
+            await releasePrompt.promise;
+            return { text: "worker finished" };
+          }
+          return { text: "ok" };
+        },
+        setMode: async () => {},
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+      }),
+    },
+  );
+
+  await runtime.router.handle("wx:user", "/session new main --agent codex --ws backend");
+  await runtime.router.handle("wx:user", "/delegate claude review asynchronously");
+
+  await promptStarted.promise;
+
+  let disposed = false;
+  const disposePromise = runtime.dispose().then(() => {
+    disposed = true;
+  });
+
+  await Bun.sleep(20);
+  expect(disposed).toBe(false);
+
+  releasePrompt.resolve();
+  await disposePromise;
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("buildApp dispose awaits logger flush before returning", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const flushStarted = createDeferred<void>();
+  const releaseFlush = createDeferred<void>();
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: {
+        codex: { driver: "codex" },
+      },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex"],
+        },
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession: async () => {},
+        prompt: async () => ({ text: "ok" }),
+        setMode: async () => {},
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+      }),
+    },
+  );
+
+  const originalFlush = runtime.logger.flush;
+  runtime.logger.flush = async () => {
+    flushStarted.resolve();
+    await releaseFlush.promise;
+    await originalFlush();
+  };
+
+  let disposed = false;
+  const disposePromise = runtime.dispose().then(() => {
+    disposed = true;
+  });
+
+  await flushStarted.promise;
+  await Bun.sleep(20);
+  expect(disposed).toBe(false);
+
+  releaseFlush.resolve();
+  await disposePromise;
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("persists delegated task completion even when sending the completion notice fails", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const ensureSession = mock(async () => {});
+  const hasSession = mock(async () => true);
+  const sendOrchestrationNotice = mock(async () => {
+    throw new Error("notice failed");
+  });
+  const prompt = mock(async (session) => {
+    if (session.alias === "backend:claude:backend:main") {
+      return { text: "worker finished" };
+    }
+    return { text: "ok" };
+  });
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: {
+        codex: { driver: "codex" },
+        claude: { driver: "claude" },
+      },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex", "claude"],
+        },
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession,
+        prompt,
+        setMode: async () => {},
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession,
+      }),
+      sendOrchestrationNotice,
+    },
+  );
+
+  await runtime.router.handle("wx:user", "/session new main --agent codex --ws backend");
+  const reply = await runtime.router.handle(
+    "wx:user",
+    "/delegate claude review asynchronously",
+    undefined,
+    "ctx-123",
+    "acc-1",
+  );
+  expect(reply.text).toContain("已创建委派任务");
+
+  let completedTask:
+    | { status: string; resultText: string; chatKey?: string; replyContextToken?: string; accountId?: string }
+    | undefined;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const completedState = await readJsonWithRetry<{
+      orchestration: {
+        tasks: Record<string, { status: string; resultText: string; chatKey?: string; replyContextToken?: string; accountId?: string }>;
+      };
+    }>(statePath);
+    completedTask = Object.values(completedState.orchestration.tasks)[0];
+    if (completedTask?.status === "completed" && completedTask.resultText === "worker finished") {
+      break;
+    }
+    await Bun.sleep(10);
+  }
+
+  expect(completedTask).toMatchObject({
+    status: "completed",
+    resultText: "worker finished",
+    chatKey: "wx:user",
+    replyContextToken: "ctx-123",
+    accountId: "acc-1",
+  });
+  expect(sendOrchestrationNotice).toHaveBeenCalledTimes(1);
+  await Bun.sleep(25);
+
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("replays pending orchestration notices during runtime startup", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const sendOrchestrationNotice = mock(async () => {});
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: {
+        codex: { driver: "codex" },
+        claude: { driver: "claude" },
+      },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex", "claude"],
+        },
+      },
+    }),
+  );
+  await writeFile(
+    statePath,
+    JSON.stringify({
+      sessions: {},
+      chat_contexts: {},
+      orchestration: {
+        tasks: {
+          "task-notice-replay-1": {
+            taskId: "task-notice-replay-1",
+            sourceHandle: "backend:main",
+            sourceKind: "coordinator",
+            coordinatorSession: "backend:main",
+            workerSession: "backend:claude:backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "reply ok",
+            status: "completed",
+            summary: "",
+            resultText: "ok",
+            createdAt: "2026-04-13T10:00:00.000Z",
+            updatedAt: "2026-04-13T10:05:00.000Z",
+            chatKey: "wx:user",
+            replyContextToken: "ctx-123",
+            accountId: "acc-1",
+            noticePending: true,
+          },
+        },
+        workerBindings: {},
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession: async () => {},
+        prompt: async () => ({ text: "ok" }),
+        setMode: async () => {},
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+      }),
+      sendOrchestrationNotice,
+    },
+  );
+
+  expect(sendOrchestrationNotice).toHaveBeenCalledTimes(1);
+  expect(sendOrchestrationNotice.mock.calls[0]?.[0]).toMatchObject({
+    taskId: "task-notice-replay-1",
+    noticePending: true,
+  });
+
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("propagates running task cancellation to the worker transport and completes the task", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const ensureSession = mock(async () => {});
+  const prompt = mock(async () => ({ text: "ok" }));
+  const hasSession = mock(async () => true);
+  const cancel = mock(async () => ({ cancelled: true, message: "cancelled" }));
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" }, claude: { driver: "claude" } },
+      workspaces: { backend: { cwd: "/tmp/backend", allowed_agents: ["codex", "claude"] } },
+    }),
+  );
+  await writeFile(
+    statePath,
+    JSON.stringify({
+      sessions: {
+        main: {
+          alias: "main",
+          agent: "codex",
+          workspace: "backend",
+          transport_session: "backend:main",
+          created_at: "2026-04-13T10:00:00.000Z",
+          last_used_at: "2026-04-13T10:00:00.000Z",
+        },
+      },
+      chat_contexts: {
+        "wx:user": {
+          current_session: "main",
+        },
+      },
+      orchestration: {
+        tasks: {
+          "task-cancel-runtime-1": {
+            taskId: "task-cancel-runtime-1",
+            sourceHandle: "backend:main",
+            sourceKind: "coordinator",
+            coordinatorSession: "backend:main",
+            workerSession: "backend:claude:backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "review",
+            status: "running",
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-13T10:00:00.000Z",
+            updatedAt: "2026-04-13T10:00:00.000Z",
+          },
+        },
+        workerBindings: {
+          "backend:claude:backend:main": {
+            sourceHandle: "backend:claude:backend:main",
+            coordinatorSession: "backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+          },
+        },
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession,
+        prompt,
+        setMode: async () => {},
+        cancel,
+        hasSession,
+      }),
+      sendOrchestrationNotice: async () => {},
+    },
+  );
+
+  const reply = await runtime.router.handle("wx:user", "/task cancel task-cancel-runtime-1");
+  expect(reply.text).toContain("已请求取消");
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const saved = await readJsonWithRetry<{
+      orchestration: { tasks: Record<string, { status: string; cancelRequestedAt?: string; cancelCompletedAt?: string }> };
+    }>(statePath);
+    if (saved.orchestration.tasks["task-cancel-runtime-1"]?.status === "cancelled") {
+      break;
+    }
+    await Bun.sleep(10);
+  }
+
+  expect(cancel).toHaveBeenCalledTimes(1);
+  expect(cancel.mock.calls[0]?.[0]).toMatchObject({
+    alias: "backend:claude:backend:main",
+    agent: "claude",
+    workspace: "backend",
+    transportSession: "backend:claude:backend:main",
+  });
+
+  const saved = await readJsonWithRetry<{
+    orchestration: {
+      tasks: Record<string, { status: string; cancelRequestedAt?: string; cancelCompletedAt?: string; lastCancelError?: string }>;
+    };
+  }>(statePath);
+  expect(saved.orchestration.tasks["task-cancel-runtime-1"]).toMatchObject({
+    status: "cancelled",
+    cancelRequestedAt: expect.any(String),
+    cancelCompletedAt: expect.any(String),
+  });
+
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("records cancellation errors when worker transport cancel is not acknowledged", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const cancel = mock(async () => ({ cancelled: false, message: "transport refused" }));
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" }, claude: { driver: "claude" } },
+      workspaces: { backend: { cwd: "/tmp/backend", allowed_agents: ["codex", "claude"] } },
+    }),
+  );
+  await writeFile(
+    statePath,
+    JSON.stringify({
+      sessions: {
+        main: {
+          alias: "main",
+          agent: "codex",
+          workspace: "backend",
+          transport_session: "backend:main",
+          created_at: "2026-04-13T10:00:00.000Z",
+          last_used_at: "2026-04-13T10:00:00.000Z",
+        },
+      },
+      chat_contexts: {
+        "wx:user": { current_session: "main" },
+      },
+      orchestration: {
+        tasks: {
+          "task-cancel-runtime-2": {
+            taskId: "task-cancel-runtime-2",
+            sourceHandle: "backend:main",
+            sourceKind: "coordinator",
+            coordinatorSession: "backend:main",
+            workerSession: "backend:claude:backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "review",
+            status: "running",
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-13T10:00:00.000Z",
+            updatedAt: "2026-04-13T10:00:00.000Z",
+          },
+        },
+        workerBindings: {
+          "backend:claude:backend:main": {
+            sourceHandle: "backend:claude:backend:main",
+            coordinatorSession: "backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+          },
+        },
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession: async () => {},
+        prompt: async () => ({ text: "ok" }),
+        setMode: async () => {},
+        cancel,
+        hasSession: async () => true,
+      }),
+      sendOrchestrationNotice: async () => {},
+    },
+  );
+
+  const reply = await runtime.router.handle("wx:user", "/task cancel task-cancel-runtime-2");
+  expect(reply.text).toContain("已请求取消");
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const saved = await readJsonWithRetry<{
+      orchestration: {
+        tasks: Record<string, { status: string; lastCancelError?: string; cancelRequestedAt?: string }>;
+      };
+    }>(statePath);
+    if (saved.orchestration.tasks["task-cancel-runtime-2"]?.lastCancelError) {
+      break;
+    }
+    await Bun.sleep(10);
+  }
+
+  const saved = await readJsonWithRetry<{
+    orchestration: {
+      tasks: Record<string, { status: string; lastCancelError?: string; cancelRequestedAt?: string }>;
+    };
+  }>(statePath);
+  expect(saved.orchestration.tasks["task-cancel-runtime-2"]).toMatchObject({
+    status: "running",
+    cancelRequestedAt: expect.any(String),
+    lastCancelError: "transport refused",
+  });
+
+  await runtime.dispose();
   await rm(dir, { recursive: true, force: true });
 });
 
@@ -210,11 +1226,85 @@ test("falls back to the OS home directory when HOME is unset", () => {
 
     expect(paths.configPath.endsWith("/.weacpx/config.json")).toBe(true);
     expect(paths.statePath.endsWith("/.weacpx/state.json")).toBe(true);
+    if (process.platform === "win32") {
+      expect(paths.orchestrationSocketPath.startsWith("\\\\.\\pipe\\weacpx-orchestration-")).toBe(true);
+    } else {
+      expect(paths.orchestrationSocketPath.endsWith("/.weacpx/runtime/orchestration.sock")).toBe(true);
+    }
   } finally {
     process.env.HOME = originalHome;
     process.env.WEACPX_CONFIG = originalConfig;
     process.env.WEACPX_STATE = originalState;
   }
+});
+
+test("extracts [PROGRESS] markers from worker output and sends progress notifications", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const sendOrchestrationNotice = mock(async () => {});
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" }, claude: { driver: "claude" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex", "claude"],
+        },
+      },
+      orchestration: { progressHeartbeatSeconds: 0 },
+    }),
+  );
+  await writeFile(statePath, JSON.stringify({ sessions: {}, chat_contexts: {}, orchestration: { tasks: {}, workerBindings: {} } }));
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession: async () => {},
+        prompt: async (_session, _text, reply) => {
+          if (reply) {
+            await reply("[PROGRESS] analyzing code\n");
+            await reply("[PROGRESS] found 3 issues\nHere is the result.\n");
+          }
+          return { text: "[PROGRESS] analyzing code\n[PROGRESS] found 3 issues\nHere is the result." };
+        },
+        setMode: async () => {},
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+      }),
+      sendOrchestrationNotice,
+    },
+  );
+
+  await runtime.router.handle("wx:user", "/session new main --agent codex --ws backend");
+  await runtime.router.handle("wx:user", "/dg claude review the code", undefined, "ctx-1", "acc-1");
+
+  // Wait for async dispatchWorkerTask to complete
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const persistedState = await readJsonWithRetry<Awaited<ReturnType<typeof runtime.stateStore.load>>>(statePath);
+    const task = await runtime.orchestration.service.getTask(
+      Object.keys(persistedState.orchestration.tasks)[0] ?? "",
+    );
+    if (task?.status === "completed") {
+      break;
+    }
+    await Bun.sleep(10);
+  }
+
+  // Final result should not contain [PROGRESS] lines
+  const saved = await readJsonWithRetry<Awaited<ReturnType<typeof runtime.stateStore.load>>>(statePath);
+  const taskEntry = Object.values(saved.orchestration.tasks)[0];
+  expect(taskEntry?.resultText).not.toContain("[PROGRESS]");
+  expect(taskEntry?.resultText).toContain("Here is the result.");
+  expect(taskEntry?.lastProgressAt).toBeDefined();
+
+  await Bun.sleep(20);
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
 });
 
 test("buildApp cleans stale rotated app logs and can default logging to debug", async () => {
@@ -266,6 +1356,428 @@ test("buildApp cleans stale rotated app logs and can default logging to debug", 
   expect(appLog).toContain("DEBUG command.parsed");
   await expect(readFile(staleLog, "utf8")).rejects.toThrow();
 
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("workerRaiseQuestion auto-wakes the preferred coordinator session with a blocker-first prompt", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const workerPrompt = createDeferred<{ text: string }>();
+  const prompt = mock(async (session: { alias: string }) => {
+    if (session.alias === "backend:claude:backend:main") {
+      return await workerPrompt.promise;
+    }
+    return { text: "coordinator woke" };
+  });
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" }, claude: { driver: "claude" } },
+      workspaces: { backend: { cwd: "/tmp/backend", allowed_agents: ["codex", "claude"] } },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession: async () => {},
+        prompt,
+        setMode: async () => {},
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+      }),
+      sendCoordinatorMessage: mock(async () => {}),
+    },
+  );
+
+  await runtime.router.handle("wx:user", "/session new main --agent codex --ws backend");
+  await runtime.orchestration.service.requestDelegate({
+    sourceHandle: "backend:main",
+    sourceKind: "coordinator",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "claude",
+    task: "review the patch",
+  });
+  const taskId = Object.keys(
+    (
+      await readJsonWithRetry<{
+        orchestration: { tasks: Record<string, unknown> };
+      }>(statePath)
+    ).orchestration.tasks,
+  )[0]!;
+
+  await runtime.orchestration.service.workerRaiseQuestion({
+    taskId,
+    sourceHandle: "backend:claude:backend:main",
+    question: "Should I keep SQLite?",
+    whyBlocked: "follow-up steps depend on the DB choice",
+    whatIsNeeded: "database decision",
+  });
+
+  const coordinatorPrompt = prompt.mock.calls.find((call) => call[0].alias === "main")?.[1] ?? "";
+  expect(coordinatorPrompt).toContain("[delegate_question_package]");
+  expect(coordinatorPrompt).toContain("Should I keep SQLite?");
+  expect(coordinatorPrompt).toContain("answer_blockers_first");
+
+  workerPrompt.resolve({ text: "worker still running" });
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("workerRaiseQuestion wake prefers the canonical alias over a more recently used shadow alias for the same transport session", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const workerPrompt = createDeferred<{ text: string }>();
+  const prompt = mock(async (session: { alias: string }) => {
+    if (session.alias === "backend:claude:backend:main") {
+      return await workerPrompt.promise;
+    }
+    return { text: `coordinator woke via ${session.alias}` };
+  });
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" }, claude: { driver: "claude" } },
+      workspaces: {
+        backend: { cwd: "/tmp/backend", allowed_agents: ["codex", "claude"] },
+        shadow: { cwd: "/tmp/shadow", allowed_agents: ["codex", "claude"] },
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession: async () => {},
+        prompt,
+        setMode: async () => {},
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+      }),
+      sendCoordinatorMessage: mock(async () => {}),
+    },
+  );
+
+  await runtime.router.handle("wx:user", "/session new main --agent codex --ws backend");
+  await runtime.sessions.attachSession("shadow-main", "codex", "shadow", "backend:main");
+  await runtime.sessions.useSession("wx:shadow", "shadow-main");
+
+  await runtime.orchestration.service.requestDelegate({
+    sourceHandle: "backend:main",
+    sourceKind: "coordinator",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "claude",
+    task: "review the patch",
+  });
+  const taskId = Object.keys(
+    (
+      await readJsonWithRetry<{
+        orchestration: { tasks: Record<string, unknown> };
+      }>(statePath)
+    ).orchestration.tasks,
+  )[0]!;
+
+  await runtime.orchestration.service.workerRaiseQuestion({
+    taskId,
+    sourceHandle: "backend:claude:backend:main",
+    question: "Should I keep SQLite?",
+    whyBlocked: "follow-up steps depend on the DB choice",
+    whatIsNeeded: "database decision",
+  });
+
+  expect(prompt.mock.calls.find((call) => call[0].alias === "main")?.[1] ?? "").toContain(
+    "[delegate_question_package]",
+  );
+  expect(prompt.mock.calls.find((call) => call[0].alias === "shadow-main")).toBeUndefined();
+
+  workerPrompt.resolve({ text: "worker still running" });
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("coordinatorRequestHumanInput sends a proactive package through the latest coordinator route context", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const sendCoordinatorMessage = mock(async () => {});
+  const workerPrompt = createDeferred<{ text: string }>();
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" }, claude: { driver: "claude" } },
+      workspaces: { backend: { cwd: "/tmp/backend", allowed_agents: ["codex", "claude"] } },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession: async () => {},
+        prompt: async (session) =>
+          session.alias === "backend:claude:backend:main" ? await workerPrompt.promise : { text: "ok" },
+        setMode: async () => {},
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+      }),
+      sendCoordinatorMessage,
+    },
+  );
+
+  await runtime.router.handle("wx:user", "/session new main --agent codex --ws backend");
+  await runtime.router.handle("wx:user", "主线继续", undefined, "ctx-1", "acc-1");
+  await runtime.orchestration.service.requestDelegate({
+    sourceHandle: "backend:main",
+    sourceKind: "coordinator",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "claude",
+    task: "review the patch",
+  });
+  const task = Object.values(
+    (
+      await readJsonWithRetry<{
+        orchestration: { tasks: Record<string, { taskId: string }> };
+      }>(statePath)
+    ).orchestration.tasks,
+  )[0]!;
+
+  const raised = await runtime.orchestration.service.workerRaiseQuestion({
+    taskId: task.taskId,
+    sourceHandle: "backend:claude:backend:main",
+    question: "Should I keep SQLite?",
+    whyBlocked: "follow-up steps depend on the DB choice",
+    whatIsNeeded: "database decision",
+  });
+
+  await runtime.orchestration.service.coordinatorRequestHumanInput({
+    coordinatorSession: "backend:main",
+    taskQuestions: [{ taskId: task.taskId, questionId: raised.questionId }],
+    promptText: "请确认数据库方案。",
+    expectedActivePackageId: undefined,
+  });
+
+  expect(sendCoordinatorMessage).toHaveBeenCalledTimes(1);
+  expect(sendCoordinatorMessage.mock.calls[0]?.[0]).toMatchObject({
+    coordinatorSession: "backend:main",
+    chatKey: "wx:user",
+    accountId: "acc-1",
+    replyContextToken: "ctx-1",
+  });
+  expect(sendCoordinatorMessage.mock.calls[0]?.[0].text).toContain("请确认数据库方案");
+
+  workerPrompt.resolve({ text: "worker still running" });
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("worker prompt return after workerRaiseQuestion leaves the task blocked instead of completing it", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const firstWorkerTurn = createDeferred<{ text: string }>();
+  let workerPromptCount = 0;
+  const prompt = mock(async (session: { alias: string }) => {
+    if (session.alias === "backend:claude:backend:main") {
+      workerPromptCount += 1;
+      if (workerPromptCount === 1) {
+        return await firstWorkerTurn.promise;
+      }
+      return { text: "unexpected extra worker turn" };
+    }
+    return { text: "coordinator woke" };
+  });
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" }, claude: { driver: "claude" } },
+      workspaces: { backend: { cwd: "/tmp/backend", allowed_agents: ["codex", "claude"] } },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession: async () => {},
+        prompt,
+        setMode: async () => {},
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+      }),
+      sendCoordinatorMessage: mock(async () => {}),
+    },
+  );
+
+  await runtime.router.handle("wx:user", "/session new main --agent codex --ws backend");
+  await runtime.orchestration.service.requestDelegate({
+    sourceHandle: "backend:main",
+    sourceKind: "coordinator",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "claude",
+    task: "review the patch",
+  });
+  const taskId = Object.keys(
+    (
+      await readJsonWithRetry<{
+        orchestration: { tasks: Record<string, unknown> };
+      }>(statePath)
+    ).orchestration.tasks,
+  )[0]!;
+
+  const raised = await runtime.orchestration.service.workerRaiseQuestion({
+    taskId,
+    sourceHandle: "backend:claude:backend:main",
+    question: "Should I keep SQLite?",
+    whyBlocked: "follow-up steps depend on the DB choice",
+    whatIsNeeded: "database decision",
+  });
+
+  firstWorkerTurn.resolve({ text: "I need a database decision before I can continue." });
+  await Bun.sleep(20);
+
+  const task = await runtime.orchestration.service.getTask(taskId);
+  expect(task).toMatchObject({
+    taskId,
+    status: "blocked",
+    resultText: "",
+    openQuestion: {
+      questionId: raised.questionId,
+      status: "open",
+    },
+  });
+
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("coordinatorAnswerQuestion resumes asynchronously and persists the resumed completion", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const firstWorkerTurn = createDeferred<{ text: string }>();
+  const resumedWorkerTurn = createDeferred<{ text: string }>();
+  let workerPromptCount = 0;
+  const prompt = mock(async (session: { alias: string }) => {
+    if (session.alias === "backend:claude:backend:main") {
+      workerPromptCount += 1;
+      if (workerPromptCount === 1) {
+        return await firstWorkerTurn.promise;
+      }
+      return await resumedWorkerTurn.promise;
+    }
+    return { text: "coordinator woke" };
+  });
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" }, claude: { driver: "claude" } },
+      workspaces: { backend: { cwd: "/tmp/backend", allowed_agents: ["codex", "claude"] } },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession: async () => {},
+        prompt,
+        setMode: async () => {},
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+      }),
+      sendCoordinatorMessage: mock(async () => {}),
+    },
+  );
+
+  await runtime.router.handle("wx:user", "/session new main --agent codex --ws backend");
+  await runtime.orchestration.service.requestDelegate({
+    sourceHandle: "backend:main",
+    sourceKind: "coordinator",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "claude",
+    task: "review the patch",
+  });
+  const taskId = Object.keys(
+    (
+      await readJsonWithRetry<{
+        orchestration: { tasks: Record<string, unknown> };
+      }>(statePath)
+    ).orchestration.tasks,
+  )[0]!;
+
+  const raised = await runtime.orchestration.service.workerRaiseQuestion({
+    taskId,
+    sourceHandle: "backend:claude:backend:main",
+    question: "Should I keep SQLite?",
+    whyBlocked: "follow-up steps depend on the DB choice",
+    whatIsNeeded: "database decision",
+  });
+  firstWorkerTurn.resolve({ text: "Need an explicit database answer." });
+  await Bun.sleep(20);
+
+  let answerSettled = false;
+  const answerPromise = runtime.orchestration.service
+    .coordinatorAnswerQuestion({
+      coordinatorSession: "backend:main",
+      taskId,
+      questionId: raised.questionId,
+      answer: "继续 SQLite。",
+    })
+    .then(() => {
+      answerSettled = true;
+    });
+
+  await Bun.sleep(20);
+  expect(answerSettled).toBe(true);
+  expect(await runtime.orchestration.service.getTask(taskId)).toMatchObject({
+    taskId,
+    status: "running",
+    resultText: "",
+    openQuestion: {
+      questionId: raised.questionId,
+      status: "answered",
+      answerSource: "coordinator",
+      answerText: "继续 SQLite。",
+    },
+  });
+
+  resumedWorkerTurn.resolve({ text: "Here is the resumed result." });
+
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const task = await runtime.orchestration.service.getTask(taskId);
+    if (task?.status === "completed") {
+      break;
+    }
+    await Bun.sleep(10);
+  }
+
+  expect(await runtime.orchestration.service.getTask(taskId)).toMatchObject({
+    taskId,
+    status: "completed",
+    resultText: "Here is the resumed result.",
+  });
+
+  await answerPromise;
   await runtime.dispose();
   await rm(dir, { recursive: true, force: true });
 });

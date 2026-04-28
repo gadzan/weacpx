@@ -7,7 +7,10 @@ export { resolveWeixinAccount, listWeixinAccountIds, clearAllWeixinAccounts, isL
 
 interface WeixinSdkModule {
   login: () => Promise<string>;
-  start: (agent: import("./weixin/index.js").Agent) => Promise<void>;
+  start: (
+    agent: import("./weixin/index.js").Agent,
+    options?: import("./weixin/index.js").StartOptions,
+  ) => Promise<void>;
   isLoggedIn: () => boolean;
 }
 

@@ -142,6 +142,7 @@ test("prints help for unknown commands", async () => {
     "weacpx stop   - 停止服务",
     "weacpx doctor - 运行诊断",
     "weacpx version - 查看版本",
+    "weacpx mcp-stdio --coordinator-session <session> [--source-handle <handle>] - 启动 MCP stdio 服务",
   ]);
 });
 
@@ -260,6 +261,37 @@ test("prints version for '-v' flag", async () => {
   expect(lines[0]).toBe("unknown");
 });
 
+test("passes subcommand args through to mcp-stdio and returns its exit code", async () => {
+  const calls: string[][] = [];
+
+  await expect(
+    runCli(["mcp-stdio", "--coordinator-session", "backend:main", "--source-handle", "backend:worker"], {
+      mcpStdio: async (args) => {
+        calls.push(args);
+        return 0;
+      },
+    }),
+  ).resolves.toBe(0);
+
+  expect(calls).toEqual([["--coordinator-session", "backend:main", "--source-handle", "backend:worker"]]);
+});
+
+test("prints chinese stderr and returns exit code 2 when mcp-stdio is missing coordinator session", async () => {
+  const stderr: string[] = [];
+
+  await expect(
+    runCli(["mcp-stdio"], {
+      stderr: (text) => {
+        stderr.push(text);
+      },
+    }),
+  ).resolves.toBe(2);
+
+  expect(stderr).toEqual([
+    "weacpx mcp-stdio 需要 --coordinator-session <handle> 或 WEACPX_COORDINATOR_SESSION 环境变量\n",
+  ]);
+});
+
 test("prints help for '--help' flag and exits 0", async () => {
   const lines: string[] = [];
 
@@ -272,6 +304,7 @@ test("prints help for '--help' flag and exits 0", async () => {
   ).resolves.toBe(0);
 
   expect(lines).toContain("weacpx version - 查看版本");
+  expect(lines).toContain("weacpx mcp-stdio --coordinator-session <session> [--source-handle <handle>] - 启动 MCP stdio 服务");
 });
 
 test("prints help for '-h' flag and exits 0", async () => {
@@ -286,4 +319,5 @@ test("prints help for '-h' flag and exits 0", async () => {
   ).resolves.toBe(0);
 
   expect(lines).toContain("weacpx version - 查看版本");
+  expect(lines).toContain("weacpx mcp-stdio --coordinator-session <session> [--source-handle <handle>] - 启动 MCP stdio 服务");
 });

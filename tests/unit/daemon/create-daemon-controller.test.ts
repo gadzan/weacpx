@@ -4,10 +4,8 @@ import { PassThrough } from "node:stream";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import {
-  createDaemonController,
-  terminateProcessTree,
-} from "../../../src/daemon/create-daemon-controller";
+import { createDaemonController } from "../../../src/daemon/create-daemon-controller";
+import { terminateProcessTree } from "../../../src/process/terminate-process-tree";
 import { type DaemonPaths } from "../../../src/daemon/daemon-files";
 
 test("spawns a detached run command and records the child pid", async () => {

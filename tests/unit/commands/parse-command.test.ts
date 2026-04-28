@@ -178,6 +178,88 @@ test("parses session reset and clear aliases", () => {
   });
 });
 
+test("parses orchestration delegate commands", () => {
+  expect(parseCommand("/delegate claude 审查当前方案")).toEqual({
+    kind: "delegate.request",
+    targetAgent: "claude",
+    task: "审查当前方案",
+  });
+  expect(parseCommand("/dg claude 审查当前方案")).toEqual({
+    kind: "delegate.request",
+    targetAgent: "claude",
+    task: "审查当前方案",
+  });
+  expect(parseCommand("/delegate claude --role reviewer 审查当前方案")).toEqual({
+    kind: "delegate.request",
+    targetAgent: "claude",
+    role: "reviewer",
+    task: "审查当前方案",
+  });
+  expect(parseCommand("/dg claude --role reviewer 审查当前方案")).toEqual({
+    kind: "delegate.request",
+    targetAgent: "claude",
+    role: "reviewer",
+    task: "审查当前方案",
+  });
+  expect(parseCommand("/dg claude --group group-review 审查当前方案")).toEqual({
+    kind: "delegate.request",
+    targetAgent: "claude",
+    groupId: "group-review",
+    task: "审查当前方案",
+  });
+  expect(parseCommand("/delegate claude --role reviewer --group group-review 审查当前方案")).toEqual({
+    kind: "delegate.request",
+    targetAgent: "claude",
+    role: "reviewer",
+    groupId: "group-review",
+    task: "审查当前方案",
+  });
+});
+
+test("parses orchestration group commands", () => {
+  expect(parseCommand("/groups")).toEqual({
+    kind: "groups",
+  });
+  expect(parseCommand("/group new parallel-review")).toEqual({
+    kind: "group.new",
+    title: "parallel-review",
+  });
+  expect(parseCommand('/group new "parallel review"')).toEqual({
+    kind: "group.new",
+    title: "parallel review",
+  });
+  expect(parseCommand("/group group-review")).toEqual({
+    kind: "group.get",
+    groupId: "group-review",
+  });
+  expect(parseCommand("/group cancel group-review")).toEqual({
+    kind: "group.cancel",
+    groupId: "group-review",
+  });
+});
+
+test("parses orchestration task commands", () => {
+  expect(parseCommand("/tasks")).toEqual({
+    kind: "tasks",
+  });
+  expect(parseCommand("/task task-1")).toEqual({
+    kind: "task.get",
+    taskId: "task-1",
+  });
+  expect(parseCommand("/task approve task-1")).toEqual({
+    kind: "task.approve",
+    taskId: "task-1",
+  });
+  expect(parseCommand("/task reject task-1")).toEqual({
+    kind: "task.reject",
+    taskId: "task-1",
+  });
+  expect(parseCommand("/task cancel task-1")).toEqual({
+    kind: "task.cancel",
+    taskId: "task-1",
+  });
+});
+
 test("parses agent template registration", () => {
   expect(parseCommand("/agent add claude")).toEqual({
     kind: "agent.add",
@@ -382,5 +464,149 @@ test("returns invalid for malformed permission commands", () => {
     kind: "invalid",
     text: "/config set wechat.replyMode",
     recognizedCommand: "/config",
+  });
+});
+
+test("returns invalid for malformed orchestration commands", () => {
+  expect(parseCommand("/delegate")).toEqual({
+    kind: "invalid",
+    text: "/delegate",
+    recognizedCommand: "/delegate",
+  });
+  expect(parseCommand("/dg")).toEqual({
+    kind: "invalid",
+    text: "/dg",
+    recognizedCommand: "/dg",
+  });
+  expect(parseCommand("/delegate claude --role reviewer")).toEqual({
+    kind: "invalid",
+    text: "/delegate claude --role reviewer",
+    recognizedCommand: "/delegate",
+  });
+  expect(parseCommand("/dg claude --role reviewer")).toEqual({
+    kind: "invalid",
+    text: "/dg claude --role reviewer",
+    recognizedCommand: "/dg",
+  });
+  expect(parseCommand("/group")).toEqual({
+    kind: "invalid",
+    text: "/group",
+    recognizedCommand: "/group",
+  });
+  expect(parseCommand("/group new")).toEqual({
+    kind: "invalid",
+    text: "/group new",
+    recognizedCommand: "/group",
+  });
+  expect(parseCommand("/group cancel")).toEqual({
+    kind: "invalid",
+    text: "/group cancel",
+    recognizedCommand: "/group",
+  });
+  expect(parseCommand("/group cancel too many args")).toEqual({
+    kind: "invalid",
+    text: "/group cancel too many args",
+    recognizedCommand: "/group",
+  });
+  expect(parseCommand("/groups extra")).toEqual({
+    kind: "invalid",
+    text: "/groups extra",
+    recognizedCommand: "/groups",
+  });
+  expect(parseCommand("/task")).toEqual({
+    kind: "invalid",
+    text: "/task",
+    recognizedCommand: "/task",
+  });
+  expect(parseCommand("/tasks extra")).toEqual({
+    kind: "invalid",
+    text: "/tasks extra",
+    recognizedCommand: "/tasks",
+  });
+  expect(parseCommand("/task cancel")).toEqual({
+    kind: "invalid",
+    text: "/task cancel",
+    recognizedCommand: "/task",
+  });
+  expect(parseCommand("/task task-1 extra")).toEqual({
+    kind: "invalid",
+    text: "/task task-1 extra",
+    recognizedCommand: "/task",
+  });
+});
+
+test("parses /group add <groupId> <agent> <task>", () => {
+  expect(parseCommand("/group add group-review claude 审查当前方案")).toEqual({
+    kind: "group.delegate",
+    groupId: "group-review",
+    targetAgent: "claude",
+    task: "审查当前方案",
+  });
+});
+
+test("parses /group add with --role before the task", () => {
+  expect(parseCommand("/group add group-review claude --role reviewer 审查当前方案")).toEqual({
+    kind: "group.delegate",
+    groupId: "group-review",
+    targetAgent: "claude",
+    role: "reviewer",
+    task: "审查当前方案",
+  });
+});
+
+test("rejects /group add with no task body", () => {
+  expect(parseCommand("/group add group-review claude")).toEqual({
+    kind: "invalid",
+    text: "/group add group-review claude",
+    recognizedCommand: "/group",
+  });
+});
+
+test("rejects /group add with missing agent", () => {
+  expect(parseCommand("/group add group-review")).toEqual({
+    kind: "invalid",
+    text: "/group add group-review",
+    recognizedCommand: "/group",
+  });
+});
+
+test("parses /tasks with --status and --stuck flags", () => {
+  expect(parseCommand("/tasks --status running")).toEqual({
+    kind: "tasks",
+    filter: { status: "running" },
+  });
+  expect(parseCommand("/tasks --stuck")).toEqual({
+    kind: "tasks",
+    filter: { stuck: true },
+  });
+  expect(parseCommand("/tasks --status failed --sort createdAt --order asc")).toEqual({
+    kind: "tasks",
+    filter: { status: "failed", sort: "createdAt", order: "asc" },
+  });
+});
+
+test("parses /groups with --status and --stuck flags", () => {
+  expect(parseCommand("/groups --status pending")).toEqual({
+    kind: "groups",
+    filter: { status: "pending" },
+  });
+  expect(parseCommand("/groups --stuck")).toEqual({
+    kind: "groups",
+    filter: { stuck: true },
+  });
+});
+
+test("parseCommand rejects unknown --status for /tasks", () => {
+  expect(parseCommand("/tasks --status runing")).toMatchObject({ kind: "invalid" });
+});
+
+test("parseCommand rejects unknown --status for /groups", () => {
+  expect(parseCommand("/groups --status active")).toMatchObject({ kind: "invalid" });
+});
+
+test("parseCommand accepts needs_confirmation for /tasks", () => {
+  expect(parseCommand("/tasks --status needs_confirmation")).toEqual({
+    kind: "tasks",
+    filter: { status: "needs_confirmation" },
   });
 });

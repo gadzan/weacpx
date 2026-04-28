@@ -3,7 +3,13 @@ import type { AppLogger } from "./logging/app-logger";
 import { createNoopAppLogger } from "./logging/app-logger";
 
 interface RouterLike {
-  handle(chatKey: string, input: string, reply?: (text: string) => Promise<void>): Promise<ChatResponse>;
+  handle(
+    chatKey: string,
+    input: string,
+    reply?: (text: string) => Promise<void>,
+    replyContextToken?: string,
+    accountId?: string,
+  ): Promise<ChatResponse>;
   clearSession?: (chatKey: string) => Promise<void>;
 }
 
@@ -16,7 +22,7 @@ export class ConsoleAgent implements WechatAgent {
 
   async chat(request: ChatRequest): Promise<ChatResponse> {
     if (!request.text.trim()) {
-      return { text: "Empty message." };
+      return { text: "消息内容为空。" };
     }
 
     await this.logger.info("chat.received", "received inbound chat message", {
@@ -25,7 +31,13 @@ export class ConsoleAgent implements WechatAgent {
       text: summarizeText(request.text),
     });
 
-    return await this.router.handle(request.conversationId, request.text, request.reply);
+    return await this.router.handle(
+      request.conversationId,
+      request.text,
+      request.reply,
+      request.replyContextToken,
+      request.accountId,
+    );
   }
 
   async clearSession(conversationId: string): Promise<void> {

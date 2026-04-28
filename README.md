@@ -1,119 +1,152 @@
-# Weacpx
+# weacpx
 
-连接微信与 acpx 协议，让 Claude Code / Codex 成为你口袋里的 24/7 伙伴。
+> 用微信远程驱动 Codex、Claude Code 等 acpx 会话。
 
 [![npm](https://img.shields.io/npm/v/weacpx?style=flat-square)](https://www.npmjs.com/package/weacpx)
 [![Node.js Version](https://img.shields.io/node/v/weacpx?style=flat-square)](https://nodejs.org)
-[![zread](https://img.shields.io/badge/Ask_Zread-_.svg?style=flat-square&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS4zMTM1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff)](https://zread.ai/gadzan/weacpx)
+[![zread](https://img.shields.io/badge/Ask_Zread-_.svg?style=flat-square&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS42MDE1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff)](https://zread.ai/gadzan/weacpx)
 [![License](https://img.shields.io/npm/l/weacpx?style=flat-square)](./LICENSE)
 
 ![weacpx logo](assets/weacpx.jpg)
 
-## Why Weacpx？
+## 这是什么
 
-在 Agent-First 的开发模式下，编码任务必须依托顶级 Agents，🙅‍♀️不要通过 openclaw 去开发，现在有一个更好的方案。Weacpx 通过微信提供一个轻量化的远程入口，随时随地通过手机驱动你的顶级 Agents。
+`weacpx` 是一个微信控制台。它把微信消息接到 `acpx` 会话上，让你直接在手机里：
 
-Weacpx 的核心价值主张很简单：
+- 新建和切换 Codex / Claude Code 会话
+- 让 Agent 继续在指定项目目录里工作
+- 查看流式回复、最终结果和工具调用摘要
+- 调整权限策略
+- 在需要时做最小可用的多 Agent 编排
 
-**随时随地访问** — 只要你有微信，就能控制你的 Agent。无需 VPN、Web 界面或复杂的云服务配置。
+如果你已经习惯在本地终端里用 `acpx`，`weacpx` 提供的是一个**远程入口**，而不是另一套全新的工作流。
 
-**统一的会话管理** — 通过 acpx 协议，weacpx 让你在微信里管理多个 Agent 会话（Codex、Claude Code 等），就像在本地终端一样。创建、切换、查询状态，全部通过简单的斜杠命令完成，这是其它简单基于 ACP 实现的远控 agent 所不具备的。
+## 适合谁
 
-**轻量守护进程** — weacpx 作为后台守护进程运行，资源占用极低。不用启动一个臃肿 openclaw，不用担心在工作机器上使用会占用资源。启动、停止、查看状态都通过简单的 CLI 命令完成。
+`weacpx` 适合已经在用 Codex、Claude Code 或其他 `acpx` driver 的开发者。你可以用微信盯任务、发指令、看结果，并在同一个聊天里管理多个会话。
 
-**权限可控** — 可以即时通过微信修改 agent 的权限，无论是 YOLO 还是只读。
+它不是云端 IDE，也不是可视化编排平台。
 
-## 安装前准备
+## 5 分钟快速开始
 
-开始前，至少需要：
+### 前置条件
+
+开始前，你至少需要：
 
 - Node.js 22+ 或 Bun
-- Claude Code 或 Codex
-- 装了微信的手机
+- 已可用的 Codex、Claude Code 或其他 `acpx` driver
+- 一台装了微信的手机
 
-> `weacpx` 基于 `weixin-agent-sdk` 与 `acpx` 实现。
-> 正常情况下，不需要再额外全局安装 `acpx`。
+> `weacpx` 基于 `weixin-agent-sdk` 和 `acpx` 工作。正常情况下，你不需要额外全局安装 `acpx`。
 
-## 安装
-
-全局安装：
+### 安装
 
 ```bash
-# 使用 NPM 全局安装
 npm install -g weacpx
-# 或使用 Bun 全局安装
+# 或
 bun add -g weacpx
 ```
 
-## 快速开始
+### 登录微信
 
-第一次使用建议按这个顺序：
+```bash
+weacpx login
+```
 
-1. 登录微信 `weacpx login`
-2. 启动服务 `weacpx start`
-3. 在微信里创建会话并开始对话
+终端会显示二维码。你用微信扫码登录。
 
-`weacpx login` 会在终端里显示二维码，使用微信扫描登录。`weacpx start` 启动后，在微信里发：
+### 启动服务
+
+```bash
+weacpx start
+```
+
+### 在微信里创建第一个会话
+
+把下面两条消息发到微信：
 
 ```text
 /ss codex -d /absolute/path/to/your/repo
-
 /help
 ```
 
-`/ss codex -d /absolute/path/to/your/repo`：开启或挂在一个会话，并切换到该会话。使用 Codex，并指定工作目录为 `/absolute/path/to/your/repo`。
-
-`/help` 查看帮助信息。
-
-然后就可以直接发普通消息，例如：
+然后直接发普通文本，例如：
 
 ```text
 hello
 ```
 
-如果任务比较长，`weacpx` 在支持流式中间回复的 transport（当前主要是 `acpx-cli`）下，会优先把 Agent 的中间回复分段发回微信，而不是一直等到最后一条结果。
+如果一切正常，普通文本会进入当前会话，Agent 的回复会回到微信。
 
-如果你更想要“一次性只回最终结果”，可以配置全局默认 `wechat.replyMode`，或在当前会话里用 `/replymode final` 临时覆盖。
+## 你的日常使用流程
 
-如果你是从源码仓库直接使用：
+最常见的使用顺序只有四步：
 
-```bash
-# 先安装依赖
-bun install
-# 登录微信
-bun run login
-# 启动服务
-bun run dev
+1. **启动后台服务**：`weacpx start`
+2. **创建或切换会话**：`/ss ...`、`/use ...`
+3. **直接发普通文本**：让当前会话继续工作
+4. **必要时查看状态或取消**：`/status`、`/cancel`
+
+### 1) 创建会话
+
+最常用命令：
+
+```text
+/ss codex -d /absolute/path/to/your/repo
 ```
 
-普通文本会默认发送到当前选中的 session。
+它会使用 `codex`，绑定这个目录，并自动切换到新会话。
 
-## CLI 命令
+### 2) 发普通消息
 
-常用命令：
+非 `/` 开头的文本，都会发送到当前会话。
 
-- `weacpx login`
-- `weacpx logout`
-- `weacpx run`
-- `weacpx start`
-- `weacpx status`
-- `weacpx stop`
-- `weacpx doctor`
-- `weacpx version`
+```text
+修一下最近这个接口超时问题
+```
 
-其他说明：
+### 3) 看回复
 
-- `run` 前台运行，适合调试
-- `start` 后台启动
-- `status` 查看后台状态、PID、配置路径和日志路径
-- `stop` 停止后台实例
-- `logout` 清除本机已保存的微信登录凭证；如果当前没有已登录账号，会直接提示
-- `doctor` 运行诊断，默认检查 config / runtime / daemon / wechat / acpx / bridge
-- `version` 输出当前安装的 `weacpx` 版本号，可用于排查环境或确认升级是否生效
+`weacpx` 支持三种常用回复模式：
 
-### doctor 诊断
+- `stream`：默认，流式返回中间文本
+- `final`：只返回最终结果
+- `verbose`：在流式文本之外，额外显示工具调用摘要
 
-`weacpx doctor` 用来快速检查本机环境是否能正常运行。
+例如 `verbose` 模式下，你会看到：
+
+```text
+📖 sed -n '1,220p' README.md
+🔍 rg -n 'session new' src tests
+💻 bun test tests/unit/main.test.ts
+✏️ Edit parse-command.ts
+```
+
+### 4) 切换会话
+
+```text
+/ss
+/use backend:codex
+```
+
+这样你可以在同一个微信聊天里切换不同项目、不同 agent 的会话。
+
+## 常用 CLI 命令
+
+这些命令在电脑终端里运行。
+
+| 命令 | 说明 |
+|------|------|
+| `weacpx login` | 登录微信 |
+| `weacpx logout` | 清除本机保存的微信登录凭证 |
+| `weacpx run` | 前台运行，适合调试 |
+| `weacpx start` | 后台启动服务 |
+| `weacpx status` | 查看后台状态、PID、配置路径、日志路径 |
+| `weacpx stop` | 停止后台实例 |
+| `weacpx doctor` | 运行环境诊断 |
+| `weacpx version` | 查看当前版本 |
+
+### `doctor` 怎么用
 
 ```bash
 weacpx doctor
@@ -124,217 +157,139 @@ weacpx doctor --smoke --agent codex --workspace backend
 
 说明：
 
-- `--verbose` 会展开每个检查的技术细节，方便定位问题
+- `--verbose` 会展开每项检查的细节
 - `--smoke` 会额外执行一次真实 transport 级别的最小 prompt 检查
-- `--agent` / `--workspace` 只影响 `--smoke`，不会改变默认诊断检查
-- `--smoke` 可能留下一个临时的底层 `acpx` session；这是为了换取真实链路验证能力
-- 如果不传 `--smoke`，相关 smoke 检查会被标记为 `SKIP`
+- `--agent` / `--workspace` 只影响 `--smoke`
+- 如果不传 `--smoke`，相关检查会显示为 `SKIP`
 
-### version 查看版本
+## 常用微信命令
 
-`weacpx version` 用来输出当前安装的 CLI 版本号。
+下面这部分保留一份**中等长度**的日常手册。够你上手和日常使用，但不把 README 写成完整参考手册。
 
-```bash
-weacpx version
-weacpx --version
-weacpx -v
-```
+完整微信命令参考见：[docs/commands.md](./docs/commands.md)。
 
-说明：
-
-- 三种写法都会输出同一个版本号
-- 适合在升级后确认当前生效的是哪个版本
-- 排查用户环境问题时，建议先附上这里输出的版本信息
-
-### logout 退出登录
-
-说明：
-
-- `weacpx logout` 只清理已保存的微信账号凭证
-- 它不会停止当前 daemon，也不会删除 `weacpx` 的 session/state 配置
-
-## 微信中使用说明
-
-### 管理 Agent
-
-内置 `codex` 与 `claude` 两个常见 agent，也支持添加你自己的 agents。
+### Agent 管理
 
 | 命令 | 说明 |
 |------|------|
-| `/agents` | 查看当前已添加的 agent |
-| `/agent add codex` | 添加 codex agent |
-| `/agent add claude` | 添加 claude agent |
+| `/agents` | 查看 agent 列表 |
+| `/agent add codex` | 添加 `codex` |
+| `/agent add claude` | 添加 `claude` |
 | `/agent rm <name>` | 删除 agent |
 
-说明：
-
-- 内置 `codex` 和 `claude` 走 `acpx` 的 driver alias，通常不需要额外写 `agent.command`
-- 如果你接入的是自定义 agent，再考虑显式配置 `agent.command`
-
-`config.json` 中的 `agent.command` 用于显式指定 agent 的原始启动命令，完整字段如下：
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `driver` | `string` | 是 | agent 驱动类型，传递给 acpx 的第一位置参数 |
-| `command` | `string` | 否 | 显式指定自定义 agent 的原始命令。不填则使用 acpx 默认行为 |
-
-示例 — 配置一个自定义 agent：
-
-```json
-{
-  "agents": {
-    "my-agent": {
-      "driver": "codex",
-      "command": "/path/to/acpx codex --arg1 value1"
-    }
-  }
-}
-```
-
-- 内置 `codex` 和 `claude` 建议只写 `driver`，让 `acpx` 自己解析对应 alias
-- `command` 主要用于自定义 agent，不建议给内置 driver 手写原始命令
-- 旧版 `codex` raw command 配置会被自动忽略，回退为 `acpx codex ...`
-
-### Workspace 工作目录
+### Workspace 管理
 
 | 命令 | 说明 |
 |------|------|
-| `/workspaces` / `/workspace` / `/ws` | 查看当前已添加的工作目录 |
-| `/ws new <name> -d <path>` | 添加工作目录，`-d` 后面接的是目录在电脑的绝对路径 |
-| `/workspace rm <name>` | 删除工作目录 |
-
-说明：
-
-- `/ws new` 会先校验路径是否存在
-- Windows 路径里如果有空格，请给 `-d` 或 `--cwd` 的值加引号，例如：`/ws new backend -d "E:\my projects\backend"`
+| `/workspaces` / `/workspace` / `/ws` | 查看 workspace 列表 |
+| `/ws new <name> -d <path>` | 添加 workspace，`path` 是电脑上的绝对路径 |
+| `/workspace rm <name>` | 删除 workspace |
 
 ### Session 会话
 
 | 命令 | 说明 |
 |------|------|
-| `/sessions` / `/session` / `/ss` | 查看当前已添加的会话 |
-| `/ss <agent> (-d <path> | --ws <name>)` | 新建会话；传 `-d` 时按目录自动创建或复用 workspace，传 `--ws` 时复用已注册 workspace |
-| `/ss new <agent> (-d <path> | --ws <name>)` | 强制新建会话；`--ws` 只复用已注册 workspace |
-| `/ss new <alias> -a <name> --ws <name>` | 强制新建会话，并指定 agent 和 workspace |
-| `/ss attach <alias> -a <name> --ws <name> --name <transport-session>` | 恢复已存在的会话 |
+| `/sessions` / `/session` / `/ss` | 查看会话列表 |
+| `/ss <agent> (-d <path> \| --ws <name>)` | 创建或复用当前最常用的会话 |
+| `/ss new <agent> (-d <path> \| --ws <name>)` | 强制新建会话 |
 | `/use <alias>` | 切换当前会话 |
 | `/status` | 查看当前会话状态 |
-| `/mode` | 查看当前会话已保存的 mode |
-| `/mode <id>` | 设置当前会话 mode，例如 `/mode plan` |
-| `/replymode` | 查看当前会话的回复输出模式（全局默认 / 当前覆盖 / 实际生效） |
-| `/replymode stream` | 当前逻辑会话使用流式回复 |
-| `/replymode final` | 当前逻辑会话只发送最终文本结果 |
-| `/replymode reset` | 清除当前逻辑会话覆盖，回退到全局默认 |
-| `/session reset` | 重置当前会话上下文，保留 alias/agent/workspace，但重新绑定到一个新的后端 session |
+| `/mode` / `/mode <id>` | 查看或设置底层 `acpx` mode |
+| `/replymode` | 查看当前回复模式 |
+| `/replymode stream` | 流式回复 |
+| `/replymode verbose` | 流式 + 工具调用摘要 |
+| `/replymode final` | 只返回最终结果 |
+| `/replymode reset` | 回退到全局默认 reply mode |
+| `/session reset` | 重置当前会话上下文 |
 | `/clear` | `/session reset` 的快捷别名 |
-| `/cancel` | 取消当前会话 |
-| `/stop` | `/cancel` 的别名，用于取消当前会话 |
+| `/cancel` / `/stop` | 取消当前会话 |
 
-说明：
-
-- `/ss <agent> -d <path>` 是最常用入口，会自动按目录名推导并创建或复用 workspace，再创建或复用 session
-- `/ss <agent> --ws <name>` 会直接复用已注册 workspace，再创建或复用 session
-- `/ss new <agent> (-d <path> | --ws <name>)` 表示强制新建 session
-- `/use <alias>` 用来切换当前会话
-- `/mode` 会显示当前逻辑会话里保存的 mode；如果还没设置过，会显示“未设置”
-- `/mode <id>` 会把 mode 透传给底层 `acpx set-mode`，成功后再写回当前逻辑会话
-- `/replymode` 修改的是**当前逻辑会话**的 reply mode override，不是底层 transport session 的全局属性
-- `wechat.replyMode` 是全局默认值；`/replymode reset` 会回退到这个默认值
-- `final` 只影响微信侧是否实时发送文本流式片段，不改变 acpx transport 本身的生成方式
-- `/session reset` 和 `/clear` 会保留当前逻辑会话名，但重新创建一个新的后端 session，从空上下文重新开始
-- 非 `/` 开头的文本会发送到当前 session
-
-### 配置命令
-
-`/config` 用来查看和修改一小部分**受支持的配置字段**，不是任意 JSON 编辑器。
-
-| 命令 | 说明 |
-|------|------|
-| `/config` | 查看当前支持通过微信修改的配置路径 |
-| `/config set <path> <value>` | 修改一个受支持的配置值 |
-
-常见示例：
+建议你优先记住这三个：
 
 ```text
-/config
-/config set wechat.replyMode final
-/config set logging.level debug
-/config set transport.permissionMode approve-reads
-/config set workspaces.backend.description backend repo
+/ss codex -d /absolute/path/to/repo
+/use <alias>
+/cancel
 ```
 
-说明：
-
-- `/config` 只允许修改白名单字段，不支持任意路径写入
-- `agents.<name>.*` / `workspaces.<name>.*` 这类动态路径要求目标已经存在，不会自动创建
-- `/config set wechat.replyMode final` 修改的是**全局默认回复模式**
-- `/replymode final` 修改的是**当前逻辑会话覆盖**
-- 成功修改后会立即写回 `~/.weacpx/config.json`
-- 更完整的边界和支持字段，请参考 [docs/config-command.md](./docs/config-command.md)
-
-### 权限策略
-
-`weacpx` 支持直接在微信里查看和切换 `acpx` 的权限策略。
+### 配置与权限
 
 | 命令 | 说明 |
 |------|------|
+| `/config` | 查看支持通过微信修改的配置路径 |
+| `/config set <path> <value>` | 修改一个白名单配置项 |
 | `/pm` / `/permission` | 查看当前权限模式 |
 | `/pm set allow` | 切到 `approve-all` |
 | `/pm set read` | 切到 `approve-reads` |
 | `/pm set deny` | 切到 `deny-all` |
-| `/pm auto` | 查看当前非交互策略 |
+| `/pm auto` | 查看当前非交互权限策略 |
 | `/pm auto deny` | 切到 `deny` |
 | `/pm auto fail` | 切到 `fail` |
 
-说明：
-
-- `allow` 对应 `approve-all`
-- `read` 对应 `approve-reads`
-- `deny` 对应 `deny-all`
-- `/pm auto ...` 修改的是 `transport.nonInteractivePermissions`
-- 这些命令会把结果写回 `config.json`
-
-### 推荐工作流
-
-新建一个可聊天的会话：
+最常见例子：
 
 ```text
-/ss codex -d /absolute/path/to/backend
-修一下最近这个接口超时问题
+/config set wechat.replyMode final
+/pm set read
+/pm auto deny
 ```
 
-在同一个聊天里切换多个会话：
+### 多 Agent 编排
 
-```text
-/ss new codex -d /absolute/path/to/backend
-/ss
-/use backend:codex
-看一下接口日志
-/use backend:codex-2
-看一下前端报错
-```
-
-删除不再需要的资源：
-
-```text
-/agent rm claude
-/workspace rm old-repo
-```
-
-### 微信内置登录相关指令
-
-除了 `weacpx login` / `weacpx logout` 这类 CLI 命令外，微信通道里还支持少量内置 slash 指令：
+README 里只保留用户视角的最常用命令。
 
 | 命令 | 说明 |
 |------|------|
-| `/clear` | 重置当前聊天绑定的会话上下文，效果等同于 `/session reset` |
-| `/logout` | 清除当前机器上已保存的所有微信账号凭证 |
+| `/dg <agent> <task>` | 快速委派一个子任务 |
+| `/group new <title>` | 创建任务组 |
+| `/group add <groupId> <agent> <task>` | 往任务组里加子任务 |
+| `/groups` | 查看任务组列表 |
+| `/group <id>` | 查看单个任务组 |
+| `/group cancel <groupId>` | 取消组内未结束任务 |
+| `/tasks` | 查看当前主线下的任务 |
+| `/task <id>` | 查看单个任务详情 |
+| `/task approve <id>` | 批准 `needs_confirmation` 任务 |
+| `/task cancel <id>` | 取消任务 |
+
+最常见例子：
+
+```text
+/dg claude 审查当前方案的 3 个高风险点
+/group new review
+/group add review claude 审查接口设计
+/tasks
+/task approve task_123
+```
 
 说明：
 
-- `/logout` 的语义和 CLI 的 `weacpx logout` 一致，都是清凭证
-- 如果当前没有已登录账号，会提示“当前没有已登录的账号”
-- `/logout` 不会停止后台服务，也不会删除 `weacpx` 的工作区、agent、session 状态
+- 当前会话就是主控会话
+- 被委派出去的是独立子任务会话
+- agent 发起的委派请求默认需要人工确认
+- group 适合把 2~3 个独立子任务并行派出去，再把结果汇总回主线
+
+如果你想先理解什么时候该用 delegate、什么时候该开 group，请看：
+
+- [docs/weacpx-group-usage-guide.md](./docs/weacpx-group-usage-guide.md)
+
+## 常见场景
+
+### 在手机上继续盯一个本地项目
+
+```text
+/ss codex -d /absolute/path/to/backend
+看一下今天这个接口超时问题
+```
+
+### 同一个聊天里切换两个项目
+
+```text
+/ss codex -d /absolute/path/to/backend
+/ss new codex -d /absolute/path/to/frontend
+/ss
+/use backend:codex
+/use frontend:codex
+```
 
 ## 配置与运行文件
 
@@ -344,97 +299,70 @@ weacpx -v
 - 状态文件：`~/.weacpx/state.json`
 - 运行日志：`~/.weacpx/runtime/app.log`
 
-后台运行时还会使用：
+更多运行时文件会放在 `~/.weacpx/runtime/` 下。
 
-- `~/.weacpx/runtime/daemon.pid`
-- `~/.weacpx/runtime/status.json`
-- `~/.weacpx/runtime/stdout.log`
-- `~/.weacpx/runtime/stderr.log`
+## 常见问题
 
-### Transport 权限配置
+### `/ss new` 失败怎么办？
 
-`config.json` 中的 `transport` 支持以下权限字段：
+如果你在微信里创建会话失败，最常见的情况不是 `weacpx` 命令格式错了，而是底层会话没有成功创建。
 
-```json
-{
-  "transport": {
-    "type": "acpx-bridge",
-    "sessionInitTimeoutMs": 120000,
-    "permissionMode": "approve-all",
-    "nonInteractivePermissions": "deny"
-  }
-}
-```
+你可以先试这两步：
 
-说明：
+1. 在终端里确认当前项目目录和 agent 本身可用
+2. 如果你熟悉 `acpx`，先手动创建一个会话，再在微信里挂回去
 
-- `permissionMode`: `approve-all`、`approve-reads`、`deny-all`
-- `nonInteractivePermissions`: `deny`、`fail`
-- 默认值分别是 `approve-all` 和 `deny`
-- 也可以直接在微信里通过 `/pm` 和 `/pm auto` 修改
-
-### 日志配置
-
-`config.json` 支持可选的 `logging` 配置：
-
-```json
-{
-  "logging": {
-    "level": "info",
-    "maxSizeBytes": 2097152,
-    "maxFiles": 5,
-    "retentionDays": 7
-  }
-}
-```
-
-说明：
-
-- `level`: `error`、`info`、`debug`
-- `maxSizeBytes`: 单个 `app.log` 文件达到上限后会轮转
-- `maxFiles`: 最多保留多少个轮转文件
-- `retentionDays`: 每次启动时会清理超过保留天数的旧轮转日志
-
-## 注意事项
-
-### Adapter mode 参考
-
-`acpx set-mode` / 计划中的 `/mode <id>` 本质上都是给底层 ACP session 发送 `session/set_mode`。
-这里的 `<id>` 不是 `weacpx` 或 `acpx` 统一规定的枚举，而是**各 adapter 自己定义**的值；填错时通常会收到 adapter 返回的 `Invalid params` 一类错误。
-
-基于 `acpx` 内置 adapter 文档和各上游公开文档，当前能确认的信息如下：
-
-| adapter | 已确认可用的 mode id | 说明 |
-|------|------|------|
-| `codex` | `plan` | `acpx` 自身示例明确使用过 `acpx codex set-mode plan`。`codex-acp` 还暴露了 `mode` 运行时配置项，但上游目前没有公开一份完整、稳定的 mode id 列表。 |
-| `cursor` | `agent`、`plan`、`ask` | Cursor 官方文档/更新日志公开提到 `Plan mode`、`Ask mode`；Cursor 官方论坛在 ACP `session/configure` 示例中展示过 `availableModes` 为 `agent` / `plan` / `ask`。 |
-| 其他内置 adapter | 暂无公开、稳定的 mode id 列表 | 包括 `claude`、`copilot`、`gemini`、`qoder`、`qwen`、`kimi`、`kiro`、`iflow`、`opencode`、`trae`、`droid`、`kilocode` 等。即使某些产品本身有“Ask / Agent / Plan”之类概念，其 ACP `set-mode` 可接受的精确字符串也往往没有在官方文档中写死。 |
-
-建议：
-
-- 对 `codex`，优先把 `plan` 当作已知可用值。
-- 对 `cursor`，优先使用 `agent`、`plan`、`ask`。
-- 对其他 adapter，不要在 `weacpx` 里写死候选值；最好把 `/mode <id>` 设计成透传，由 adapter 自己决定是否接受。
-- 如果某个 adapter 后续补充了官方 mode 文档，再把它们补进这里。
-
-### 如果 `/ss new` 失败
-
-当前最常见的问题仍然是底层 `acpx` named session 的运行时恢复，不一定是 `weacpx` 本身的逻辑问题。
-
-可以先在本地创建一个 named session，再在微信里 attach：
+例如，你可以先在本地创建一个会话：
 
 ```bash
 ./node_modules/.bin/acpx --verbose --cwd /absolute/workspace/path codex sessions new --name existing-demo
 ```
 
-然后在微信里：
+然后在微信里把它挂回来：
 
 ```text
 /ss attach demo -a codex --ws backend --name existing-demo
 ```
 
+### `/mode <id>` 里的 `<id>` 是什么？
+
+`/mode` 的可用值取决于你当前使用的 agent，`weacpx` 不会替你统一转换这些值。
+
+当前比较明确的已知值：
+
+- `codex`: `plan`
+- `cursor`: `agent`、`plan`、`ask`
+
+如果你不确定某个值能不能用，优先查对应 agent 的文档；如果填错，通常会直接收到无效参数之类的报错。
+
+## 从源码运行
+
+如果你是从仓库源码直接使用：
+
+```bash
+bun install
+bun run login
+bun run dev
+```
+
 ## 更多文档
 
-- 配置参考：[docs/config-reference.md](./docs/config-reference.md)
-- 测试说明：[docs/testing.md](./docs/testing.md)
-- 开发与贡献：[docs/development.md](./docs/development.md)
+如果你现在要做的是下面这些事，可以直接从这里继续：
+
+### 安装与配置
+
+- 想看完整配置字段：[docs/config-reference.md](./docs/config-reference.md)
+- 想在微信里改配置：[docs/config-command.md](./docs/config-command.md)
+
+### 日常使用
+
+- 想查看完整微信命令参考：[docs/commands.md](./docs/commands.md)
+- 想理解什么时候该用 delegate、什么时候该开 group：[docs/weacpx-group-usage-guide.md](./docs/weacpx-group-usage-guide.md)
+
+### 排错与验证
+
+- 想跑测试或了解测试分层：[docs/testing.md](./docs/testing.md)
+
+### 开发与贡献
+
+- 想从源码开发、调试或参与贡献：[docs/developments.md](./docs/developments.md)

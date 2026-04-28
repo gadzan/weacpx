@@ -25,8 +25,14 @@ export async function executeChatTurn(params: ExecuteChatTurnParams): Promise<Ex
     },
   });
 
+  // response.text — when present alongside reply() usage — is the final message
+  // (e.g. transport's `overflow_summary + agent_message` for streaming prompts,
+  // or a "ready" summary after progress reply()s). Return it as turn.text so the
+  // caller routes it through the final-message path (reserveFinal + sendMessage),
+  // not back through onReplySegment which is gated by mid quota.
+  // Streaming handlers that would otherwise duplicate content must return text: undefined.
   return {
-    text: usedReply ? undefined : response.text,
+    text: response.text,
     media: response.media,
     usedReply,
   };

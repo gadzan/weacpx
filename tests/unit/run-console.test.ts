@@ -21,6 +21,16 @@ test("runs the foreground service with daemon lifecycle hooks", async () => {
         stateStore: {} as never,
         configStore: {} as never,
         logger: createNoopAppLogger(),
+        orchestration: {
+          server: {
+            start: async () => {
+              events.push("orchestration:start");
+            },
+            stop: async () => {
+              events.push("orchestration:stop");
+            },
+          },
+        },
         dispose: async () => {
           events.push("dispose");
         },
@@ -56,8 +66,10 @@ test("runs the foreground service with daemon lifecycle hooks", async () => {
 
   expect(events).toEqual([
     "daemon:start:/cfg:/state",
+    "orchestration:start",
     "sdk:start",
     "daemon:heartbeat",
+    "orchestration:stop",
     "dispose",
     "daemon:stop",
   ]);
@@ -81,6 +93,16 @@ test("still stops daemon runtime when startup fails", async () => {
           stateStore: {} as never,
           configStore: {} as never,
           logger: createNoopAppLogger(),
+          orchestration: {
+            server: {
+              start: async () => {
+                events.push("orchestration:start");
+              },
+              stop: async () => {
+                events.push("orchestration:stop");
+              },
+            },
+          },
           dispose: async () => {
             events.push("dispose");
           },
@@ -106,7 +128,48 @@ test("still stops daemon runtime when startup fails", async () => {
     ),
   ).rejects.toThrow("boom");
 
-  expect(events).toEqual(["daemon:start", "dispose", "daemon:stop"]);
+  expect(events).toEqual(["daemon:start", "orchestration:start", "orchestration:stop", "dispose", "daemon:stop"]);
+});
+
+test("disposes runtime when loading the sdk fails before startup", async () => {
+  const events: string[] = [];
+
+  await expect(
+    runConsole(
+      {
+        configPath: "/cfg",
+        statePath: "/state",
+      },
+      {
+        buildApp: async () => ({
+          agent: {} as never,
+          router: {} as never,
+          sessions: {} as never,
+          stateStore: {} as never,
+          configStore: {} as never,
+          logger: createNoopAppLogger(),
+          orchestration: {
+            server: {
+              start: async () => {
+                events.push("orchestration:start");
+              },
+              stop: async () => {
+                events.push("orchestration:stop");
+              },
+            },
+          },
+          dispose: async () => {
+            events.push("dispose");
+          },
+        }),
+        loadWeixinSdk: async () => {
+          throw new Error("sdk load failed");
+        },
+      },
+    ),
+  ).rejects.toThrow("sdk load failed");
+
+  expect(events).toEqual(["dispose"]);
 });
 
 test("swallows heartbeat failures inside the timer callback", async () => {
@@ -125,6 +188,12 @@ test("swallows heartbeat failures inside the timer callback", async () => {
         stateStore: {} as never,
         configStore: {} as never,
         logger: createNoopAppLogger(),
+        orchestration: {
+          server: {
+            start: async () => {},
+            stop: async () => {},
+          },
+        },
         dispose: async () => {},
       }),
       loadWeixinSdk: async () => ({
@@ -166,6 +235,16 @@ test("still stops daemon runtime when dispose fails", async () => {
           stateStore: {} as never,
           configStore: {} as never,
           logger: createNoopAppLogger(),
+          orchestration: {
+            server: {
+              start: async () => {
+                events.push("orchestration:start");
+              },
+              stop: async () => {
+                events.push("orchestration:stop");
+              },
+            },
+          },
           dispose: async () => {
             events.push("dispose");
             throw new Error("dispose failed");
@@ -190,7 +269,7 @@ test("still stops daemon runtime when dispose fails", async () => {
     ),
   ).rejects.toThrow("dispose failed");
 
-  expect(events).toEqual(["daemon:start", "sdk:start", "dispose", "daemon:stop"]);
+  expect(events).toEqual(["daemon:start", "orchestration:start", "sdk:start", "orchestration:stop", "dispose", "daemon:stop"]);
 });
 
 test("handles SIGINT by aborting the sdk start and running cleanup", async () => {
@@ -210,6 +289,16 @@ test("handles SIGINT by aborting the sdk start and running cleanup", async () =>
         stateStore: {} as never,
         configStore: {} as never,
         logger: createNoopAppLogger(),
+        orchestration: {
+          server: {
+            start: async () => {
+              events.push("orchestration:start");
+            },
+            stop: async () => {
+              events.push("orchestration:stop");
+            },
+          },
+        },
         dispose: async () => {
           events.push("dispose");
         },
@@ -251,6 +340,6 @@ test("handles SIGINT by aborting the sdk start and running cleanup", async () =>
     },
   );
 
-  expect(events).toEqual(["daemon:start", "sdk:start", "sdk:abort", "dispose", "daemon:stop"]);
+  expect(events).toEqual(["daemon:start", "orchestration:start", "sdk:start", "sdk:abort", "orchestration:stop", "dispose", "daemon:stop"]);
   expect(signalHandlers.size).toBe(0);
 });

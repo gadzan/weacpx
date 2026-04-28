@@ -31,6 +31,12 @@ function createConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       backend: { cwd: "/repo/backend" },
       frontend: { cwd: "/repo/frontend" },
     },
+    orchestration: overrides.orchestration ?? {
+      maxPendingAgentRequestsPerCoordinator: 3,
+      allowWorkerChainedRequests: false,
+      allowedAgentRequestTargets: [],
+      allowedAgentRequestRoles: [],
+    },
   };
 }
 

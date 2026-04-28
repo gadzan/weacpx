@@ -3,6 +3,7 @@ import type { ChatRequest } from "../../../src/weixin/agent/interface";
 
 test("ChatRequest accepts optional reply callback", () => {
   const request: ChatRequest = {
+    accountId: "acc-1",
     conversationId: "user-1",
     text: "hello",
     reply: async (text: string) => {
@@ -15,6 +16,7 @@ test("ChatRequest accepts optional reply callback", () => {
 
 test("ChatRequest works without reply callback (backward compatible)", () => {
   const request: ChatRequest = {
+    accountId: "acc-1",
     conversationId: "user-1",
     text: "hello",
   };

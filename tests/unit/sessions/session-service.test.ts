@@ -20,6 +20,12 @@ function createConfig(): AppConfig {
         cwd: "/tmp/backend",
       },
     },
+    orchestration: {
+      maxPendingAgentRequestsPerCoordinator: 3,
+      allowWorkerChainedRequests: false,
+      allowedAgentRequestTargets: [],
+      allowedAgentRequestRoles: [],
+    },
   };
 }
 
@@ -159,7 +165,7 @@ test("rejects unknown workspaces", async () => {
   const store = new MemoryStateStore();
   const service = new SessionService(createConfig(), store, createEmptyState());
 
-  await expect(service.createSession("x", "codex", "missing")).rejects.toThrow('workspace "missing"');
+  await expect(service.createSession("x", "codex", "missing")).rejects.toThrow("工作区「missing」未注册");
 });
 
 test("rejects blank session aliases", async () => {
@@ -224,4 +230,29 @@ test("returns a descriptive error when resolving a session whose workspace was r
   await expect(service.getSession("api-fix")).rejects.toThrow(
     'session "api-fix" references workspace "backend", but that workspace is no longer registered',
   );
+});
+
+test("removes a session and clears chat contexts pointing to it", async () => {
+  const store = new MemoryStateStore();
+  const service = new SessionService(createConfig(), store, createEmptyState());
+
+  await service.createSession("main", "codex", "backend");
+  await service.createSession("other", "claude", "backend");
+  await service.useSession("wx:user-1", "main");
+  await service.useSession("wx:user-2", "main");
+
+  const { wasActive } = await service.removeSession("main");
+
+  expect(wasActive).toBe(true);
+  expect(await service.getSession("main")).toBeNull();
+  expect(await service.getSession("other")).not.toBeNull();
+  expect(await service.getCurrentSession("wx:user-1")).toBeNull();
+  expect(await service.getCurrentSession("wx:user-2")).toBeNull();
+});
+
+test("throws when removing a non-existent session", async () => {
+  const store = new MemoryStateStore();
+  const service = new SessionService(createConfig(), store, createEmptyState());
+
+  expect(service.removeSession("nope")).rejects.toThrow('session "nope" does not exist');
 });

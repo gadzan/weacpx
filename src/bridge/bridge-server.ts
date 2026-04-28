@@ -1,11 +1,13 @@
 import {
   encodeBridgePromptSegmentEvent,
+  encodeBridgeSessionNoteEvent,
+  encodeBridgeSessionProgressEvent,
   type BridgeMethod,
   type BridgeResponse,
 } from "../transport/acpx-bridge/acpx-bridge-protocol";
 import { PromptCommandError } from "../transport/prompt-output";
 import { BridgeRequestScheduler, type BridgeRequestLane } from "./bridge-request-scheduler";
-import { BridgeRuntime } from "./bridge-runtime";
+import { BridgeRuntime, EnsureSessionFailedError } from "./bridge-runtime";
 
 interface BridgeRequest {
   id: string;
@@ -24,9 +26,17 @@ const BRIDGE_METHODS = new Set<BridgeMethod>([
   "prompt",
   "setMode",
   "cancel",
+  "removeSession",
 ]);
 
-const SESSION_SCOPED_METHODS = new Set<BridgeMethod>(["hasSession", "ensureSession", "prompt", "setMode", "cancel"]);
+const SESSION_SCOPED_METHODS = new Set<BridgeMethod>([
+  "hasSession",
+  "ensureSession",
+  "prompt",
+  "setMode",
+  "cancel",
+  "removeSession",
+]);
 
 export class BridgeServer {
   private readonly scheduler = new BridgeRequestScheduler();
@@ -48,21 +58,20 @@ export class BridgeServer {
       } satisfies BridgeResponse)}\n`;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const ensureSessionFields = error instanceof EnsureSessionFailedError
+        ? { kind: error.kind, ...(error.data ? { data: error.data } : {}) }
+        : {};
+      const promptDetails = error instanceof PromptCommandError
+        ? { details: { exitCode: error.exitCode, stdout: error.stdout, stderr: error.stderr } }
+        : {};
       return `${JSON.stringify({
         id: requestId,
         ok: false,
         error: {
           code: error instanceof BridgeInvalidRequestError ? "BRIDGE_INVALID_REQUEST" : "BRIDGE_INTERNAL_ERROR",
           message,
-          ...(error instanceof PromptCommandError
-            ? {
-                details: {
-                  exitCode: error.exitCode,
-                  stdout: error.stdout,
-                  stderr: error.stderr,
-                },
-              }
-            : {}),
+          ...ensureSessionFields,
+          ...promptDetails,
         },
       } satisfies BridgeResponse)}\n`;
     }
@@ -121,6 +130,22 @@ export class BridgeServer {
           agentCommand: asOptionalString(params.agentCommand),
           cwd: requireString(params, "cwd"),
           name: requireString(params, "name"),
+          mcpCoordinatorSession: asOptionalString(params.mcpCoordinatorSession),
+          mcpSourceHandle: asOptionalString(params.mcpSourceHandle),
+        }, (progress) => {
+          if (typeof progress === "string") {
+            writeLine?.(encodeBridgeSessionProgressEvent({
+              id: requestId,
+              event: "session.progress",
+              stage: progress,
+            }));
+          } else if (progress.kind === "note") {
+            writeLine?.(encodeBridgeSessionNoteEvent({
+              id: requestId,
+              event: "session.note",
+              text: progress.text,
+            }));
+          }
         });
       case "prompt":
         return await this.runtime.prompt({
@@ -128,7 +153,10 @@ export class BridgeServer {
           agentCommand: asOptionalString(params.agentCommand),
           cwd: requireString(params, "cwd"),
           name: requireString(params, "name"),
+          mcpCoordinatorSession: asOptionalString(params.mcpCoordinatorSession),
+          mcpSourceHandle: asOptionalString(params.mcpSourceHandle),
           text: requireString(params, "text"),
+          replyMode: asOptionalReplyMode(params.replyMode),
         }, (event) => {
           if (event.type === "prompt.segment") {
             writeLine?.(encodeBridgePromptSegmentEvent({
@@ -148,6 +176,13 @@ export class BridgeServer {
         });
       case "cancel":
         return await this.runtime.cancel({
+          agent: requireString(params, "agent"),
+          agentCommand: asOptionalString(params.agentCommand),
+          cwd: requireString(params, "cwd"),
+          name: requireString(params, "name"),
+        });
+      case "removeSession":
+        return await this.runtime.removeSession({
           agent: requireString(params, "agent"),
           agentCommand: asOptionalString(params.agentCommand),
           cwd: requireString(params, "cwd"),
@@ -268,4 +303,13 @@ function asOptionalString(value: unknown): string | undefined {
   }
 
   return value;
+}
+
+// Inline union — this crosses the JSON protocol boundary, validated by VALID_REPLY_MODES set.
+const VALID_REPLY_MODES = new Set<string>(["stream", "final", "verbose"]);
+function asOptionalReplyMode(value: unknown): "stream" | "final" | "verbose" | undefined {
+  if (typeof value !== "string" || !VALID_REPLY_MODES.has(value)) {
+    return undefined;
+  }
+  return value as "stream" | "final" | "verbose";
 }

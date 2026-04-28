@@ -1,4 +1,5 @@
 import type { AppRuntime, RuntimePaths } from "./main";
+import type { PendingFinalChunk } from "./weixin/messaging/quota-manager";
 import { ActiveWeixinConsumerLockError } from "./weixin/monitor/consumer-lock";
 
 interface DaemonLifecycle {
@@ -22,7 +23,20 @@ interface ConsumerLock {
 interface RunConsoleDeps {
   buildApp: (paths: RuntimePaths) => Promise<AppRuntime>;
   loadWeixinSdk: () => Promise<{
-    start: (agent: AppRuntime["agent"], options?: { abortSignal?: AbortSignal }) => Promise<void>;
+    start: (
+      agent: AppRuntime["agent"],
+      options?: {
+        abortSignal?: AbortSignal;
+        onInbound?: (chatKey: string) => void;
+        reserveFinal?: (chatKey: string) => boolean;
+        finalRemaining?: (chatKey: string) => number;
+        hasPendingFinal?: (chatKey: string) => boolean;
+        drainPendingFinal?: (chatKey: string, available: number) => PendingFinalChunk[];
+        prependPendingFinal?: (chatKey: string, chunks: PendingFinalChunk[]) => void;
+        enqueuePendingFinal?: (chatKey: string, chunks: PendingFinalChunk[]) => void;
+        dropPendingFinal?: (chatKey: string) => void;
+      },
+    ) => Promise<void>;
     login: () => Promise<string>;
     isLoggedIn: () => boolean;
   }>;
@@ -39,10 +53,19 @@ interface RunConsoleDeps {
   hostname?: () => string;
 }
 
+interface RunCleanupSequenceInput {
+  removeProcessListener: (signal: NodeJS.Signals, handler: () => void) => void;
+  signalHandler: () => void;
+  clearIntervalFn: (timer: unknown) => void;
+  heartbeatTimer: unknown;
+  daemonRuntime?: DaemonLifecycle;
+  runtime: AppRuntime | null;
+  consumerLock?: ConsumerLock;
+  consumerLockAcquired: boolean;
+  processPid: number;
+}
+
 export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Promise<void> {
-  const runtime = await deps.buildApp(paths);
-  const consumerLock = deps.consumerLock ?? deps.consumerLockFactory?.(runtime);
-  const sdk = await deps.loadWeixinSdk();
   const setIntervalFn = deps.setInterval ?? ((fn, delay) => setInterval(fn, delay));
   const clearIntervalFn = deps.clearInterval ?? ((timer) => clearInterval(timer as NodeJS.Timeout));
   const addProcessListener = deps.addProcessListener ?? ((signal, handler) => process.on(signal, handler));
@@ -52,6 +75,9 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
   const now = deps.now ?? (() => new Date().toISOString());
   const hostname = deps.hostname ?? (() => "");
 
+  let runtime: AppRuntime | null = null;
+  let consumerLock: ConsumerLock | undefined;
+  let sdk: Awaited<ReturnType<RunConsoleDeps["loadWeixinSdk"]>> | null = null;
   let heartbeatTimer: unknown = null;
   let consumerLockAcquired = false;
   const shutdownController = new AbortController();
@@ -62,11 +88,16 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
   addProcessListener("SIGTERM", signalHandler);
 
   try {
+    runtime = await deps.buildApp(paths);
+    consumerLock = deps.consumerLock ?? deps.consumerLockFactory?.(runtime);
+    sdk = await deps.loadWeixinSdk();
+
     if (deps.daemonRuntime) {
       await deps.daemonRuntime.start({
         configPath: paths.configPath,
         statePath: paths.statePath,
       });
+      await runtime.orchestration.server.start();
       heartbeatTimer = setIntervalFn(
         () => {
           void deps.daemonRuntime?.heartbeat().catch(() => {});
@@ -129,30 +160,81 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
       await sdk.login();
     }
 
-    await sdk.start(runtime.agent, { abortSignal: shutdownController.signal });
+    await sdk.start(runtime.agent, {
+      abortSignal: shutdownController.signal,
+      onInbound: (chatKey) => runtime!.quota.onInbound(chatKey),
+      reserveFinal: (chatKey) => runtime!.quota.reserveFinal(chatKey),
+      finalRemaining: (chatKey) => runtime!.quota.finalRemaining(chatKey),
+      hasPendingFinal: (chatKey) => runtime!.quota.hasPendingFinal(chatKey),
+      drainPendingFinal: (chatKey, available) =>
+        runtime!.quota.drainPendingFinalUpToBudget(chatKey, available),
+      prependPendingFinal: (chatKey, chunks) =>
+        runtime!.quota.prependPendingFinal(chatKey, chunks),
+      enqueuePendingFinal: (chatKey, chunks) =>
+        runtime!.quota.enqueuePendingFinal(chatKey, chunks),
+      dropPendingFinal: (chatKey) => runtime!.quota.clearPendingFinal(chatKey),
+    });
   } finally {
-    let disposeError: unknown = null;
-    removeProcessListener("SIGINT", signalHandler);
-    removeProcessListener("SIGTERM", signalHandler);
-    if (heartbeatTimer !== null) {
-      clearIntervalFn(heartbeatTimer);
-    }
+    await runCleanupSequence({
+      removeProcessListener,
+      signalHandler,
+      clearIntervalFn,
+      heartbeatTimer,
+      ...(deps.daemonRuntime ? { daemonRuntime: deps.daemonRuntime } : {}),
+      runtime,
+      consumerLock,
+      consumerLockAcquired,
+      processPid,
+    });
+  }
+}
+
+async function runCleanupSequence(input: RunCleanupSequenceInput): Promise<void> {
+  let cleanupError: unknown = null;
+  input.removeProcessListener("SIGINT", input.signalHandler);
+  input.removeProcessListener("SIGTERM", input.signalHandler);
+  if (input.heartbeatTimer !== null) {
+    input.clearIntervalFn(input.heartbeatTimer);
+  }
+
+  if (input.daemonRuntime && input.runtime) {
     try {
-      await runtime.dispose();
+      await input.runtime.orchestration.server.stop();
     } catch (error) {
-      disposeError = error;
+      cleanupError ??= error;
     }
-    if (deps.daemonRuntime) {
-      await deps.daemonRuntime.stop();
+  }
+
+  if (input.runtime) {
+    try {
+      await input.runtime.dispose();
+    } catch (error) {
+      cleanupError ??= error;
     }
-    if (consumerLockAcquired) {
-      await consumerLock?.release();
-      await runtime.logger.info("weixin.consumer_lock.released", "released weixin consumer lock", {
-        pid: processPid,
-      });
+  }
+
+  if (input.daemonRuntime) {
+    try {
+      await input.daemonRuntime.stop();
+    } catch (error) {
+      cleanupError ??= error;
     }
-    if (disposeError) {
-      throw disposeError;
+  }
+
+  if (input.consumerLockAcquired) {
+    try {
+      await input.consumerLock?.release();
+      if (input.runtime) {
+        await input.runtime.logger.info("weixin.consumer_lock.released", "released weixin consumer lock", {
+          pid: input.processPid,
+        });
+      }
+    } catch (error) {
+      cleanupError ??= error;
     }
+  }
+
+  if (cleanupError) {
+    throw cleanupError;
   }
 }

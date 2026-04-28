@@ -14,6 +14,8 @@ export interface Agent {
 }
 
 export interface ChatRequest {
+  /** Inbound Weixin account id that received this message. */
+  accountId: string;
   /** Conversation / user identifier. Use this to maintain per-user context. */
   conversationId: string;
   /** Text content of the message. */
@@ -35,6 +37,8 @@ export interface ChatRequest {
    * suppress `ChatResponse.text`.
    */
   reply?: (text: string) => Promise<void>;
+  /** Latest inbound Weixin context token for follow-up replies in the same chat. */
+  replyContextToken?: string;
 }
 
 export interface ChatResponse {

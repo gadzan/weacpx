@@ -7,6 +7,12 @@ const TEMPLATES: Record<string, AgentConfig> = {
   claude: {
     driver: "claude",
   },
+  opencode: {
+    driver: "opencode",
+  },
+  gemini: {
+    driver: "gemini",
+  },
 };
 
 export function getAgentTemplate(name: string): AgentConfig | null {

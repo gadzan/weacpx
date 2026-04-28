@@ -136,8 +136,8 @@ function applySupportedConfigUpdate(
       return { renderedValue: String(parsed.value) };
     }
     case "wechat.replyMode": {
-      const parsed = parseEnum<WechatReplyMode>(rawValue, ["stream", "final"]);
-      if (!parsed) return { error: "wechat.replyMode 只支持：stream、final" };
+      const parsed = parseEnum<WechatReplyMode>(rawValue, ["stream", "final", "verbose"]);
+      if (!parsed) return { error: "wechat.replyMode 只支持：stream、final、verbose" };
       config.wechat.replyMode = parsed;
       return { renderedValue: parsed };
     }

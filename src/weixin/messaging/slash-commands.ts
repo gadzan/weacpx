@@ -11,6 +11,8 @@ import type { WeixinApiOptions } from "../api/api.js";
 import { clearAllWeixinAccounts, listWeixinAccountIds } from "../auth/accounts.js";
 import { logger } from "../util/logger.js";
 
+import { buildFinalHeadsUp } from "./final-heads-up.js";
+import type { PendingFinalChunk } from "./quota-manager.js";
 import { toggleDebugMode, isDebugMode } from "./debug-mode.js";
 import { sendMessageWeixin } from "./send.js";
 
@@ -29,6 +31,23 @@ export interface SlashCommandContext {
   errLog: (msg: string) => void;
   /** Called when /clear is invoked to reset the agent session. */
   onClear?: () => void | Promise<void>;
+  // v1.4: pending-final pagination wiring. Optional because not every code
+  // path that constructs a SlashCommandContext needs /jx drain (smoke tests,
+  // /echo-only flows). When provided, /jx will pull the next wave from the
+  // pending queue and send it.
+  hasPendingFinal?: (chatKey: string) => boolean;
+  drainPendingFinal?: (chatKey: string, available: number) => PendingFinalChunk[];
+  prependPendingFinal?: (chatKey: string, chunks: PendingFinalChunk[]) => void;
+  reserveFinal?: (chatKey: string) => boolean;
+  finalRemaining?: (chatKey: string) => number;
+  // Optional override for the underlying send. Defaults to sendMessageWeixin
+  // when omitted; primarily useful for tests that cannot rely on module-level
+  // mocking due to shared module cache across test files.
+  sendText?: (params: {
+    to: string;
+    text: string;
+    contextToken?: string;
+  }) => Promise<void>;
 }
 
 /** 发送回复消息 */
@@ -61,6 +80,78 @@ async function handleEcho(
     `└ 插件处理: ${Date.now() - receivedAt}ms`,
   ].join("\n");
   await sendReply(ctx, timing);
+}
+
+/**
+ * v1.4: drain the next wave of pending paginated-final chunks parked by an
+ * earlier inbound's overflow. Sends up to `finalRemaining(chatKey)` chunks; if
+ * any chunks remain after the wave, appends a heads-up tail to this wave's
+ * last chunk so the user knows another `/jx` will pull more. No-op when there
+ * is nothing pending or the wiring is incomplete.
+ */
+export async function drainPendingFinalForJx(ctx: SlashCommandContext): Promise<void> {
+  if (
+    !ctx.hasPendingFinal ||
+    !ctx.drainPendingFinal ||
+    !ctx.prependPendingFinal ||
+    !ctx.reserveFinal ||
+    !ctx.finalRemaining
+  ) {
+    return;
+  }
+  if (!ctx.hasPendingFinal(ctx.to)) return;
+  const available = ctx.finalRemaining(ctx.to);
+  if (available <= 0) return;
+  const wave = ctx.drainPendingFinal(ctx.to, available);
+  if (wave.length === 0) return;
+  const sendWave = wave.map((chunk) => ({ ...chunk }));
+  const stillPending = ctx.hasPendingFinal(ctx.to);
+  if (stillPending) {
+    const last = sendWave[sendWave.length - 1]!;
+    last.text = `${last.text}\n\n${buildFinalHeadsUp({
+      total: last.total,
+      sentSoFar: last.seq,
+    })}`;
+  }
+  const send = ctx.sendText
+    ? ctx.sendText
+    : (params: { to: string; text: string; contextToken?: string }) =>
+        sendMessageWeixin({
+          to: params.to,
+          text: params.text,
+          opts: {
+            baseUrl: ctx.baseUrl,
+            token: ctx.token,
+            contextToken: params.contextToken,
+          },
+        }).then(() => undefined);
+  let sent = 0;
+  for (const chunk of sendWave) {
+    const reserved = ctx.reserveFinal(ctx.to);
+    if (!reserved) {
+      ctx.prependPendingFinal(ctx.to, wave.slice(sent));
+      ctx.errLog(
+        `weixin.final.dropped reason=quota_exhausted kind=text_paginated_jx chatKey=${ctx.to} chunk=${chunk.seq}/${chunk.total}`,
+      );
+      break;
+    }
+    try {
+      const sendArgs: { to: string; text: string; contextToken?: string } = {
+        to: ctx.to,
+        text: chunk.text,
+      };
+      const ct = chunk.contextToken ?? ctx.contextToken;
+      if (ct !== undefined) sendArgs.contextToken = ct;
+      await send(sendArgs);
+      sent += 1;
+    } catch (err) {
+      ctx.prependPendingFinal(ctx.to, wave.slice(sent));
+      ctx.errLog(
+        `weixin.final.dropped reason=send_failed kind=text_paginated_jx chatKey=${ctx.to} chunk=${chunk.seq}/${chunk.total} err=${String(err)}`,
+      );
+      break;
+    }
+  }
 }
 
 /**
@@ -103,6 +194,15 @@ export async function handleSlashCommand(
       case "/clear": {
         await ctx.onClear?.();
         await sendReply(ctx, "✅ 会话已清除，重新开始对话");
+        return { handled: true };
+      }
+      case "/jx": {
+        // v1.4: monitor.onInbound has already reset the budget window. If a
+        // long final answer overflowed previously and parked chunks in the
+        // pending queue, drain the next wave (up to finalRemaining slots) and
+        // send it now. If pending is empty, this remains a pure no-op (no
+        // reply burned on an ack).
+        await drainPendingFinalForJx(ctx);
         return { handled: true };
       }
       case "/logout": {

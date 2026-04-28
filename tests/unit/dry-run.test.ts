@@ -45,7 +45,7 @@ test("supports switching chat keys within one dry-run invocation", () => {
 });
 
 test("replays a transcript through the shared agent interface", async () => {
-  const seen: Array<{ conversationId: string; text: string }> = [];
+  const seen: Array<{ accountId: string; conversationId: string; text: string }> = [];
   const agent: WechatAgent = {
     async chat(request) {
       seen.push(request);
@@ -61,8 +61,8 @@ test("replays a transcript through the shared agent interface", async () => {
   });
 
   expect(seen).toEqual([
-    { conversationId: "wx:test", text: "/help" },
-    { conversationId: "wx:other", text: "hello" },
+    { accountId: "dry-run", conversationId: "wx:test", text: "/help" },
+    { accountId: "dry-run", conversationId: "wx:other", text: "hello" },
   ]);
   expect(transcript).toEqual([
     { input: "/help", output: "reply:/help" },

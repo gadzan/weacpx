@@ -1,6 +1,7 @@
 import type { HelpTopicMetadata } from "./help-types";
 import { agentHelp } from "../handlers/agent-handler";
 import { configHelp } from "../handlers/config-handler";
+import { orchestrationHelp } from "../handlers/orchestration-handler";
 import { permissionHelp } from "../handlers/permission-handler";
 import {
   cancelHelp,
@@ -17,6 +18,7 @@ export const HELP_TOPICS: HelpTopicMetadata[] = [
   agentHelp,
   permissionHelp,
   configHelp,
+  orchestrationHelp,
   modeHelp,
   replyModeHelp,
   statusHelp,

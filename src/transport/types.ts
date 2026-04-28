@@ -1,4 +1,10 @@
 import type { NonInteractivePermissions, PermissionMode } from "../config/types";
+import type { QuotaManager } from "../weixin/messaging/quota-manager.js";
+
+export interface ReplyQuotaContext {
+  chatKey: string;
+  quota: QuotaManager;
+}
 
 export interface PermissionPolicy {
   permissionMode: PermissionMode;
@@ -11,17 +17,33 @@ export interface ResolvedSession {
   agentCommand?: string;
   workspace: string;
   transportSession: string;
+  mcpCoordinatorSession?: string;
+  mcpSourceHandle?: string;
   modeId?: string;
-  replyMode?: "stream" | "final";
+  replyMode?: "stream" | "final" | "verbose";
   cwd: string;
 }
 
+export type EnsureSessionProgressStage = "spawn" | "initializing" | "ready";
+export type EnsureSessionProgress =
+  | EnsureSessionProgressStage
+  | { kind: "note"; text: string };
+
 export interface SessionTransport {
-  ensureSession(session: ResolvedSession): Promise<void>;
-  prompt(session: ResolvedSession, text: string, reply?: (text: string) => Promise<void>): Promise<{ text: string }>;
+  ensureSession(
+    session: ResolvedSession,
+    onProgress?: (progress: EnsureSessionProgress) => void,
+  ): Promise<void>;
+  prompt(
+    session: ResolvedSession,
+    text: string,
+    reply?: (text: string) => Promise<void>,
+    replyContext?: ReplyQuotaContext,
+  ): Promise<{ text: string }>;
   setMode(session: ResolvedSession, modeId: string): Promise<void>;
   cancel(session: ResolvedSession): Promise<{ cancelled: boolean; message: string }>;
   hasSession(session: ResolvedSession): Promise<boolean>;
+  removeSession?(session: ResolvedSession): Promise<void>;
   updatePermissionPolicy?(policy: PermissionPolicy): Promise<void>;
   dispose?(): Promise<void>;
 }

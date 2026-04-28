@@ -1,9 +1,11 @@
 import { readFile } from "node:fs/promises";
 
+import { normalizeWorkspacePath } from "../commands/workspace-path";
 import { resolveAgentCommand } from "./resolve-agent-command";
 import type {
   AgentConfig,
   AppConfig,
+  OrchestrationConfig,
   LoggingConfig,
   LoggingLevel,
   NonInteractivePermissions,
@@ -20,7 +22,14 @@ const DEFAULT_LOGGING_CONFIG: LoggingConfig = {
 };
 const DEFAULT_PERMISSION_MODE: PermissionMode = "approve-all";
 const DEFAULT_NON_INTERACTIVE_PERMISSIONS: NonInteractivePermissions = "deny";
-const DEFAULT_WECHAT_REPLY_MODE: WechatReplyMode = "stream";
+const DEFAULT_WECHAT_REPLY_MODE: WechatReplyMode = "verbose";
+const DEFAULT_ORCHESTRATION_CONFIG: OrchestrationConfig = {
+  maxPendingAgentRequestsPerCoordinator: 3,
+  allowWorkerChainedRequests: false,
+  allowedAgentRequestTargets: [],
+  allowedAgentRequestRoles: [],
+  progressHeartbeatSeconds: 300,
+};
 
 type ParsedAgentRecord = Record<string, AgentConfig & { command?: string }>;
 type ParsedWorkspaceRecord = Record<string, WorkspaceConfig & { allowed_agents?: string[] }>;
@@ -92,11 +101,15 @@ export function parseConfig(
 
   const logging = raw.logging;
   const wechat = raw.wechat;
+  const orchestration = raw.orchestration;
   if (logging !== undefined && !isRecord(logging)) {
     throw new Error("logging must be an object");
   }
   if (wechat !== undefined && !isRecord(wechat)) {
     throw new Error("wechat must be an object");
+  }
+  if (orchestration !== undefined && !isRecord(orchestration)) {
+    throw new Error("orchestration must be an object");
   }
   if (
     isRecord(logging) &&
@@ -120,9 +133,10 @@ export function parseConfig(
     isRecord(wechat) &&
     "replyMode" in wechat &&
     wechat.replyMode !== "stream" &&
-    wechat.replyMode !== "final"
+    wechat.replyMode !== "final" &&
+    wechat.replyMode !== "verbose"
   ) {
-    throw new Error("wechat.replyMode must be stream or final");
+    throw new Error("wechat.replyMode must be stream, final, or verbose");
   }
 
   for (const [name, agent] of Object.entries(raw.agents)) {
@@ -161,7 +175,7 @@ export function parseConfig(
   const workspaces: Record<string, WorkspaceConfig> = {};
   for (const [name, workspace] of Object.entries(rawWorkspaces)) {
     workspaces[name] = {
-      cwd: workspace.cwd,
+      cwd: normalizeWorkspacePath(workspace.cwd),
       ...(typeof workspace.description === "string" ? { description: workspace.description } : {}),
     };
   }
@@ -186,9 +200,10 @@ export function parseConfig(
       ? loggingLevel
       : (options.defaultLoggingLevel ?? DEFAULT_LOGGING_CONFIG.level);
   const replyMode: WechatReplyMode =
-    wechat?.replyMode === "stream" || wechat?.replyMode === "final"
+    wechat?.replyMode === "stream" || wechat?.replyMode === "final" || wechat?.replyMode === "verbose"
       ? wechat.replyMode
       : DEFAULT_WECHAT_REPLY_MODE;
+  const orchestrationConfig = parseOrchestrationConfig(orchestration);
 
   return {
     transport: {
@@ -213,5 +228,35 @@ export function parseConfig(
     },
     agents,
     workspaces,
+    orchestration: orchestrationConfig,
+  };
+}
+
+function parseOrchestrationConfig(raw: unknown): OrchestrationConfig {
+  if (!isRecord(raw)) {
+    return {
+      ...DEFAULT_ORCHESTRATION_CONFIG,
+    };
+  }
+
+  return {
+    maxPendingAgentRequestsPerCoordinator:
+      typeof raw.maxPendingAgentRequestsPerCoordinator === "number" &&
+      Number.isFinite(raw.maxPendingAgentRequestsPerCoordinator) &&
+      raw.maxPendingAgentRequestsPerCoordinator > 0
+        ? raw.maxPendingAgentRequestsPerCoordinator
+        : DEFAULT_ORCHESTRATION_CONFIG.maxPendingAgentRequestsPerCoordinator,
+    allowWorkerChainedRequests: raw.allowWorkerChainedRequests === true,
+    allowedAgentRequestTargets: Array.isArray(raw.allowedAgentRequestTargets)
+      ? raw.allowedAgentRequestTargets.filter((value): value is string => typeof value === "string")
+      : [...DEFAULT_ORCHESTRATION_CONFIG.allowedAgentRequestTargets],
+    allowedAgentRequestRoles: Array.isArray(raw.allowedAgentRequestRoles)
+      ? raw.allowedAgentRequestRoles.filter((value): value is string => typeof value === "string")
+      : [...DEFAULT_ORCHESTRATION_CONFIG.allowedAgentRequestRoles],
+    progressHeartbeatSeconds:
+      typeof raw.progressHeartbeatSeconds === "number" &&
+      Number.isFinite(raw.progressHeartbeatSeconds)
+        ? raw.progressHeartbeatSeconds
+        : DEFAULT_ORCHESTRATION_CONFIG.progressHeartbeatSeconds,
   };
 }

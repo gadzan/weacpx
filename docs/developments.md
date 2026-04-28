@@ -211,3 +211,13 @@ bun run dry-run --chat-key wx:test -- \
 - 命令边界与 session 流向说明：`docs/2026-03-30-command-boundaries-and-session-flow.md`
 - `/session ls --agent --ws` 设计说明：`docs/2026-03-30-session-list-design.md`
 - `acpx` session 与 `weacpx` session 映射说明：`docs/2026-03-30-acpx-session-mapping.md`
+
+## 会话创建用户体验
+
+`transport.ensureSession(session, onProgress?)` 会汇报 `spawn` / `initializing` / `ready` 三个里程碑。`command-router` 把它们翻译为防抖的微信消息（`initializing` 需距 `spawn` 消息 ≥3s 才发）。
+
+当桥返回 `MissingOptionalDepError` 时，`command-router` 调用 `src/recovery/auto-install-optional-dep.ts`（精确安装在 parent 包目录，失败回落到全局安装）。成功时 `ensureSession` 重试**一次**；失败时抛出 `AutoInstallFailedError`，由 `renderSessionCreationError` 渲染为包含原错误、两次 stderr 摘要、`npm install -g <pkg>` 手动命令和日志路径的用户消息。
+
+相关文件：
+- 规范：`docs/superpowers/specs/2026-04-22-session-creation-ux-design.md`
+- 计划：`docs/superpowers/plans/2026-04-22-session-creation-ux.md`
