@@ -3,6 +3,8 @@ import { homedir } from "node:os";
 import { sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { ConfigStore } from "./config/config-store";
+import { ensureConfigExists } from "./config/ensure-config";
 import { createDaemonController } from "./daemon/create-daemon-controller";
 import { resolveDaemonPaths } from "./daemon/daemon-files";
 import type { DaemonController } from "./daemon/daemon-controller";
@@ -13,6 +15,7 @@ import { runWeacpxMcpServer } from "./mcp/weacpx-mcp-server";
 import { parseCoordinatorSession } from "./mcp/parse-coordinator-session";
 import { parseSourceHandle } from "./mcp/parse-source-handle";
 import { resolveDefaultOrchestrationEndpoint } from "./mcp/resolve-endpoint";
+import { basenameForWorkspacePath, normalizeWorkspacePath, sameWorkspacePath } from "./commands/workspace-path";
 import { readVersion } from "./version.js";
 import { createWeixinConsumerLock } from "./weixin/monitor/consumer-lock";
 
@@ -57,6 +60,7 @@ interface CliDeps {
   controller?: CliController;
   print?: (line: string) => void;
   stderr?: (text: string) => void;
+  cwd?: () => string;
 }
 
 const HELP_LINES = [
@@ -69,6 +73,7 @@ const HELP_LINES = [
   "weacpx stop   - 停止服务",
   "weacpx doctor - 运行诊断",
   "weacpx version - 查看版本",
+  "weacpx workspace list|add|rm - 管理本机工作区（别名：ws）",
   "weacpx mcp-stdio --coordinator-session <session> [--source-handle <handle>] - 启动 MCP stdio 服务",
 ];
 
@@ -108,6 +113,20 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       }
 
       return await (deps.doctor ?? defaultDoctor)(parsed.options);
+    }
+    case "workspace":
+    case "ws": {
+      const result = await handleWorkspaceCli(args.slice(1), {
+        print,
+        cwd: deps.cwd ?? (() => process.cwd()),
+      });
+      if (result === null) {
+        for (const line of HELP_LINES) {
+          print(line);
+        }
+        return 1;
+      }
+      return result;
     }
     case "mcp-stdio":
       return await (deps.mcpStdio ?? ((subArgs) => defaultMcpStdio(subArgs, { stderr: deps.stderr })))(args.slice(1));
@@ -165,6 +184,104 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       }
       return 1;
   }
+}
+
+async function handleWorkspaceCli(
+  args: string[],
+  deps: {
+    print: (line: string) => void;
+    cwd: () => string;
+  },
+): Promise<number | null> {
+  const subcommand = args[0];
+  switch (subcommand) {
+    case "list":
+      if (args.length !== 1) return null;
+      return await workspaceList(deps.print);
+    case "add":
+      if (args.length > 2) return null;
+      return await workspaceAdd(args[1], deps);
+    case "rm":
+      if (args.length !== 2 || !args[1]) return null;
+      return await workspaceRemove(args[1], deps.print);
+    default:
+      return null;
+  }
+}
+
+async function workspaceList(print: (line: string) => void): Promise<number> {
+  const store = await createCliConfigStore();
+  const config = await store.load();
+  const entries = Object.entries(config.workspaces);
+
+  if (entries.length === 0) {
+    print("还没有工作区。");
+    return 0;
+  }
+
+  print("工作区列表：");
+  for (const [name, workspace] of entries) {
+    print(`- ${name}: ${workspace.cwd}`);
+  }
+  return 0;
+}
+
+async function workspaceAdd(
+  rawName: string | undefined,
+  deps: {
+    print: (line: string) => void;
+    cwd: () => string;
+  },
+): Promise<number> {
+  const cwd = normalizeWorkspacePath(deps.cwd());
+  const name = rawName === undefined ? basenameForWorkspacePath(cwd) : rawName.trim();
+  if (name.trim().length === 0) {
+    deps.print("工作区名称不能为空。");
+    return 1;
+  }
+
+  const store = await createCliConfigStore();
+  const config = await store.load();
+  const existing = config.workspaces[name];
+  if (existing) {
+    if (sameWorkspacePath(existing.cwd, cwd)) {
+      deps.print(`工作区「${name}」已存在：${existing.cwd}`);
+      return 0;
+    }
+
+    deps.print(`工作区「${name}」已存在，但路径不同：${existing.cwd}`);
+    deps.print(`请换一个名称，或先执行：weacpx workspace rm ${name}`);
+    return 1;
+  }
+
+  await store.upsertWorkspace(name, cwd);
+  deps.print(`工作区「${name}」已保存：${cwd}`);
+  return 0;
+}
+
+async function workspaceRemove(rawName: string, print: (line: string) => void): Promise<number> {
+  const name = rawName.trim();
+  if (name.length === 0) {
+    print("工作区名称不能为空。");
+    return 1;
+  }
+
+  const store = await createCliConfigStore();
+  const config = await store.load();
+  if (!config.workspaces[name]) {
+    print(`没有找到工作区「${name}」。`);
+    return 1;
+  }
+
+  await store.removeWorkspace(name);
+  print(`工作区「${name}」已删除`);
+  return 0;
+}
+
+async function createCliConfigStore(): Promise<ConfigStore> {
+  const configPath = process.env.WEACPX_CONFIG ?? `${requireHome()}/.weacpx/config.json`;
+  await ensureConfigExists(configPath);
+  return new ConfigStore(configPath);
 }
 
 async function defaultLogin(): Promise<void> {

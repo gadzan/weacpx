@@ -1,5 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { writePrivateFileAtomic } from "../util/private-file.js";
 
 import { loadConfig } from "./load-config";
 import type { AppConfig, WorkspaceConfig } from "./types";
@@ -12,8 +11,7 @@ export class ConfigStore {
   }
 
   async save(config: AppConfig): Promise<void> {
-    await mkdir(dirname(this.path), { recursive: true });
-    await writeFile(this.path, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+    await writePrivateFileAtomic(this.path, `${JSON.stringify(config, null, 2)}\n`);
   }
 
   async upsertWorkspace(name: string, cwd: string, description?: string): Promise<AppConfig> {

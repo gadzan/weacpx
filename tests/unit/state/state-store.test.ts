@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -827,5 +827,88 @@ test("includes the state file path when JSON is malformed", async () => {
 
   await expect(store.load()).rejects.toThrow('failed to parse state file "' + path + '"');
 
+  await rm(dir, { recursive: true, force: true });
+});
+
+
+test("saves state with owner-only file permissions", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+
+  await store.save({
+    sessions: {},
+    chat_contexts: {},
+    orchestration: {
+      tasks: {},
+      workerBindings: {},
+      groups: {},
+      humanQuestionPackages: {},
+      coordinatorQuestionState: {},
+      coordinatorRoutes: {},
+    },
+  });
+
+  if (process.platform !== "win32") {
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
+  }
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("rejects states with malformed session records", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  await Bun.write(
+    path,
+    JSON.stringify({
+      sessions: {
+        broken: {
+          alias: "broken",
+          agent: "codex",
+          workspace: "backend",
+          transport_session: 123,
+          created_at: "2026-01-01T00:00:00.000Z",
+          last_used_at: "2026-01-01T00:00:00.000Z",
+        },
+      },
+      chat_contexts: {},
+      orchestration: {
+        tasks: {},
+        workerBindings: {},
+        groups: {},
+        humanQuestionPackages: {},
+        coordinatorQuestionState: {},
+        coordinatorRoutes: {},
+      },
+    }),
+  );
+
+  await expect(new StateStore(path).load()).rejects.toThrow("malformed session record");
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("rejects states with malformed chat context records", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  await Bun.write(
+    path,
+    JSON.stringify({
+      sessions: {},
+      chat_contexts: {
+        "wx:user": { current_session: 42 },
+      },
+      orchestration: {
+        tasks: {},
+        workerBindings: {},
+        groups: {},
+        humanQuestionPackages: {},
+        coordinatorQuestionState: {},
+        coordinatorRoutes: {},
+      },
+    }),
+  );
+
+  await expect(new StateStore(path).load()).rejects.toThrow("malformed chat context record");
   await rm(dir, { recursive: true, force: true });
 });

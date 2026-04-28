@@ -1,10 +1,46 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { expect, test } from "bun:test";
 
 import { runCli } from "../../src/cli";
+
+async function withTempHome<T>(fn: (home: string) => Promise<T>): Promise<T> {
+  const home = await mkdtemp(join(tmpdir(), "weacpx-cli-"));
+  const previousHome = process.env.HOME;
+  const previousConfig = process.env.WEACPX_CONFIG;
+  const previousState = process.env.WEACPX_STATE;
+
+  process.env.HOME = home;
+  delete process.env.WEACPX_CONFIG;
+  delete process.env.WEACPX_STATE;
+
+  try {
+    return await fn(home);
+  } finally {
+    if (previousHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = previousHome;
+    }
+    if (previousConfig === undefined) {
+      delete process.env.WEACPX_CONFIG;
+    } else {
+      process.env.WEACPX_CONFIG = previousConfig;
+    }
+    if (previousState === undefined) {
+      delete process.env.WEACPX_STATE;
+    } else {
+      process.env.WEACPX_STATE = previousState;
+    }
+    await rm(home, { recursive: true, force: true });
+  }
+}
+
+async function readConfigJson(home: string): Promise<any> {
+  return JSON.parse(await readFile(join(home, ".weacpx", "config.json"), "utf8"));
+}
 
 test("dispatches login", async () => {
   const events: string[] = [];
@@ -146,6 +182,7 @@ test("prints help for unknown commands", async () => {
     "weacpx stop   - 停止服务",
     "weacpx doctor - 运行诊断",
     "weacpx version - 查看版本",
+    "weacpx workspace list|add|rm - 管理本机工作区（别名：ws）",
     "weacpx mcp-stdio --coordinator-session <session> [--source-handle <handle>] - 启动 MCP stdio 服务",
   ]);
 });
@@ -224,6 +261,153 @@ test("passes doctor options through unchanged", async () => {
       workspace: "backend",
     },
   ]);
+});
+
+test("adds a workspace from the current directory with basename as default name", async () => {
+  await withTempHome(async (home) => {
+    const lines: string[] = [];
+
+    await expect(
+      runCli(["workspace", "add"], {
+        cwd: () => "/repo/backend",
+        print: (line) => lines.push(line),
+      }),
+    ).resolves.toBe(0);
+
+    expect(lines).toEqual(["工作区「backend」已保存：/repo/backend"]);
+    const config = await readConfigJson(home);
+    expect(config.workspaces.backend).toEqual({ cwd: "/repo/backend" });
+  });
+});
+
+test("adds a workspace with an explicit name via ws alias", async () => {
+  await withTempHome(async (home) => {
+    const lines: string[] = [];
+
+    await expect(
+      runCli(["ws", "add", "api"], {
+        cwd: () => "/repo/backend",
+        print: (line) => lines.push(line),
+      }),
+    ).resolves.toBe(0);
+
+    expect(lines).toEqual(["工作区「api」已保存：/repo/backend"]);
+    const config = await readConfigJson(home);
+    expect(config.workspaces.api).toEqual({ cwd: "/repo/backend" });
+  });
+});
+
+test("workspace add is idempotent for the same name and path", async () => {
+  await withTempHome(async () => {
+    const lines: string[] = [];
+
+    await expect(runCli(["workspace", "add", "api"], { cwd: () => "/repo/backend", print: () => {} })).resolves.toBe(0);
+    await expect(
+      runCli(["workspace", "add", "api"], {
+        cwd: () => "/repo/backend",
+        print: (line) => lines.push(line),
+      }),
+    ).resolves.toBe(0);
+
+    expect(lines).toEqual(["工作区「api」已存在：/repo/backend"]);
+  });
+});
+
+test("workspace add rejects an existing name with a different path", async () => {
+  await withTempHome(async () => {
+    const lines: string[] = [];
+
+    await expect(runCli(["workspace", "add", "api"], { cwd: () => "/repo/backend", print: () => {} })).resolves.toBe(0);
+    await expect(
+      runCli(["workspace", "add", "api"], {
+        cwd: () => "/repo/other",
+        print: (line) => lines.push(line),
+      }),
+    ).resolves.toBe(1);
+
+    expect(lines).toEqual([
+      "工作区「api」已存在，但路径不同：/repo/backend",
+      "请换一个名称，或先执行：weacpx workspace rm api",
+    ]);
+  });
+});
+
+test("workspace add rejects an explicit blank name", async () => {
+  await withTempHome(async () => {
+    const lines: string[] = [];
+
+    await expect(
+      runCli(["workspace", "add", " "], {
+        cwd: () => "/repo/backend",
+        print: (line) => lines.push(line),
+      }),
+    ).resolves.toBe(1);
+
+    expect(lines).toEqual(["工作区名称不能为空。"]);
+  });
+});
+
+test("lists and removes workspaces from the CLI", async () => {
+  await withTempHome(async () => {
+    const lines: string[] = [];
+
+    await expect(runCli(["workspace", "add", "backend"], { cwd: () => "/repo/backend", print: () => {} })).resolves.toBe(0);
+    await expect(runCli(["workspace", "add", "frontend"], { cwd: () => "/repo/frontend", print: () => {} })).resolves.toBe(0);
+    await expect(runCli(["workspace", "list"], { print: (line) => lines.push(line) })).resolves.toBe(0);
+    await expect(runCli(["ws", "rm", "backend"], { print: (line) => lines.push(line) })).resolves.toBe(0);
+    await expect(runCli(["ws", "list"], { print: (line) => lines.push(line) })).resolves.toBe(0);
+
+    expect(lines).toEqual([
+      "工作区列表：",
+      "- backend: /repo/backend",
+      "- frontend: /repo/frontend",
+      "工作区「backend」已删除",
+      "工作区列表：",
+      "- frontend: /repo/frontend",
+    ]);
+  });
+});
+
+test("workspace rm trims the provided name", async () => {
+  await withTempHome(async () => {
+    const lines: string[] = [];
+
+    await expect(runCli(["workspace", "add", "api"], { cwd: () => "/repo/backend", print: () => {} })).resolves.toBe(0);
+    await expect(runCli(["workspace", "rm", " api "], { print: (line) => lines.push(line) })).resolves.toBe(0);
+
+    expect(lines).toEqual(["工作区「api」已删除"]);
+  });
+});
+
+test("workspace rm rejects a blank name", async () => {
+  await withTempHome(async () => {
+    const lines: string[] = [];
+
+    await expect(runCli(["workspace", "rm", " "], { print: (line) => lines.push(line) })).resolves.toBe(1);
+
+    expect(lines).toEqual(["工作区名称不能为空。"]);
+  });
+});
+
+test("workspace list handles an empty config and rm missing returns 1", async () => {
+  await withTempHome(async () => {
+    const lines: string[] = [];
+
+    await expect(runCli(["workspace", "list"], { print: (line) => lines.push(line) })).resolves.toBe(0);
+    await expect(runCli(["workspace", "rm", "missing"], { print: (line) => lines.push(line) })).resolves.toBe(1);
+
+    expect(lines).toEqual(["还没有工作区。", "没有找到工作区「missing」。"]);
+  });
+});
+
+test("workspace commands reject invalid arguments", async () => {
+  const lines: string[] = [];
+
+  await expect(runCli(["workspace", "add", "a", "b"], { print: (line) => lines.push(line) })).resolves.toBe(1);
+  await expect(runCli(["workspace", "rm"], { print: (line) => lines.push(line) })).resolves.toBe(1);
+  await expect(runCli(["ws", "nope"], { print: (line) => lines.push(line) })).resolves.toBe(1);
+
+  expect(lines.filter((line) => line === "weacpx workspace list|add|rm - 管理本机工作区（别名：ws）")).toHaveLength(3);
 });
 
 test("prints doctor in help output", async () => {

@@ -7,7 +7,6 @@ import type { Agent, ChatRequest } from "../agent/interface.js";
 import { sendTyping } from "../api/api.js";
 import type { WeixinMessage, MessageItem } from "../api/types.js";
 import { MessageItemType, TypingStatus } from "../api/types.js";
-import { downloadRemoteImageToTemp } from "../cdn/upload.js";
 import { downloadMediaFromItem } from "../media/media-download.js";
 import { getExtensionFromMime } from "../media/mime.js";
 
@@ -120,6 +119,41 @@ function hardCutByCodepoint(s: string, maxBytes: number): string[] {
 
 export function resolveMediaTempDir(customRoot?: string): string {
   return customRoot ?? path.join(tmpdir(), "weacpx", "media");
+}
+
+async function resolveSafeOutboundMediaPath(mediaUrl: string, mediaTempDir: string): Promise<string | null> {
+  if (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://")) {
+    return null;
+  }
+
+  const candidate = path.isAbsolute(mediaUrl) ? mediaUrl : path.resolve(mediaUrl);
+  const allowedRoots = [mediaTempDir, process.cwd()];
+  const realCandidate = await realpathOrNull(candidate);
+  if (!realCandidate) {
+    return null;
+  }
+
+  for (const root of allowedRoots) {
+    const realRoot = await realpathOrNull(root);
+    if (realRoot && isPathInside(realCandidate, realRoot)) {
+      return realCandidate;
+    }
+  }
+
+  return null;
+}
+
+async function realpathOrNull(filePath: string): Promise<string | null> {
+  try {
+    return await fs.realpath(filePath);
+  } catch {
+    return null;
+  }
+}
+
+function isPathInside(candidate: string, root: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 function createSaveMediaBuffer(mediaTempDir?: string) {
@@ -389,15 +423,11 @@ export async function handleWeixinMessageTurn(
     });
 
     if (turn.media) {
-      let filePath: string;
       const mediaUrl = turn.media.url;
-      if (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://")) {
-        filePath = await downloadRemoteImageToTemp(
-          mediaUrl,
-          path.join(resolveMediaTempDir(deps.mediaTempDir), "outbound"),
-        );
-      } else {
-        filePath = path.isAbsolute(mediaUrl) ? mediaUrl : path.resolve(mediaUrl);
+      const filePath = await resolveSafeOutboundMediaPath(mediaUrl, resolveMediaTempDir(deps.mediaTempDir));
+      if (!filePath) {
+        deps.errLog(`outbound media rejected: url=${mediaUrl}`);
+        return;
       }
       const reservedMedia = deps.reserveFinal ? deps.reserveFinal(to) : true;
       if (!reservedMedia) {

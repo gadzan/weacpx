@@ -4,8 +4,14 @@ type ProcessCommandRunner = (command: string, args: string[]) => Promise<number>
 type KillProcess = (pid: number, signal: NodeJS.Signals) => void;
 type IsProcessRunning = (pid: number) => boolean;
 
+export type TerminateProcessTreeOptions = {
+  /** True when the child was spawned detached so its pid is also its process-group id on Unix. */
+  detachedProcessGroup?: boolean;
+};
+
 export async function terminateProcessTree(
   pid: number,
+  options: TerminateProcessTreeOptions = {},
   platform: NodeJS.Platform = process.platform,
   runCommand: ProcessCommandRunner = defaultRunProcessCommand,
   killProcess: KillProcess = (targetPid, signal) => {
@@ -26,7 +32,7 @@ export async function terminateProcessTree(
     return;
   }
 
-  const targetPid = pid > 0 ? -pid : pid;
+  const targetPid = options.detachedProcessGroup ? -pid : pid;
 
   try {
     killProcess(targetPid, "SIGTERM");

@@ -1,6 +1,6 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
 
+import { writePrivateFileAtomic } from "../util/private-file.js";
 import { createEmptyState, type AppState } from "./types";
 import {
   createEmptyOrchestrationState,
@@ -354,6 +354,54 @@ function parseOrchestrationState(raw: unknown, path: string): OrchestrationState
   };
 }
 
+function isReplyMode(value: unknown): value is AppState["sessions"][string]["reply_mode"] {
+  return value === "stream" || value === "final" || value === "verbose";
+}
+
+function isSessionRecord(value: unknown): value is AppState["sessions"][string] {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isString(value.alias) &&
+    isString(value.agent) &&
+    isString(value.workspace) &&
+    isString(value.transport_session) &&
+    isOptionalString(value.transport_agent_command) &&
+    isOptionalString(value.mode_id) &&
+    (value.reply_mode === undefined || isReplyMode(value.reply_mode)) &&
+    isString(value.created_at) &&
+    isString(value.last_used_at)
+  );
+}
+
+function parseSessions(raw: Record<string, unknown>, path: string): AppState["sessions"] {
+  const sessions: AppState["sessions"] = {};
+  for (const [alias, value] of Object.entries(raw)) {
+    if (!isSessionRecord(value)) {
+      throw new Error(`state file "${path}" contains malformed session record "${alias}"`);
+    }
+    sessions[alias] = value;
+  }
+  return sessions;
+}
+
+function isChatContextRecord(value: unknown): value is AppState["chat_contexts"][string] {
+  return isRecord(value) && isString(value.current_session);
+}
+
+function parseChatContexts(raw: Record<string, unknown>, path: string): AppState["chat_contexts"] {
+  const chatContexts: AppState["chat_contexts"] = {};
+  for (const [chatKey, value] of Object.entries(raw)) {
+    if (!isChatContextRecord(value)) {
+      throw new Error(`state file "${path}" contains malformed chat context record "${chatKey}"`);
+    }
+    chatContexts[chatKey] = value;
+  }
+  return chatContexts;
+}
+
 export function parseState(raw: unknown, path: string): AppState {
   if (!isRecord(raw)) {
     throw new Error(`state file "${path}" must contain a JSON object`);
@@ -372,8 +420,8 @@ export function parseState(raw: unknown, path: string): AppState {
   const orchestration = parseOrchestrationState(raw.orchestration, path);
 
   return {
-    sessions: sessions as AppState["sessions"],
-    chat_contexts: chatContexts as AppState["chat_contexts"],
+    sessions: parseSessions(sessions, path),
+    chat_contexts: parseChatContexts(chatContexts, path),
     orchestration,
   };
 }
@@ -407,7 +455,6 @@ export class StateStore {
   }
 
   async save(state: AppState): Promise<void> {
-    await mkdir(dirname(this.path), { recursive: true });
-    await writeFile(this.path, JSON.stringify(state, null, 2));
+    await writePrivateFileAtomic(this.path, JSON.stringify(state, null, 2));
   }
 }

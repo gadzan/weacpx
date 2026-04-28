@@ -1,7 +1,10 @@
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { access } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+
+const require = createRequire(import.meta.url);
 
 export type PackageManager = "npm" | "bun" | "pnpm" | "yarn";
 

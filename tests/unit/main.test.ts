@@ -747,6 +747,9 @@ test("persists delegated task completion even when sending the completion notice
     replyContextToken: "ctx-123",
     accountId: "acc-1",
   });
+  for (let attempt = 0; attempt < 20 && sendOrchestrationNotice.mock.calls.length === 0; attempt += 1) {
+    await Bun.sleep(10);
+  }
   expect(sendOrchestrationNotice).toHaveBeenCalledTimes(1);
   await Bun.sleep(25);
 

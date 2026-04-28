@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -186,6 +186,26 @@ test("updates wechat reply mode while preserving unrelated config", async () => 
   expect(saved.wechat).toEqual({
     replyMode: "final",
   });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+
+test("saves config with owner-only file permissions", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-store-"));
+  const path = join(dir, "config.json");
+  const store = new ConfigStore(path);
+
+  await store.save({
+    transport: { type: "acpx-bridge", command: "acpx", permissionMode: "approve-all", nonInteractivePermissions: "deny" },
+    agents: { codex: { driver: "codex" } },
+    workspaces: { backend: { cwd: "/tmp/backend" } },
+  });
+
+  if (process.platform !== "win32") {
+    expect((await stat(path)).mode & 0o777).toBe(0o600);
+  }
+  expect(await readFile(path, "utf8")).toContain('"workspaces"');
 
   await rm(dir, { recursive: true, force: true });
 });

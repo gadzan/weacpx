@@ -1,6 +1,11 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { expect, test } from "bun:test";
 
-import { normalizeDefaultConfigTemplate } from "../../../src/config/ensure-config";
+import { ensureConfigExists, normalizeDefaultConfigTemplate } from "../../../src/config/ensure-config";
+import { loadConfig } from "../../../src/config/load-config";
 
 test("normalizes the default config template through the shared config parser", () => {
   const config = normalizeDefaultConfigTemplate({
@@ -42,4 +47,38 @@ test("rejects an invalid default config template", () => {
       workspaces: {},
     })
   ).toThrow("transport.type must be acpx-cli or acpx-bridge");
+});
+
+test("ensureConfigExists falls back to the built-in default template when bundled template is missing", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-ensure-config-"));
+  const configPath = join(dir, "config.json");
+
+  try {
+    await ensureConfigExists(configPath, {
+      readDefaultConfigTemplate: async () => {
+        const error = new Error("missing template") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      },
+    });
+
+    const raw = JSON.parse(await readFile(configPath, "utf8")) as unknown;
+    expect(raw).toMatchObject({
+      transport: {
+        type: "acpx-bridge",
+        permissionMode: "approve-all",
+        nonInteractivePermissions: "deny",
+      },
+      agents: {
+        codex: { driver: "codex" },
+        claude: { driver: "claude" },
+      },
+      workspaces: {},
+    });
+
+    const parsed = await loadConfig(configPath);
+    expect(parsed.orchestration.progressHeartbeatSeconds).toBe(300);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

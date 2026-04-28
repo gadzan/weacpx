@@ -190,5 +190,5 @@ async function spawnWindowsHiddenProcess(request: SpawnRequest): Promise<number>
 }
 
 async function defaultTerminateProcess(pid: number): Promise<void> {
-  await terminateProcessTree(pid);
+  await terminateProcessTree(pid, { detachedProcessGroup: true });
 }

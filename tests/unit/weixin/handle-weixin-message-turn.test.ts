@@ -500,3 +500,82 @@ test("handleWeixinMessageTurn forwards a distinct final text through reply when 
   expect(sentTexts).toEqual(["🚀 working…", "✅ final result"]);
   mock.restore();
 });
+
+test("rejects agent-provided remote media URLs before downloading or sending", async () => {
+  const errLogs: string[] = [];
+  let downloadCalled = false;
+  let sendMediaCalled = false;
+
+  mock.module("../../../src/weixin/cdn/upload.ts", () => ({
+    downloadRemoteImageToTemp: async () => {
+      downloadCalled = true;
+      return "/tmp/downloaded.png";
+    },
+  }));
+  mock.module("../../../src/weixin/messaging/send-media.ts", () => ({
+    sendWeixinMediaFile: async () => {
+      sendMediaCalled = true;
+    },
+  }));
+
+  const { handleWeixinMessageTurn: h } = await import(
+    "../../../src/weixin/messaging/handle-weixin-message-turn"
+  );
+
+  const agent: Agent = {
+    async chat(): Promise<ChatResponse> {
+      return { media: { type: "image", url: "https://metadata.google.internal/latest/meta-data" } };
+    },
+  };
+
+  await h(makeMessage("draw"), {
+    accountId: "test-account",
+    agent,
+    baseUrl: "https://example.com",
+    cdnBaseUrl: "https://cdn.example.com",
+    token: "test-token",
+    log: () => {},
+    errLog: (msg) => errLogs.push(msg),
+  });
+
+  expect(downloadCalled).toBe(false);
+  expect(sendMediaCalled).toBe(false);
+  expect(errLogs.some((msg) => msg.includes("outbound media rejected"))).toBe(true);
+  mock.restore();
+});
+
+test("rejects agent-provided local media outside the media temp directory", async () => {
+  const errLogs: string[] = [];
+  let sendMediaCalled = false;
+
+  mock.module("../../../src/weixin/messaging/send-media.ts", () => ({
+    sendWeixinMediaFile: async () => {
+      sendMediaCalled = true;
+    },
+  }));
+
+  const { handleWeixinMessageTurn: h } = await import(
+    "../../../src/weixin/messaging/handle-weixin-message-turn"
+  );
+
+  const agent: Agent = {
+    async chat(): Promise<ChatResponse> {
+      return { media: { type: "file", url: "/etc/passwd" } };
+    },
+  };
+
+  await h(makeMessage("send file"), {
+    accountId: "test-account",
+    agent,
+    baseUrl: "https://example.com",
+    cdnBaseUrl: "https://cdn.example.com",
+    token: "test-token",
+    mediaTempDir: join(tmpdir(), "weacpx-safe-media-test"),
+    log: () => {},
+    errLog: (msg) => errLogs.push(msg),
+  });
+
+  expect(sendMediaCalled).toBe(false);
+  expect(errLogs.some((msg) => msg.includes("outbound media rejected"))).toBe(true);
+  mock.restore();
+});

@@ -167,12 +167,13 @@ test("returns as soon as the hidden windows launcher prints a pid", async () => 
 });
 
 
-test("terminates the full process group on unix", async () => {
+test("terminates a detached process group on unix", async () => {
   const signals: Array<{ pid: number; signal: NodeJS.Signals }> = [];
   const runningChecks: number[] = [];
 
   await terminateProcessTree(
     43210,
+    { detachedProcessGroup: true },
     "linux",
     async () => 0,
     (pid, signal) => {
@@ -193,10 +194,38 @@ test("terminates the full process group on unix", async () => {
   expect(runningChecks).toEqual([-43210]);
 });
 
+
+test("terminates a normal unix child by pid, not by process group", async () => {
+  const signals: Array<{ pid: number; signal: NodeJS.Signals }> = [];
+  const runningChecks: number[] = [];
+
+  await terminateProcessTree(
+    43210,
+    { detachedProcessGroup: false },
+    "linux",
+    async () => 0,
+    (pid, signal) => {
+      signals.push({ pid, signal });
+    },
+    (pid) => {
+      runningChecks.push(pid);
+      return false;
+    },
+  );
+
+  expect(signals).toEqual([
+    {
+      pid: 43210,
+      signal: "SIGTERM",
+    },
+  ]);
+  expect(runningChecks).toEqual([43210]);
+});
+
 test("terminates the full process tree on win32", async () => {
   const calls: Array<{ command: string; args: string[] }> = [];
 
-  await terminateProcessTree(43210, "win32", async (command, args) => {
+  await terminateProcessTree(43210, {}, "win32", async (command, args) => {
     calls.push({ command, args });
     return 0;
   });

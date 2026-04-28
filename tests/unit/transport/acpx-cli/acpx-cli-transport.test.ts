@@ -42,9 +42,9 @@ test("ensures a session with raw agent command by invoking acpx with the normal 
     "new",
     "--name",
     "backend:api-fix",
-  ], {
+  ], expect.objectContaining({
     timeoutMs: 120_000,
-  });
+  }));
   expect(runPty).not.toHaveBeenCalled();
 });
 
@@ -70,9 +70,9 @@ test("runs a resolved JavaScript acpx entry with the current node executable", a
     "new",
     "--name",
     "backend:api-fix",
-  ], {
+  ], expect.objectContaining({
     timeoutMs: 120_000,
-  });
+  }));
 });
 
 test("uses 120 seconds as the default raw-command session creation timeout", async () => {
@@ -96,9 +96,9 @@ test("uses 120 seconds as the default raw-command session creation timeout", asy
     "new",
     "--name",
     "backend:api-fix",
-  ], {
+  ], expect.objectContaining({
     timeoutMs: 120_000,
-  });
+  }));
 });
 
 test("keeps using PTY for alias-based session creation", async () => {
@@ -122,9 +122,9 @@ test("keeps using PTY for alias-based session creation", async () => {
     "new",
     "--name",
     "backend:api-fix",
-  ], {
+  ], expect.objectContaining({
     timeoutMs: 120_000,
-  });
+  }));
 });
 
 test("fails fast when session creation does not finish before the timeout", async () => {
@@ -144,6 +144,31 @@ test("fails fast when session creation does not finish before the timeout", asyn
   await expect(transport.ensureSession(session)).rejects.toThrow(
     'acpx command timed out after 10ms: --approve-all --non-interactive-permissions deny --agent ./node_modules/.bin/codex-acp sessions new --name "backend:api-fix"',
   );
+});
+
+
+test("aborts the command runner when session creation times out", async () => {
+  let aborted = false;
+  const run = mock(
+    async (_command: string, _args: string[], options?: { timeoutMs?: number; signal?: AbortSignal }) =>
+      await new Promise<never>((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => {
+          aborted = true;
+          reject(new Error("runner aborted"));
+        });
+      }),
+  );
+  const runPty = mock(async () => ({ code: 0, stdout: "", stderr: "" }));
+  const transport = new AcpxCliTransport(
+    { command: "acpx", sessionInitTimeoutMs: 10 },
+    run,
+    runPty,
+  );
+
+  await expect(transport.ensureSession(session)).rejects.toThrow(
+    'acpx command timed out after 10ms: --approve-all --non-interactive-permissions deny --agent ./node_modules/.bin/codex-acp sessions new --name "backend:api-fix"',
+  );
+  expect(aborted).toBe(true);
 });
 
 test("uses the normal command runner for prompt and cancel", async () => {

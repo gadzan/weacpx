@@ -224,7 +224,7 @@ export async function spawnAcpxBridgeClient(
       await client.request("shutdown", {});
     } finally {
       child.stdin.end();
-      await terminateProcessTree(child.pid ?? 0);
+      await terminateProcessTree(child.pid ?? 0, { detachedProcessGroup: false });
     }
   };
 

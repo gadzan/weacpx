@@ -237,7 +237,7 @@ async function terminateAcpxQueueOwner(sessionId: string): Promise<void> {
     return;
   }
   if (typeof owner.pid === "number" && Number.isInteger(owner.pid) && owner.pid > 0) {
-    await terminateProcessTree(owner.pid);
+    await terminateProcessTree(owner.pid, { detachedProcessGroup: true });
   }
   await unlink(lockPath).catch(() => {});
 }

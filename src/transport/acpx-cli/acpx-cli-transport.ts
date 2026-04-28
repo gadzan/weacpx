@@ -34,6 +34,7 @@ interface CommandResult {
 
 interface RunOptions {
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 type CommandRunner = (command: string, args: string[], options?: RunOptions) => Promise<CommandResult>;
@@ -47,9 +48,14 @@ async function defaultRunner(command: string, args: string[], options?: RunOptio
     let stdout = "";
     let stderr = "";
 
+    const onAbort = () => {
+      void terminateProcessTree(child.pid ?? 0, { detachedProcessGroup: false });
+    };
+    options?.signal?.addEventListener("abort", onAbort, { once: true });
+
     const timeoutId = options?.timeoutMs
       ? setTimeout(() => {
-          void terminateProcessTree(child.pid ?? 0);
+          onAbort();
           reject(new Error(`acpx command timed out after ${options.timeoutMs}ms: ${renderCommandForError(args)}`));
         }, options.timeoutMs)
       : undefined;
@@ -61,10 +67,12 @@ async function defaultRunner(command: string, args: string[], options?: RunOptio
       stderr += String(chunk);
     });
     child.on("error", (error) => {
+      options?.signal?.removeEventListener("abort", onAbort);
       if (timeoutId) clearTimeout(timeoutId);
       reject(error);
     });
     child.on("close", (code) => {
+      options?.signal?.removeEventListener("abort", onAbort);
       if (timeoutId) clearTimeout(timeoutId);
       resolve({ code: code ?? 1, stdout, stderr });
     });
@@ -90,9 +98,14 @@ async function defaultPtyRunner(command: string, args: string[], options?: RunOp
     });
     let output = "";
 
+    const onAbort = () => {
+      child.kill();
+    };
+    options?.signal?.addEventListener("abort", onAbort, { once: true });
+
     const timeoutId = options?.timeoutMs
       ? setTimeout(() => {
-          child.kill();
+          onAbort();
           reject(new Error(`acpx command timed out after ${options.timeoutMs}ms: ${renderCommandForError(args)}`));
         }, options.timeoutMs)
       : undefined;
@@ -102,6 +115,7 @@ async function defaultPtyRunner(command: string, args: string[], options?: RunOp
     });
 
     child.onExit(({ exitCode }) => {
+      options?.signal?.removeEventListener("abort", onAbort);
       if (timeoutId) clearTimeout(timeoutId);
       resolve({ code: exitCode, stdout: output, stderr: "" });
     });
@@ -306,10 +320,11 @@ export class AcpxCliTransport implements SessionTransport {
       return await runner(spawnSpec.command, spawnSpec.args, undefined);
     }
 
+    const abortController = new AbortController();
     let timeoutId: NodeJS.Timeout | undefined;
 
     return await Promise.race([
-      runner(spawnSpec.command, spawnSpec.args, options).finally(() => {
+      runner(spawnSpec.command, spawnSpec.args, { ...options, signal: abortController.signal }).finally(() => {
         if (timeoutId) clearTimeout(timeoutId);
       }),
       new Promise<CommandResult>((_, reject) => {
@@ -319,6 +334,7 @@ export class AcpxCliTransport implements SessionTransport {
               `acpx command timed out after ${options.timeoutMs}ms: ${renderCommandForError(args)}`,
             ),
           );
+          abortController.abort();
         }, options.timeoutMs);
       }),
     ]);
