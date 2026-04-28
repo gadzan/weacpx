@@ -1,3 +1,7 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { expect, test } from "bun:test";
 
 import { runCli } from "../../src/cli";
@@ -165,19 +169,39 @@ test("dispatches doctor", async () => {
 });
 
 test("uses the default doctor entrypoint when no dependency is provided", async () => {
+  const home = await mkdtemp(join(tmpdir(), "weacpx-cli-doctor-"));
   const lines: string[] = [];
+  const previousHome = process.env.HOME;
+  const previousOpenclawStateDir = process.env.OPENCLAW_STATE_DIR;
 
-  const exitCode = await runCli(["doctor"], {
-    print: (line) => {
-      lines.push(line);
-    },
-  });
+  process.env.HOME = home;
+  process.env.OPENCLAW_STATE_DIR = join(home, "openclaw");
 
-  // The default doctor runs real checks; some (e.g. bridge) may fail in test
-  // environments.  We only verify the entrypoint completes without throwing
-  // and that output goes to the doctor's own printer, not the CLI print sink.
-  expect(typeof exitCode).toBe("number");
-  expect(lines).toEqual([]);
+  try {
+    const exitCode = await runCli(["doctor"], {
+      print: (line) => {
+        lines.push(line);
+      },
+    });
+
+    // The default doctor runs real checks against the configured home.  Use a
+    // temporary empty home so the test covers a clean CI-like environment
+    // without depending on the developer machine's ~/.weacpx files.
+    expect(typeof exitCode).toBe("number");
+    expect(lines).toEqual([]);
+  } finally {
+    if (previousHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = previousHome;
+    }
+    if (previousOpenclawStateDir === undefined) {
+      delete process.env.OPENCLAW_STATE_DIR;
+    } else {
+      process.env.OPENCLAW_STATE_DIR = previousOpenclawStateDir;
+    }
+    await rm(home, { recursive: true, force: true });
+  }
 });
 
 test("passes doctor options through unchanged", async () => {
