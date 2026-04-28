@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.3.1] - 2026-04-28
+
+### Added
+
+- **本机 Workspace CLI：** 新增 `weacpx workspace list|add|rm`，并支持 `weacpx ws ...` 简写，可直接把当前终端目录注册到 `~/.weacpx/config.json`，方便在微信里通过 `--ws <name>` 引用常用项目。
+
+### Changed
+
+- **版本升级至 0.3.1。**
+- **配置与状态文件写入更安全：** `config.json` 与 `state.json` 改为私有权限的原子写入，减少写入中断导致文件损坏或权限过宽的风险。
+- **State 解析更严格：** 加强 session 与 chat context 结构校验，状态文件异常时会给出更明确的诊断信息。
+- **进程终止语义更准确：** 区分 detached 进程组与普通子进程，避免误用负 PID 终止非 detached 子进程；acpx CLI 超时时会主动 abort 底层命令。
+- **README 使用说明更新：** 精简项目定位说明，并补充 workspace CLI 用法。
+
+### Fixed
+
+- **日志脱敏增强：** JSON 日志体会自动遮蔽 token、signature、context token 以及用户消息正文，避免敏感内容落盘。
+- **出站媒体路径收紧：** Agent 返回的远程媒体 URL 不再被自动下载发送，本地媒体也必须位于媒体临时目录或当前工作区内，避免越权读取/发送本机文件。
+- **默认配置生成更稳健：** 当打包后的默认配置模板缺失时，会回退到内置默认配置。
+
+### Tests
+
+- 新增 workspace CLI、私有文件权限、state 校验、日志脱敏、媒体路径拦截、进程终止与 CLI 超时 abort 等单元测试覆盖。
+
 ## [0.3.0] - 2026-04-28
 
 ### Added
