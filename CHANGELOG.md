@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.3.0] - 2026-04-28
+
+### Added
+
+- **任务编排与多 Agent 委派：** 新增 `/delegate` / `/dg`、`/tasks`、`/task`、`/groups`、`/group` 系列命令，支持从当前主线会话委派子任务、查看任务状态、审批/拒绝待确认任务、取消任务以及按任务组批量管理。
+- **MCP 编排服务：** 新增 `weacpx mcp-stdio --coordinator-session <session>`，为 acpx queue owner 注入 weacpx MCP tools，支持 worker 向 coordinator 回传结果、发起阻塞问题、请求人工输入与继续编排。
+- **编排运行时与 IPC：** 新增 orchestration service/client/server、Unix/Windows IPC endpoint、任务/任务组持久化状态、worker 绑定、结果注入、coordinator 自动唤醒与进度心跳。
+- **微信编排通知：** 新增任务完成/失败通知、worker 进度通知、coordinator 消息投递、跨账号通知选择，以及人工问题包/结果包渲染。
+- **微信消息配额管理：** 新增按 chatKey 维护的 mid/final 消息预算、最终回复分页暂存、`/jx` 继续发送剩余内容、超额 heads-up 提示与配额事件日志。
+- **缺失可选依赖恢复：** 新增 optional dependency 识别、父级 package 路径发现、自动安装与重试流程，降低 agent 运行时因缺依赖中断的概率。
+- **诊断与文档：** `weacpx doctor` 新增编排健康检查；新增 `docs/commands.md`、`docs/weacpx-group-usage-guide.md`，并扩充配置、测试与 README 文档。
+
+### Changed
+
+- **版本升级至 0.3.0**，`acpx` 依赖升级至 `^0.5.3`，并新增 `@modelcontextprotocol/sdk`、`zod`、`zod-to-json-schema` 依赖。
+- **默认微信回复模式改为 `verbose`：** `wechat.replyMode` 现在支持 `stream` / `final` / `verbose`，verbose 模式会展示更丰富的工具调用与进度信息。
+- **Transport 提示链路增强：** prompt 支持传递 MCP 身份、桥接 `session.note`/`session.progress` 事件、工具调用格式化、分段聚合与配额门控。
+- **配置与状态模型扩展：** 新增 `orchestration` 配置项、编排状态迁移与 state 结构校验，workspace 路径会进行更一致的规范化处理。
+- **会话管理增强：** 新增 `/session rm <alias>`，移除会话时会检查活跃编排任务、清理 chat context，并在安全时释放底层 transport session。
+- **守护进程与运行时路径增强：** runtime 目录现在同时用于 daemon 状态、日志与 orchestration socket；停止守护进程时改进进程树终止能力。
+- **命令帮助与渲染更新：** `/help` 纳入编排主题，任务、任务组、进度、取消与错误信息以更结构化的中文文案展示。
+
+### Fixed
+
+- **Bridge/CLI 创建会话兼容性：** 当 acpx 不支持 `--verbose` 或 stderr 提示缺失可选依赖时，会自动降级/解析并给出可恢复提示。
+- **长回复消息可靠性：** 修复超长最终回复一次性发送过多导致丢失的问题，改为预算内发送、剩余内容暂存并可通过 `/jx` 继续拉取。
+- **Worker 结果注入可靠性：** coordinator 唤醒失败或消息配额耗尽时不再误标记任务结果为已注入，后续唤醒可重试。
+- **微信发送错误诊断：** 对非 2xx 响应和 `errcode` 非 0 的响应统一封装，日志与提示中保留 endpoint、状态码和微信错误信息。
+
+### Tests
+
+- 新增 orchestration、MCP、quota、segment aggregator、optional dependency recovery、bridge protocol、微信通知与 `/jx` 等专项单元测试。
+- 扩充 main/runtime、command router、state store、transport、doctor 和微信消息处理测试覆盖。
+
 ## [0.2.2] - 2026-04-13
 
 ### Added
