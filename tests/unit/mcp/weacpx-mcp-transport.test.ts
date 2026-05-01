@@ -18,6 +18,10 @@ test("createMemoryTransport delegates and exposes override hooks", async () => {
         calls.push(input);
         return null;
       },
+      waitTask: async (input) => {
+        calls.push(input);
+        return { status: "timeout", task: null };
+      },
       workerRaiseQuestion: async (input) => {
         calls.push(input);
         return { taskId: "task-1", questionId: "question-1", status: "blocked" };
@@ -36,6 +40,9 @@ test("createMemoryTransport delegates and exposes override hooks", async () => {
   await expect(
     transport.getTask({ coordinatorSession: "backend:main", taskId: "task-1" }),
   ).resolves.toBeNull();
+  await expect(
+    transport.waitTask({ coordinatorSession: "backend:main", taskId: "task-1", timeoutMs: 1000 }),
+  ).resolves.toEqual({ status: "timeout", task: null });
   await expect(
     transport.workerRaiseQuestion({
       sourceHandle: "backend:worker",
@@ -58,6 +65,7 @@ test("createMemoryTransport delegates and exposes override hooks", async () => {
       groupId: "group-1",
     },
     { coordinatorSession: "backend:main", taskId: "task-1" },
+    { coordinatorSession: "backend:main", taskId: "task-1", timeoutMs: 1000 },
     {
       sourceHandle: "backend:worker",
       taskId: "task-1",
@@ -151,6 +159,10 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
       calls.push({ method: "cancelTaskForCoordinator", input });
       return { ...taskRecord, status: "cancelled" as const };
     },
+    waitTask: async (input: unknown) => {
+      calls.push({ method: "waitTask", input });
+      return { status: "terminal" as const, task: taskRecord };
+    },
     workerRaiseQuestion: async (input: unknown) => {
       calls.push({ method: "workerRaiseQuestion", input });
       return { taskId: "task-1", questionId: "question-1", status: "blocked" as const };
@@ -184,6 +196,7 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
     sourceHandle: "backend:main:worker",
     targetAgent: "claude",
     task: "review",
+    workingDirectory: "/repo/weacpx",
     role: "reviewer",
   });
   await transport.listGroups({
@@ -204,6 +217,12 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
   await transport.approveTask(taskArgs);
   await transport.rejectTask(taskArgs);
   await transport.cancelTask(taskArgs);
+  await transport.waitTask({
+    coordinatorSession: "backend:main",
+    taskId: "task-1",
+    timeoutMs: 1000,
+    pollIntervalMs: 50,
+  });
   await transport.workerRaiseQuestion({
     sourceHandle: "backend:worker",
     taskId: "task-1",
@@ -244,6 +263,7 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
         sourceHandle: "backend:main:worker",
         targetAgent: "claude",
         task: "review",
+        cwd: "/repo/weacpx",
         role: "reviewer",
       },
     },
@@ -271,6 +291,15 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
     { method: "approveTask", input: taskArgs },
     { method: "rejectTask", input: taskArgs },
     { method: "cancelTaskForCoordinator", input: taskArgs },
+    {
+      method: "waitTask",
+      input: {
+        coordinatorSession: "backend:main",
+        taskId: "task-1",
+        timeoutMs: 1000,
+        pollIntervalMs: 50,
+      },
+    },
     {
       method: "workerRaiseQuestion",
       input: {

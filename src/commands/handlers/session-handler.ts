@@ -5,7 +5,7 @@ import type {
   SessionLifecycleOps,
   SessionRenderRecoveryOps,
 } from "../router-types";
-import type { ResolvedSession } from "../../transport/types";
+import type { PromptMedia, ResolvedSession } from "../../transport/types";
 import type { WechatReplyMode } from "../../config/types";
 import type { HelpTopicMetadata } from "../help/help-types";
 import { buildCoordinatorPrompt } from "../../orchestration/build-coordinator-prompt";
@@ -104,25 +104,30 @@ export async function handleSessionNew(
   workspace: string,
 ): Promise<RouterResponse> {
   const session = context.lifecycle.resolveSession(alias, agent, workspace, `${workspace}:${alias}`);
+  const releaseTransportReservation = await context.lifecycle.reserveTransportSession(session.transportSession);
   try {
-    await context.lifecycle.ensureTransportSession(session);
-    const exists = await context.lifecycle.checkTransportSession(session);
-    if (!exists) {
-      return context.recovery.renderSessionCreationVerificationError(session);
+    try {
+      await context.lifecycle.ensureTransportSession(session);
+      const exists = await context.lifecycle.checkTransportSession(session);
+      if (!exists) {
+        return context.recovery.renderSessionCreationVerificationError(session);
+      }
+    } catch (error) {
+      return context.recovery.renderSessionCreationError(session, error);
     }
-  } catch (error) {
-    return context.recovery.renderSessionCreationError(session, error);
-  }
 
-  await context.sessions.attachSession(alias, agent, workspace, session.transportSession);
-  await context.lifecycle.refreshSessionTransportAgentCommand(alias);
-  await context.sessions.useSession(chatKey, alias);
-  await context.logger.info("session.created", "created and selected logical session", {
-    alias,
-    agent,
-    workspace,
-  });
-  return { text: `会话「${alias}」已创建并切换` };
+    await context.sessions.attachSession(alias, agent, workspace, session.transportSession);
+    await context.lifecycle.refreshSessionTransportAgentCommand(alias);
+    await context.sessions.useSession(chatKey, alias);
+    await context.logger.info("session.created", "created and selected logical session", {
+      alias,
+      agent,
+      workspace,
+    });
+    return { text: `会话「${alias}」已创建并切换` };
+  } finally {
+    await releaseTransportReservation();
+  }
 }
 
 export async function handleSessionShortcut(
@@ -144,26 +149,31 @@ export async function handleSessionAttach(
   transportSession: string,
 ): Promise<RouterResponse> {
   const attached = context.lifecycle.resolveSession(alias, agent, workspace, transportSession);
-  const exists = await context.lifecycle.checkTransportSession(attached);
-  if (!exists) {
-    return {
-      text: [
-        "没有找到可绑定的已有会话。",
-        `请确认会话名是否正确，然后重新执行：/session attach ${alias} --agent ${agent} --ws ${workspace} --name <会话名>`,
-      ].join("\n"),
-    };
-  }
+  const releaseTransportReservation = await context.lifecycle.reserveTransportSession(attached.transportSession);
+  try {
+    const exists = await context.lifecycle.checkTransportSession(attached);
+    if (!exists) {
+      return {
+        text: [
+          "没有找到可绑定的已有会话。",
+          `请确认会话名是否正确，然后重新执行：/session attach ${alias} --agent ${agent} --ws ${workspace} --name <会话名>`,
+        ].join("\n"),
+      };
+    }
 
-  await context.sessions.attachSession(alias, agent, workspace, transportSession);
-  await context.lifecycle.refreshSessionTransportAgentCommand(alias);
-  await context.sessions.useSession(chatKey, alias);
-  await context.logger.info("session.attached", "attached existing transport session", {
-    alias,
-    agent,
-    workspace,
-    transportSession,
-  });
-  return { text: `会话「${alias}」已绑定并切换` };
+    await context.sessions.attachSession(alias, agent, workspace, transportSession);
+    await context.lifecycle.refreshSessionTransportAgentCommand(alias);
+    await context.sessions.useSession(chatKey, alias);
+    await context.logger.info("session.attached", "attached existing transport session", {
+      alias,
+      agent,
+      workspace,
+      transportSession,
+    });
+    return { text: `会话「${alias}」已绑定并切换` };
+  } finally {
+    await releaseTransportReservation();
+  }
 }
 
 export async function handleSessionUse(
@@ -379,6 +389,7 @@ async function promptWithSession(
   reply?: (text: string) => Promise<void>,
   replyContextToken?: string,
   accountId?: string,
+  media?: PromptMedia,
 ): Promise<RouterResponse> {
   const effectiveReplyMode = session.replyMode ?? context.config?.wechat.replyMode ?? "verbose";
   const transportReply = effectiveReplyMode !== "final" ? reply : undefined;
@@ -421,6 +432,7 @@ async function promptWithSession(
       promptText,
       transportReply,
       replyContext,
+      media,
     );
     if (claimHumanReply) {
       try {
@@ -458,6 +470,7 @@ export async function handlePrompt(
   reply?: (text: string) => Promise<void>,
   replyContextToken?: string,
   accountId?: string,
+  media?: PromptMedia,
 ): Promise<RouterResponse> {
   const session = await context.sessions.getCurrentSession(chatKey);
   if (!session) {
@@ -465,11 +478,11 @@ export async function handlePrompt(
   }
 
   try {
-    return await promptWithSession(context, session, chatKey, text, reply, replyContextToken, accountId);
+    return await promptWithSession(context, session, chatKey, text, reply, replyContextToken, accountId, media);
   } catch (error) {
     const recovered = await context.recovery.tryRecoverMissingSession(session, error);
     if (recovered) {
-      return await promptWithSession(context, recovered, chatKey, text, reply, replyContextToken, accountId);
+      return await promptWithSession(context, recovered, chatKey, text, reply, replyContextToken, accountId, media);
     }
     return context.recovery.renderTransportError(session, error);
   }

@@ -2,6 +2,7 @@ import type {
   EnsureSessionProgress,
   EnsureSessionProgressStage,
   PermissionPolicy,
+  PromptOptions,
   ReplyQuotaContext,
   ResolvedSession,
   SessionTransport,
@@ -38,6 +39,7 @@ export class AcpxBridgeTransport implements SessionTransport {
     text: string,
     reply?: (text: string) => Promise<void>,
     replyContext?: ReplyQuotaContext,
+    options?: PromptOptions,
   ): Promise<{ text: string }> {
     const sink = reply
       ? createQuotaGatedReplySink({
@@ -45,14 +47,27 @@ export class AcpxBridgeTransport implements SessionTransport {
           ...(replyContext ? { replyContext } : {}),
         })
       : null;
+    let segmentError: unknown;
+    let segmentChain = Promise.resolve();
     const result = await this.client.request<{ text: string }>("prompt", {
       ...this.toParams(session),
       text,
+      ...(options?.media ? { media: options.media } : {}),
     }, (event) => {
       if (event.type === "prompt.segment") {
+        const onSegment = options?.onSegment;
+        if (onSegment) {
+          const segmentText = event.text;
+          segmentChain = segmentChain
+            .then(() => onSegment(segmentText))
+            .catch((error) => {
+              segmentError ??= error;
+            });
+        }
         sink?.feedSegment(event.text);
       }
     });
+    await segmentChain;
     if (sink) {
       const { overflowCount } = sink.finalize();
       // Drain in-flight reply() promises and propagate any QuotaDeferredError
@@ -70,7 +85,13 @@ export class AcpxBridgeTransport implements SessionTransport {
       // surface a final-tier text when overflow happened — in that case the
       // summary is new info AND result.text carries the agent's final answer
       // that may have been partially or fully dropped from the stream.
+      if (segmentError) {
+        throw segmentError;
+      }
       return { text: summary ? `${summary}\n\n${result.text}` : "" };
+    }
+    if (segmentError) {
+      throw segmentError;
     }
     return result;
   }

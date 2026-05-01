@@ -3,14 +3,30 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { OrchestrationClient } from "../../../src/orchestration/orchestration-client";
+import { getWaitRequestTimeoutMs, OrchestrationClient } from "../../../src/orchestration/orchestration-client";
 import { resolveOrchestrationEndpoint } from "../../../src/orchestration/orchestration-ipc";
 import { OrchestrationServer } from "../../../src/orchestration/orchestration-server";
+import { skipIfLocalIpcUnavailable } from "../../helpers/ipc-capability";
+
+test("task wait RPC timeout follows five minute default and twenty minute cap", () => {
+  expect(getWaitRequestTimeoutMs(undefined, 30_000)).toBe(305_000);
+  expect(getWaitRequestTimeoutMs(1_200_000, 30_000)).toBe(1_205_000);
+  expect(getWaitRequestTimeoutMs(9_999_999, 30_000)).toBe(1_205_000);
+});
 
 test("sends orchestration RPC requests through the client", async () => {
+  // Requires node:net listen; sandboxed runners may deny local IPC with EPERM.
+  if (await skipIfLocalIpcUnavailable("orchestration-client socket integration tests")) return;
+
   const dir = await mkdtemp(join(tmpdir(), "weacpx-orch-client-"));
   const endpoint = resolveOrchestrationEndpoint(dir);
   const server = new OrchestrationServer(endpoint, {
+    registerExternalCoordinator: async (input) => ({
+      coordinatorSession: input.coordinatorSession,
+      workspace: input.workspace,
+      createdAt: "2026-04-28T00:00:00.000Z",
+      updatedAt: "2026-04-28T00:00:00.000Z",
+    }),
     requestDelegate: async (input) => ({
       taskId: "task-1",
       status: "needs_confirmation",
@@ -113,6 +129,15 @@ test("sends orchestration RPC requests through the client", async () => {
     await server.start();
 
     await expect(
+      client.registerExternalCoordinator({ coordinatorSession: "codex:backend", workspace: "backend" }),
+    ).resolves.toEqual({
+      coordinatorSession: "codex:backend",
+      workspace: "backend",
+      createdAt: "2026-04-28T00:00:00.000Z",
+      updatedAt: "2026-04-28T00:00:00.000Z",
+    });
+
+    await expect(
       client.delegateRequest({
         sourceHandle: "backend:main",
         targetAgent: "claude",
@@ -123,7 +148,6 @@ test("sends orchestration RPC requests through the client", async () => {
       status: "needs_confirmation",
     });
 
-    await expect(client.getTask("task-1")).resolves.toMatchObject({ taskId: "task-1", status: "running" });
     await expect(
       client.getTaskForCoordinator({ coordinatorSession: "backend:main", taskId: "task-1" }),
     ).resolves.toMatchObject({ taskId: "task-1", status: "running" });
@@ -153,7 +177,68 @@ test("sends orchestration RPC requests through the client", async () => {
   }
 });
 
+test("waitTask extends the RPC timeout beyond the requested wait window", async () => {
+  if (await skipIfLocalIpcUnavailable("orchestration-client waitTask integration tests")) return;
+
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-orch-client-wait-"));
+  const endpoint = resolveOrchestrationEndpoint(dir);
+  let receivedInput: unknown;
+  const server = new OrchestrationServer(endpoint, {
+    waitTask: async (input) => {
+      receivedInput = input;
+      await Bun.sleep(45);
+      return {
+        status: "timeout" as const,
+        task: {
+          taskId: input.taskId,
+          sourceHandle: "backend:main",
+          sourceKind: "coordinator" as const,
+          coordinatorSession: input.coordinatorSession,
+          workerSession: "backend:claude:worker",
+          workspace: "backend",
+          targetAgent: "claude",
+          task: "review",
+          status: "running" as const,
+          summary: "",
+          resultText: "",
+          createdAt: "2026-04-13T00:00:00.000Z",
+          updatedAt: "2026-04-13T00:00:00.000Z",
+        },
+      };
+    },
+  } as Partial<ConstructorParameters<typeof OrchestrationServer>[1]> as ConstructorParameters<typeof OrchestrationServer>[1]);
+  const client = new OrchestrationClient(endpoint, { timeoutMs: 20 });
+
+  try {
+    await server.start();
+
+    await expect(
+      client.waitTask({
+        coordinatorSession: "backend:main",
+        taskId: "task-1",
+        timeoutMs: 30,
+        pollIntervalMs: 10,
+      }),
+    ).resolves.toMatchObject({
+      status: "timeout",
+      task: { taskId: "task-1", status: "running" },
+    });
+    expect(receivedInput).toEqual({
+      coordinatorSession: "backend:main",
+      taskId: "task-1",
+      timeoutMs: 30,
+      pollIntervalMs: 10,
+    });
+  } finally {
+    await server.stop();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("sends group lifecycle RPC requests through the client", async () => {
+  // Requires node:net listen; sandboxed runners may deny local IPC with EPERM.
+  if (await skipIfLocalIpcUnavailable("orchestration-client socket integration tests")) return;
+
   const dir = await mkdtemp(join(tmpdir(), "weacpx-orch-client-"));
   const endpoint = resolveOrchestrationEndpoint(dir);
   const groupRecord = {
@@ -290,6 +375,9 @@ test("sends group lifecycle RPC requests through the client", async () => {
 });
 
 test("sends blocker-loop RPC requests through the client", async () => {
+  // Requires node:net listen; sandboxed runners may deny local IPC with EPERM.
+  if (await skipIfLocalIpcUnavailable("orchestration-client socket integration tests")) return;
+
   const dir = await mkdtemp(join(tmpdir(), "weacpx-orch-client-"));
   const endpoint = resolveOrchestrationEndpoint(dir);
   const blockerTask = {
@@ -322,6 +410,7 @@ test("sends blocker-loop RPC requests through the client", async () => {
   };
   let lastWorkerRaiseQuestion: unknown;
   let lastCoordinatorAnswerQuestion: unknown;
+  let lastCoordinatorRetractAnswer: unknown;
   let lastCoordinatorRequestHumanInput: unknown;
   let lastCoordinatorFollowUpHumanPackage: unknown;
   let lastCoordinatorReviewContestedResult: unknown;
@@ -353,6 +442,10 @@ test("sends blocker-loop RPC requests through the client", async () => {
     coordinatorAnswerQuestion: async (input) => {
       lastCoordinatorAnswerQuestion = input;
       return reviewedTask;
+    },
+    coordinatorRetractAnswer: async (input) => {
+      lastCoordinatorRetractAnswer = input;
+      return { ...blockerTask, status: "waiting_for_human" as const };
     },
     coordinatorRequestHumanInput: async (input) => {
       lastCoordinatorRequestHumanInput = input;
@@ -409,6 +502,22 @@ test("sends blocker-loop RPC requests through the client", async () => {
       taskId: "task-1",
       questionId: "question-1",
       answer: "Use the staging environment.",
+    });
+
+    await expect(
+      client.coordinatorRetractAnswer({
+        coordinatorSession: "backend:main",
+        taskId: "task-1",
+        questionId: "question-1",
+      }),
+    ).resolves.toMatchObject({
+      taskId: "task-1",
+      status: "waiting_for_human",
+    });
+    expect(lastCoordinatorRetractAnswer).toEqual({
+      coordinatorSession: "backend:main",
+      taskId: "task-1",
+      questionId: "question-1",
     });
 
     await expect(
@@ -473,6 +582,9 @@ test("sends blocker-loop RPC requests through the client", async () => {
 });
 
 test("client methods pass all input fields through to the server", async () => {
+  // Requires node:net listen; sandboxed runners may deny local IPC with EPERM.
+  if (await skipIfLocalIpcUnavailable("orchestration-client socket integration tests")) return;
+
   const dir = await mkdtemp(join(tmpdir(), "weacpx-orch-client-type-"));
   const endpoint = resolveOrchestrationEndpoint(dir);
   let receivedParams: Record<string, unknown> | undefined;
@@ -503,9 +615,6 @@ test("client methods pass all input fields through to the server", async () => {
 
   await client.delegateRequest({
     sourceHandle: "wx:user",
-    sourceKind: "human",
-    coordinatorSession: "backend:main",
-    workspace: "backend",
     targetAgent: "claude",
     task: "review code",
   });
@@ -519,6 +628,9 @@ test("client methods pass all input fields through to the server", async () => {
 });
 
 test("surfaces server-side RPC errors from the client", async () => {
+  // Requires node:net listen; sandboxed runners may deny local IPC with EPERM.
+  if (await skipIfLocalIpcUnavailable("orchestration-client socket integration tests")) return;
+
   const dir = await mkdtemp(join(tmpdir(), "weacpx-orch-client-"));
   const endpoint = resolveOrchestrationEndpoint(dir);
   const server = new OrchestrationServer(endpoint, {
@@ -559,6 +671,9 @@ test("surfaces server-side RPC errors from the client", async () => {
 });
 
 test("client request times out when server does not respond", async () => {
+  // Requires node:net listen; sandboxed runners may deny local IPC with EPERM.
+  if (await skipIfLocalIpcUnavailable("orchestration-client socket integration tests")) return;
+
   const dir = await mkdtemp(join(tmpdir(), "weacpx-orch-timeout-"));
   const endpoint = resolveOrchestrationEndpoint(dir);
 
@@ -572,7 +687,9 @@ test("client request times out when server does not respond", async () => {
   const client = new OrchestrationClient(endpoint, { timeoutMs: 200 });
 
   const start = Date.now();
-  await expect(client.getTask("task-1")).rejects.toThrow();
+  await expect(
+    client.getTaskForCoordinator({ coordinatorSession: "backend:main", taskId: "task-1" }),
+  ).rejects.toThrow();
   const elapsed = Date.now() - start;
 
   // Should fail within ~200ms, not hang
@@ -580,4 +697,11 @@ test("client request times out when server does not respond", async () => {
 
   await new Promise<void>((resolve) => netServer.close(() => resolve()));
   await rm(dir, { recursive: true });
+});
+
+test("client does not expose an unscoped task getter", () => {
+  const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-client-test");
+  const client = new OrchestrationClient(endpoint);
+
+  expect((client as unknown as { getTask?: unknown }).getTask).toBeUndefined();
 });

@@ -1,18 +1,18 @@
-export function parseCoordinatorSession(
+export function parseCoordinatorWorkspace(
   args: string[],
   env: NodeJS.ProcessEnv = process.env,
 ): string | null {
   let fromFlag: string | null = null;
 
   for (let index = 0; index < args.length; index += 1) {
-    if (args[index] === "--coordinator-session") {
+    if (args[index] === "--workspace") {
       const value = args[index + 1];
       if (value === undefined) {
-        throw new Error("--coordinator-session requires a non-empty value");
+        throw new Error("--workspace requires a non-empty value");
       }
       const trimmedValue = value.trim();
       if (trimmedValue.length === 0 || trimmedValue.startsWith("-")) {
-        throw new Error("--coordinator-session requires a non-empty value");
+        throw new Error("--workspace requires a non-empty value");
       }
       fromFlag = value;
     }
@@ -23,6 +23,6 @@ export function parseCoordinatorSession(
     return trimmedFlag;
   }
 
-  const trimmedEnv = env.WEACPX_COORDINATOR_SESSION?.trim();
+  const trimmedEnv = env.WEACPX_COORDINATOR_WORKSPACE?.trim();
   return trimmedEnv && trimmedEnv.length > 0 ? trimmedEnv : null;
 }

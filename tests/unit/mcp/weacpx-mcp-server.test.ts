@@ -2,11 +2,12 @@ import { expect, test } from "bun:test";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { ListRootsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
 import { createWeacpxMcpServer } from "../../../src/mcp/weacpx-mcp-server";
 import { createMemoryTransport } from "../../../src/mcp/weacpx-mcp-transport";
 
-test("lists 15 MCP tools and hides coordinator/source identity from input schemas", async () => {
+test("lists 16 MCP tools and hides coordinator/source identity from input schemas", async () => {
   const transport = createMemoryTransport(
     async () => ({ taskId: "task-1", status: "needs_confirmation" }),
     {
@@ -79,11 +80,12 @@ test("lists 15 MCP tools and hides coordinator/source identity from input schema
     await client.connect(clientTransport);
 
     const list = await client.listTools();
-    expect(list.tools).toHaveLength(15);
+    expect(list.tools).toHaveLength(16);
     const delegate = list.tools.find((tool) => tool.name === "delegate_request");
     const workerRaiseQuestion = list.tools.find((tool) => tool.name === "worker_raise_question");
     const coordinatorAnswerQuestion = list.tools.find((tool) => tool.name === "coordinator_answer_question");
     const taskList = list.tools.find((tool) => tool.name === "task_list");
+    const taskWait = list.tools.find((tool) => tool.name === "task_wait");
     expect(delegate?.inputSchema.properties).not.toHaveProperty("sourceHandle");
     expect(delegate?.inputSchema.properties).not.toHaveProperty("coordinatorSession");
     expect(workerRaiseQuestion?.inputSchema.properties).not.toHaveProperty("sourceHandle");
@@ -91,6 +93,109 @@ test("lists 15 MCP tools and hides coordinator/source identity from input schema
     expect(coordinatorAnswerQuestion?.inputSchema.properties).not.toHaveProperty("coordinatorSession");
     expect(taskList?.inputSchema.properties?.status?.enum).toContain("blocked");
     expect(taskList?.inputSchema.properties?.status?.enum).toContain("waiting_for_human");
+    expect(taskWait?.inputSchema.properties).not.toHaveProperty("coordinatorSession");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("infers MCP identity from client roots before listing tools", async () => {
+  const resolved: unknown[] = [];
+  const server = createWeacpxMcpServer({
+    transport: createMemoryTransport(async () => ({ taskId: "task-1", status: "needs_confirmation" })),
+    resolveIdentity: async (context) => {
+      const roots = await context.listRoots();
+      resolved.push({ clientName: context.clientName, roots });
+      return {
+        coordinatorSession: "external_claude-code:backend",
+      };
+    },
+  });
+  const client = new Client(
+    { name: "Claude Code", version: "1.0.0" },
+    { capabilities: { roots: {} } },
+  );
+  client.setRequestHandler(ListRootsRequestSchema, async () => ({
+    roots: [{ uri: "file:///repo/backend", name: "backend" }],
+  }));
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const list = await client.listTools();
+    expect(list.tools).toHaveLength(16);
+    expect(resolved).toEqual([
+      {
+        clientName: "Claude Code",
+        roots: [{ uri: "file:///repo/backend", name: "backend" }],
+      },
+    ]);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+
+test("uses resolveIdentity when both static and lazy MCP identities are configured", async () => {
+  const resolved: unknown[] = [];
+  const server = createWeacpxMcpServer({
+    transport: createMemoryTransport(async () => ({ taskId: "task-1", status: "needs_confirmation" })),
+    coordinatorSession: "static:session",
+    resolveIdentity: async (context) => {
+      resolved.push({ clientName: context.clientName });
+      return { coordinatorSession: "resolved:session" };
+    },
+  });
+  const client = new Client({ name: "Claude Code", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const list = await client.listTools();
+    expect(list.tools).toHaveLength(16);
+    expect(resolved).toEqual([{ clientName: "Claude Code" }]);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("memoizes in-flight lazy MCP identity resolution across concurrent first requests", async () => {
+  let resolveCalls = 0;
+  let releaseResolve!: () => void;
+  const resolveStarted = new Promise<void>((resolve) => {
+    releaseResolve = resolve;
+  });
+  const server = createWeacpxMcpServer({
+    transport: createMemoryTransport(async () => ({ taskId: "task-1", status: "needs_confirmation" })),
+    resolveIdentity: async () => {
+      resolveCalls += 1;
+      await resolveStarted;
+      return { coordinatorSession: "external_claude-code:backend" };
+    },
+  });
+  const client = new Client({ name: "Claude Code", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const firstList = client.listTools();
+    const secondList = client.listTools();
+    await Promise.resolve();
+    releaseResolve();
+
+    const [first, second] = await Promise.all([firstList, secondList]);
+    expect(first.tools).toHaveLength(16);
+    expect(second.tools).toHaveLength(16);
+    expect(resolveCalls).toBe(1);
   } finally {
     await client.close();
     await server.close();

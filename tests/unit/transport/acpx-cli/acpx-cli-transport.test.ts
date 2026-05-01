@@ -1,8 +1,12 @@
 import { expect, mock, test } from "bun:test";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { AcpxCliTransport } from "../../../../src/transport/acpx-cli/acpx-cli-transport";
 import type { AcpxQueueOwnerLauncher } from "../../../../src/transport/acpx-queue-owner-launcher";
 import type { ResolvedSession } from "../../../../src/transport/types";
+import { QuotaManager } from "../../../../src/weixin/messaging/quota-manager";
 
 const session: ResolvedSession = {
   alias: "api-fix",
@@ -20,6 +24,17 @@ const aliasSession: ResolvedSession = {
   transportSession: "backend:api-fix",
   cwd: "/tmp/backend",
 };
+
+async function withFakeAcpxScript(body: string, runTest: (scriptPath: string) => Promise<void>) {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-acpx-cli-test-"));
+  const scriptPath = join(dir, "fake-acpx.js");
+  await writeFile(scriptPath, body);
+  try {
+    await runTest(scriptPath);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
 
 test("ensures a session with raw agent command by invoking acpx with the normal runner", async () => {
   const run = mock(async () => ({ code: 0, stdout: "", stderr: "" }));
@@ -236,6 +251,252 @@ test("passes default permission policy flags to prompt", async () => {
     "backend:api-fix",
     "hello",
   ]);
+});
+
+test("writes image media prompts as structured ACP content blocks via --file", async () => {
+  const mediaDir = await mkdtemp(join(tmpdir(), "weacpx-image-prompt-"));
+  const mediaPath = join(mediaDir, "image.bin");
+  await writeFile(mediaPath, Buffer.from("89504e470d0a1a0a", "hex"));
+  let promptBlocks: unknown;
+  let promptFilePath = "";
+  const run = mock(async (_command: string, args: string[]) => {
+    const fileFlagIndex = args.indexOf("--file");
+    expect(fileFlagIndex).toBeGreaterThan(0);
+    promptFilePath = args[fileFlagIndex + 1]!;
+    promptBlocks = JSON.parse(await readFile(promptFilePath, "utf8"));
+    return {
+      code: 0,
+      stdout: [
+        JSON.stringify({
+          method: "session/update",
+          sessionId: "abc",
+          params: { update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "ok" },
+          } },
+        }),
+      ].join("\n"),
+      stderr: "",
+    };
+  });
+  const transport = new AcpxCliTransport({ command: "acpx" }, run);
+
+  try {
+    await expect(
+      transport.prompt(session, "请看图", undefined, undefined, {
+        media: { type: "image", filePath: mediaPath, mimeType: "image/*" },
+      }),
+    ).resolves.toEqual({ text: "ok" });
+
+    expect(run.mock.calls[0]?.[1]).toEqual([
+      "--format",
+      "json",
+      "--json-strict",
+      "--cwd",
+      "/tmp/backend",
+      "--approve-all",
+      "--non-interactive-permissions",
+      "deny",
+      "--agent",
+      "./node_modules/.bin/codex-acp",
+      "prompt",
+      "-s",
+      "backend:api-fix",
+      "--file",
+      expect.any(String),
+    ]);
+    expect(promptBlocks).toEqual([
+      { type: "text", text: "请看图" },
+      {
+        type: "image",
+        mimeType: "image/png",
+        data: Buffer.from("89504e470d0a1a0a", "hex").toString("base64"),
+      },
+    ]);
+    await expect(access(promptFilePath)).rejects.toThrow();
+  } finally {
+    await rm(mediaDir, { recursive: true, force: true });
+  }
+});
+
+test("cleans structured prompt files when image prompt command fails", async () => {
+  const mediaDir = await mkdtemp(join(tmpdir(), "weacpx-image-prompt-fail-"));
+  const mediaPath = join(mediaDir, "image.bin");
+  await writeFile(mediaPath, Buffer.from("89504e470d0a1a0a", "hex"));
+  let promptFilePath = "";
+  const run = mock(async (_command: string, args: string[]) => {
+    const fileFlagIndex = args.indexOf("--file");
+    expect(fileFlagIndex).toBeGreaterThan(0);
+    promptFilePath = args[fileFlagIndex + 1]!;
+    await readFile(promptFilePath, "utf8");
+    return { code: 1, stdout: "", stderr: "agent failed" };
+  });
+  const transport = new AcpxCliTransport({ command: "acpx" }, run);
+
+  try {
+    await expect(
+      transport.prompt(session, "", undefined, undefined, {
+        media: { type: "image", filePath: mediaPath, mimeType: "image/png" },
+      }),
+    ).rejects.toThrow("agent failed");
+
+    await expect(access(promptFilePath)).rejects.toThrow();
+  } finally {
+    await rm(mediaDir, { recursive: true, force: true });
+  }
+});
+
+test("CLI prompt onSegment observes streamed content without suppressing final text", async () => {
+  await withFakeAcpxScript(
+    `
+const lines = [
+  ${JSON.stringify(JSON.stringify({
+    jsonrpc: "2.0",
+    method: "session/update",
+    params: {
+      sessionId: "abc",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "progress update\n\n" },
+      },
+    },
+  }))},
+  ${JSON.stringify(JSON.stringify({
+    jsonrpc: "2.0",
+    method: "session/update",
+    params: {
+      sessionId: "abc",
+      update: {
+        sessionUpdate: "tool_call",
+        title: "Read file",
+      },
+    },
+  }))},
+  ${JSON.stringify(JSON.stringify({
+    jsonrpc: "2.0",
+    method: "session/update",
+    params: {
+      sessionId: "abc",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "Final answer" },
+      },
+    },
+  }))},
+];
+process.stdout.write(lines.join("\\n") + "\\n");
+`,
+    async (scriptPath) => {
+      const observed: string[] = [];
+      const transport = new AcpxCliTransport({ command: scriptPath });
+
+      const result = await transport.prompt(session, "hello", undefined, undefined, {
+        onSegment: (text) => {
+          observed.push(text);
+        },
+      });
+
+      expect(observed).toEqual(["progress update", "Final answer"]);
+      expect(result).toEqual({ text: "Final answer" });
+    },
+  );
+});
+
+test("CLI prompt onSegment observes segments even when reply quota drops user-facing stream", async () => {
+  await withFakeAcpxScript(
+    `
+const lines = [
+  ${JSON.stringify(JSON.stringify({
+    jsonrpc: "2.0",
+    method: "session/update",
+    params: {
+      sessionId: "abc",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "progress update\n\n" },
+      },
+    },
+  }))},
+  ${JSON.stringify(JSON.stringify({
+    jsonrpc: "2.0",
+    method: "session/update",
+    params: {
+      sessionId: "abc",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "Final answer" },
+      },
+    },
+  }))},
+];
+process.stdout.write(lines.join("\\n") + "\\n");
+`,
+    async (scriptPath) => {
+      const observed: string[] = [];
+      const replied: string[] = [];
+      const quota = new QuotaManager();
+      for (let i = 0; i < 6; i += 1) {
+        quota.reserveMidSegment("chat-1");
+      }
+      const transport = new AcpxCliTransport({ command: scriptPath });
+
+      await transport.prompt(
+        session,
+        "hello",
+        async (text) => {
+          replied.push(text);
+        },
+        { chatKey: "chat-1", quota },
+        {
+          onSegment: (text) => {
+            observed.push(text);
+          },
+        },
+      );
+
+      expect(replied).toEqual([]);
+      expect(observed).toEqual(["progress update", "Final answer"]);
+    },
+  );
+});
+
+test("CLI prompt propagates onSegment failures when reply streaming is enabled", async () => {
+  await withFakeAcpxScript(
+    `
+const lines = [
+  ${JSON.stringify(JSON.stringify({
+    jsonrpc: "2.0",
+    method: "session/update",
+    params: {
+      sessionId: "abc",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "progress update\n\n" },
+      },
+    },
+  }))},
+];
+process.stdout.write(lines.join("\\n") + "\\n");
+`,
+    async (scriptPath) => {
+      const quota = new QuotaManager();
+      const transport = new AcpxCliTransport({ command: scriptPath });
+
+      await expect(
+        transport.prompt(
+          session,
+          "hello",
+          async () => {},
+          { chatKey: "chat-1", quota },
+          {
+            onSegment: () => {
+              throw new Error("observer failed");
+            },
+          },
+        ),
+      ).rejects.toThrow("observer failed");
+    },
+  );
 });
 
 

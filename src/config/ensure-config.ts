@@ -5,7 +5,34 @@ import { loadConfig, parseConfig } from "./load-config";
 import { resolveAgentCommand } from "./resolve-agent-command";
 import type { AppConfig } from "./types";
 
-export async function ensureConfigExists(path: string): Promise<void> {
+interface EnsureConfigOptions {
+  readDefaultConfigTemplate?: () => Promise<unknown>;
+}
+
+const BUILTIN_DEFAULT_CONFIG_TEMPLATE = {
+  transport: {
+    type: "acpx-bridge",
+    sessionInitTimeoutMs: 120000,
+    permissionMode: "approve-all",
+    nonInteractivePermissions: "deny",
+  },
+  logging: {
+    level: "info",
+    maxSizeBytes: 2 * 1024 * 1024,
+    maxFiles: 5,
+    retentionDays: 7,
+  },
+  wechat: {
+    replyMode: "stream",
+  },
+  agents: {
+    codex: { driver: "codex" },
+    claude: { driver: "claude" },
+  },
+  workspaces: {},
+} satisfies unknown;
+
+export async function ensureConfigExists(path: string, options: EnsureConfigOptions = {}): Promise<void> {
   try {
     await loadConfig(path);
   } catch (error) {
@@ -14,18 +41,27 @@ export async function ensureConfigExists(path: string): Promise<void> {
     }
 
     const store = new ConfigStore(path);
-    await store.save(await loadDefaultConfigTemplate());
+    await store.save(await loadDefaultConfigTemplate(options));
   }
 }
 
-async function loadDefaultConfigTemplate(): Promise<AppConfig> {
+async function loadDefaultConfigTemplate(options: EnsureConfigOptions = {}): Promise<AppConfig> {
+  if (options.readDefaultConfigTemplate) {
+    try {
+      return normalizeDefaultConfigTemplate(await options.readDefaultConfigTemplate());
+    } catch (error) {
+      if (!isMissingFileError(error)) {
+        throw error;
+      }
+    }
+  }
+
   const candidates = [
     new URL("../../config.example.json", import.meta.url),
     new URL("../config.example.json", import.meta.url),
   ];
 
   let raw: string | undefined;
-  let lastError: unknown;
   for (const candidate of candidates) {
     try {
       raw = await readFile(candidate, "utf8");
@@ -34,12 +70,11 @@ async function loadDefaultConfigTemplate(): Promise<AppConfig> {
       if (!isMissingFileError(error)) {
         throw error;
       }
-      lastError = error;
     }
   }
 
   if (!raw) {
-    throw lastError;
+    return normalizeDefaultConfigTemplate(BUILTIN_DEFAULT_CONFIG_TEMPLATE);
   }
 
   return normalizeDefaultConfigTemplate(JSON.parse(raw) as unknown);

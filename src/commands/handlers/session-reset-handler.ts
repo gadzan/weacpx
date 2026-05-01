@@ -22,36 +22,41 @@ export async function handleSessionResetCommand(
     buildResetTransportSessionName(session, ops.now()),
   );
 
+  const releaseTransportReservation = await ops.reserveTransportSession(resetSession.transportSession);
   try {
-    await ops.ensureTransportSession(resetSession);
-    const exists = await ops.checkTransportSession(resetSession);
-    if (!exists) {
-      return {
-        text: [
-          `会话「${session.alias}」重置失败。`,
-          "新的后端会话未创建成功，请稍后重试。",
-        ].join("\n"),
-      };
+    try {
+      await ops.ensureTransportSession(resetSession);
+      const exists = await ops.checkTransportSession(resetSession);
+      if (!exists) {
+        return {
+          text: [
+            `会话「${session.alias}」重置失败。`,
+            "新的后端会话未创建成功，请稍后重试。",
+          ].join("\n"),
+        };
+      }
+    } catch (error) {
+      return renderTransportError(resetSession, error);
     }
-  } catch (error) {
-    return renderTransportError(resetSession, error);
-  }
 
-  await context.sessions.attachSession(
-    resetSession.alias,
-    resetSession.agent,
-    resetSession.workspace,
-    resetSession.transportSession,
-  );
-  await ops.refreshSessionTransportAgentCommand(resetSession.alias);
-  await context.sessions.useSession(chatKey, resetSession.alias);
-  await context.logger.info("session.reset", "reset current logical session", {
-    alias: resetSession.alias,
-    agent: resetSession.agent,
-    workspace: resetSession.workspace,
-    transportSession: resetSession.transportSession,
-    chatKey,
-  });
+    await context.sessions.attachSession(
+      resetSession.alias,
+      resetSession.agent,
+      resetSession.workspace,
+      resetSession.transportSession,
+    );
+    await ops.refreshSessionTransportAgentCommand(resetSession.alias);
+    await context.sessions.useSession(chatKey, resetSession.alias);
+    await context.logger.info("session.reset", "reset current logical session", {
+      alias: resetSession.alias,
+      agent: resetSession.agent,
+      workspace: resetSession.workspace,
+      transportSession: resetSession.transportSession,
+      chatKey,
+    });
+  } finally {
+    await releaseTransportReservation();
+  }
 
   return { text: `会话「${resetSession.alias}」已重置` };
 }

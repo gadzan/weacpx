@@ -161,9 +161,12 @@ function createSaveMediaBuffer(mediaTempDir?: string) {
     buffer: Buffer,
     contentType?: string,
     subdir?: string,
-    _maxBytes?: number,
+    maxBytes?: number,
     originalFilename?: string,
   ): Promise<{ path: string }> {
+    if (maxBytes !== undefined && buffer.byteLength > maxBytes) {
+      throw new Error(`media exceeds ${maxBytes} bytes`);
+    }
     const dir = path.join(resolveMediaTempDir(mediaTempDir), subdir ?? "");
     await fs.mkdir(dir, { recursive: true });
     let ext = ".bin";
@@ -177,6 +180,45 @@ function createSaveMediaBuffer(mediaTempDir?: string) {
     await fs.writeFile(filePath, buffer);
     return { path: filePath };
   };
+}
+
+function inboundMediaUnavailableMessage(item: MessageItem): string {
+  if (item.type === MessageItemType.IMAGE) {
+    return "图片读取失败，请重试。";
+  }
+
+  return "暂不支持处理该类型消息，请发送文字或图片。";
+}
+
+function inboundImageFailureMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("exceeds 104857600 bytes") || message.includes("exceeds 100MB")
+    ? "图片超过 100MB，无法处理。"
+    : "图片读取失败，请重试。";
+}
+
+async function sendInboundMediaUnavailableNotice(input: {
+  to: string;
+  notice: string;
+  contextToken?: string;
+  deps: HandleWeixinMessageTurnDeps;
+}): Promise<void> {
+  const { to, notice, contextToken, deps } = input;
+  const reserved = deps.reserveFinal ? deps.reserveFinal(to) : true;
+  if (!reserved) {
+    deps.errLog(`weixin.final.dropped reason=quota_exhausted kind=media_unavailable chatKey=${to}`);
+    return;
+  }
+
+  try {
+    await sendMessageWeixin({
+      to,
+      text: notice,
+      opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
+    });
+  } catch (err) {
+    deps.errLog(`media unavailable notice failed: ${String(err)}`);
+  }
 }
 
 export type HandleWeixinMessageTurnDeps = {
@@ -237,29 +279,37 @@ export function getWeixinMessageTurnLane(full: WeixinMessage): "normal" | "contr
     : "normal";
 }
 
-const hasDownloadableMedia = (media?: { encrypt_query_param?: string; full_url?: string }) =>
-  media?.encrypt_query_param || media?.full_url;
-
-function findMediaItem(itemList?: MessageItem[]): MessageItem | undefined {
+function findUnsupportedMediaItem(itemList?: MessageItem[]): MessageItem | undefined {
   if (!itemList?.length) return undefined;
 
-  const direct =
-    itemList.find((item) => item.type === MessageItemType.IMAGE && hasDownloadableMedia(item.image_item?.media)) ??
-    itemList.find((item) => item.type === MessageItemType.VIDEO && hasDownloadableMedia(item.video_item?.media)) ??
-    itemList.find((item) => item.type === MessageItemType.FILE && hasDownloadableMedia(item.file_item?.media)) ??
-    itemList.find(
-      (item) =>
-        item.type === MessageItemType.VOICE &&
-        hasDownloadableMedia(item.voice_item?.media) &&
-        !item.voice_item?.text,
-    );
+  const direct = itemList.find(
+    (item) =>
+      item.type === MessageItemType.VIDEO ||
+      item.type === MessageItemType.FILE ||
+      item.type === MessageItemType.VOICE,
+  );
   if (direct) return direct;
 
   const refItem = itemList.find(
     (item) =>
       item.type === MessageItemType.TEXT &&
       item.ref_msg?.message_item &&
+      item.ref_msg.message_item.type !== MessageItemType.IMAGE &&
       isMediaItem(item.ref_msg.message_item),
+  );
+  return refItem?.ref_msg?.message_item ?? undefined;
+}
+
+function findImageMediaItem(itemList?: MessageItem[]): MessageItem | undefined {
+  if (!itemList?.length) return undefined;
+
+  const direct = itemList.find((item) => item.type === MessageItemType.IMAGE);
+  if (direct) return direct;
+
+  const refItem = itemList.find(
+    (item) =>
+      item.type === MessageItemType.TEXT &&
+      item.ref_msg?.message_item?.type === MessageItemType.IMAGE,
   );
   return refItem?.ref_msg?.message_item ?? undefined;
 }
@@ -313,6 +363,22 @@ export async function handleWeixinMessageTurn(
   // rather than waiting for this turn to drain off the lane. The deps field
   // remains for direct unit testability of this function.
 
+  const contextToken = full.context_token;
+  if (contextToken) {
+    setContextToken(deps.accountId, full.from_user_id ?? "", contextToken);
+  }
+
+  const unsupportedMediaItem = findUnsupportedMediaItem(full.item_list);
+  if (unsupportedMediaItem) {
+    await sendInboundMediaUnavailableNotice({
+      to,
+      notice: inboundMediaUnavailableMessage(unsupportedMediaItem),
+      contextToken,
+      deps,
+    });
+    return;
+  }
+
   if (textBody.startsWith("/")) {
     const shouldTypeForSlash = isClearSlashCommand(textBody);
     if (shouldTypeForSlash) {
@@ -348,16 +414,13 @@ export async function handleWeixinMessageTurn(
     }
   }
 
-  const contextToken = full.context_token;
-  if (contextToken) {
-    setContextToken(deps.accountId, full.from_user_id ?? "", contextToken);
-  }
-
   startTypingIndicator();
 
   let media: ChatRequest["media"];
-  const mediaItem = findMediaItem(full.item_list);
+  let inboundImagePath: string | undefined;
+  const mediaItem = findImageMediaItem(full.item_list);
   if (mediaItem) {
+    let mediaUnavailableNotice: string | undefined;
     try {
       const downloaded = await downloadMediaFromItem(mediaItem, {
         cdnBaseUrl: deps.cdnBaseUrl,
@@ -367,24 +430,24 @@ export async function handleWeixinMessageTurn(
         label: "inbound",
       });
       if (downloaded.decryptedPicPath) {
+        inboundImagePath = downloaded.decryptedPicPath;
         media = { type: "image", filePath: downloaded.decryptedPicPath, mimeType: "image/*" };
-      } else if (downloaded.decryptedVideoPath) {
-        media = { type: "video", filePath: downloaded.decryptedVideoPath, mimeType: "video/mp4" };
-      } else if (downloaded.decryptedFilePath) {
-        media = {
-          type: "file",
-          filePath: downloaded.decryptedFilePath,
-          mimeType: downloaded.fileMediaType ?? "application/octet-stream",
-        };
-      } else if (downloaded.decryptedVoicePath) {
-        media = {
-          type: "audio",
-          filePath: downloaded.decryptedVoicePath,
-          mimeType: downloaded.voiceMediaType ?? "audio/wav",
-        };
+      } else {
+        mediaUnavailableNotice = inboundMediaUnavailableMessage(mediaItem);
       }
     } catch (err) {
       deps.errLog(`media download failed: ${String(err)}`);
+      mediaUnavailableNotice = inboundImageFailureMessage(err);
+    }
+    if (!media) {
+      await sendInboundMediaUnavailableNotice({
+        to,
+        notice: mediaUnavailableNotice ?? inboundMediaUnavailableMessage(mediaItem),
+        contextToken,
+        deps,
+      });
+      stopTypingIndicator();
+      return;
     }
   }
 
@@ -536,6 +599,11 @@ export async function handleWeixinMessageTurn(
       });
     }
   } finally {
+    if (inboundImagePath) {
+      await fs.rm(inboundImagePath, { force: true }).catch((err) => {
+        deps.errLog(`inbound image cleanup failed: ${String(err)}`);
+      });
+    }
     stopTypingIndicator();
   }
 }

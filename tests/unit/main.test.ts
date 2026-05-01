@@ -104,6 +104,348 @@ test("buildApp exposes orchestration IPC runtime state", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test("buildApp keeps session and orchestration mutations on the same runtime state object", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex"],
+        },
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession: async () => {},
+        prompt: async () => ({ text: "ok" }),
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+        listSessions: async () => [],
+      }),
+    },
+  );
+
+  await runtime.orchestration.service.registerExternalCoordinator({
+    coordinatorSession: "codex:backend",
+    workspace: "backend",
+  });
+
+  await expect(
+    runtime.sessions.attachSession("backend", "codex", "backend", "codex:backend"),
+  ).rejects.toThrow('transport session "codex:backend" conflicts with an external coordinator');
+
+  const saved = await readJsonWithRetry<{
+    orchestration: { externalCoordinators: Record<string, unknown> };
+  }>(statePath);
+  expect(saved.orchestration.externalCoordinators["codex:backend"]).toMatchObject({
+    coordinatorSession: "codex:backend",
+    workspace: "backend",
+  });
+
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("buildApp serializes external coordinator registration against logical session creation", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex"],
+        },
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession: async () => {},
+        prompt: async () => ({ text: "ok" }),
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+        listSessions: async () => [],
+      }),
+    },
+  );
+
+  const originalSave = runtime.stateStore.save.bind(runtime.stateStore);
+  const saveStarted = createDeferred<void>();
+  const releaseSave = createDeferred<void>();
+  let delayedExternalSave = false;
+  runtime.stateStore.save = async (nextState) => {
+    if (!delayedExternalSave && nextState.orchestration.externalCoordinators["codex:backend"]) {
+      delayedExternalSave = true;
+      saveStarted.resolve();
+      await releaseSave.promise;
+    }
+    await originalSave(nextState);
+  };
+
+  const registerPromise = runtime.orchestration.service.registerExternalCoordinator({
+    coordinatorSession: "codex:backend",
+    workspace: "backend",
+  });
+  await saveStarted.promise;
+
+  const attachPromise = runtime.sessions
+    .attachSession("backend", "codex", "backend", "codex:backend")
+    .then(
+      () => undefined,
+      (error) => error,
+    );
+  await Bun.sleep(10);
+  releaseSave.resolve();
+
+  await expect(registerPromise).resolves.toMatchObject({
+    coordinatorSession: "codex:backend",
+    workspace: "backend",
+  });
+  const attachError = await attachPromise;
+  expect(attachError).toBeInstanceOf(Error);
+  expect((attachError as Error).message).toBe(
+    'transport session "codex:backend" conflicts with an external coordinator',
+  );
+
+  const saved = await readJsonWithRetry<{
+    sessions: Record<string, unknown>;
+    orchestration: { externalCoordinators: Record<string, unknown> };
+  }>(statePath);
+  expect(saved.sessions).toEqual({});
+  expect(saved.orchestration.externalCoordinators["codex:backend"]).toMatchObject({
+    coordinatorSession: "codex:backend",
+    workspace: "backend",
+  });
+
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("buildApp reserves logical session transport before session creation side effects", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const ensureStarted = createDeferred<void>();
+  const releaseEnsure = createDeferred<void>();
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex"],
+        },
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession: async () => {
+          ensureStarted.resolve();
+          await releaseEnsure.promise;
+        },
+        prompt: async () => ({ text: "ok" }),
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+        listSessions: async () => [],
+      }),
+    },
+  );
+
+  const createPromise = runtime.router.handle("wx:user", "/session new main --agent codex --ws backend");
+  await ensureStarted.promise;
+  const registerPromise = runtime.orchestration.service
+    .registerExternalCoordinator({
+      coordinatorSession: "backend:main",
+      workspace: "backend",
+    })
+    .then(
+      () => undefined,
+      (error) => error,
+    );
+  await Bun.sleep(10);
+  releaseEnsure.resolve();
+
+  await expect(createPromise).resolves.toMatchObject({ text: "会话「main」已创建并切换" });
+  const registerError = await registerPromise;
+  expect(registerError).toBeInstanceOf(Error);
+  expect((registerError as Error).message).toBe(
+    'coordinatorSession "backend:main" conflicts with an existing logical session',
+  );
+
+  const saved = await readJsonWithRetry<{
+    sessions: Record<string, unknown>;
+    orchestration: { externalCoordinators: Record<string, unknown> };
+  }>(statePath);
+  expect(saved.sessions.main).toMatchObject({ transport_session: "backend:main" });
+  expect(saved.orchestration.externalCoordinators).toEqual({});
+
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("buildApp reserves attached logical session transport before attach side effects", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const checkStarted = createDeferred<void>();
+  const releaseCheck = createDeferred<void>();
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex"],
+        },
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession: async () => {},
+        prompt: async () => ({ text: "ok" }),
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async (session) => {
+          if (session.transportSession === "codex:backend") {
+            checkStarted.resolve();
+            await releaseCheck.promise;
+          }
+          return true;
+        },
+        listSessions: async () => [],
+      }),
+    },
+  );
+
+  const attachPromise = runtime.router.handle(
+    "wx:user",
+    "/session attach attached --agent codex --ws backend --name codex:backend",
+  );
+  await checkStarted.promise;
+  const registerPromise = runtime.orchestration.service
+    .registerExternalCoordinator({
+      coordinatorSession: "codex:backend",
+      workspace: "backend",
+    })
+    .then(
+      () => undefined,
+      (error) => error,
+    );
+  await Bun.sleep(10);
+  releaseCheck.resolve();
+
+  await expect(attachPromise).resolves.toMatchObject({ text: "会话「attached」已绑定并切换" });
+  const registerError = await registerPromise;
+  expect(registerError).toBeInstanceOf(Error);
+  expect((registerError as Error).message).toBe(
+    'coordinatorSession "codex:backend" conflicts with an existing logical session',
+  );
+
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("buildApp reserves reset logical session transport before reset side effects", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const ensureStarted = createDeferred<void>();
+  const releaseEnsure = createDeferred<void>();
+  let resetTransportSession = "";
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex"],
+        },
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession: async (session) => {
+          if (session.transportSession.includes(":reset-")) {
+            resetTransportSession = session.transportSession;
+            ensureStarted.resolve();
+            await releaseEnsure.promise;
+          }
+        },
+        prompt: async () => ({ text: "ok" }),
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+        listSessions: async () => [],
+      }),
+    },
+  );
+  await runtime.sessions.attachSession("main", "codex", "backend", "backend:main");
+  await runtime.sessions.useSession("wx:user", "main");
+
+  const resetPromise = runtime.router.handle("wx:user", "/session reset");
+  await ensureStarted.promise;
+  const registerPromise = runtime.orchestration.service
+    .registerExternalCoordinator({
+      coordinatorSession: resetTransportSession,
+      workspace: "backend",
+    })
+    .then(
+      () => undefined,
+      (error) => error,
+    );
+  await Bun.sleep(10);
+  releaseEnsure.resolve();
+
+  await expect(resetPromise).resolves.toMatchObject({ text: "会话「main」已重置" });
+  const registerError = await registerPromise;
+  expect(registerError).toBeInstanceOf(Error);
+  expect((registerError as Error).message).toBe(
+    `coordinatorSession "${resetTransportSession}" conflicts with an existing logical session`,
+  );
+
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
 test("wires orchestration into the runtime router so /delegate creates and persists a task", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
   const configPath = join(dir, "config.json");
@@ -352,6 +694,167 @@ test("dispatches worker tasks asynchronously, records completion, and notifies t
   });
 
   await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("external coordinator worker completion does not wake coordinator transport", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const prompt = mock(async () => ({ text: "external worker result" }));
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: {
+        codex: { driver: "codex" },
+        claude: { driver: "claude" },
+      },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex", "claude"],
+        },
+      },
+    }),
+  );
+  await writeFile(
+    statePath,
+    JSON.stringify({
+      sessions: {},
+      chat_contexts: {},
+      orchestration: {
+        tasks: {},
+        workerBindings: {},
+        groups: {},
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession: async () => {},
+        prompt,
+        setMode: async () => {},
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+        listSessions: async () => [],
+      }),
+      loggerNow: () => new Date("2026-04-28T10:00:00.000Z"),
+    },
+  );
+
+  const delegated = await runtime.orchestration.service.requestDelegate({
+    sourceHandle: "codex:backend",
+    targetAgent: "claude",
+    task: "review external change",
+  });
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const task = await runtime.orchestration.service.getTask(delegated.taskId);
+    if (task?.status === "completed") {
+      break;
+    }
+    await Bun.sleep(10);
+  }
+  await runtime.dispose();
+
+  expect(prompt.mock.calls).toHaveLength(1);
+  const logText = await readFile(join(dir, "runtime", "app.log"), "utf8").catch(() => "");
+  expect(logText).not.toContain("orchestration.worker.wake_failed");
+  expect(logText).not.toContain('no logical session is attached to coordinator "codex:backend"');
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("pathless external coordinator dispatches workers in the requested cwd", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const ensureSession = mock(async () => {});
+  const prompt = mock(async () => ({ text: "external worker result" }));
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { claude: { driver: "claude" } },
+      workspaces: {},
+    }),
+  );
+  await writeFile(
+    statePath,
+    JSON.stringify({
+      sessions: {},
+      chat_contexts: {},
+      orchestration: {
+        tasks: {},
+        workerBindings: {},
+        groups: {},
+        externalCoordinators: {
+          "codex:instance": {
+            coordinatorSession: "codex:instance",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession,
+        prompt,
+        setMode: async () => {},
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+        listSessions: async () => [],
+      }),
+      loggerNow: () => new Date("2026-04-28T10:00:00.000Z"),
+    },
+  );
+
+  const delegated = await runtime.orchestration.service.requestDelegateFromRpc({
+    sourceHandle: "codex:instance",
+    targetAgent: "claude",
+    task: "review external change",
+    cwd: "/tmp/standalone-project",
+  });
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (prompt.mock.calls.length > 0) {
+      break;
+    }
+    await Bun.sleep(10);
+  }
+  await runtime.dispose();
+
+  expect(delegated.status).toBe("running");
+  expect(ensureSession.mock.calls[0]?.[0]).toMatchObject({
+    cwd: "/tmp/standalone-project",
+    workspace: "standalone-project",
+    transportSession: delegated.workerSession,
+  });
+  expect(prompt.mock.calls[0]?.[0]).toMatchObject({
+    cwd: "/tmp/standalone-project",
+    workspace: "standalone-project",
+    transportSession: delegated.workerSession,
+    mcpCoordinatorSession: "codex:instance",
+    mcpSourceHandle: delegated.workerSession,
+  });
+
   await rm(dir, { recursive: true, force: true });
 });
 
@@ -1050,6 +1553,14 @@ test("records cancellation errors when worker transport cancel is not acknowledg
     lastCancelError: "transport refused",
   });
 
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const logText = await readFile(join(dir, "runtime", "app.log"), "utf8").catch(() => "");
+    if (logText.includes("orchestration.task.cancel_failed")) {
+      break;
+    }
+    await Bun.sleep(10);
+  }
+
   await runtime.dispose();
   await rm(dir, { recursive: true, force: true });
 });
@@ -1268,11 +1779,14 @@ test("extracts [PROGRESS] markers from worker output and sends progress notifica
     {
       createCliTransport: () => ({
         ensureSession: async () => {},
-        prompt: async (_session, _text, reply) => {
+        prompt: async (_session, _text, reply, _replyContext, options) => {
           if (reply) {
             await reply("[PROGRESS] analyzing code\n");
             await reply("[PROGRESS] found 3 issues\nHere is the result.\n");
+            return { text: "" };
           }
+          await options?.onSegment?.("[PROGRESS] analyzing code\n");
+          await options?.onSegment?.("[PROGRESS] found 3 issues\nHere is the result.\n");
           return { text: "[PROGRESS] analyzing code\n[PROGRESS] found 3 issues\nHere is the result." };
         },
         setMode: async () => {},

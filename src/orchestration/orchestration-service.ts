@@ -1,7 +1,11 @@
+import { createHash } from "node:crypto";
+import { basename, isAbsolute, normalize } from "node:path";
+
 import type { AppConfig } from "../config/types";
 import type { AppLogger } from "../logging/app-logger";
 import type { AppState } from "../state/types";
 import type {
+  ExternalCoordinatorRecord,
   OrchestrationCoordinatorQuestionStateRecord,
   OrchestrationCoordinatorRouteContextRecord,
   OrchestrationGroupRecord,
@@ -16,12 +20,19 @@ import type {
 import { AsyncMutex } from "./async-mutex";
 import { stripProgressLines } from "./progress-line-parser";
 import { isQuotaDeferredError } from "../weixin/messaging/quota-errors";
+import {
+  DEFAULT_TASK_WAIT_POLL_INTERVAL_MS,
+  DEFAULT_TASK_WAIT_TIMEOUT_MS,
+  MAX_TASK_WAIT_POLL_INTERVAL_MS,
+  MAX_TASK_WAIT_TIMEOUT_MS,
+} from "./task-wait-timeouts";
 
 export interface RequestDelegateInput {
   sourceHandle: string;
   sourceKind: OrchestrationSourceKind;
   coordinatorSession: string;
   workspace: string;
+  cwd?: string;
   targetAgent: string;
   task: string;
   role?: string;
@@ -35,6 +46,7 @@ export interface RequestDelegateRpcInput {
   sourceHandle: string;
   targetAgent: string;
   task: string;
+  cwd?: string;
   role?: string;
   groupId?: string;
 }
@@ -43,6 +55,12 @@ export interface RequestDelegateResult {
   taskId: string;
   status: OrchestrationTaskStatus;
   workerSession: string;
+}
+
+export interface RegisterExternalCoordinatorInput {
+  coordinatorSession: string;
+  workspace?: string;
+  defaultTargetAgent?: string;
 }
 
 export interface RequestDelegateRpcResult {
@@ -79,6 +97,7 @@ export interface CancelWorkerTaskRequest {
   taskId: string;
   workerSession: string;
   workspace: string;
+  cwd?: string;
   targetAgent: string;
 }
 
@@ -87,6 +106,7 @@ export interface ResumeWorkerTaskRequest {
   workerSession: string;
   coordinatorSession: string;
   workspace: string;
+  cwd?: string;
   targetAgent: string;
   answer: string;
 }
@@ -179,6 +199,7 @@ export interface OrchestrationServiceDeps {
   createId: () => string;
   loadState: () => Promise<AppState>;
   saveState: (state: AppState) => Promise<void>;
+  stateMutex?: AsyncMutex;
   config: AppConfig;
   ensureWorkerSession: (request: EnsureWorkerSessionRequest) => Promise<string>;
   dispatchWorkerTask: (request: DispatchWorkerTaskRequest) => Promise<void>;
@@ -201,6 +222,7 @@ export interface EnsureWorkerSessionRequest {
   sourceKind: OrchestrationSourceKind;
   coordinatorSession: string;
   workspace: string;
+  cwd?: string;
   targetAgent: string;
   role?: string;
 }
@@ -210,6 +232,7 @@ export interface ReusableWorkerLookupRequest {
   sourceKind: OrchestrationSourceKind;
   coordinatorSession: string;
   workspace: string;
+  cwd?: string;
   targetAgent: string;
   role?: string;
 }
@@ -219,6 +242,7 @@ export interface DispatchWorkerTaskRequest {
   workerSession: string;
   coordinatorSession: string;
   workspace: string;
+  cwd?: string;
   targetAgent: string;
   role?: string;
   task: string;
@@ -247,6 +271,18 @@ export interface OrchestrationTaskFilter {
   order?: "asc" | "desc";
 }
 
+export interface WaitTaskInput {
+  coordinatorSession: string;
+  taskId: string;
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+}
+
+export interface WaitTaskResult {
+  status: "terminal" | "attention_required" | "timeout" | "not_found";
+  task: OrchestrationTaskRecord | null;
+}
+
 export interface OrchestrationGroupListFilter {
   coordinatorSession: string;
   status?: "pending" | "running" | "terminal";
@@ -256,12 +292,69 @@ export interface OrchestrationGroupListFilter {
 }
 
 export class OrchestrationService {
-  private readonly stateMutex = new AsyncMutex();
+  private readonly stateMutex: AsyncMutex;
+  private readonly pendingWorkerSessions = new Map<string, number>();
+  private readonly pendingLogicalTransportSessions = new Map<string, number>();
 
-  constructor(private readonly deps: OrchestrationServiceDeps) {}
+  constructor(private readonly deps: OrchestrationServiceDeps) {
+    this.stateMutex = deps.stateMutex ?? new AsyncMutex();
+  }
 
   private async mutate<T>(critical: () => Promise<T>): Promise<T> {
     return await this.stateMutex.run(critical);
+  }
+
+
+  async registerExternalCoordinator(input: RegisterExternalCoordinatorInput): Promise<ExternalCoordinatorRecord> {
+    const coordinatorSession = input.coordinatorSession.trim();
+    const workspace = input.workspace?.trim();
+    const defaultTargetAgent = input.defaultTargetAgent?.trim();
+
+    if (!coordinatorSession) {
+      throw new Error("coordinatorSession must be a non-empty string");
+    }
+    if (workspace && !this.deps.config.workspaces[workspace]) {
+      throw new Error(`workspace "${workspace}" is not configured`);
+    }
+
+    return await this.mutate(async () => {
+      const state = await this.deps.loadState();
+      const externalCoordinators = this.ensureExternalCoordinators(state);
+      const existing = externalCoordinators[coordinatorSession];
+      if ((this.pendingWorkerSessions.get(coordinatorSession) ?? 0) > 0) {
+        throw new Error(`coordinatorSession "${coordinatorSession}" conflicts with an existing worker session`);
+      }
+      if (state.orchestration.workerBindings[coordinatorSession]) {
+        throw new Error(`coordinatorSession "${coordinatorSession}" conflicts with an existing worker session`);
+      }
+      if (this.hasActiveTaskWorkerSession(state, coordinatorSession)) {
+        throw new Error(`coordinatorSession "${coordinatorSession}" conflicts with an existing worker session`);
+      }
+      if ((this.pendingLogicalTransportSessions.get(coordinatorSession) ?? 0) > 0) {
+        throw new Error(`coordinatorSession "${coordinatorSession}" conflicts with an existing logical session`);
+      }
+      if (Object.values(state.sessions).some((session) => session.transport_session === coordinatorSession)) {
+        throw new Error(`coordinatorSession "${coordinatorSession}" conflicts with an existing logical session`);
+      }
+      if (existing?.workspace && workspace && existing.workspace !== workspace) {
+        throw new Error(
+          `coordinatorSession "${coordinatorSession}" is already bound to workspace "${existing.workspace}"; use a new coordinator session for workspace "${workspace}"`,
+        );
+      }
+      const now = this.deps.now().toISOString();
+      const effectiveDefaultTargetAgent = defaultTargetAgent || existing?.defaultTargetAgent;
+      const record: ExternalCoordinatorRecord = {
+        coordinatorSession,
+        ...(workspace ? { workspace } : existing?.workspace ? { workspace: existing.workspace } : {}),
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+        ...(effectiveDefaultTargetAgent ? { defaultTargetAgent: effectiveDefaultTargetAgent } : {}),
+      };
+
+      externalCoordinators[coordinatorSession] = record;
+      await this.deps.saveState(state);
+      return { ...record };
+    });
   }
 
   async createGroup(input: {
@@ -426,67 +519,90 @@ export class OrchestrationService {
     const normalizedGroupId = this.normalizeGroupId(input.groupId);
     const taskId = this.deps.createId();
     const workerSession = await this.resolveWorkerSession(input);
-    const ensuredWorkerSession = await this.deps.ensureWorkerSession({
-      workerSession,
-      sourceHandle: input.sourceHandle,
-      sourceKind: input.sourceKind,
-      coordinatorSession: input.coordinatorSession,
-      workspace: input.workspace,
-      targetAgent: input.targetAgent,
-      role,
-    });
-    const prepared = await this.mutate(async () => {
-      const state = await this.deps.loadState();
-      const now = this.deps.now().toISOString();
-      if (normalizedGroupId) {
-        this.assertGroupOwnership(this.ensureGroups(state)[normalizedGroupId], normalizedGroupId, input.coordinatorSession);
-      }
-      const task: OrchestrationTaskRecord = {
-        taskId,
+    const releaseWorkerReservation = await this.reserveProposedWorkerSession(workerSession);
+    let ensuredWorkerSession = workerSession;
+    let prepared: {
+      task: OrchestrationTaskRecord;
+      previousBinding?: AppState["orchestration"]["workerBindings"][string];
+      previousGroup?: OrchestrationGroupRecord;
+      normalizedGroupId?: string;
+    };
+    try {
+      ensuredWorkerSession = await this.ensureReservedWorkerSession({
+        workerSession,
         sourceHandle: input.sourceHandle,
         sourceKind: input.sourceKind,
         coordinatorSession: input.coordinatorSession,
-        workerSession: ensuredWorkerSession,
         workspace: input.workspace,
-        targetAgent: input.targetAgent,
-        ...(role ? { role } : {}),
-        ...(normalizedGroupId ? { groupId: normalizedGroupId } : {}),
-        task: input.task,
-        status: "running",
-        summary: "",
-        resultText: "",
-        createdAt: now,
-        updatedAt: now,
-        ...(input.chatKey ? { chatKey: input.chatKey } : {}),
-        ...(input.replyContextToken ? { replyContextToken: input.replyContextToken } : {}),
-        ...(input.accountId ? { accountId: input.accountId } : {}),
-      };
-
-      state.orchestration.tasks[taskId] = task;
-      if (normalizedGroupId) {
-        const group = this.ensureGroups(state)[normalizedGroupId]!;
-        group.updatedAt = now;
-        group.coordinatorInjectedAt = undefined;
-        group.injectionPending = undefined;
-        group.injectionAppliedAt = undefined;
-        group.lastInjectionError = undefined;
-      }
-      const previousBinding = state.orchestration.workerBindings[ensuredWorkerSession];
-      state.orchestration.workerBindings[ensuredWorkerSession] = {
-        sourceHandle: ensuredWorkerSession,
-        coordinatorSession: input.coordinatorSession,
-        workspace: input.workspace,
+        ...(input.cwd ? { cwd: input.cwd } : {}),
         targetAgent: input.targetAgent,
         role,
-      };
+      });
+      prepared = await this.mutate(async () => {
+        const state = await this.deps.loadState();
+        const now = this.deps.now().toISOString();
+        if (normalizedGroupId) {
+          this.assertGroupOwnership(this.ensureGroups(state)[normalizedGroupId], normalizedGroupId, input.coordinatorSession);
+        }
+        const task: OrchestrationTaskRecord = {
+          taskId,
+          sourceHandle: input.sourceHandle,
+          sourceKind: input.sourceKind,
+          coordinatorSession: input.coordinatorSession,
+          workerSession: ensuredWorkerSession,
+          workspace: input.workspace,
+          ...(input.cwd ? { cwd: input.cwd } : {}),
+          targetAgent: input.targetAgent,
+          ...(role ? { role } : {}),
+          ...(normalizedGroupId ? { groupId: normalizedGroupId } : {}),
+          task: input.task,
+          status: "running",
+          summary: "",
+          resultText: "",
+          createdAt: now,
+          updatedAt: now,
+          ...(input.chatKey ? { chatKey: input.chatKey } : {}),
+          ...(input.replyContextToken ? { replyContextToken: input.replyContextToken } : {}),
+          ...(input.accountId ? { accountId: input.accountId } : {}),
+        };
 
-      await this.deps.saveState(state);
+        let previousGroup: OrchestrationGroupRecord | undefined;
+        if (normalizedGroupId) {
+          const group = this.ensureGroups(state)[normalizedGroupId]!;
+          previousGroup = { ...group };
+          group.updatedAt = now;
+          group.coordinatorInjectedAt = undefined;
+          group.injectionPending = undefined;
+          group.injectionAppliedAt = undefined;
+          group.lastInjectionError = undefined;
+        }
+        const previousBinding = state.orchestration.workerBindings[ensuredWorkerSession];
+        this.assertWorkerSessionDoesNotConflictExternalCoordinator(state, ensuredWorkerSession);
+        this.assertWorkerSessionAvailable(state, ensuredWorkerSession, undefined, { allowCurrentReservation: true });
+        state.orchestration.tasks[taskId] = task;
+        state.orchestration.workerBindings[ensuredWorkerSession] = {
+          sourceHandle: ensuredWorkerSession,
+          coordinatorSession: input.coordinatorSession,
+          workspace: input.workspace,
+          ...(input.cwd ? { cwd: input.cwd } : {}),
+          targetAgent: input.targetAgent,
+          role,
+        };
 
-      return {
-        task: { ...task },
-        previousBinding,
-      };
-    });
+        await this.deps.saveState(state);
+
+        return {
+          task: { ...task },
+          previousBinding,
+          previousGroup,
+          normalizedGroupId,
+        };
+      });
+    } catch (error) {
+      await releaseWorkerReservation();
+      throw error;
+    }
+    await releaseWorkerReservation();
 
     try {
       await this.deps.dispatchWorkerTask({
@@ -494,6 +610,7 @@ export class OrchestrationService {
         workerSession: ensuredWorkerSession,
         coordinatorSession: input.coordinatorSession,
         workspace: input.workspace,
+        ...(input.cwd ? { cwd: input.cwd } : {}),
         targetAgent: input.targetAgent,
         ...(role ? { role } : {}),
         task: input.task,
@@ -506,6 +623,9 @@ export class OrchestrationService {
           state.orchestration.workerBindings[ensuredWorkerSession] = prepared.previousBinding;
         } else {
           delete state.orchestration.workerBindings[ensuredWorkerSession];
+        }
+        if (prepared.normalizedGroupId && prepared.previousGroup) {
+          this.ensureGroups(state)[prepared.normalizedGroupId] = prepared.previousGroup;
         }
         await this.deps.saveState(state);
       });
@@ -527,6 +647,7 @@ export class OrchestrationService {
     const preflight = await this.mutate(async () => {
       const state = await this.deps.loadState();
       const sourceContext = this.resolveRpcSourceContext(state, input.sourceHandle);
+      const targetLocation = this.resolveRpcTargetLocation(sourceContext, input.cwd);
       const role = this.normalizeRole(input.role);
       this.assertRpcRequestAllowed(
         state,
@@ -543,7 +664,7 @@ export class OrchestrationService {
           sourceContext.coordinatorSession,
         );
       }
-      return { sourceContext, role, normalizedGroupId };
+      return { sourceContext, targetLocation, role, normalizedGroupId };
     });
 
     // Coordinator-originated RPC delegation is treated as authorized: the human
@@ -556,102 +677,94 @@ export class OrchestrationService {
       sourceHandle: input.sourceHandle,
       sourceKind: preflight.sourceContext.sourceKind,
       coordinatorSession: preflight.sourceContext.coordinatorSession,
-      workspace: preflight.sourceContext.workspace,
+      workspace: preflight.targetLocation.workspace,
+      ...(preflight.targetLocation.cwd ? { cwd: preflight.targetLocation.cwd } : {}),
       targetAgent: input.targetAgent,
       task: input.task,
       ...(preflight.role ? { role: preflight.role } : {}),
     });
+    const releaseWorkerReservation = await this.reserveProposedWorkerSession(workerSessionName);
 
-    const ensuredWorkerSession = autoRun
-      ? await this.deps.ensureWorkerSession({
-          workerSession: workerSessionName,
+    let prepared: {
+      task: OrchestrationTaskRecord;
+      status: OrchestrationTaskStatus;
+      previousBinding?: AppState["orchestration"]["workerBindings"][string];
+      normalizedGroupId?: string;
+    };
+    try {
+      prepared = await this.mutate(async () => {
+        const state = await this.deps.loadState();
+        this.assertRpcRequestAllowed(
+          state,
+          preflight.sourceContext.sourceKind,
+          preflight.sourceContext.coordinatorSession,
+          input.targetAgent,
+          preflight.role,
+        );
+        const now = this.deps.now().toISOString();
+        const taskId = this.deps.createId();
+        const status: OrchestrationTaskStatus = autoRun ? "running" : "needs_confirmation";
+        const task: OrchestrationTaskRecord = {
+          taskId,
           sourceHandle: input.sourceHandle,
           sourceKind: preflight.sourceContext.sourceKind,
           coordinatorSession: preflight.sourceContext.coordinatorSession,
-          workspace: preflight.sourceContext.workspace,
+          workerSession: workerSessionName,
+          workspace: preflight.targetLocation.workspace,
+          ...(preflight.targetLocation.cwd ? { cwd: preflight.targetLocation.cwd } : {}),
           targetAgent: input.targetAgent,
-          role: preflight.role,
-        })
-      : workerSessionName;
-
-    const prepared = await this.mutate(async () => {
-      const state = await this.deps.loadState();
-      const now = this.deps.now().toISOString();
-      const taskId = this.deps.createId();
-      const status: OrchestrationTaskStatus = autoRun ? "running" : "needs_confirmation";
-      const task: OrchestrationTaskRecord = {
-        taskId,
-        sourceHandle: input.sourceHandle,
-        sourceKind: preflight.sourceContext.sourceKind,
-        coordinatorSession: preflight.sourceContext.coordinatorSession,
-        workerSession: ensuredWorkerSession,
-        workspace: preflight.sourceContext.workspace,
-        targetAgent: input.targetAgent,
-        ...(preflight.role ? { role: preflight.role } : {}),
-        ...(preflight.normalizedGroupId ? { groupId: preflight.normalizedGroupId } : {}),
-        task: input.task,
-        status,
-        summary: "",
-        resultText: "",
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      state.orchestration.tasks[taskId] = task;
-      let previousGroup: OrchestrationGroupRecord | undefined;
-      if (preflight.normalizedGroupId) {
-        const group = this.ensureGroups(state)[preflight.normalizedGroupId]!;
-        previousGroup = { ...group };
-        group.updatedAt = now;
-        group.coordinatorInjectedAt = undefined;
-        group.injectionPending = undefined;
-        group.injectionAppliedAt = undefined;
-        group.lastInjectionError = undefined;
-      }
-      let previousBinding: AppState["orchestration"]["workerBindings"][string] | undefined;
-      if (autoRun) {
-        previousBinding = state.orchestration.workerBindings[ensuredWorkerSession];
-        state.orchestration.workerBindings[ensuredWorkerSession] = {
-          sourceHandle: ensuredWorkerSession,
-          coordinatorSession: preflight.sourceContext.coordinatorSession,
-          workspace: preflight.sourceContext.workspace,
-          targetAgent: input.targetAgent,
-          role: preflight.role,
+          ...(preflight.role ? { role: preflight.role } : {}),
+          ...(preflight.normalizedGroupId ? { groupId: preflight.normalizedGroupId } : {}),
+          task: input.task,
+          status,
+          summary: "",
+          resultText: "",
+          createdAt: now,
+          updatedAt: now,
         };
-      }
-      await this.deps.saveState(state);
 
-      return { task: { ...task }, status, previousBinding, previousGroup, normalizedGroupId: preflight.normalizedGroupId };
-    });
+        if (preflight.normalizedGroupId) {
+          const group = this.ensureGroups(state)[preflight.normalizedGroupId]!;
+          group.updatedAt = now;
+          group.coordinatorInjectedAt = undefined;
+          group.injectionPending = undefined;
+          group.injectionAppliedAt = undefined;
+          group.lastInjectionError = undefined;
+        }
+        let previousBinding: AppState["orchestration"]["workerBindings"][string] | undefined;
+        if (autoRun) {
+          previousBinding = state.orchestration.workerBindings[workerSessionName];
+          this.assertWorkerSessionDoesNotConflictExternalCoordinator(state, workerSessionName);
+          this.assertWorkerSessionAvailable(state, workerSessionName, undefined, { allowCurrentReservation: true });
+          state.orchestration.tasks[taskId] = task;
+          state.orchestration.workerBindings[workerSessionName] = {
+            sourceHandle: workerSessionName,
+            coordinatorSession: preflight.sourceContext.coordinatorSession,
+            workspace: preflight.targetLocation.workspace,
+            ...(preflight.targetLocation.cwd ? { cwd: preflight.targetLocation.cwd } : {}),
+            targetAgent: input.targetAgent,
+            role: preflight.role,
+          };
+        } else {
+          this.assertWorkerSessionDoesNotConflictExternalCoordinator(state, workerSessionName);
+          this.assertWorkerSessionAvailable(state, workerSessionName, undefined, { allowCurrentReservation: true });
+          state.orchestration.tasks[taskId] = task;
+        }
+        await this.deps.saveState(state);
+
+        return { task: { ...task }, status, previousBinding, normalizedGroupId: preflight.normalizedGroupId };
+      });
+    } catch (error) {
+      await releaseWorkerReservation();
+      throw error;
+    }
+    await releaseWorkerReservation();
 
     if (autoRun) {
-      try {
-        await this.deps.dispatchWorkerTask({
-          taskId: prepared.task.taskId,
-          workerSession: ensuredWorkerSession,
-          coordinatorSession: prepared.task.coordinatorSession,
-          workspace: prepared.task.workspace,
-          targetAgent: prepared.task.targetAgent,
-          ...(prepared.task.role ? { role: prepared.task.role } : {}),
-          task: prepared.task.task,
-        });
-      } catch (error) {
-        await this.mutate(async () => {
-          const state = await this.deps.loadState();
-          delete state.orchestration.tasks[prepared.task.taskId];
-          if (prepared.previousBinding) {
-            state.orchestration.workerBindings[ensuredWorkerSession] = prepared.previousBinding;
-          } else {
-            delete state.orchestration.workerBindings[ensuredWorkerSession];
-          }
-          if (prepared.normalizedGroupId && prepared.previousGroup) {
-            const groups = state.orchestration.groups ?? {};
-            groups[prepared.normalizedGroupId] = prepared.previousGroup;
-          }
-          await this.deps.saveState(state);
-        });
-        throw error;
-      }
+      void this.runAutoRunRpcWorkerTask({
+        task: prepared.task,
+        previousBinding: prepared.previousBinding,
+      });
     }
 
     this.logEvent(
@@ -663,8 +776,266 @@ export class OrchestrationService {
     return {
       taskId: prepared.task.taskId,
       status: prepared.status as RequestDelegateRpcResult["status"],
-      ...(autoRun ? { workerSession: ensuredWorkerSession } : {}),
+      ...(autoRun ? { workerSession: workerSessionName } : {}),
     };
+  }
+
+  private async runAutoRunRpcWorkerTask(input: {
+    task: OrchestrationTaskRecord;
+    previousBinding?: AppState["orchestration"]["workerBindings"][string];
+  }): Promise<void> {
+    const { task } = input;
+    try {
+      const ensuredWorkerSession = await this.ensureReservedWorkerSession({
+        workerSession: task.workerSession!,
+        sourceHandle: task.sourceHandle,
+        sourceKind: task.sourceKind,
+        coordinatorSession: task.coordinatorSession,
+        workspace: task.workspace,
+        ...(task.cwd ? { cwd: task.cwd } : {}),
+        targetAgent: task.targetAgent,
+        ...(task.role ? { role: task.role } : {}),
+      });
+      const startupAction = await this.mutate(async () => {
+        const state = await this.deps.loadState();
+        const current = state.orchestration.tasks[task.taskId];
+        if (
+          current?.workerSession === ensuredWorkerSession &&
+          current.status === "running" &&
+          current.cancelRequestedAt !== undefined
+        ) {
+          return "completeCancellation" as const;
+        }
+        return current !== undefined &&
+          current.workerSession === ensuredWorkerSession &&
+          current.status === "running"
+          ? "dispatch" as const
+          : "skip" as const;
+      });
+      if (startupAction === "completeCancellation") {
+        const completed = await this.completeAutoRunStartupCancellation({
+          task,
+          previousBinding: input.previousBinding,
+        });
+        if (completed) {
+          this.logEvent("orchestration.task.cancel_completed", "task cancellation completed", {
+            ...this.taskContext(task),
+            status: "cancelled",
+          });
+        }
+        return;
+      }
+      if (startupAction !== "dispatch") {
+        await this.cleanupAutoRunStartupBinding({
+          task,
+          previousBinding: input.previousBinding,
+        });
+        return;
+      }
+      const preDispatchAction = await this.mutate(async () => {
+        const state = await this.deps.loadState();
+        const current = state.orchestration.tasks[task.taskId];
+        if (
+          current?.workerSession === ensuredWorkerSession &&
+          current.status === "running" &&
+          current.cancelRequestedAt !== undefined
+        ) {
+          return "completeCancellation" as const;
+        }
+        return current !== undefined &&
+          current.workerSession === ensuredWorkerSession &&
+          current.status === "running"
+          ? "dispatch" as const
+          : "skip" as const;
+      });
+      if (preDispatchAction === "completeCancellation") {
+        const completed = await this.completeAutoRunStartupCancellation({
+          task,
+          previousBinding: input.previousBinding,
+        });
+        if (completed) {
+          this.logEvent("orchestration.task.cancel_completed", "task cancellation completed", {
+            ...this.taskContext(task),
+            status: "cancelled",
+          });
+        }
+        return;
+      }
+      if (preDispatchAction !== "dispatch") {
+        await this.cleanupAutoRunStartupBinding({
+          task,
+          previousBinding: input.previousBinding,
+        });
+        return;
+      }
+      await this.deps.dispatchWorkerTask({
+        taskId: task.taskId,
+        workerSession: ensuredWorkerSession,
+        coordinatorSession: task.coordinatorSession,
+        workspace: task.workspace,
+        ...(task.cwd ? { cwd: task.cwd } : {}),
+        targetAgent: task.targetAgent,
+        ...(task.role ? { role: task.role } : {}),
+        task: task.task,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const completedCancellation = await this.completeAutoRunStartupCancellation({
+        task,
+        previousBinding: input.previousBinding,
+      });
+      if (completedCancellation) {
+        this.logEvent("orchestration.task.cancel_completed", "task cancellation completed", {
+          ...this.taskContext(task),
+          status: "cancelled",
+        });
+        return;
+      }
+      const taskMarkedFailed = await this.mutate(async () => {
+        const state = await this.deps.loadState();
+        const current = state.orchestration.tasks[task.taskId];
+        const workerSession = task.workerSession!;
+        const taskStillOwnsWorkerSession = current?.workerSession === workerSession;
+        const currentBinding = state.orchestration.workerBindings[workerSession];
+        const bindingStillBelongsToThisStartup =
+          currentBinding?.sourceHandle === workerSession &&
+          currentBinding.coordinatorSession === task.coordinatorSession &&
+          currentBinding.workspace === task.workspace &&
+          currentBinding.cwd === task.cwd &&
+          currentBinding.targetAgent === task.targetAgent &&
+          currentBinding.role === task.role;
+        const otherActiveOwner = Object.values(state.orchestration.tasks).some((candidate) =>
+          candidate.taskId !== task.taskId &&
+          candidate.workerSession === workerSession &&
+          (!this.isTerminalStatus(candidate.status) || candidate.reviewPending !== undefined)
+        );
+        const restoreOrDeleteBinding = () => {
+          if (!bindingStillBelongsToThisStartup || otherActiveOwner) {
+            return;
+          }
+          if (input.previousBinding) {
+            state.orchestration.workerBindings[workerSession] = input.previousBinding;
+          } else {
+            delete state.orchestration.workerBindings[workerSession];
+          }
+        };
+        if (current && taskStillOwnsWorkerSession && current.status === "cancelled") {
+          restoreOrDeleteBinding();
+          await this.deps.saveState(state);
+          return false;
+        }
+        if (
+          current &&
+          taskStillOwnsWorkerSession &&
+          current.cancelRequestedAt === undefined &&
+          !this.isTerminalStatus(current.status)
+        ) {
+          const now = this.deps.now().toISOString();
+          current.status = "failed";
+          current.summary = message;
+          current.resultText = "";
+          current.updatedAt = now;
+          restoreOrDeleteBinding();
+          await this.deps.saveState(state);
+          return true;
+        }
+        await this.deps.saveState(state);
+        return false;
+      });
+      if (taskMarkedFailed) {
+        this.logEvent("orchestration.task.failed", "task failed", {
+          ...this.taskContext(task),
+          error: message,
+        });
+      }
+    }
+  }
+
+  private async completeAutoRunStartupCancellation(input: {
+    task: OrchestrationTaskRecord;
+    previousBinding?: AppState["orchestration"]["workerBindings"][string];
+  }): Promise<boolean> {
+    const { task } = input;
+    return await this.mutate(async () => {
+      const state = await this.deps.loadState();
+      const workerSession = task.workerSession!;
+      const current = state.orchestration.tasks[task.taskId];
+      if (
+        !current ||
+        current.workerSession !== workerSession ||
+        current.status !== "running" ||
+        current.cancelRequestedAt === undefined
+      ) {
+        return false;
+      }
+
+      const now = this.deps.now().toISOString();
+      current.status = "cancelled";
+      current.cancelCompletedAt = now;
+      current.lastCancelError = undefined;
+      current.updatedAt = now;
+      this.bumpGroupUpdated(state, current.groupId, now);
+
+      const currentBinding = state.orchestration.workerBindings[workerSession];
+      const bindingStillBelongsToThisStartup =
+        currentBinding?.sourceHandle === workerSession &&
+        currentBinding.coordinatorSession === task.coordinatorSession &&
+        currentBinding.workspace === task.workspace &&
+        currentBinding.cwd === task.cwd &&
+        currentBinding.targetAgent === task.targetAgent &&
+        currentBinding.role === task.role;
+      const otherActiveOwner = Object.values(state.orchestration.tasks).some((candidate) =>
+        candidate.taskId !== task.taskId &&
+        candidate.workerSession === workerSession &&
+        (!this.isTerminalStatus(candidate.status) || candidate.reviewPending !== undefined)
+      );
+      if (bindingStillBelongsToThisStartup && !otherActiveOwner) {
+        if (input.previousBinding) {
+          state.orchestration.workerBindings[workerSession] = input.previousBinding;
+        } else {
+          delete state.orchestration.workerBindings[workerSession];
+        }
+      }
+      await this.deps.saveState(state);
+      return true;
+    });
+  }
+
+  private async cleanupAutoRunStartupBinding(input: {
+    task: OrchestrationTaskRecord;
+    previousBinding?: AppState["orchestration"]["workerBindings"][string];
+  }): Promise<boolean> {
+    const { task } = input;
+    return await this.mutate(async () => {
+      const state = await this.deps.loadState();
+      const workerSession = task.workerSession!;
+      const currentBinding = state.orchestration.workerBindings[workerSession];
+      const bindingStillBelongsToThisStartup =
+        currentBinding?.sourceHandle === workerSession &&
+        currentBinding.coordinatorSession === task.coordinatorSession &&
+        currentBinding.workspace === task.workspace &&
+        currentBinding.cwd === task.cwd &&
+        currentBinding.targetAgent === task.targetAgent &&
+        currentBinding.role === task.role;
+      if (!bindingStillBelongsToThisStartup) {
+        return false;
+      }
+      const otherActiveOwner = Object.values(state.orchestration.tasks).some((candidate) =>
+        candidate.taskId !== task.taskId &&
+        candidate.workerSession === workerSession &&
+        (!this.isTerminalStatus(candidate.status) || candidate.reviewPending !== undefined)
+      );
+      if (otherActiveOwner) {
+        return false;
+      }
+      if (input.previousBinding) {
+        state.orchestration.workerBindings[workerSession] = input.previousBinding;
+      } else {
+        delete state.orchestration.workerBindings[workerSession];
+      }
+      await this.deps.saveState(state);
+      return true;
+    });
   }
 
   async recordWorkerReply(input: RecordWorkerReplyInput): Promise<OrchestrationTaskRecord> {
@@ -700,9 +1071,15 @@ export class OrchestrationService {
       task.summary = input.summary ?? "";
       task.resultText = stripProgressLines(input.resultText ?? "");
       if (task.status === "completed" || task.status === "failed") {
-        task.injectionPending = true;
-        task.injectionAppliedAt = undefined;
-        task.lastInjectionError = undefined;
+        if (!this.isExternalCoordinatorSession(state, task.coordinatorSession)) {
+          task.injectionPending = true;
+          task.injectionAppliedAt = undefined;
+          task.lastInjectionError = undefined;
+        } else {
+          task.injectionPending = undefined;
+          task.injectionAppliedAt = undefined;
+          task.lastInjectionError = undefined;
+        }
         if (!isContestedResult && task.chatKey && task.replyContextToken) {
           task.noticePending = true;
           task.noticeSentAt = undefined;
@@ -826,6 +1203,35 @@ export class OrchestrationService {
     return task ? { ...task } : null;
   }
 
+
+  async waitTask(input: WaitTaskInput): Promise<WaitTaskResult> {
+    const timeoutMs = clampWaitTimeout(input.timeoutMs);
+    const pollIntervalMs = clampPollInterval(input.pollIntervalMs);
+    const deadline = Date.now() + timeoutMs;
+
+    while (true) {
+      const state = await this.deps.loadState();
+      const task = state.orchestration.tasks[input.taskId];
+      if (!task || task.coordinatorSession !== input.coordinatorSession) {
+        return { status: "not_found", task: null };
+      }
+
+      const snapshot = { ...task };
+      if (isTerminalTaskStatus(task.status) && task.reviewPending === undefined) {
+        return { status: "terminal", task: snapshot };
+      }
+      if (isAttentionRequiredTask(task)) {
+        return { status: "attention_required", task: snapshot };
+      }
+
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        return { status: "timeout", task: snapshot };
+      }
+      await sleep(Math.min(pollIntervalMs, remainingMs));
+    }
+  }
+
   async recordCoordinatorRouteContext(input: {
     coordinatorSession: string;
     chatKey: string;
@@ -931,13 +1337,16 @@ export class OrchestrationService {
         taskId: task.taskId,
         questionId,
         coordinatorSession: task.coordinatorSession,
+        externalCoordinator: this.isExternalCoordinatorSession(state, task.coordinatorSession),
       };
     });
 
     try {
-      await this.deps.wakeCoordinatorSession?.({
-        coordinatorSession: prepared.coordinatorSession,
-      });
+      if (!prepared.externalCoordinator) {
+        await this.deps.wakeCoordinatorSession?.({
+          coordinatorSession: prepared.coordinatorSession,
+        });
+      }
     } catch (error) {
       await this.recordOpenQuestionWakeError(
         prepared.taskId,
@@ -1014,6 +1423,7 @@ export class OrchestrationService {
         workerSession: prepared.task.workerSession!,
         coordinatorSession: prepared.task.coordinatorSession,
         workspace: prepared.task.workspace,
+        ...(prepared.task.cwd ? { cwd: prepared.task.cwd } : {}),
         targetAgent: prepared.task.targetAgent,
         answer,
       });
@@ -1131,6 +1541,9 @@ export class OrchestrationService {
 
     const prepared = await this.mutate(async () => {
       const state = await this.deps.loadState();
+      if (this.isExternalCoordinatorSession(state, input.coordinatorSession)) {
+        throw new Error("human input routing is not configured for external coordinator");
+      }
       const coordinatorState = this.ensureCoordinatorQuestionState(state, input.coordinatorSession);
       if (input.expectedActivePackageId !== undefined && coordinatorState.activePackageId !== input.expectedActivePackageId) {
         throw new Error(
@@ -1262,6 +1675,9 @@ export class OrchestrationService {
 
     const prepared = await this.mutate(async () => {
       const state = await this.deps.loadState();
+      if (this.isExternalCoordinatorSession(state, input.coordinatorSession)) {
+        throw new Error("human input routing is not configured for external coordinator");
+      }
       const coordinatorState = this.ensureCoordinatorQuestionState(state, input.coordinatorSession);
       if (coordinatorState.activePackageId !== input.packageId) {
         throw new Error(
@@ -1347,6 +1763,9 @@ export class OrchestrationService {
   }): Promise<RetryHumanQuestionPackageDeliveryResult> {
     const prepared = await this.mutate(async () => {
       const state = await this.deps.loadState();
+      if (this.isExternalCoordinatorSession(state, input.coordinatorSession)) {
+        throw new Error("human input routing is not configured for external coordinator");
+      }
       const coordinatorState = this.ensureCoordinatorQuestionState(state, input.coordinatorSession);
       if (coordinatorState.activePackageId !== input.packageId) {
         throw new Error(
@@ -1414,6 +1833,9 @@ export class OrchestrationService {
   }): Promise<ClaimedActiveHumanReply | null> {
     return await this.mutate(async () => {
       const state = await this.deps.loadState();
+      if (this.isExternalCoordinatorSession(state, input.coordinatorSession)) {
+        return null;
+      }
       const coordinatorState = this.ensureCoordinatorQuestionState(state, input.coordinatorSession);
       if (!coordinatorState.activePackageId || coordinatorState.activePackageId !== input.packageId) {
         return null;
@@ -1461,6 +1883,9 @@ export class OrchestrationService {
     coordinatorSession: string,
   ): Promise<ActiveHumanQuestionPackage | null> {
     const state = await this.deps.loadState();
+    if (this.isExternalCoordinatorSession(state, coordinatorSession)) {
+      return null;
+    }
     const coordinatorState = state.orchestration.coordinatorQuestionState[coordinatorSession];
     const activePackageId = coordinatorState?.activePackageId;
     if (!activePackageId) {
@@ -1574,10 +1999,11 @@ export class OrchestrationService {
       return {
         task: { ...task },
         replacementQuestionId,
+        externalCoordinator: this.isExternalCoordinatorSession(state, task.coordinatorSession),
       };
     });
 
-    if (prepared.replacementQuestionId) {
+    if (prepared.replacementQuestionId && !prepared.externalCoordinator) {
       try {
         await this.deps.wakeCoordinatorSession?.({
           coordinatorSession: prepared.task.coordinatorSession,
@@ -1728,6 +2154,9 @@ export class OrchestrationService {
 
   async listPendingCoordinatorResults(coordinatorSession: string): Promise<OrchestrationTaskRecord[]> {
     const state = await this.deps.loadState();
+    if (this.isExternalCoordinatorSession(state, coordinatorSession)) {
+      return [];
+    }
     return Object.values(state.orchestration.tasks)
       .filter(
         (task) =>
@@ -1741,6 +2170,9 @@ export class OrchestrationService {
 
   async listPendingCoordinatorBlockers(coordinatorSession: string): Promise<OrchestrationTaskRecord[]> {
     const state = await this.deps.loadState();
+    if (this.isExternalCoordinatorSession(state, coordinatorSession)) {
+      return [];
+    }
     const coordinatorState = state.orchestration.coordinatorQuestionState[coordinatorSession];
     const hiddenQueuedQuestionKeys = coordinatorState?.activePackageId
       ? new Set((coordinatorState.queuedQuestions ?? []).map((entry) => `${entry.taskId}:${entry.questionId}`))
@@ -1759,6 +2191,9 @@ export class OrchestrationService {
 
   async listContestedCoordinatorResults(coordinatorSession: string): Promise<OrchestrationTaskRecord[]> {
     const state = await this.deps.loadState();
+    if (this.isExternalCoordinatorSession(state, coordinatorSession)) {
+      return [];
+    }
     return Object.values(state.orchestration.tasks)
       .filter((task) => task.coordinatorSession === coordinatorSession && task.reviewPending !== undefined)
       .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt))
@@ -1767,6 +2202,9 @@ export class OrchestrationService {
 
   async listPendingCoordinatorGroups(coordinatorSession: string): Promise<OrchestrationGroupRecord[]> {
     const state = await this.deps.loadState();
+    if (this.isExternalCoordinatorSession(state, coordinatorSession)) {
+      return [];
+    }
     const groups = this.ensureGroups(state);
     const tasks = Object.values(state.orchestration.tasks);
 
@@ -2106,7 +2544,11 @@ export class OrchestrationService {
       task.updatedAt = now;
       this.bumpGroupUpdated(state, task.groupId, now);
       await this.deps.saveState(state);
-      return { task: { ...task }, replacementQuestionId };
+      return {
+        task: { ...task },
+        replacementQuestionId,
+        externalCoordinator: this.isExternalCoordinatorSession(state, task.coordinatorSession),
+      };
     });
 
     if (prepared.replacementQuestionId) {
@@ -2114,16 +2556,18 @@ export class OrchestrationService {
         ...this.taskContext(prepared.task),
         replacement_question_id: prepared.replacementQuestionId,
       });
-      try {
-        await this.deps.wakeCoordinatorSession?.({
-          coordinatorSession: prepared.task.coordinatorSession,
-        });
-      } catch (error) {
-        await this.recordOpenQuestionWakeError(
-          prepared.task.taskId,
-          prepared.replacementQuestionId,
-          error instanceof Error ? error.message : String(error),
-        );
+      if (!prepared.externalCoordinator) {
+        try {
+          await this.deps.wakeCoordinatorSession?.({
+            coordinatorSession: prepared.task.coordinatorSession,
+          });
+        } catch (error) {
+          await this.recordOpenQuestionWakeError(
+            prepared.task.taskId,
+            prepared.replacementQuestionId,
+            error instanceof Error ? error.message : String(error),
+          );
+        }
       }
       return prepared.task;
     }
@@ -2183,50 +2627,72 @@ export class OrchestrationService {
         sourceKind: currentTask.sourceKind,
         coordinatorSession: currentTask.coordinatorSession,
         workspace: currentTask.workspace,
+        ...(currentTask.cwd ? { cwd: currentTask.cwd } : {}),
         targetAgent: currentTask.targetAgent,
         task: currentTask.task,
         ...(currentTask.role ? { role: currentTask.role } : {}),
       }));
-    const ensuredWorkerSession = await this.deps.ensureWorkerSession({
-      workerSession,
-      sourceHandle: currentTask.sourceHandle,
-      sourceKind: currentTask.sourceKind,
-      coordinatorSession: currentTask.coordinatorSession,
-      workspace: currentTask.workspace,
-      targetAgent: currentTask.targetAgent,
-      role: currentTask.role,
-    });
-    const prepared = await this.mutate(async () => {
-      const state = await this.deps.loadState();
-      const task = state.orchestration.tasks[input.taskId];
-      if (!task) {
-        throw new Error(`task "${input.taskId}" does not exist`);
-      }
-      this.assertCoordinatorOwnership(task, input.coordinatorSession);
-      this.assertNeedsConfirmation(task);
-      const previousStatus = task.status;
-      const previousUpdatedAt = task.updatedAt;
-      const previousBinding = state.orchestration.workerBindings[ensuredWorkerSession];
-      task.workerSession = ensuredWorkerSession;
-      task.status = "running";
-      task.updatedAt = this.deps.now().toISOString();
-      state.orchestration.workerBindings[ensuredWorkerSession] = {
-        sourceHandle: ensuredWorkerSession,
-        coordinatorSession: task.coordinatorSession,
-        workspace: task.workspace,
-        targetAgent: task.targetAgent,
-        role: task.role,
-      };
+    const releaseWorkerReservation = await this.reserveProposedWorkerSession(workerSession, input.taskId);
+    let ensuredWorkerSession = workerSession;
+    let prepared: {
+      task: OrchestrationTaskRecord;
+      previousStatus: OrchestrationTaskStatus;
+      previousUpdatedAt: string;
+      previousWorkerSession?: string;
+      previousBinding?: AppState["orchestration"]["workerBindings"][string];
+    };
+    try {
+      ensuredWorkerSession = await this.ensureReservedWorkerSession({
+        workerSession,
+        sourceHandle: currentTask.sourceHandle,
+        sourceKind: currentTask.sourceKind,
+        coordinatorSession: currentTask.coordinatorSession,
+        workspace: currentTask.workspace,
+        ...(currentTask.cwd ? { cwd: currentTask.cwd } : {}),
+        targetAgent: currentTask.targetAgent,
+        role: currentTask.role,
+      });
+      prepared = await this.mutate(async () => {
+        const state = await this.deps.loadState();
+        const task = state.orchestration.tasks[input.taskId];
+        if (!task) {
+          throw new Error(`task "${input.taskId}" does not exist`);
+        }
+        this.assertCoordinatorOwnership(task, input.coordinatorSession);
+        this.assertNeedsConfirmation(task);
+        const previousStatus = task.status;
+        const previousUpdatedAt = task.updatedAt;
+        const previousWorkerSession = task.workerSession;
+        const previousBinding = state.orchestration.workerBindings[ensuredWorkerSession];
+        this.assertWorkerSessionDoesNotConflictExternalCoordinator(state, ensuredWorkerSession);
+        this.assertWorkerSessionAvailable(state, ensuredWorkerSession, input.taskId, { allowCurrentReservation: true });
+        task.workerSession = ensuredWorkerSession;
+        task.status = "running";
+        task.updatedAt = this.deps.now().toISOString();
+        state.orchestration.workerBindings[ensuredWorkerSession] = {
+          sourceHandle: ensuredWorkerSession,
+          coordinatorSession: task.coordinatorSession,
+          workspace: task.workspace,
+          ...(task.cwd ? { cwd: task.cwd } : {}),
+          targetAgent: task.targetAgent,
+          role: task.role,
+        };
 
-      await this.deps.saveState(state);
+        await this.deps.saveState(state);
 
-      return {
-        task: { ...task },
-        previousStatus,
-        previousUpdatedAt,
-        previousBinding,
-      };
-    });
+        return {
+          task: { ...task },
+          previousStatus,
+          previousUpdatedAt,
+          previousWorkerSession,
+          previousBinding,
+        };
+      });
+    } catch (error) {
+      await releaseWorkerReservation();
+      throw error;
+    }
+    await releaseWorkerReservation();
 
     try {
       await this.deps.dispatchWorkerTask({
@@ -2234,6 +2700,7 @@ export class OrchestrationService {
         workerSession: ensuredWorkerSession,
         coordinatorSession: prepared.task.coordinatorSession,
         workspace: prepared.task.workspace,
+        ...(prepared.task.cwd ? { cwd: prepared.task.cwd } : {}),
         targetAgent: prepared.task.targetAgent,
         ...(prepared.task.role ? { role: prepared.task.role } : {}),
         task: prepared.task.task,
@@ -2245,6 +2712,11 @@ export class OrchestrationService {
         if (task) {
           task.status = prepared.previousStatus;
           task.updatedAt = prepared.previousUpdatedAt;
+          if (prepared.previousWorkerSession === undefined) {
+            delete task.workerSession;
+          } else {
+            task.workerSession = prepared.previousWorkerSession;
+          }
         }
         if (prepared.previousBinding) {
           state.orchestration.workerBindings[ensuredWorkerSession] = prepared.previousBinding;
@@ -2293,6 +2765,7 @@ export class OrchestrationService {
       sourceKind: input.sourceKind,
       coordinatorSession: input.coordinatorSession,
       workspace: input.workspace,
+      ...(input.cwd ? { cwd: input.cwd } : {}),
       targetAgent: input.targetAgent,
       role,
     });
@@ -2301,10 +2774,74 @@ export class OrchestrationService {
       return reusable.trim();
     }
 
-    return [input.workspace, input.targetAgent, role, input.coordinatorSession]
+    return [input.workspace, input.cwd ? this.cwdWorkerSessionPart(input.cwd) : undefined, input.targetAgent, role, input.coordinatorSession]
       .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
       .map((part) => part.trim())
       .join(":");
+  }
+
+  private async reserveProposedWorkerSession(workerSession: string, excludingTaskId?: string): Promise<() => Promise<void>> {
+    await this.mutate(async () => {
+      const state = await this.deps.loadState();
+      this.assertWorkerSessionDoesNotConflictExternalCoordinator(state, workerSession);
+      this.assertWorkerSessionAvailable(state, workerSession, excludingTaskId);
+      this.pendingWorkerSessions.set(workerSession, (this.pendingWorkerSessions.get(workerSession) ?? 0) + 1);
+    });
+
+    let released = false;
+    return async () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      await this.mutate(async () => {
+        const count = this.pendingWorkerSessions.get(workerSession) ?? 0;
+        if (count <= 1) {
+          this.pendingWorkerSessions.delete(workerSession);
+        } else {
+          this.pendingWorkerSessions.set(workerSession, count - 1);
+        }
+      });
+    };
+  }
+
+  private async ensureReservedWorkerSession(request: EnsureWorkerSessionRequest): Promise<string> {
+    const ensuredWorkerSession = await this.deps.ensureWorkerSession(request);
+    if (ensuredWorkerSession !== request.workerSession) {
+      throw new Error(
+        `ensureWorkerSession returned "${ensuredWorkerSession}", expected "${request.workerSession}"`,
+      );
+    }
+    return ensuredWorkerSession;
+  }
+
+  async reserveLogicalTransportSession(transportSession: string): Promise<() => Promise<void>> {
+    await this.mutate(async () => {
+      const state = await this.deps.loadState();
+      if (this.isExternalCoordinatorSession(state, transportSession)) {
+        throw new Error(`transport session "${transportSession}" conflicts with an external coordinator`);
+      }
+      this.pendingLogicalTransportSessions.set(
+        transportSession,
+        (this.pendingLogicalTransportSessions.get(transportSession) ?? 0) + 1,
+      );
+    });
+
+    let released = false;
+    return async () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      await this.mutate(async () => {
+        const count = this.pendingLogicalTransportSessions.get(transportSession) ?? 0;
+        if (count <= 1) {
+          this.pendingLogicalTransportSessions.delete(transportSession);
+        } else {
+          this.pendingLogicalTransportSessions.set(transportSession, count - 1);
+        }
+      });
+    };
   }
 
   private buildGroupSummary(
@@ -2349,6 +2886,9 @@ export class OrchestrationService {
     if (!group) {
       return false;
     }
+    if (this.isExternalCoordinatorSession(state, group.coordinatorSession)) {
+      return false;
+    }
     if (groupTasks.length === 0) {
       return false;
     }
@@ -2362,6 +2902,9 @@ export class OrchestrationService {
   }
 
   private canInjectTaskIntoCoordinator(state: AppState, task: OrchestrationTaskRecord): boolean {
+    if (this.isExternalCoordinatorSession(state, task.coordinatorSession)) {
+      return false;
+    }
     if ((task.status !== "completed" && task.status !== "failed") || task.reviewPending !== undefined) {
       return false;
     }
@@ -2374,13 +2917,14 @@ export class OrchestrationService {
   private resolveRpcSourceContext(
     state: AppState,
     sourceHandle: string,
-  ): { sourceKind: OrchestrationSourceKind; coordinatorSession: string; workspace: string } {
+  ): { sourceKind: OrchestrationSourceKind; coordinatorSession: string; workspace?: string; cwd?: string } {
     const binding = state.orchestration.workerBindings[sourceHandle];
     if (binding) {
       return {
         sourceKind: "worker",
         coordinatorSession: binding.coordinatorSession,
         workspace: binding.workspace,
+        ...(binding.cwd ? { cwd: binding.cwd } : {}),
       };
     }
 
@@ -2395,7 +2939,33 @@ export class OrchestrationService {
       };
     }
 
+    const externalCoordinator = this.ensureExternalCoordinators(state)[sourceHandle];
+    if (externalCoordinator) {
+      return {
+        sourceKind: "coordinator",
+        coordinatorSession: externalCoordinator.coordinatorSession,
+        ...(externalCoordinator.workspace ? { workspace: externalCoordinator.workspace } : {}),
+      };
+    }
+
     throw new Error(`sourceHandle "${sourceHandle}" is not a registered coordinator or worker session`);
+  }
+
+  private resolveRpcTargetLocation(
+    sourceContext: { workspace?: string; cwd?: string },
+    rawCwd: string | undefined,
+  ): { workspace: string; cwd?: string } {
+    const cwd = rawCwd !== undefined ? this.normalizeWorkingDirectory(rawCwd) : sourceContext.cwd;
+    if (cwd) {
+      return {
+        workspace: sourceContext.workspace ?? this.workspaceLabelFromCwd(cwd),
+        cwd,
+      };
+    }
+    if (sourceContext.workspace) {
+      return { workspace: sourceContext.workspace };
+    }
+    throw new Error("workingDirectory is required when the external coordinator has no default workspace");
   }
 
   private assertRpcRequestAllowed(
@@ -2465,6 +3035,28 @@ export class OrchestrationService {
     if (input.task.trim().length === 0) {
       throw new Error("task must be a non-empty string");
     }
+  }
+
+  private normalizeWorkingDirectory(cwd: string): string {
+    const normalized = normalize(cwd.trim());
+    if (normalized.length === 0 || normalized === ".") {
+      throw new Error("workingDirectory must be a non-empty absolute path");
+    }
+    if (!isAbsolute(normalized)) {
+      throw new Error("workingDirectory must be an absolute path");
+    }
+    return normalized;
+  }
+
+  private workspaceLabelFromCwd(cwd: string): string {
+    const base = basename(cwd).trim() || "cwd";
+    return base.replace(/[^a-zA-Z0-9._-]+/g, "_") || "cwd";
+  }
+
+  private cwdWorkerSessionPart(cwd: string): string {
+    const label = this.workspaceLabelFromCwd(cwd);
+    const hash = createHash("sha256").update(cwd).digest("hex").slice(0, 8);
+    return `${label}-${hash}`;
   }
 
   private normalizeRole(role: string | undefined): string | undefined {
@@ -2614,6 +3206,59 @@ export class OrchestrationService {
       ).coordinatorRoutes = {};
     }
     return state.orchestration.coordinatorRoutes;
+  }
+
+
+
+  private isExternalCoordinatorSession(state: AppState, coordinatorSession: string): boolean {
+    return this.ensureExternalCoordinators(state)[coordinatorSession] !== undefined;
+  }
+
+  private assertWorkerSessionDoesNotConflictExternalCoordinator(state: AppState, workerSession: string): void {
+    if (this.isExternalCoordinatorSession(state, workerSession)) {
+      throw new Error(`worker session "${workerSession}" conflicts with an external coordinator`);
+    }
+  }
+
+  private assertWorkerSessionAvailable(
+    state: AppState,
+    workerSession: string,
+    excludingTaskId?: string,
+    options: { allowCurrentReservation?: boolean } = {},
+  ): void {
+    const pendingCount = this.pendingWorkerSessions.get(workerSession) ?? 0;
+    const allowedPendingCount = options.allowCurrentReservation ? 1 : 0;
+    if (pendingCount > allowedPendingCount) {
+      throw new Error(`worker session "${workerSession}" is already in use`);
+    }
+    if (this.hasActiveTaskWorkerSession(state, workerSession, excludingTaskId)) {
+      throw new Error(`worker session "${workerSession}" is already in use`);
+    }
+  }
+
+  private hasActiveTaskWorkerSession(state: AppState, workerSession: string, excludingTaskId?: string): boolean {
+    return Object.values(state.orchestration.tasks).some(
+      (task) =>
+        task.taskId !== excludingTaskId &&
+        task.workerSession === workerSession &&
+        (!this.isTerminalStatus(task.status) || task.reviewPending !== undefined),
+    );
+  }
+
+  private async assertProposedWorkerSessionDoesNotConflictExternalCoordinator(workerSession: string): Promise<void> {
+    const state = await this.deps.loadState();
+    this.assertWorkerSessionDoesNotConflictExternalCoordinator(state, workerSession);
+  }
+
+  private ensureExternalCoordinators(state: AppState): Record<string, ExternalCoordinatorRecord> {
+    if (!("externalCoordinators" in state.orchestration) || !state.orchestration.externalCoordinators) {
+      (
+        state.orchestration as AppState["orchestration"] & {
+          externalCoordinators: Record<string, ExternalCoordinatorRecord>;
+        }
+      ).externalCoordinators = {};
+    }
+    return state.orchestration.externalCoordinators;
   }
 
   private ensureGroups(state: AppState): Record<string, OrchestrationGroupRecord> {
@@ -2918,11 +3563,11 @@ export class OrchestrationService {
   }
 
   private async handoffQueuedQuestions(coordinatorSession: string, closedPackageId: string): Promise<void> {
-    const queuedQuestions = await this.mutate(async () => {
+    const prepared = await this.mutate(async () => {
       const state = await this.deps.loadState();
       const coordinatorState = this.ensureCoordinatorQuestionState(state, coordinatorSession);
       if (coordinatorState.activePackageId === closedPackageId) {
-        return [];
+        return { externalCoordinator: this.isExternalCoordinatorSession(state, coordinatorSession), queuedQuestions: [] };
       }
 
       const validQueuedQuestions = coordinatorState.queuedQuestions.filter((entry) => {
@@ -2938,10 +3583,13 @@ export class OrchestrationService {
         coordinatorState.queuedQuestions = validQueuedQuestions;
         await this.deps.saveState(state);
       }
-      return validQueuedQuestions;
+      return {
+        externalCoordinator: this.isExternalCoordinatorSession(state, coordinatorSession),
+        queuedQuestions: validQueuedQuestions,
+      };
     });
 
-    if (queuedQuestions.length === 0) {
+    if (prepared.queuedQuestions.length === 0 || prepared.externalCoordinator) {
       return;
     }
 
@@ -2954,7 +3602,7 @@ export class OrchestrationService {
         const coordinatorState = this.ensureCoordinatorQuestionState(state, coordinatorSession);
         coordinatorState.queuedQuestions = coordinatorState.queuedQuestions.filter(
           (entry) =>
-            !queuedQuestions.some(
+            !prepared.queuedQuestions.some(
               (queued) => queued.taskId === entry.taskId && queued.questionId === entry.questionId,
             ),
         );
@@ -2963,7 +3611,7 @@ export class OrchestrationService {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       await Promise.all(
-        queuedQuestions.map(async ({ taskId, questionId }) => {
+        prepared.queuedQuestions.map(async ({ taskId, questionId }) => {
           const state = await this.deps.loadState();
           const task = state.orchestration.tasks[taskId];
           if (!task?.openQuestion || task.openQuestion.status !== "open" || task.openQuestion.questionId !== questionId) {
@@ -3263,6 +3911,7 @@ export class OrchestrationService {
           taskId: task.taskId,
           workerSession: freshTask.workerSession,
           workspace: freshTask.workspace,
+          ...(freshTask.cwd ? { cwd: freshTask.cwd } : {}),
           targetAgent: freshTask.targetAgent,
         });
         await this.completeTaskCancellation(task.taskId);
@@ -3271,6 +3920,45 @@ export class OrchestrationService {
       }
     })();
   }
+}
+
+
+function isTerminalTaskStatus(status: OrchestrationTaskStatus): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
+}
+
+function isAttentionRequiredTask(task: OrchestrationTaskRecord): boolean {
+  return (
+    task.reviewPending !== undefined ||
+    task.status === "pending" ||
+    task.status === "needs_confirmation" ||
+    task.status === "blocked" ||
+    task.status === "waiting_for_human"
+  );
+}
+
+function clampWaitTimeout(timeoutMs: number | undefined): number {
+  if (timeoutMs === undefined) {
+    return DEFAULT_TASK_WAIT_TIMEOUT_MS;
+  }
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 0) {
+    return 0;
+  }
+  return Math.min(Math.floor(timeoutMs), MAX_TASK_WAIT_TIMEOUT_MS);
+}
+
+function clampPollInterval(pollIntervalMs: number | undefined): number {
+  if (pollIntervalMs === undefined) {
+    return DEFAULT_TASK_WAIT_POLL_INTERVAL_MS;
+  }
+  if (!Number.isFinite(pollIntervalMs) || pollIntervalMs <= 0) {
+    return 1;
+  }
+  return Math.min(Math.floor(pollIntervalMs), MAX_TASK_WAIT_POLL_INTERVAL_MS);
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isRequestDelegateInput(

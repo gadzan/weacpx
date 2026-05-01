@@ -12,6 +12,16 @@ const session: ResolvedSession = {
   cwd: "/tmp/backend",
 };
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 const mcpSession: ResolvedSession = {
   ...session,
   mcpCoordinatorSession: "backend:main",
@@ -52,6 +62,23 @@ test("proxies prompt through the bridge client", async () => {
   await expect(transport.prompt(session, "hello")).resolves.toEqual({ text: "ok" });
 });
 
+test("passes prompt media through to the bridge client", async () => {
+  const request = mock(async () => ({ text: "ok" }));
+  const transport = new AcpxBridgeTransport({
+    request,
+  });
+  const media = { type: "image" as const, filePath: "/tmp/image.bin", mimeType: "image/*" };
+
+  await expect(
+    transport.prompt(session, "hello", undefined, undefined, { media }),
+  ).resolves.toEqual({ text: "ok" });
+
+  expect(request.mock.calls[0]?.[1]).toMatchObject({
+    text: "hello",
+    media,
+  });
+});
+
 test("includes orchestration MCP identity in bridge prompt params", async () => {
   const request = mock(async () => ({ text: "ok" }));
   const transport = new AcpxBridgeTransport({ request });
@@ -84,6 +111,65 @@ test("forwards bridge prompt segments into the reply callback", async () => {
   // user-visible content — a non-empty final would duplicate; only an
   // overflow_summary justifies a final-tier message.
   expect(segments).toEqual(["hello\nworld"]);
+});
+
+
+test("runs prompt segment observers serially in bridge event order", async () => {
+  const request = mock(async (_method, _params, onEvent?: (event: { type: string; text: string }) => void) => {
+    onEvent?.({ type: "prompt.segment", text: "first" });
+    onEvent?.({ type: "prompt.segment", text: "second" });
+    return { text: "done" };
+  });
+  const observed: string[] = [];
+  const releaseFirst = createDeferred<void>();
+  const transport = new AcpxBridgeTransport({ request });
+
+  const prompt = transport.prompt(session, "hello", undefined, undefined, {
+    onSegment: async (text) => {
+      if (text === "first") {
+        await releaseFirst.promise;
+      }
+      observed.push(text);
+    },
+  });
+
+  await Bun.sleep(0);
+  expect(observed).toEqual([]);
+  releaseFirst.resolve();
+  await expect(prompt).resolves.toEqual({ text: "done" });
+  expect(observed).toEqual(["first", "second"]);
+});
+
+test("captures prompt segment observer failures before bridge request settles", async () => {
+  const requestFinished = createDeferred<void>();
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => {
+    unhandled.push(reason);
+  };
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    const request = mock(async (_method, _params, onEvent?: (event: { type: string; text: string }) => void) => {
+      onEvent?.({ type: "prompt.segment", text: "first" });
+      await Bun.sleep(0);
+      await Bun.sleep(0);
+      requestFinished.resolve();
+      return { text: "done" };
+    });
+    const transport = new AcpxBridgeTransport({ request });
+
+    await expect(
+      transport.prompt(session, "hello", undefined, undefined, {
+        onSegment: () => {
+          throw new Error("observer failed");
+        },
+      }),
+    ).rejects.toThrow("observer failed");
+    await requestFinished.promise;
+    await Bun.sleep(0);
+    expect(unhandled).toEqual([]);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
 });
 
 test("proxies cancel through the bridge client", async () => {

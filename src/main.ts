@@ -8,23 +8,26 @@ import { ConfigStore } from "./config/config-store";
 import { ensureConfigExists } from "./config/ensure-config";
 import { loadConfig } from "./config/load-config";
 import { resolveAcpxCommand } from "./config/resolve-acpx-command";
+import { resolveAgentCommand } from "./config/resolve-agent-command";
 import { ConsoleAgent } from "./console-agent";
 import type { AppConfig, LoggingLevel } from "./config/types";
 import { createAppLogger, type AppLogger } from "./logging/app-logger";
 import { resolveDaemonOrchestrationSocketPath, resolveRuntimeDirFromConfigPath } from "./daemon/daemon-files";
 import type { OrchestrationTaskRecord } from "./orchestration/orchestration-types";
 import { createOrchestrationEndpoint, resolveOrchestrationEndpoint } from "./orchestration/orchestration-ipc";
+import { AsyncMutex } from "./orchestration/async-mutex";
 import { OrchestrationServer } from "./orchestration/orchestration-server";
 import { OrchestrationService } from "./orchestration/orchestration-service";
 import { buildCoordinatorPrompt } from "./orchestration/build-coordinator-prompt";
 import { buildWorkerAnswerPrompt, buildWorkerTaskPrompt } from "./orchestration/worker-prompts";
 import { SessionService } from "./sessions/session-service";
 import { StateStore } from "./state/state-store";
+import type { AppState } from "./state/types";
 import { runConsole } from "./run-console";
 import { spawnAcpxBridgeClient } from "./transport/acpx-bridge/acpx-bridge-client";
 import { AcpxBridgeTransport } from "./transport/acpx-bridge/acpx-bridge-transport";
 import { AcpxCliTransport } from "./transport/acpx-cli/acpx-cli-transport";
-import type { SessionTransport } from "./transport/types";
+import type { ResolvedSession, SessionTransport } from "./transport/types";
 import { listWeixinAccountIds, resolveWeixinAccount, sendMessageWeixin } from "./weixin";
 import { deliverOrchestrationTaskNotice } from "./weixin/messaging/deliver-orchestration-task-notice";
 import { deliverCoordinatorMessage as deliverCoordinatorMessageWeixin } from "./weixin/messaging/deliver-coordinator-message";
@@ -133,8 +136,9 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
   await logger.cleanup();
   const acpxCommand = resolveAcpxCommand({ configuredCommand: config.transport.command });
   const stateStore = new StateStore(paths.statePath);
-  let state = await stateStore.load();
-  const sessions = new SessionService(config, stateStore, state);
+  const state = await stateStore.load();
+  const stateMutex = new AsyncMutex();
+  const sessions = new SessionService(config, stateStore, state, { stateMutex });
   const pendingWorkerDispatches = new Set<Promise<void>>();
   const transport =
     config.transport.type === "acpx-bridge"
@@ -339,20 +343,46 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     }
   };
 
+  const resolveWorkerRuntimeSession = (input: {
+    workerSession: string;
+    targetAgent: string;
+    workspace: string;
+    cwd?: string;
+  }): ResolvedSession => {
+    if (!input.cwd) {
+      return sessions.resolveSession(
+        input.workerSession,
+        input.targetAgent,
+        input.workspace,
+        input.workerSession,
+      );
+    }
+
+    const agentConfig = config.agents[input.targetAgent];
+    if (!agentConfig) {
+      throw new Error(`agent "${input.targetAgent}" is not configured`);
+    }
+
+    return {
+      alias: input.workerSession,
+      agent: input.targetAgent,
+      agentCommand: resolveAgentCommand(agentConfig.driver, agentConfig.command),
+      workspace: input.workspace,
+      transportSession: input.workerSession,
+      cwd: input.cwd,
+    };
+  };
+
   const launchWorkerTurn = (input: {
     taskId: string;
     workerSession: string;
     coordinatorSession: string;
     targetAgent: string;
     workspace: string;
+    cwd?: string;
     promptText: string;
   }): void => {
-    const session = sessions.resolveSession(
-      input.workerSession,
-      input.targetAgent,
-      input.workspace,
-      input.workerSession,
-    );
+    const session = resolveWorkerRuntimeSession(input);
     session.mcpCoordinatorSession = input.coordinatorSession;
     session.mcpSourceHandle = input.workerSession;
     const workerDispatch = (async () => {
@@ -362,36 +392,40 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
         const result = await transport.prompt(
           session,
           input.promptText,
-          async (chunk) => {
-            const summaries = progressBuffer.feed(chunk);
-            for (const summary of summaries) {
-              try {
-                await orchestration.recordTaskProgress(input.taskId);
-                const taskState = await orchestration.getTask(input.taskId);
-                if (taskState?.chatKey && taskState.replyContextToken) {
-                  await deliverOrchestrationTaskProgress(
-                    taskState,
-                    renderTaskProgress(taskState, summary),
+          undefined,
+          undefined,
+          {
+            onSegment: async (chunk) => {
+              const summaries = progressBuffer.feed(chunk);
+              for (const summary of summaries) {
+                try {
+                  await orchestration.recordTaskProgress(input.taskId);
+                  const taskState = await orchestration.getTask(input.taskId);
+                  if (taskState?.chatKey && taskState.replyContextToken) {
+                    await deliverOrchestrationTaskProgress(
+                      taskState,
+                      renderTaskProgress(taskState, summary),
+                      {
+                        listAccountIds: () => listWeixinAccountIds(),
+                        resolveAccount: (accountId) => resolveWeixinAccount(accountId),
+                        getContextToken: (accountId, userId) => getContextToken(accountId, userId),
+                        reserveMidSegment: (chatKey) => quota.reserveMidSegment(chatKey),
+                        logger,
+                      },
+                    );
+                  }
+                } catch (error) {
+                  await logger.error(
+                    "orchestration.progress.send_failed",
+                    "failed to send task progress",
                     {
-                      listAccountIds: () => listWeixinAccountIds(),
-                      resolveAccount: (accountId) => resolveWeixinAccount(accountId),
-                      getContextToken: (accountId, userId) => getContextToken(accountId, userId),
-                      reserveMidSegment: (chatKey) => quota.reserveMidSegment(chatKey),
-                      logger,
+                      taskId: input.taskId,
+                      message: error instanceof Error ? error.message : String(error),
                     },
                   );
                 }
-              } catch (error) {
-                await logger.error(
-                  "orchestration.progress.send_failed",
-                  "failed to send task progress",
-                  {
-                    taskId: input.taskId,
-                    message: error instanceof Error ? error.message : String(error),
-                  },
-                );
               }
-            }
+            },
           },
         );
         taskRecord = await finalizeWorkerTurn({
@@ -428,7 +462,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
         }
       }
 
-      if (taskRecord) {
+      if (taskRecord && !isRuntimeExternalCoordinator(taskRecord.coordinatorSession)) {
         try {
           await wakeCoordinator(taskRecord.coordinatorSession);
         } catch (wakeError) {
@@ -450,6 +484,10 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     });
   };
 
+  const isRuntimeExternalCoordinator = (coordinatorSession: string): boolean => {
+    return Boolean(state.orchestration.externalCoordinators[coordinatorSession]);
+  };
+
   orchestration = new OrchestrationService({
     now: deps.loggerNow ?? (() => new Date()),
     createId: () => randomUUID(),
@@ -457,39 +495,42 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     loadState: async () => JSON.parse(JSON.stringify(state)) as typeof state,
     saveState: async (nextState) => {
       await stateStore.save(nextState);
-      state = nextState;
+      replaceRuntimeState(state, nextState);
     },
-    ensureWorkerSession: async ({ workerSession, targetAgent, workspace, coordinatorSession }) => {
-      const session = sessions.resolveSession(workerSession, targetAgent, workspace, workerSession);
+    stateMutex,
+    ensureWorkerSession: async ({ workerSession, targetAgent, workspace, cwd, coordinatorSession }) => {
+      const session = resolveWorkerRuntimeSession({ workerSession, targetAgent, workspace, ...(cwd ? { cwd } : {}) });
       session.mcpCoordinatorSession = coordinatorSession;
       session.mcpSourceHandle = workerSession;
       await transport.ensureSession(session);
       return workerSession;
     },
-    dispatchWorkerTask: async ({ workerSession, coordinatorSession, targetAgent, workspace, taskId, role, task }) => {
+    dispatchWorkerTask: async ({ workerSession, coordinatorSession, targetAgent, workspace, cwd, taskId, role, task }) => {
       launchWorkerTurn({
         taskId,
         workerSession,
         coordinatorSession,
         targetAgent,
         workspace,
+        ...(cwd ? { cwd } : {}),
         promptText: buildWorkerTaskPrompt({ taskId, workerSession, role, task }),
       });
     },
-    cancelWorkerTask: async ({ workerSession, targetAgent, workspace }) => {
-      const session = sessions.resolveSession(workerSession, targetAgent, workspace, workerSession);
+    cancelWorkerTask: async ({ workerSession, targetAgent, workspace, cwd }) => {
+      const session = resolveWorkerRuntimeSession({ workerSession, targetAgent, workspace, ...(cwd ? { cwd } : {}) });
       const result = await transport.cancel(session);
       if (!result.cancelled) {
         throw new Error(result.message || "worker task cancel was not acknowledged");
       }
     },
-    resumeWorkerTask: async ({ taskId, workerSession, coordinatorSession, targetAgent, workspace, answer }) => {
+    resumeWorkerTask: async ({ taskId, workerSession, coordinatorSession, targetAgent, workspace, cwd, answer }) => {
       launchWorkerTurn({
         taskId,
         workerSession,
         coordinatorSession,
         targetAgent,
         workspace,
+        ...(cwd ? { cwd } : {}),
         promptText: buildWorkerAnswerPrompt(answer),
       });
     },
@@ -499,18 +540,19 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     deliverCoordinatorMessage: async (input) => {
       await sendCoordinatorMessage(input);
     },
-    interruptWorkerTask: async ({ workerSession, targetAgent, workspace }) => {
-      const session = sessions.resolveSession(workerSession, targetAgent, workspace, workerSession);
+    interruptWorkerTask: async ({ workerSession, targetAgent, workspace, cwd }) => {
+      const session = resolveWorkerRuntimeSession({ workerSession, targetAgent, workspace, ...(cwd ? { cwd } : {}) });
       const result = await transport.cancel(session);
       if (!result.cancelled) {
         throw new Error(result.message || "worker interrupt was not acknowledged");
       }
     },
-    findReusableWorkerSession: async ({ coordinatorSession, workspace, targetAgent, role }) => {
+    findReusableWorkerSession: async ({ coordinatorSession, workspace, cwd, targetAgent, role }) => {
       const binding = Object.entries(state.orchestration.workerBindings).find(
         ([, current]) =>
           current.coordinatorSession === coordinatorSession &&
           current.workspace === workspace &&
+          current.cwd === cwd &&
           current.targetAgent === targetAgent &&
           current.role === role,
       );
@@ -562,6 +604,12 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
       await logger.flush();
     },
   };
+}
+
+function replaceRuntimeState(target: AppState, source: AppState): void {
+  target.sessions = source.sessions;
+  target.chat_contexts = source.chat_contexts;
+  target.orchestration = source.orchestration;
 }
 
 export async function main(): Promise<void> {

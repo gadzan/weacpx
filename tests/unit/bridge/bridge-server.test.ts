@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { BridgeRuntime, EnsureSessionFailedError } from "../../../src/bridge/bridge-runtime";
 import { BridgeServer } from "../../../src/bridge/bridge-server";
@@ -402,6 +405,129 @@ test("uses explicit permission policy for bridge runtime commands", async () => 
       "hello",
     ],
   ]);
+});
+
+test("bridge runtime writes image media prompts as structured ACP content blocks via --file", async () => {
+  const mediaDir = await mkdtemp(join(tmpdir(), "weacpx-bridge-image-prompt-"));
+  const mediaPath = join(mediaDir, "image.bin");
+  await writeFile(mediaPath, Buffer.from("ffd8ffe000", "hex"));
+  let promptBlocks: unknown;
+  let promptFilePath = "";
+  const calls: string[][] = [];
+  const runtime = new BridgeRuntime("acpx", async (_command, args) => {
+    calls.push(args);
+    const fileFlagIndex = args.indexOf("--file");
+    expect(fileFlagIndex).toBeGreaterThan(0);
+    promptFilePath = args[fileFlagIndex + 1]!;
+    promptBlocks = JSON.parse(await readFile(promptFilePath, "utf8"));
+    return { code: 0, stdout: "ok", stderr: "" };
+  });
+
+  try {
+    await runtime.prompt({
+      agent: "codex",
+      cwd: "/repo",
+      name: "demo",
+      text: "",
+      media: { type: "image", filePath: mediaPath, mimeType: "image/*" },
+    });
+
+    expect(calls[0]).toEqual([
+      "--format",
+      "json",
+      "--json-strict",
+      "--cwd",
+      "/repo",
+      "--approve-all",
+      "--non-interactive-permissions",
+      "deny",
+      "codex",
+      "prompt",
+      "-s",
+      "demo",
+      "--file",
+      expect.any(String),
+    ]);
+    expect(promptBlocks).toEqual([
+      {
+        type: "image",
+        mimeType: "image/jpeg",
+        data: Buffer.from("ffd8ffe000", "hex").toString("base64"),
+      },
+    ]);
+    await expect(access(promptFilePath)).rejects.toThrow();
+  } finally {
+    await rm(mediaDir, { recursive: true, force: true });
+  }
+});
+
+test("bridge-server rejects malformed prompt media instead of silently dropping it", async () => {
+  const runtime = new BridgeRuntime("acpx", async () => ({ code: 0, stdout: "ok", stderr: "" }));
+  const server = new BridgeServer(runtime);
+
+  const response = await server.handleLine(
+    JSON.stringify({
+      id: "bad-media",
+      method: "prompt",
+      params: {
+        agent: "codex",
+        cwd: "/repo",
+        name: "demo",
+        text: "hello",
+        media: { type: "image", mimeType: "image/png" },
+      },
+    }),
+  );
+
+  expect(response).toBe(
+    '{"id":"bad-media","ok":false,"error":{"code":"BRIDGE_INVALID_REQUEST","message":"media.filePath must be a non-empty string"}}\n',
+  );
+});
+
+test("bridge-server rejects non-image prompt media even when text is present", async () => {
+  const runtime = new BridgeRuntime("acpx", async () => ({ code: 0, stdout: "ok", stderr: "" }));
+  const server = new BridgeServer(runtime);
+
+  const response = await server.handleLine(
+    JSON.stringify({
+      id: "file-media",
+      method: "prompt",
+      params: {
+        agent: "codex",
+        cwd: "/repo",
+        name: "demo",
+        text: "hello",
+        media: { type: "file", filePath: "/tmp/document.pdf", mimeType: "application/pdf" },
+      },
+    }),
+  );
+
+  expect(response).toBe(
+    '{"id":"file-media","ok":false,"error":{"code":"BRIDGE_INVALID_REQUEST","message":"media.type must be image"}}\n',
+  );
+});
+
+test("bridge-server only allows empty prompt text for image media", async () => {
+  const runtime = new BridgeRuntime("acpx", async () => ({ code: 0, stdout: "ok", stderr: "" }));
+  const server = new BridgeServer(runtime);
+
+  const response = await server.handleLine(
+    JSON.stringify({
+      id: "empty-audio",
+      method: "prompt",
+      params: {
+        agent: "codex",
+        cwd: "/repo",
+        name: "demo",
+        text: "",
+        media: { type: "audio", filePath: "/tmp/audio.wav", mimeType: "audio/wav" },
+      },
+    }),
+  );
+
+  expect(response).toBe(
+    '{"id":"empty-audio","ok":false,"error":{"code":"BRIDGE_INVALID_REQUEST","message":"media.type must be image"}}\n',
+  );
 });
 
 test("returns the final agent message from json-strict prompt output", async () => {

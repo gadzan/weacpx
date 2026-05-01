@@ -1,9 +1,11 @@
 #!/usr/bin/env node
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ConfigStore } from "./config/config-store";
+import { loadConfig } from "./config/load-config";
 import { ensureConfigExists } from "./config/ensure-config";
 import { createDaemonController } from "./daemon/create-daemon-controller";
 import { resolveDaemonPaths } from "./daemon/daemon-files";
@@ -12,12 +14,166 @@ import { DaemonRuntime } from "./daemon/daemon-runtime";
 import type { DaemonStatus } from "./daemon/daemon-status";
 import type { DoctorRunOptions } from "./doctor/doctor-types";
 import { runWeacpxMcpServer } from "./mcp/weacpx-mcp-server";
+import {
+  inferExternalCoordinatorSession,
+} from "./mcp/infer-coordinator-identity";
+import { parseCoordinatorWorkspace } from "./mcp/parse-coordinator-workspace";
 import { parseCoordinatorSession } from "./mcp/parse-coordinator-session";
 import { parseSourceHandle } from "./mcp/parse-source-handle";
 import { resolveDefaultOrchestrationEndpoint } from "./mcp/resolve-endpoint";
+import { OrchestrationClient } from "./orchestration/orchestration-client";
 import { basenameForWorkspacePath, normalizeWorkspacePath, sameWorkspacePath } from "./commands/workspace-path";
+import { StateStore } from "./state/state-store";
+import type { AppConfig } from "./config/types";
+import type { AppState } from "./state/types";
 import { readVersion } from "./version.js";
 import { createWeixinConsumerLock } from "./weixin/monitor/consumer-lock";
+
+
+export interface PrepareMcpCoordinatorStartupInput {
+  coordinatorSession: string;
+  workspace?: string | null;
+  config: Pick<AppConfig, "workspaces">;
+  state: Pick<AppState, "sessions"> & {
+    orchestration?: Pick<AppState["orchestration"], "externalCoordinators">;
+  };
+  client: {
+    registerExternalCoordinator: (input: { coordinatorSession: string; workspace?: string }) => Promise<unknown>;
+  };
+}
+
+export type PrepareMcpCoordinatorStartupResult =
+  | { kind: "existing-session" }
+  | { kind: "external-coordinator"; workspace?: string };
+
+export async function prepareMcpCoordinatorStartup(
+  input: PrepareMcpCoordinatorStartupInput,
+): Promise<PrepareMcpCoordinatorStartupResult> {
+  const coordinatorSession = input.coordinatorSession.trim();
+  const existingSession = Object.values(input.state.sessions).find(
+    (session) => session.transport_session === coordinatorSession,
+  );
+
+  const workspace = input.workspace?.trim();
+  if (workspace) {
+    if (existingSession) {
+      throw new Error(`coordinatorSession "${coordinatorSession}" conflicts with an existing logical session`);
+    }
+    const existingExternalCoordinator = input.state.orchestration?.externalCoordinators?.[coordinatorSession];
+    if (existingExternalCoordinator?.workspace && existingExternalCoordinator.workspace !== workspace) {
+      throw new Error(
+        `coordinatorSession "${coordinatorSession}" is already bound to workspace "${existingExternalCoordinator.workspace}"; use a new coordinator session for workspace "${workspace}"`,
+      );
+    }
+    if (!input.config.workspaces[workspace]) {
+      if (existingExternalCoordinator?.workspace === workspace) {
+        throw new Error(
+          `workspace "${workspace}" is not configured for coordinatorSession "${coordinatorSession}"; restore that workspace config or use a new coordinator session for a different workspace`,
+        );
+      }
+      throw new Error(`workspace "${workspace}" is not configured`);
+    }
+
+    await registerExternalCoordinatorOrThrow(input.client, { coordinatorSession, workspace });
+    return { kind: "external-coordinator", workspace };
+  }
+
+  if (existingSession) {
+    return { kind: "existing-session" };
+  }
+
+  const existingExternalCoordinator = input.state.orchestration?.externalCoordinators?.[coordinatorSession];
+  if (existingExternalCoordinator) {
+    if (existingExternalCoordinator.workspace && !input.config.workspaces[existingExternalCoordinator.workspace]) {
+      throw new Error(
+        `workspace "${existingExternalCoordinator.workspace}" is not configured for coordinatorSession "${coordinatorSession}"; restore that workspace config or use a new coordinator session for a different workspace`,
+      );
+    }
+    await registerExternalCoordinatorOrThrow(input.client, {
+      coordinatorSession,
+      ...(existingExternalCoordinator.workspace ? { workspace: existingExternalCoordinator.workspace } : {}),
+    });
+    return {
+      kind: "external-coordinator",
+      ...(existingExternalCoordinator.workspace ? { workspace: existingExternalCoordinator.workspace } : {}),
+    };
+  }
+
+  await registerExternalCoordinatorOrThrow(input.client, { coordinatorSession });
+  return { kind: "external-coordinator" };
+}
+
+export function createMcpStdioIdentityResolver(input: {
+  parsedCoordinatorSession?: string | null;
+  sourceHandle?: string | null;
+  workspace?: string | null;
+  config: Pick<AppConfig, "workspaces">;
+  state: Pick<AppState, "sessions"> & {
+    orchestration?: Pick<AppState["orchestration"], "externalCoordinators">;
+  };
+  client: PrepareMcpCoordinatorStartupInput["client"];
+}): NonNullable<Parameters<typeof runWeacpxMcpServer>[0]["resolveIdentity"]> {
+  const instanceId = randomUUID().slice(0, 8);
+  return async (context) => {
+    const parsedCoordinatorSession = input.parsedCoordinatorSession?.trim() || null;
+    const workspace = input.workspace?.trim() || null;
+    const sourceHandle = input.sourceHandle?.trim() || null;
+
+    const resolvedWorkspace = workspace;
+    const resolvedCoordinatorSession = parsedCoordinatorSession ?? inferExternalCoordinatorSession({
+      clientName: context.clientName,
+      ...(resolvedWorkspace ? { workspace: resolvedWorkspace } : { instanceId }),
+    });
+    await prepareMcpCoordinatorStartup({
+      coordinatorSession: resolvedCoordinatorSession,
+      ...(resolvedWorkspace ? { workspace: resolvedWorkspace } : {}),
+      config: input.config,
+      state: input.state,
+      client: input.client,
+    });
+    return {
+      coordinatorSession: resolvedCoordinatorSession,
+      ...(sourceHandle ? { sourceHandle } : {}),
+    };
+  };
+}
+
+async function registerExternalCoordinatorOrThrow(
+  client: PrepareMcpCoordinatorStartupInput["client"],
+  input: { coordinatorSession: string; workspace?: string },
+): Promise<void> {
+  try {
+    await client.registerExternalCoordinator(input);
+  } catch (error) {
+    if (isUnavailableOrchestrationIpcError(error)) {
+      throw new Error(
+        "weacpx daemon orchestration IPC is unavailable; run `weacpx start` and check `weacpx status`",
+      );
+    }
+    if (input.workspace && isDaemonWorkspaceNotConfiguredError(error, input.workspace)) {
+      throw new Error(
+        `workspace "${input.workspace}" is not configured in the running daemon; restart it with \`weacpx stop && weacpx start\``,
+      );
+    }
+    throw error;
+  }
+}
+
+function isDaemonWorkspaceNotConfiguredError(error: unknown, workspace: string): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message === `workspace "${workspace}" is not configured`;
+}
+
+function isUnavailableOrchestrationIpcError(error: unknown): boolean {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? String((error as NodeJS.ErrnoException).code)
+    : "";
+  if (code === "ENOENT" || code === "ECONNREFUSED" || code === "ECONNRESET") {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return /connect (ENOENT|ECONNREFUSED|ECONNRESET)\b/.test(message);
+}
 
 interface StatusStopped {
   state: "stopped";
@@ -74,7 +230,7 @@ const HELP_LINES = [
   "weacpx doctor - 运行诊断",
   "weacpx version - 查看版本",
   "weacpx workspace list|add|rm - 管理本机工作区（别名：ws）",
-  "weacpx mcp-stdio --coordinator-session <session> [--source-handle <handle>] - 启动 MCP stdio 服务",
+  "weacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务",
 ];
 
 export async function runCli(args: string[], deps: CliDeps = {}): Promise<number> {
@@ -330,21 +486,52 @@ async function defaultMcpStdio(
   args: string[],
   deps: { stderr?: (text: string) => void } = {},
 ): Promise<number> {
-  const coordinatorSession = parseCoordinatorSession(args, process.env);
-  const sourceHandle = parseSourceHandle(args, process.env);
-  if (!coordinatorSession) {
+  let coordinatorSession: string;
+  let sourceHandle: string | null;
+  let endpoint: ReturnType<typeof resolveDefaultOrchestrationEndpoint>;
+  let identityResolver: Parameters<typeof runWeacpxMcpServer>[0]["resolveIdentity"] | undefined;
+  try {
+    const parsedCoordinatorSession = parseCoordinatorSession(args, process.env);
+    sourceHandle = parseSourceHandle(args, process.env);
+    const workspace = parseCoordinatorWorkspace(args, process.env);
+    endpoint = resolveDefaultOrchestrationEndpoint(process.env, process.platform);
+    const client = new OrchestrationClient(endpoint);
+    const runtimePaths = (await import("./main")).resolveRuntimePaths();
+    await ensureConfigExists(runtimePaths.configPath);
+    const config = await loadConfig(runtimePaths.configPath);
+    const state = await new StateStore(runtimePaths.statePath).load();
+    const resolveIdentity = createMcpStdioIdentityResolver({
+      parsedCoordinatorSession,
+      sourceHandle,
+      workspace,
+      config,
+      state,
+      client,
+    });
+    const eagerIdentity = parsedCoordinatorSession && workspace
+      ? await resolveIdentity({ clientName: undefined, listRoots: async () => [] })
+      : null;
+    coordinatorSession = eagerIdentity?.coordinatorSession ?? "";
+    identityResolver = eagerIdentity ? undefined : resolveIdentity;
+  } catch (error) {
     (deps.stderr ?? ((text: string) => process.stderr.write(text)))(
-      "weacpx mcp-stdio 需要 --coordinator-session <handle> 或 WEACPX_COORDINATOR_SESSION 环境变量\n",
+      `${error instanceof Error ? error.message : String(error)}\n`,
     );
     return 2;
   }
 
   await runWeacpxMcpServer({
-    endpoint: resolveDefaultOrchestrationEndpoint(process.env, process.platform),
-    coordinatorSession,
+    endpoint,
+    ...(coordinatorSession ? { coordinatorSession } : {}),
     ...(sourceHandle ? { sourceHandle } : {}),
+    ...(identityResolver ? { resolveIdentity: identityResolver } : {}),
   });
   return 0;
+}
+
+function isUnknownCoordinatorRequiresWorkspaceError(error: unknown, coordinatorSession: string): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message === `unknown coordinator session "${coordinatorSession}" requires --workspace <name>`;
 }
 
 function createDefaultController(): CliController {

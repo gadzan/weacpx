@@ -1,6 +1,7 @@
 import { renderGroupCancelSuccess, renderGroupList, renderGroupSummary, renderTaskApprovalSuccess, renderTaskList, renderTaskRejectionSuccess, renderTaskSummary } from "../formatting/render-text";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { WeacpxMcpTransport } from "./weacpx-mcp-transport";
+import { MAX_TASK_WAIT_POLL_INTERVAL_MS, MAX_TASK_WAIT_TIMEOUT_MS } from "../orchestration/task-wait-timeouts";
 import { isQuotaDeferredError } from "../weixin/messaging/quota-errors";
 import { z } from "zod";
 
@@ -49,6 +50,7 @@ export function buildWeacpxMcpToolRegistry(input: {
         .object({
           targetAgent: z.string().min(1),
           task: z.string().min(1),
+          workingDirectory: z.string().min(1).optional(),
           role: z.string().min(1).optional(),
           groupId: z.string().min(1).optional(),
         })
@@ -58,6 +60,7 @@ export function buildWeacpxMcpToolRegistry(input: {
           const input = args as {
             targetAgent: string;
             task: string;
+            workingDirectory?: string;
             role?: string;
             groupId?: string;
           };
@@ -250,6 +253,25 @@ export function buildWeacpxMcpToolRegistry(input: {
         }),
     },
     {
+      name: "task_wait",
+      description: "Wait for an orchestration task to finish or require attention using a bounded timeout.",
+      inputSchema: z
+        .object({
+          taskId: z.string().min(1),
+          timeoutMs: z.number().int().min(0).max(MAX_TASK_WAIT_TIMEOUT_MS).optional(),
+          pollIntervalMs: z.number().int().min(1).max(MAX_TASK_WAIT_POLL_INTERVAL_MS).optional(),
+        })
+        .strict(),
+      handler: async (args) =>
+        await asToolResult(async () => {
+          const result = await transport.waitTask({
+            coordinatorSession,
+            ...(args as { taskId: string; timeoutMs?: number; pollIntervalMs?: number }),
+          });
+          return createSuccessResult(renderTaskWaitResult(result), result);
+        }),
+    },
+    {
       name: "worker_raise_question",
       description: "Raise a blocker question for the current bound session.",
       inputSchema: z
@@ -417,6 +439,26 @@ async function asToolResult(
     }
     return createErrorResult(formatToolError(error));
   }
+}
+
+
+function renderTaskWaitResult(result: {
+  status: "terminal" | "attention_required" | "timeout" | "not_found";
+  task: { taskId: string; status: string } | null;
+}): string {
+  if (result.status === "not_found") {
+    return "Task not found.";
+  }
+  if (!result.task) {
+    return `Task wait ${result.status.replace("_", " ")}; current state is unavailable.`;
+  }
+  if (result.status === "timeout") {
+    return `Task ${result.task.taskId} wait timed out; current state is ${result.task.status}.`;
+  }
+  if (result.status === "attention_required") {
+    return `Task ${result.task.taskId} requires attention; current state is ${result.task.status}.`;
+  }
+  return `Task ${result.task.taskId} reached terminal state ${result.task.status}.`;
 }
 
 function createSuccessResult(

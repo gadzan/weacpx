@@ -11,21 +11,21 @@
 
 ## 这是什么
 
-`weacpx` 是一个微信控制台。它把微信消息接到 `acpx` 会话上，让你直接在手机里：
+`weacpx` 是一个可以通过微信直接控制 Codex / Claude Code / Gemini / OpenCode 的工具。它把微信消息通过 `acpx` 连接到 Agent CLI 会话上，让你直接在手机里：
 
-- 新建和切换 Codex / Claude Code 会话
+- 新建和切换会话
 - 让 Agent 继续在指定项目目录里工作
 - 查看流式回复、最终结果和工具调用摘要
 - 调整权限策略
-- 在需要时做最小可用的多 Agent 编排
+- 在需要时做多 Agent 编排
 
-如果你已经习惯在本地终端里用 `acpx`，`weacpx` 提供的是一个**远程入口**，而不是另一套全新的工作流。
+如果你需要临时远程编码或办公，`weacpx` 提供的是一个方便快捷的**远程入口**，让你在微信里就能随时随地干活。
 
 ## 适合谁
 
-`weacpx` 适合已经在用 Codex、Claude Code 或其他 `acpx` driver 的开发者。你可以用微信盯任务、发指令、看结果，并在同一个聊天里管理多个会话。
+`weacpx` 适合轻量临时使用多 Agent 办公的用户。你可以用微信盯任务、发指令、看结果，并在同一个聊天里管理多个会话。
 
-它不是云端 IDE，也不是可视化编排平台。
+> `weacpx` 的会话是跟本地隔离的，它目前还不能使用 CLI 已有的会话，你在 weacpx 也无法看到本地的 CLI 会话记录。
 
 ## 5 分钟快速开始
 
@@ -34,7 +34,7 @@
 开始前，你至少需要：
 
 - Node.js 22+ 或 Bun
-- 已可用的 Codex、Claude Code 或其他 `acpx` driver
+- 已可用的 Codex / Claude Code / Gemini / OpenCode
 - 一台装了微信的手机
 
 > `weacpx` 基于 `weixin-agent-sdk` 和 `acpx` 工作。正常情况下，你不需要额外全局安装 `acpx`。
@@ -42,7 +42,7 @@
 ### 安装
 
 ```bash
-npm install -g weacpx
+npm install -g weacpx --registry=https://registry.npmjs.org
 # 或
 bun add -g weacpx
 ```
@@ -53,7 +53,7 @@ bun add -g weacpx
 weacpx login
 ```
 
-终端会显示二维码。你用微信扫码登录。
+终端会显示二维码，请继续用微信扫码登录。
 
 ### 启动服务
 
@@ -85,7 +85,7 @@ hello
 1. **启动后台服务**：`weacpx start`
 2. **创建或切换会话**：`/ss ...`、`/use ...`
 3. **直接发普通文本**：让当前会话继续工作
-4. **必要时查看状态或取消**：`/status`、`/cancel`
+4. **必要时查看状态或取消当前任务**：`/status`、`/cancel`
 
 ### 1) 创建会话
 
@@ -95,7 +95,7 @@ hello
 /ss codex -d /absolute/path/to/your/repo
 ```
 
-它会使用 `codex`，绑定这个目录，并自动切换到新会话。
+它会使用 `codex`，绑定这个工作目录，并自动切换到新会话。
 
 ### 2) 发普通消息
 
@@ -109,9 +109,9 @@ hello
 
 `weacpx` 支持三种常用回复模式：
 
-- `stream`：默认，流式返回中间文本
+- `stream`：流式返回中间文本
 - `final`：只返回最终结果
-- `verbose`：在流式文本之外，额外显示工具调用摘要
+- `verbose`：默认，在流式文本之外，额外显示工具调用摘要
 
 例如 `verbose` 模式下，你会看到：
 
@@ -208,17 +208,19 @@ weacpx doctor --smoke --agent codex --workspace backend
 
 ## 常用微信命令
 
-下面这部分保留一份**中等长度**的日常手册。够你上手和日常使用，但不把 README 写成完整参考手册。
-
 完整微信命令参考见：[docs/commands.md](./docs/commands.md)。
 
 ### Agent 管理
 
+已内置常用的 Codex 与 Claude Code；
+
+可以使用 `/agent add opencode` 添加你所需要的 agents。
+
 | 命令 | 说明 |
 |------|------|
 | `/agents` | 查看 agent 列表 |
-| `/agent add codex` | 添加 `codex` |
-| `/agent add claude` | 添加 `claude` |
+| `/agent add gemini` | 添加 `Gemini` Agent |
+| `/agent add opencode` | 添加 `OpenCode` Agent |
 | `/agent rm <name>` | 删除 agent |
 
 ### Workspace 管理
@@ -226,7 +228,7 @@ weacpx doctor --smoke --agent codex --workspace backend
 | 命令 | 说明 |
 |------|------|
 | `/workspaces` / `/workspace` / `/ws` | 查看 workspace 列表 |
-| `/ws new <name> -d <path>` | 添加 workspace，`path` 是电脑上的绝对路径 |
+| `/ws new <name> -d <path>` | 添加 workspace，`path` 是电脑上的绝对路径，Windows 不用区分正反斜杠 |
 | `/workspace rm <name>` | 删除 workspace |
 
 ### Session 会话
@@ -246,7 +248,7 @@ weacpx doctor --smoke --agent codex --workspace backend
 | `/replymode reset` | 回退到全局默认 reply mode |
 | `/session reset` | 重置当前会话上下文 |
 | `/clear` | `/session reset` 的快捷别名 |
-| `/cancel` / `/stop` | 取消当前会话 |
+| `/cancel` / `/stop` | 停止当前任务 |
 
 建议你优先记住这三个：
 
@@ -315,6 +317,55 @@ README 里只保留用户视角的最常用命令。
 如果你想先理解什么时候该用 delegate、什么时候该开 group，请看：
 
 - [docs/weacpx-group-usage-guide.md](./docs/weacpx-group-usage-guide.md)
+
+
+### MCP 集成：外部 coordinator
+
+如果你想让 Codex、Claude Code 等外部 MCP host 直接使用 weacpx 的多 Agent 编排能力，可以把 `weacpx mcp-stdio` 配成一个 stdio MCP server。
+
+先启动 daemon：
+
+```bash
+weacpx start
+```
+
+MCP 配置推荐保持简单，不要在启动参数里绑定 workspace：
+
+```json
+{
+  "mcpServers": {
+    "weacpx": {
+      "command": "weacpx",
+      "args": ["mcp-stdio"]
+    }
+  }
+}
+```
+
+外部 host 调用 `delegate_request` 时传 `workingDirectory`，weacpx 会让被委派的 worker 在这个目录工作：
+
+```json
+{
+  "targetAgent": "claude",
+  "task": "审查这个改动的风险点",
+  "workingDirectory": "/absolute/path/to/your/repo"
+}
+```
+
+Windows 上如果 MCP host 不会帮你解析带参数的 `command`，把 `node.exe` 放在 `command`，把 weacpx 脚本和参数放在 `args`：
+
+```json
+{
+  "type": "stdio",
+  "command": "D:\\Users\\you\\.nvmd\\versions\\22.19.0\\node.exe",
+  "args": [
+    "E:\\projects\\weacpx\\dist\\cli.js",
+    "mcp-stdio"
+  ]
+}
+```
+
+更多身份规则、`workingDirectory` 语义、工具列表、流程图和故障排查见：[docs/external-mcp.md](./docs/external-mcp.md)。
 
 ## 常见场景
 

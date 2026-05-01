@@ -45,6 +45,7 @@ export interface OrchestrationTaskRecord {
   coordinatorSession: string;
   workerSession?: string;
   workspace: string;
+  cwd?: string;
   targetAgent: string;
   role?: string;
   task: string;
@@ -98,10 +99,19 @@ export interface OrchestrationGroupSummary {
   terminal: boolean;
 }
 
+export interface ExternalCoordinatorRecord {
+  coordinatorSession: string;
+  workspace?: string;
+  createdAt: string;
+  updatedAt: string;
+  defaultTargetAgent?: string;
+}
+
 export interface WorkerBindingRecord {
   sourceHandle: string;
   coordinatorSession: string;
   workspace: string;
+  cwd?: string;
   targetAgent: string;
   role?: string;
 }
@@ -164,6 +174,7 @@ export interface OrchestrationState {
   humanQuestionPackages: Record<string, OrchestrationHumanQuestionPackageRecord>;
   coordinatorQuestionState: Record<string, OrchestrationCoordinatorQuestionStateRecord>;
   coordinatorRoutes: Record<string, OrchestrationCoordinatorRouteContextRecord>;
+  externalCoordinators: Record<string, ExternalCoordinatorRecord>;
 }
 
 export function createEmptyOrchestrationState(): OrchestrationState {
@@ -174,5 +185,6 @@ export function createEmptyOrchestrationState(): OrchestrationState {
     humanQuestionPackages: {},
     coordinatorQuestionState: {},
     coordinatorRoutes: {},
+    externalCoordinators: {},
   };
 }

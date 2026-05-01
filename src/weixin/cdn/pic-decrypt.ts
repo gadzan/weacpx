@@ -5,7 +5,7 @@ import { logger } from "../util/logger.js";
 /**
  * Download raw bytes from the CDN (no decryption).
  */
-async function fetchCdnBytes(url: string, label: string): Promise<Buffer> {
+async function fetchCdnBytes(url: string, label: string, maxBytes?: number): Promise<Buffer> {
   let res: Response;
   try {
     res = await fetch(url);
@@ -24,7 +24,42 @@ async function fetchCdnBytes(url: string, label: string): Promise<Buffer> {
     logger.error(msg);
     throw new Error(msg);
   }
-  return Buffer.from(await res.arrayBuffer());
+  const contentLength = res.headers.get("content-length");
+  if (maxBytes !== undefined && contentLength) {
+    const parsedLength = Number(contentLength);
+    if (Number.isFinite(parsedLength) && parsedLength > maxBytes) {
+      await res.body?.cancel().catch(() => {});
+      throw new Error(`${label}: CDN download exceeds ${maxBytes} bytes`);
+    }
+  }
+
+  if (!res.body) {
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (maxBytes !== undefined && buffer.byteLength > maxBytes) {
+      throw new Error(`${label}: CDN download exceeds ${maxBytes} bytes`);
+    }
+    return buffer;
+  }
+
+  const reader = res.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = Buffer.from(value);
+      total += chunk.byteLength;
+      if (maxBytes !== undefined && total > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw new Error(`${label}: CDN download exceeds ${maxBytes} bytes`);
+      }
+      chunks.push(chunk);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, total);
 }
 
 /**
@@ -61,13 +96,18 @@ export async function downloadAndDecryptBuffer(
   cdnBaseUrl: string,
   label: string,
   fullUrl?: string,
+  maxBytes?: number,
 ): Promise<Buffer> {
   const key = parseAesKey(aesKeyBase64, label);
   const url = fullUrl || buildCdnDownloadUrl(encryptedQueryParam, cdnBaseUrl);
   logger.debug(`${label}: fetching url=${url}`);
-  const encrypted = await fetchCdnBytes(url, label);
+  const encryptedMaxBytes = maxBytes === undefined ? undefined : maxBytes + 16;
+  const encrypted = await fetchCdnBytes(url, label, encryptedMaxBytes);
   logger.debug(`${label}: downloaded ${encrypted.byteLength} bytes, decrypting`);
   const decrypted = decryptAesEcb(encrypted, key);
+  if (maxBytes !== undefined && decrypted.byteLength > maxBytes) {
+    throw new Error(`${label}: decrypted media exceeds ${maxBytes} bytes`);
+  }
   logger.debug(`${label}: decrypted ${decrypted.length} bytes`);
   return decrypted;
 }
@@ -80,8 +120,9 @@ export async function downloadPlainCdnBuffer(
   cdnBaseUrl: string,
   label: string,
   fullUrl?: string,
+  maxBytes?: number,
 ): Promise<Buffer> {
   const url = fullUrl || buildCdnDownloadUrl(encryptedQueryParam, cdnBaseUrl);
   logger.debug(`${label}: fetching url=${url}`);
-  return fetchCdnBytes(url, label);
+  return fetchCdnBytes(url, label, maxBytes);
 }

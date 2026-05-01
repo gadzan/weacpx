@@ -82,3 +82,29 @@ test("ensureConfigExists falls back to the built-in default template when bundle
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("ensureConfigExists normalizes injected default config templates", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-ensure-config-"));
+  const configPath = join(dir, "config.json");
+
+  try {
+    await ensureConfigExists(configPath, {
+      readDefaultConfigTemplate: async () =>
+        ({
+          transport: { type: "acpx-bridge" },
+          agents: { codex: { driver: "codex" } },
+          workspaces: { backend: { cwd: "/tmp/backend" } },
+        }) as never,
+    });
+
+    const parsed = await loadConfig(configPath);
+    expect(parsed.transport).toMatchObject({
+      type: "acpx-bridge",
+      permissionMode: "approve-all",
+      nonInteractivePermissions: "deny",
+    });
+    expect(parsed.workspaces).toEqual({});
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

@@ -7,6 +7,7 @@ import {
   type OrchestrationCorrectionPendingRecord,
   type OrchestrationCoordinatorQuestionStateRecord,
   type OrchestrationCoordinatorRouteContextRecord,
+  type ExternalCoordinatorRecord,
   type OrchestrationGroupRecord,
   type OrchestrationHumanQuestionPackageMessageRecord,
   type OrchestrationHumanQuestionPackageRecord,
@@ -108,6 +109,7 @@ function isTaskRecord(value: unknown): value is OrchestrationTaskRecord {
     isString(value.coordinatorSession) &&
     isOptionalString(value.workerSession) &&
     isString(value.workspace) &&
+    isOptionalString(value.cwd) &&
     isString(value.targetAgent) &&
     isOptionalString(value.role) &&
     isString(value.task) &&
@@ -138,6 +140,21 @@ function isTaskRecord(value: unknown): value is OrchestrationTaskRecord {
   );
 }
 
+
+function isExternalCoordinatorRecord(value: unknown): value is ExternalCoordinatorRecord {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isString(value.coordinatorSession) &&
+    isOptionalString(value.workspace) &&
+    isString(value.createdAt) &&
+    isString(value.updatedAt) &&
+    isOptionalString(value.defaultTargetAgent)
+  );
+}
+
 function isWorkerBindingRecord(value: unknown): value is WorkerBindingRecord {
   if (!isRecord(value)) {
     return false;
@@ -147,6 +164,7 @@ function isWorkerBindingRecord(value: unknown): value is WorkerBindingRecord {
     isString(value.sourceHandle) &&
     isString(value.coordinatorSession) &&
     isString(value.workspace) &&
+    isOptionalString(value.cwd) &&
     isString(value.targetAgent) &&
     isOptionalString(value.role)
   );
@@ -289,6 +307,11 @@ function parseOrchestrationState(raw: unknown, path: string): OrchestrationState
     throw new Error(`state file "${path}" must contain an object field "orchestration.coordinatorRoutes"`);
   }
 
+  const externalCoordinators = raw.externalCoordinators;
+  if (externalCoordinators !== undefined && !isRecord(externalCoordinators)) {
+    throw new Error(`state file "${path}" must contain an object field "orchestration.externalCoordinators"`);
+  }
+
   const parsedTasks: OrchestrationState["tasks"] = {};
   for (const [taskId, task] of Object.entries(tasks ?? {})) {
     if (!isTaskRecord(task)) {
@@ -344,6 +367,17 @@ function parseOrchestrationState(raw: unknown, path: string): OrchestrationState
     parsedCoordinatorRoutes[coordinatorSession] = route;
   }
 
+  const parsedExternalCoordinators: OrchestrationState["externalCoordinators"] = {};
+  for (const [coordinatorSession, externalCoordinator] of Object.entries(externalCoordinators ?? {})) {
+    if (!isExternalCoordinatorRecord(externalCoordinator)) {
+      throw new Error(`state file "${path}" contains an invalid external coordinator at "${coordinatorSession}"`);
+    }
+    if (externalCoordinator.coordinatorSession !== coordinatorSession) {
+      throw new Error(`state file "${path}" contains an external coordinator key mismatch at "${coordinatorSession}"`);
+    }
+    parsedExternalCoordinators[coordinatorSession] = externalCoordinator;
+  }
+
   return {
     tasks: parsedTasks,
     workerBindings: parsedWorkerBindings,
@@ -351,6 +385,7 @@ function parseOrchestrationState(raw: unknown, path: string): OrchestrationState
     humanQuestionPackages: parsedHumanQuestionPackages,
     coordinatorQuestionState: parsedCoordinatorQuestionState,
     coordinatorRoutes: parsedCoordinatorRoutes,
+    externalCoordinators: parsedExternalCoordinators,
   };
 }
 
@@ -417,13 +452,47 @@ export function parseState(raw: unknown, path: string): AppState {
     throw new Error(`state file "${path}" must contain an object field "chat_contexts"`);
   }
 
+  const parsedSessions = parseSessions(sessions, path);
   const orchestration = parseOrchestrationState(raw.orchestration, path);
+  validateExternalCoordinatorIdentityCollisions(parsedSessions, orchestration, path);
 
   return {
-    sessions: parseSessions(sessions, path),
+    sessions: parsedSessions,
     chat_contexts: parseChatContexts(chatContexts, path),
     orchestration,
   };
+}
+
+function validateExternalCoordinatorIdentityCollisions(
+  sessions: AppState["sessions"],
+  orchestration: OrchestrationState,
+  path: string,
+): void {
+  for (const coordinatorSession of Object.keys(orchestration.externalCoordinators)) {
+    if (Object.values(sessions).some((session) => session.transport_session === coordinatorSession)) {
+      throw new Error(
+        `state file "${path}" contains external coordinator "${coordinatorSession}" that conflicts with a logical session`,
+      );
+    }
+    if (orchestration.workerBindings[coordinatorSession]) {
+      throw new Error(
+        `state file "${path}" contains external coordinator "${coordinatorSession}" that conflicts with a worker binding`,
+      );
+    }
+    if (Object.values(orchestration.tasks).some(
+      (task) =>
+        task.workerSession === coordinatorSession &&
+        (!isTerminalTaskStatus(task.status) || task.reviewPending !== undefined),
+    )) {
+      throw new Error(
+        `state file "${path}" contains external coordinator "${coordinatorSession}" that conflicts with an active task worker session`,
+      );
+    }
+  }
+}
+
+function isTerminalTaskStatus(status: OrchestrationTaskStatus): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
 }
 
 export class StateStore {

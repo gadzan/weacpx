@@ -54,12 +54,14 @@ export async function downloadMediaFromItem(
             cdnBaseUrl,
             `${label} image`,
             img.media.full_url,
+            WEIXIN_MEDIA_MAX_BYTES,
           )
         : await downloadPlainCdnBuffer(
             img.media.encrypt_query_param ?? "",
             cdnBaseUrl,
             `${label} image-plain`,
             img.media.full_url,
+            WEIXIN_MEDIA_MAX_BYTES,
           );
       const saved = await saveMedia(buf, undefined, "inbound", WEIXIN_MEDIA_MAX_BYTES);
       result.decryptedPicPath = saved.path;
@@ -67,6 +69,7 @@ export async function downloadMediaFromItem(
     } catch (err) {
       logger.error(`${label} image download/decrypt failed: ${String(err)}`);
       errLog(`weixin ${label} image download/decrypt failed: ${String(err)}`);
+      throw err;
     }
   } else if (item.type === MessageItemType.VOICE) {
     const voice = item.voice_item;
@@ -79,6 +82,7 @@ export async function downloadMediaFromItem(
         cdnBaseUrl,
         `${label} voice`,
         voice.media.full_url,
+        WEIXIN_MEDIA_MAX_BYTES,
       );
       logger.debug(`${label} voice: decrypted ${silkBuf.length} bytes, attempting silk transcode`);
       const wavBuf = await silkToWav(silkBuf);
@@ -108,6 +112,7 @@ export async function downloadMediaFromItem(
         cdnBaseUrl,
         `${label} file`,
         fileItem.media.full_url,
+        WEIXIN_MEDIA_MAX_BYTES,
       );
       const mime = getMimeFromFilename(fileItem.file_name ?? "file.bin");
       const saved = await saveMedia(
@@ -135,6 +140,7 @@ export async function downloadMediaFromItem(
         cdnBaseUrl,
         `${label} video`,
         videoItem.media.full_url,
+        WEIXIN_MEDIA_MAX_BYTES,
       );
       const saved = await saveMedia(buf, "video/mp4", "inbound", WEIXIN_MEDIA_MAX_BYTES);
       result.decryptedVideoPath = saved.path;

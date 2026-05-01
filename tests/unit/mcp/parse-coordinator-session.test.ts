@@ -15,6 +15,21 @@ test("falls back to WEACPX_COORDINATOR_SESSION when the flag is absent", () => {
   expect(parseCoordinatorSession([], { WEACPX_COORDINATOR_SESSION: " backend:main " })).toBe("backend:main");
 });
 
-test("treats empty flag and env values as unset", () => {
-  expect(parseCoordinatorSession(["--coordinator-session", "   "], { WEACPX_COORDINATOR_SESSION: "   " })).toBeNull();
+test("returns null for empty coordinator session environment", () => {
+  expect(parseCoordinatorSession([], { WEACPX_COORDINATOR_SESSION: "   " })).toBeNull();
+});
+
+test("rejects coordinator session flags without values", () => {
+  expect(() => parseCoordinatorSession(["--coordinator-session"], { WEACPX_COORDINATOR_SESSION: "backend:main" })).toThrow(
+    "--coordinator-session requires a non-empty value",
+  );
+  expect(() => parseCoordinatorSession(["--coordinator-session", "--workspace", "backend"], {})).toThrow(
+    "--coordinator-session requires a non-empty value",
+  );
+  expect(() => parseCoordinatorSession(["--coordinator-session", "   "], {})).toThrow(
+    "--coordinator-session requires a non-empty value",
+  );
+  expect(() => parseCoordinatorSession(["--coordinator-session", " --workspace"], {})).toThrow(
+    "--coordinator-session requires a non-empty value",
+  );
 });

@@ -15,15 +15,28 @@ import type {
   CoordinatorTaskQuestionRef,
   OrchestrationTaskFilter,
   RecordWorkerReplyInput,
+  RegisterExternalCoordinatorInput,
   RequestDelegateRpcInput,
   RequestDelegateRpcResult,
+  WaitTaskInput,
+  WaitTaskResult,
   WorkerRaiseQuestionInput,
 } from "./orchestration-service";
 import type {
+  ExternalCoordinatorRecord,
   OrchestrationGroupRecord,
   OrchestrationGroupSummary,
   OrchestrationTaskRecord,
 } from "./orchestration-types";
+import {
+  DEFAULT_TASK_WAIT_TIMEOUT_MS,
+  MAX_TASK_WAIT_TIMEOUT_MS,
+  TASK_WAIT_RPC_TIMEOUT_PADDING_MS,
+} from "./task-wait-timeouts";
+
+export type CoordinatorTaskListFilter = Pick<OrchestrationTaskFilter, "status" | "stuck" | "sort" | "order"> & {
+  coordinatorSession: string;
+};
 
 interface OrchestrationClientDeps {
   createId?: () => string;
@@ -42,12 +55,12 @@ export class OrchestrationClient {
     this.timeoutMs = deps.timeoutMs ?? 30_000;
   }
 
-  async delegateRequest(input: RequestDelegateRpcInput): Promise<RequestDelegateRpcResult> {
-    return await this.request<RequestDelegateRpcResult>("delegate.request", input);
+  async registerExternalCoordinator(input: RegisterExternalCoordinatorInput): Promise<ExternalCoordinatorRecord> {
+    return await this.request<ExternalCoordinatorRecord>("coordinator.register_external", input);
   }
 
-  async getTask(taskId: string): Promise<OrchestrationTaskRecord | null> {
-    return await this.request<OrchestrationTaskRecord | null>("task.get", { taskId });
+  async delegateRequest(input: RequestDelegateRpcInput): Promise<RequestDelegateRpcResult> {
+    return await this.request<RequestDelegateRpcResult>("delegate.request", input);
   }
 
   async getTaskForCoordinator(input: {
@@ -60,8 +73,12 @@ export class OrchestrationClient {
     );
   }
 
-  async listTasks(filter?: OrchestrationTaskFilter): Promise<OrchestrationTaskRecord[]> {
-    return await this.request<OrchestrationTaskRecord[]>("task.list", filter ? { filter } : {});
+  async listTasks(filter: CoordinatorTaskListFilter): Promise<OrchestrationTaskRecord[]> {
+    return await this.request<OrchestrationTaskRecord[]>("task.list", { filter });
+  }
+
+  async waitTask(input: WaitTaskInput): Promise<WaitTaskResult> {
+    return await this.request<WaitTaskResult>("task.wait", input, getWaitRequestTimeoutMs(input.timeoutMs, this.timeoutMs));
   }
 
   async approveTask(input: {
@@ -202,7 +219,7 @@ export class OrchestrationClient {
     return await this.request<CancelGroupResult>("group.cancel", input);
   }
 
-  async request<Result>(method: OrchestrationRpcMethod, params: unknown): Promise<Result> {
+  async request<Result>(method: OrchestrationRpcMethod, params: unknown, timeoutMs = this.timeoutMs): Promise<Result> {
     const id = this.createId();
 
     return await new Promise<Result>((resolve, reject) => {
@@ -224,8 +241,8 @@ export class OrchestrationClient {
       };
 
       timer = setTimeout(() => {
-        fail(new Error(`orchestration RPC timeout after ${this.timeoutMs}ms: ${method}`));
-      }, this.timeoutMs);
+        fail(new Error(`orchestration RPC timeout after ${timeoutMs}ms: ${method}`));
+      }, timeoutMs);
 
       socket.setEncoding("utf8");
       socket.once("error", fail);
@@ -274,4 +291,14 @@ export class OrchestrationClient {
       });
     });
   }
+}
+
+export function getWaitRequestTimeoutMs(waitTimeoutMs: number | undefined, defaultTimeoutMs: number): number {
+  const requestedWaitTimeoutMs =
+    waitTimeoutMs === undefined ? undefined : Number.isFinite(waitTimeoutMs) ? waitTimeoutMs : 0;
+  const boundedWaitTimeoutMs = Math.min(
+    Math.max(Math.floor(requestedWaitTimeoutMs ?? DEFAULT_TASK_WAIT_TIMEOUT_MS), 0),
+    MAX_TASK_WAIT_TIMEOUT_MS,
+  );
+  return Math.max(defaultTimeoutMs, boundedWaitTimeoutMs + TASK_WAIT_RPC_TIMEOUT_PADDING_MS);
 }

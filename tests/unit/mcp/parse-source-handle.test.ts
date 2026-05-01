@@ -15,6 +15,21 @@ test("falls back to WEACPX_SOURCE_HANDLE when the flag is absent", () => {
   expect(parseSourceHandle([], { WEACPX_SOURCE_HANDLE: " backend:worker " })).toBe("backend:worker");
 });
 
-test("treats empty flag and env values as unset", () => {
-  expect(parseSourceHandle(["--source-handle", "   "], { WEACPX_SOURCE_HANDLE: "   " })).toBeNull();
+test("returns null for empty source handle environment", () => {
+  expect(parseSourceHandle([], { WEACPX_SOURCE_HANDLE: "   " })).toBeNull();
+});
+
+test("rejects source handle flags without values", () => {
+  expect(() => parseSourceHandle(["--source-handle"], { WEACPX_SOURCE_HANDLE: "backend:worker" })).toThrow(
+    "--source-handle requires a non-empty value",
+  );
+  expect(() => parseSourceHandle(["--source-handle", "--workspace", "backend"], {})).toThrow(
+    "--source-handle requires a non-empty value",
+  );
+  expect(() => parseSourceHandle(["--source-handle", "   "], {})).toThrow(
+    "--source-handle requires a non-empty value",
+  );
+  expect(() => parseSourceHandle(["--source-handle", " --workspace"], {})).toThrow(
+    "--source-handle requires a non-empty value",
+  );
 });

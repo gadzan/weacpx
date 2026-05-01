@@ -8,6 +8,7 @@ import type {
   OrchestrationGroupListFilter,
   OrchestrationTaskFilter,
   RequestDelegateRpcResult,
+  WaitTaskResult,
 } from "../orchestration/orchestration-service";
 import type {
   OrchestrationGroupRecord,
@@ -20,8 +21,16 @@ export interface WeacpxMcpDelegateRequest {
   sourceHandle?: string;
   targetAgent: string;
   task: string;
+  workingDirectory?: string;
   role?: string;
   groupId?: string;
+}
+
+export interface WeacpxMcpTaskWaitArgs {
+  coordinatorSession: string;
+  taskId: string;
+  timeoutMs?: number;
+  pollIntervalMs?: number;
 }
 
 export interface WeacpxMcpTaskIdArgs {
@@ -103,6 +112,7 @@ export interface WeacpxMcpTransport {
   approveTask: (input: WeacpxMcpTaskIdArgs) => Promise<OrchestrationTaskRecord>;
   rejectTask: (input: WeacpxMcpTaskIdArgs) => Promise<OrchestrationTaskRecord>;
   cancelTask: (input: WeacpxMcpTaskIdArgs) => Promise<OrchestrationTaskRecord>;
+  waitTask: (input: WeacpxMcpTaskWaitArgs) => Promise<WaitTaskResult>;
   workerRaiseQuestion: (
     input: WeacpxMcpWorkerRaiseQuestionArgs,
   ) => Promise<{ taskId: string; questionId: string; status: "blocked" }>;
@@ -121,6 +131,7 @@ export interface WeacpxMcpTransport {
 }
 
 interface OrchestrationClientLike {
+  registerExternalCoordinator?: OrchestrationClient["registerExternalCoordinator"];
   delegateRequest: OrchestrationClient["delegateRequest"];
   createGroup: OrchestrationClient["createGroup"];
   getGroup: OrchestrationClient["getGroup"];
@@ -131,6 +142,7 @@ interface OrchestrationClientLike {
   approveTask: OrchestrationClient["approveTask"];
   rejectTask: OrchestrationClient["rejectTask"];
   cancelTaskForCoordinator: OrchestrationClient["cancelTaskForCoordinator"];
+  waitTask: OrchestrationClient["waitTask"];
   workerRaiseQuestion: OrchestrationClient["workerRaiseQuestion"];
   coordinatorAnswerQuestion: OrchestrationClient["coordinatorAnswerQuestion"];
   coordinatorRequestHumanInput: OrchestrationClient["coordinatorRequestHumanInput"];
@@ -150,6 +162,7 @@ export function createOrchestrationTransport(
         sourceHandle: input.sourceHandle ?? input.coordinatorSession,
         targetAgent: input.targetAgent,
         task: input.task,
+        ...(input.workingDirectory ? { cwd: input.workingDirectory } : {}),
         ...(input.role ? { role: input.role } : {}),
         ...(input.groupId ? { groupId: input.groupId } : {}),
       }),
@@ -169,6 +182,7 @@ export function createOrchestrationTransport(
     approveTask: async (input) => await client.approveTask(input),
     rejectTask: async (input) => await client.rejectTask(input),
     cancelTask: async (input) => await client.cancelTaskForCoordinator(input),
+    waitTask: async (input) => await client.waitTask(input),
     workerRaiseQuestion: async (input) => {
       const sourceHandle = input.sourceHandle.trim();
       if (sourceHandle.length === 0) {
@@ -210,6 +224,7 @@ export function createMemoryTransport(
     approveTask: overrides.approveTask ?? (unimplemented("approveTask") as WeacpxMcpTransport["approveTask"]),
     rejectTask: overrides.rejectTask ?? (unimplemented("rejectTask") as WeacpxMcpTransport["rejectTask"]),
     cancelTask: overrides.cancelTask ?? (unimplemented("cancelTask") as WeacpxMcpTransport["cancelTask"]),
+    waitTask: overrides.waitTask ?? (unimplemented("waitTask") as WeacpxMcpTransport["waitTask"]),
     workerRaiseQuestion:
       overrides.workerRaiseQuestion ?? (unimplemented("workerRaiseQuestion") as WeacpxMcpTransport["workerRaiseQuestion"]),
     coordinatorAnswerQuestion:

@@ -9,20 +9,26 @@ import type {
   CoordinatorTaskQuestionRef,
   OrchestrationTaskFilter,
   RecordWorkerReplyInput,
+  RegisterExternalCoordinatorInput,
   RequestDelegateRpcInput,
   RequestDelegateRpcResult,
+  WaitTaskInput,
+  WaitTaskResult,
   WorkerRaiseQuestionInput,
 } from "./orchestration-service";
 import type {
+  ExternalCoordinatorRecord,
   OrchestrationGroupRecord,
   OrchestrationGroupSummary,
   OrchestrationTaskRecord,
 } from "./orchestration-types";
 
 export type OrchestrationRpcMethod =
+  | "coordinator.register_external"
   | "delegate.request"
   | "task.get"
   | "task.list"
+  | "task.wait"
   | "task.approve"
   | "task.reject"
   | "task.cancel"
@@ -69,9 +75,11 @@ export type OrchestrationRpcResponse<Result = unknown> =
   | OrchestrationRpcErrorResponse;
 
 export interface OrchestrationRpcHandlers {
+  registerExternalCoordinator: (input: RegisterExternalCoordinatorInput) => Promise<ExternalCoordinatorRecord>;
   requestDelegate: (input: RequestDelegateRpcInput) => Promise<RequestDelegateRpcResult>;
   getTask: (taskId: string) => Promise<OrchestrationTaskRecord | null>;
   listTasks: (filter?: OrchestrationTaskFilter) => Promise<OrchestrationTaskRecord[]>;
+  waitTask: (input: WaitTaskInput) => Promise<WaitTaskResult>;
   approveTask: (input: { taskId: string; coordinatorSession: string }) => Promise<OrchestrationTaskRecord>;
   rejectTask: (input: { taskId: string; coordinatorSession: string }) => Promise<OrchestrationTaskRecord>;
   cancelTask: (input: CancelTaskInput) => Promise<OrchestrationTaskRecord>;
@@ -84,6 +92,11 @@ export interface OrchestrationRpcHandlers {
     taskId: string;
     questionId: string;
     answer: string;
+  }) => Promise<OrchestrationTaskRecord>;
+  coordinatorRetractAnswer: (input: {
+    coordinatorSession: string;
+    taskId: string;
+    questionId: string;
   }) => Promise<OrchestrationTaskRecord>;
   coordinatorRequestHumanInput: (input: {
     coordinatorSession: string;

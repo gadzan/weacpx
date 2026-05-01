@@ -72,6 +72,38 @@ test("attaches an existing transport session with a custom name", async () => {
   expect(session.cwd).toBe("/tmp/backend");
 });
 
+test("rejects creating a logical session that collides with an external coordinator handle", async () => {
+  const store = new MemoryStateStore();
+  const state = createEmptyState();
+  state.orchestration.externalCoordinators["backend:api-fix"] = {
+    coordinatorSession: "backend:api-fix",
+    workspace: "backend",
+    createdAt: "2026-04-28T10:00:00.000Z",
+    updatedAt: "2026-04-28T10:00:00.000Z",
+  };
+  const service = new SessionService(createConfig(), store, state);
+
+  await expect(service.createSession("api-fix", "codex", "backend")).rejects.toThrow(
+    'transport session "backend:api-fix" conflicts with an external coordinator',
+  );
+});
+
+test("rejects attaching a logical session that collides with an external coordinator handle", async () => {
+  const store = new MemoryStateStore();
+  const state = createEmptyState();
+  state.orchestration.externalCoordinators["codex:backend"] = {
+    coordinatorSession: "codex:backend",
+    workspace: "backend",
+    createdAt: "2026-04-28T10:00:00.000Z",
+    updatedAt: "2026-04-28T10:00:00.000Z",
+  };
+  const service = new SessionService(createConfig(), store, state);
+
+  await expect(service.attachSession("review", "codex", "backend", "codex:backend")).rejects.toThrow(
+    'transport session "codex:backend" conflicts with an external coordinator',
+  );
+});
+
 test("stores and resolves a session-level transport agent command", async () => {
   const store = new MemoryStateStore();
   const service = new SessionService(createConfig(), store, createEmptyState());

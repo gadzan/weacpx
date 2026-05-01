@@ -59,34 +59,39 @@ export async function handleSessionShortcutCommand(
   }
 
   const session = ops.resolveSession(alias, agent, workspace.name, alias);
+  const releaseTransportReservation = await ops.reserveTransportSession(session.transportSession);
   try {
-    await ops.ensureTransportSession(session);
-    const exists = await ops.checkTransportSession(session);
-    if (!exists) {
+    try {
+      await ops.ensureTransportSession(session);
+      const exists = await ops.checkTransportSession(session);
+      if (!exists) {
+        return renderShortcutSessionCreationError(workspace, alias);
+      }
+    } catch (err) {
+      if (err instanceof AutoInstallFailedError) throw err;
       return renderShortcutSessionCreationError(workspace, alias);
     }
-  } catch (err) {
-    if (err instanceof AutoInstallFailedError) throw err;
-    return renderShortcutSessionCreationError(workspace, alias);
+
+    await context.sessions.attachSession(alias, agent, workspace.name, session.transportSession);
+    await ops.refreshSessionTransportAgentCommand(alias);
+    await context.sessions.useSession(chatKey, alias);
+    await context.logger.info("session.shortcut.created", "created new logical session from shortcut", {
+      alias,
+      workspace: workspace.name,
+      agent,
+      workspaceReused: workspace.reused,
+    });
+
+    return {
+      text: [
+        `已创建并切换到会话「${alias}」`,
+        workspace.reused ? `- 复用工作区：${workspace.name}` : `- 新增工作区：${workspace.name} -> ${workspace.cwd}`,
+        `- 新增会话：${alias}`,
+      ].join("\n"),
+    };
+  } finally {
+    await releaseTransportReservation();
   }
-
-  await context.sessions.attachSession(alias, agent, workspace.name, session.transportSession);
-  await ops.refreshSessionTransportAgentCommand(alias);
-  await context.sessions.useSession(chatKey, alias);
-  await context.logger.info("session.shortcut.created", "created new logical session from shortcut", {
-    alias,
-    workspace: workspace.name,
-    agent,
-    workspaceReused: workspace.reused,
-  });
-
-  return {
-    text: [
-      `已创建并切换到会话「${alias}」`,
-      workspace.reused ? `- 复用工作区：${workspace.name}` : `- 新增工作区：${workspace.name} -> ${workspace.cwd}`,
-      `- 新增会话：${alias}`,
-    ].join("\n"),
-  };
 }
 
 async function resolveShortcutWorkspace(
@@ -185,4 +190,3 @@ function renderShortcutSessionCreationError(
     ].join("\n"),
   };
 }
-

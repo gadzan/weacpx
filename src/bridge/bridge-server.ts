@@ -6,6 +6,7 @@ import {
   type BridgeResponse,
 } from "../transport/acpx-bridge/acpx-bridge-protocol";
 import { PromptCommandError } from "../transport/prompt-output";
+import type { PromptMedia } from "../transport/types";
 import { BridgeRequestScheduler, type BridgeRequestLane } from "./bridge-request-scheduler";
 import { BridgeRuntime, EnsureSessionFailedError } from "./bridge-runtime";
 
@@ -148,6 +149,7 @@ export class BridgeServer {
           }
         });
       case "prompt":
+        const media = asOptionalPromptMedia(params.media);
         return await this.runtime.prompt({
           agent: requireString(params, "agent"),
           agentCommand: asOptionalString(params.agentCommand),
@@ -155,8 +157,9 @@ export class BridgeServer {
           name: requireString(params, "name"),
           mcpCoordinatorSession: asOptionalString(params.mcpCoordinatorSession),
           mcpSourceHandle: asOptionalString(params.mcpSourceHandle),
-          text: requireString(params, "text"),
+          text: requirePromptText(params, media),
           replyMode: asOptionalReplyMode(params.replyMode),
+          media,
         }, (event) => {
           if (event.type === "prompt.segment") {
             writeLine?.(encodeBridgePromptSegmentEvent({
@@ -279,6 +282,17 @@ function requireString(params: Record<string, unknown>, key: string): string {
   return value;
 }
 
+function requirePromptText(params: Record<string, unknown>, media?: PromptMedia): string {
+  const value = params.text;
+  if (typeof value !== "string") {
+    throw new BridgeInvalidRequestError("text must be a non-empty string");
+  }
+  if (value.length === 0 && media?.type !== "image") {
+    throw new BridgeInvalidRequestError("text must be a non-empty string unless image media is provided");
+  }
+  return value;
+}
+
 
 function requirePermissionMode(params: Record<string, unknown>, key: string): "approve-all" | "approve-reads" | "deny-all" {
   const value = params[key];
@@ -303,6 +317,36 @@ function asOptionalString(value: unknown): string | undefined {
   }
 
   return value;
+}
+
+function asOptionalPromptMedia(value: unknown): PromptMedia | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new BridgeInvalidRequestError("media must be an object when provided");
+  }
+  const record = value as Record<string, unknown>;
+  const type = record.type;
+  const filePath = record.filePath;
+  const mimeType = record.mimeType;
+  if (type !== "image") {
+    throw new BridgeInvalidRequestError("media.type must be image");
+  }
+  if (typeof filePath !== "string" || filePath.length === 0) {
+    throw new BridgeInvalidRequestError("media.filePath must be a non-empty string");
+  }
+  if (typeof mimeType !== "string" || mimeType.length === 0) {
+    throw new BridgeInvalidRequestError("media.mimeType must be a non-empty string");
+  }
+  return {
+    type,
+    filePath,
+    mimeType,
+    ...(typeof record.fileName === "string" && record.fileName.length > 0
+      ? { fileName: record.fileName }
+      : {}),
+  };
 }
 
 // Inline union — this crosses the JSON protocol boundary, validated by VALID_REPLY_MODES set.

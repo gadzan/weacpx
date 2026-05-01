@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 import type { NonInteractivePermissions, PermissionMode, WechatReplyMode } from "../config/types";
 import { resolveSpawnCommand } from "../process/spawn-command";
 import { getPromptText } from "../transport/prompt-output";
+import { createStructuredPromptFile } from "../transport/prompt-media";
 import { createStreamingPromptState, parseStreamingDataChunk } from "../transport/streaming-prompt";
 import { parseMissingOptionalDep } from "./parse-missing-optional-dep";
 import { deriveParentPackageName } from "../recovery/discover-parent-package-paths";
@@ -15,6 +16,7 @@ import type {
   EnsureSessionProgress,
   MissingOptionalDepErrorData,
 } from "../transport/acpx-bridge/acpx-bridge-protocol";
+import type { PromptMedia } from "../transport/types";
 
 export class EnsureSessionFailedError extends Error {
   readonly kind: "missing_optional_dep" | "generic";
@@ -53,6 +55,7 @@ interface BridgeSessionInput {
   mcpCoordinatorSession?: string;
   mcpSourceHandle?: string;
   replyMode?: "stream" | "final" | "verbose";
+  media?: PromptMedia;
 }
 
 interface StreamingPromptRunnerOptions {
@@ -243,17 +246,26 @@ export class BridgeRuntime {
 
   async prompt(input: BridgeSessionInput & { text: string }, onEvent?: (event: { type: "prompt.segment"; text: string }) => void): Promise<{ text: string }> {
     await this.launchMcpQueueOwnerIfNeeded(input);
+    const structuredPrompt = await createStructuredPromptFile(input.text, input.media);
     const spawnSpec = resolveSpawnCommand(this.command, this.buildPromptArgs(input, [
       "prompt",
       "-s",
       input.name,
-      input.text,
+      ...(structuredPrompt ? ["--file", structuredPrompt.filePath] : [input.text]),
     ]));
     const formatToolCalls = input.replyMode === "verbose";
-    const result = onEvent
-      ? await this.runPromptCommand(spawnSpec.command, spawnSpec.args, onEvent, { formatToolCalls })
-      : await this.run(spawnSpec.command, spawnSpec.args);
-    return { text: getPromptText(result) };
+    try {
+      const result = onEvent
+        ? await this.runPromptCommand(spawnSpec.command, spawnSpec.args, onEvent, { formatToolCalls })
+        : await this.run(spawnSpec.command, spawnSpec.args);
+      return { text: getPromptText(result) };
+    } finally {
+      try {
+        await structuredPrompt?.cleanup();
+      } catch {
+        // Prompt outcome is more important than best-effort temp file cleanup.
+      }
+    }
   }
 
   private async launchMcpQueueOwnerIfNeeded(input: BridgeSessionInput): Promise<void> {

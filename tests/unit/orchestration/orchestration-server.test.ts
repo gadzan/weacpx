@@ -6,6 +6,7 @@ import { createConnection } from "node:net";
 
 import { resolveOrchestrationEndpoint } from "../../../src/orchestration/orchestration-ipc";
 import { OrchestrationServer } from "../../../src/orchestration/orchestration-server";
+import { skipIfLocalIpcUnavailable } from "../../helpers/ipc-capability";
 
 async function sendRequest(endpointPath: string, request: Record<string, unknown>) {
   return await new Promise<Record<string, unknown>>((resolve, reject) => {
@@ -33,9 +34,16 @@ async function sendRequest(endpointPath: string, request: Record<string, unknown
 
 function makeServerHandlers(overrides: Partial<Record<string, unknown>> = {}) {
   return {
+    registerExternalCoordinator: async (input: Record<string, unknown>) => ({
+      coordinatorSession: input.coordinatorSession,
+      workspace: input.workspace,
+      createdAt: "2026-04-28T00:00:00.000Z",
+      updatedAt: "2026-04-28T00:00:00.000Z",
+    }),
     requestDelegate: async () => ({ taskId: "task-1", status: "needs_confirmation" }),
     getTask: async () => null,
     listTasks: async () => [],
+    waitTask: async (input: Record<string, unknown>) => ({ status: "timeout", task: { taskId: input.taskId, status: "running" } }),
     approveTask: async (input: Record<string, unknown>) => ({
       taskId: input.taskId,
       coordinatorSession: input.coordinatorSession,
@@ -49,6 +57,12 @@ function makeServerHandlers(overrides: Partial<Record<string, unknown>> = {}) {
     }),
     cancelTask: async (input: Record<string, unknown>) => ({ taskId: input.taskId, status: "cancelled" }),
     recordWorkerReply: async (input: Record<string, unknown>) => ({ taskId: input.taskId, status: "completed" }),
+    workerRaiseQuestion: async () => ({ taskId: "task-1", questionId: "question-1", status: "blocked" }),
+    coordinatorAnswerQuestion: async (input: Record<string, unknown>) => ({ taskId: input.taskId, status: "running" }),
+    coordinatorRetractAnswer: async (input: Record<string, unknown>) => ({ taskId: input.taskId, status: "waiting_for_human" }),
+    coordinatorRequestHumanInput: async () => ({ packageId: "pkg-1", queuedTaskIds: [] }),
+    coordinatorFollowUpHumanPackage: async () => ({ packageId: "pkg-1", messageId: "msg-1" }),
+    coordinatorReviewContestedResult: async (input: Record<string, unknown>) => ({ taskId: input.taskId, status: "completed" }),
     createGroup: async () => ({
       groupId: "g-1",
       coordinatorSession: "backend:main",
@@ -83,7 +97,249 @@ function makeServerHandlers(overrides: Partial<Record<string, unknown>> = {}) {
   } as unknown as ConstructorParameters<typeof OrchestrationServer>[1];
 }
 
+
+
+test("forwards task wait RPC to handlers", async () => {
+  const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
+  const waitTask = mock(async (input: Record<string, unknown>) => ({
+    status: "timeout",
+    task: { taskId: input.taskId, status: "running" },
+  }));
+  const server = new OrchestrationServer(endpoint, makeServerHandlers({ waitTask }));
+
+  await expect(
+    server.handleLine(JSON.stringify({
+      id: "req-task-wait",
+      method: "task.wait",
+      params: {
+        coordinatorSession: "backend:main",
+        taskId: "task-1",
+        timeoutMs: 1_200_000,
+        pollIntervalMs: 50,
+      },
+    })),
+  ).resolves.toBe(`${JSON.stringify({
+    id: "req-task-wait",
+    ok: true,
+    result: { status: "timeout", task: { taskId: "task-1", status: "running" } },
+  })}\n`);
+
+  expect(waitTask).toHaveBeenCalledWith({
+    coordinatorSession: "backend:main",
+    taskId: "task-1",
+    timeoutMs: 1_200_000,
+    pollIntervalMs: 50,
+  });
+});
+
+test("rejects malformed task wait option ranges before dispatch", async () => {
+  const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
+  const waitTask = mock(async (input: Record<string, unknown>) => ({
+    status: "timeout",
+    task: { taskId: input.taskId, status: "running" },
+  }));
+  const server = new OrchestrationServer(endpoint, makeServerHandlers({ waitTask }));
+
+  for (const params of [
+    { timeoutMs: -1 },
+    { timeoutMs: 1_200_001 },
+    { timeoutMs: 1.5 },
+    { pollIntervalMs: 0 },
+    { pollIntervalMs: 10_001 },
+    { pollIntervalMs: 1.5 },
+  ]) {
+    const response = JSON.parse(await server.handleLine(JSON.stringify({
+      id: "req-bad-wait",
+      method: "task.wait",
+      params: {
+        coordinatorSession: "backend:main",
+        taskId: "task-1",
+        ...params,
+      },
+    })));
+
+    expect(response).toMatchObject({
+      id: "req-bad-wait",
+      ok: false,
+      error: { code: "ORCHESTRATION_INVALID_REQUEST" },
+    });
+  }
+
+  expect(waitTask).not.toHaveBeenCalled();
+});
+
+test("forwards coordinator answer retraction RPC to handlers", async () => {
+  const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
+  const coordinatorRetractAnswer = mock(async (input: Record<string, unknown>) => ({
+    taskId: input.taskId,
+    questionId: input.questionId,
+    status: "waiting_for_human",
+  }));
+  const server = new OrchestrationServer(endpoint, makeServerHandlers({ coordinatorRetractAnswer }));
+
+  await expect(
+    server.handleLine(JSON.stringify({
+      id: "req-retract",
+      method: "coordinator.retract_answer",
+      params: {
+        coordinatorSession: "backend:main",
+        taskId: "task-1",
+        questionId: "question-1",
+      },
+    })),
+  ).resolves.toBe(`${JSON.stringify({
+    id: "req-retract",
+    ok: true,
+    result: { taskId: "task-1", questionId: "question-1", status: "waiting_for_human" },
+  })}\n`);
+
+  expect(coordinatorRetractAnswer).toHaveBeenCalledWith({
+    coordinatorSession: "backend:main",
+    taskId: "task-1",
+    questionId: "question-1",
+  });
+});
+
+test("forwards external coordinator registration RPC to handlers", async () => {
+  const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
+  const registerExternalCoordinator = mock(async (input: Record<string, unknown>) => ({
+    coordinatorSession: input.coordinatorSession,
+    workspace: input.workspace,
+    createdAt: "2026-04-28T00:00:00.000Z",
+    updatedAt: "2026-04-28T00:00:00.000Z",
+  }));
+  const server = new OrchestrationServer(endpoint, makeServerHandlers({ registerExternalCoordinator }));
+
+  await expect(
+    server.handleLine(JSON.stringify({
+      id: "req-register-external",
+      method: "coordinator.register_external",
+      params: {
+        coordinatorSession: "codex:backend",
+        workspace: "backend",
+      },
+    })),
+  ).resolves.toBe(`${JSON.stringify({
+    id: "req-register-external",
+    ok: true,
+    result: {
+      coordinatorSession: "codex:backend",
+      workspace: "backend",
+      createdAt: "2026-04-28T00:00:00.000Z",
+      updatedAt: "2026-04-28T00:00:00.000Z",
+    },
+  })}\n`);
+
+  expect(registerExternalCoordinator).toHaveBeenCalledWith({
+    coordinatorSession: "codex:backend",
+    workspace: "backend",
+  });
+});
+
+test("task get and list require coordinator-scoped filters", async () => {
+  const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
+  const server = new OrchestrationServer(endpoint, makeServerHandlers());
+
+  for (const request of [
+    { id: "req-get", method: "task.get", params: { taskId: "task-1" } },
+    { id: "req-list", method: "task.list", params: {} },
+    { id: "req-list-filter", method: "task.list", params: { filter: { status: "running" } } },
+  ]) {
+    const response = JSON.parse(await server.handleLine(JSON.stringify(request)));
+    expect(response).toMatchObject({
+      id: request.id,
+      ok: false,
+      error: { code: "ORCHESTRATION_INVALID_REQUEST" },
+    });
+  }
+});
+
+test("rejects malformed task list filters before dispatch", async () => {
+  const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
+  const listTasks = mock(async () => []);
+  const server = new OrchestrationServer(endpoint, makeServerHandlers({ listTasks }));
+
+  for (const filter of [
+    { coordinatorSession: "backend:main", status: "bogus" },
+    { coordinatorSession: "backend:main", stuck: "false" },
+    { coordinatorSession: "backend:main", sort: "bogus" },
+    { coordinatorSession: "backend:main", order: "bogus" },
+    { coordinatorSession: "backend:main", targetAgent: "claude" },
+  ]) {
+    const response = JSON.parse(await server.handleLine(JSON.stringify({
+      id: "req-bad-list",
+      method: "task.list",
+      params: { filter },
+    })));
+    expect(response).toMatchObject({
+      id: "req-bad-list",
+      ok: false,
+      error: { code: "ORCHESTRATION_INVALID_REQUEST" },
+    });
+  }
+
+  const response = JSON.parse(await server.handleLine(JSON.stringify({
+    id: "req-bad-list-top",
+    method: "task.list",
+    params: { filter: { coordinatorSession: "backend:main" }, targetAgent: "claude" },
+  })));
+  expect(response).toMatchObject({
+    id: "req-bad-list-top",
+    ok: false,
+    error: { code: "ORCHESTRATION_INVALID_REQUEST" },
+  });
+
+  expect(listTasks).not.toHaveBeenCalled();
+});
+
+test("rejects malformed raw params for delegate cancel and worker reply before dispatch", async () => {
+  const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
+  const requestDelegate = mock(async () => ({ taskId: "task-1", status: "needs_confirmation" }));
+  const cancelTask = mock(async () => ({ taskId: "task-1", status: "cancelled" }));
+  const recordWorkerReply = mock(async () => ({ taskId: "task-1", status: "completed" }));
+  const server = new OrchestrationServer(endpoint, makeServerHandlers({
+    requestDelegate,
+    cancelTask,
+    recordWorkerReply,
+  }));
+
+  for (const request of [
+    { id: "req-delegate", method: "delegate.request", params: { sourceHandle: "backend:main", task: "review" } },
+    {
+      id: "req-delegate-extra",
+      method: "delegate.request",
+      params: { sourceHandle: "backend:main", targetAgent: "claude", task: "review", coordinatorSession: "spoof" },
+    },
+    { id: "req-cancel", method: "task.cancel", params: { taskId: "task-1" } },
+    {
+      id: "req-cancel-extra",
+      method: "task.cancel",
+      params: { taskId: "task-1", coordinatorSession: "backend:main", workspace: "backend" },
+    },
+    { id: "req-reply", method: "worker.reply", params: { taskId: "task-1", sourceHandle: "worker-1", status: "running" } },
+    {
+      id: "req-reply-extra",
+      method: "worker.reply",
+      params: { taskId: "task-1", sourceHandle: "worker-1", resultText: "done", coordinatorSession: "spoof" },
+    },
+  ]) {
+    const response = JSON.parse(await server.handleLine(JSON.stringify(request)));
+    expect(response).toMatchObject({
+      id: request.id,
+      ok: false,
+      error: { code: "ORCHESTRATION_INVALID_REQUEST" },
+    });
+  }
+
+  expect(requestDelegate).not.toHaveBeenCalled();
+  expect(cancelTask).not.toHaveBeenCalled();
+  expect(recordWorkerReply).not.toHaveBeenCalled();
+});
+
 test("forwards supported orchestration RPC methods to handlers", async () => {
+  // Requires node:net listen; sandboxed runners may deny local IPC with EPERM.
+  if (await skipIfLocalIpcUnavailable("orchestration-server socket integration tests")) return;
+
   const dir = await mkdtemp(join(tmpdir(), "weacpx-orch-server-"));
   const endpoint = resolveOrchestrationEndpoint(dir);
   const requestDelegate = mock(async (input: Record<string, unknown>) => ({
@@ -91,7 +347,7 @@ test("forwards supported orchestration RPC methods to handlers", async () => {
     status: "needs_confirmation",
     input,
   }));
-  const getTask = mock(async (taskId: string) => ({ taskId, status: "running" }));
+  const getTask = mock(async (taskId: string) => ({ taskId, status: "running", coordinatorSession: "backend:main" }));
   const listTasks = mock(async (filter?: Record<string, unknown>) => [{ taskId: "task-1", filter }]);
   const approveTask = mock(async (input: Record<string, unknown>) => ({
     taskId: input.taskId,
@@ -150,12 +406,12 @@ test("forwards supported orchestration RPC methods to handlers", async () => {
       sendRequest(endpoint.path, {
         id: "req-2",
         method: "task.get",
-        params: { taskId: "task-1" },
+        params: { taskId: "task-1", coordinatorSession: "backend:main" },
       }),
     ).resolves.toEqual({
       id: "req-2",
       ok: true,
-      result: { taskId: "task-1", status: "running" },
+      result: { taskId: "task-1", status: "running", coordinatorSession: "backend:main" },
     });
 
     await expect(
@@ -245,6 +501,9 @@ test("forwards supported orchestration RPC methods to handlers", async () => {
 });
 
 test("task.cancel forwards coordinator ownership when provided", async () => {
+  // Requires node:net listen; sandboxed runners may deny local IPC with EPERM.
+  if (await skipIfLocalIpcUnavailable("orchestration-server socket integration tests")) return;
+
   const dir = await mkdtemp(join(tmpdir(), "weacpx-orch-server-"));
   const endpoint = resolveOrchestrationEndpoint(dir);
   const cancelTask = mock(async (input: Record<string, unknown>) => ({ taskId: input.taskId, status: "cancelled" }));
@@ -276,6 +535,9 @@ test("task.cancel forwards coordinator ownership when provided", async () => {
 });
 
 test("task.get returns null when coordinator ownership does not match", async () => {
+  // Requires node:net listen; sandboxed runners may deny local IPC with EPERM.
+  if (await skipIfLocalIpcUnavailable("orchestration-server socket integration tests")) return;
+
   const dir = await mkdtemp(join(tmpdir(), "weacpx-orch-server-"));
   const endpoint = resolveOrchestrationEndpoint(dir);
   const getTask = mock(async (taskId: string) => ({
@@ -308,6 +570,9 @@ test("task.get returns null when coordinator ownership does not match", async ()
 });
 
 test("rejects malformed task.list filters instead of widening the request", async () => {
+  // Requires node:net listen; sandboxed runners may deny local IPC with EPERM.
+  if (await skipIfLocalIpcUnavailable("orchestration-server socket integration tests")) return;
+
   const dir = await mkdtemp(join(tmpdir(), "weacpx-orch-server-"));
   const endpoint = resolveOrchestrationEndpoint(dir);
   const server = new OrchestrationServer(endpoint, makeServerHandlers({ listTasks: mock(async () => []) }));
@@ -336,6 +601,9 @@ test("rejects malformed task.list filters instead of widening the request", asyn
 });
 
 test("cleans up stale unix sockets on start and stop", async () => {
+  // Requires node:net listen; sandboxed runners may deny local IPC with EPERM.
+  if (await skipIfLocalIpcUnavailable("orchestration-server socket integration tests")) return;
+
   if (process.platform === "win32") {
     return;
   }
@@ -351,7 +619,7 @@ test("cleans up stale unix sockets on start and stop", async () => {
       sendRequest(endpoint.path, {
         id: "req-stale",
         method: "task.list",
-        params: {},
+        params: { filter: { coordinatorSession: "backend:main" } },
       }),
     ).resolves.toEqual({
       id: "req-stale",
@@ -368,6 +636,9 @@ test("cleans up stale unix sockets on start and stop", async () => {
 });
 
 test("refuses to start when a live unix socket listener already owns the path", async () => {
+  // Requires node:net listen; sandboxed runners may deny local IPC with EPERM.
+  if (await skipIfLocalIpcUnavailable("orchestration-server socket integration tests")) return;
+
   if (process.platform === "win32") {
     return;
   }
@@ -388,6 +659,9 @@ test("refuses to start when a live unix socket listener already owns the path", 
 });
 
 test("forwards group lifecycle RPC methods to handlers", async () => {
+  // Requires node:net listen; sandboxed runners may deny local IPC with EPERM.
+  if (await skipIfLocalIpcUnavailable("orchestration-server socket integration tests")) return;
+
   const dir = await mkdtemp(join(tmpdir(), "weacpx-orch-server-"));
   const endpoint = resolveOrchestrationEndpoint(dir);
   const groupRecord = {
@@ -483,6 +757,9 @@ test("forwards group lifecycle RPC methods to handlers", async () => {
 });
 
 test("group RPC methods reject missing required params", async () => {
+  // Requires node:net listen; sandboxed runners may deny local IPC with EPERM.
+  if (await skipIfLocalIpcUnavailable("orchestration-server socket integration tests")) return;
+
   const dir = await mkdtemp(join(tmpdir(), "weacpx-orch-server-"));
   const endpoint = resolveOrchestrationEndpoint(dir);
   const server = new OrchestrationServer(endpoint, makeServerHandlers());

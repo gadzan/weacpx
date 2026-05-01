@@ -1,4 +1,5 @@
 import { expect, mock, test } from "bun:test";
+import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -498,6 +499,568 @@ test("handleWeixinMessageTurn forwards a distinct final text through reply when 
   await handleWeixinMessageTurnWithMock(makeMessage("hello"), deps);
 
   expect(sentTexts).toEqual(["🚀 working…", "✅ final result"]);
+  mock.restore();
+});
+
+test("handleWeixinMessageTurn reports image media download failure instead of sending an empty prompt", async () => {
+  const sentTexts: string[] = [];
+  let agentCalled = false;
+
+  mock.module("../../../src/weixin/media/media-download.ts", () => ({
+    downloadMediaFromItem: async () => ({}),
+  }));
+  mock.module("../../../src/weixin/messaging/send.ts", () => ({
+    markdownToPlainText: (text: string) => text,
+    sendMessageWeixin: async ({ text }: { text: string }) => {
+      sentTexts.push(text);
+      return { messageId: `msg-${sentTexts.length}` };
+    },
+  }));
+
+  const { handleWeixinMessageTurn: h } = await import(
+    "../../../src/weixin/messaging/handle-weixin-message-turn"
+  );
+
+  const imageOnlyMessage: WeixinMessage = {
+    from_user_id: "test-user",
+    to_user_id: "bot",
+    msg_id: "msg-image",
+    create_time_ms: Date.now(),
+    context_token: "ctx-token-123",
+    item_list: [
+      {
+        type: MessageItemType.IMAGE,
+        image_item: {
+          media: {
+            full_url: "https://cdn.example.com/image",
+          },
+        },
+      },
+    ],
+  };
+  const agent: Agent = {
+    async chat(): Promise<ChatResponse> {
+      agentCalled = true;
+      return { text: "should not run" };
+    },
+  };
+
+  await h(imageOnlyMessage, {
+    accountId: "test-account",
+    agent,
+    baseUrl: "https://example.com",
+    cdnBaseUrl: "https://cdn.example.com",
+    token: "test-token",
+    log: () => {},
+    errLog: () => {},
+  });
+
+  expect(agentCalled).toBe(false);
+  expect(sentTexts).toEqual(["图片读取失败，请重试。"]);
+  mock.restore();
+});
+
+test("handleWeixinMessageTurn reports oversized image media without suggesting retry", async () => {
+  const sentTexts: string[] = [];
+  let agentCalled = false;
+
+  mock.module("../../../src/weixin/media/media-download.ts", () => ({
+    downloadMediaFromItem: async () => {
+      throw new Error("inbound image: CDN download exceeds 104857600 bytes");
+    },
+  }));
+  mock.module("../../../src/weixin/messaging/send.ts", () => ({
+    markdownToPlainText: (text: string) => text,
+    sendMessageWeixin: async ({ text }: { text: string }) => {
+      sentTexts.push(text);
+      return { messageId: `msg-${sentTexts.length}` };
+    },
+  }));
+
+  const { handleWeixinMessageTurn: h } = await import(
+    "../../../src/weixin/messaging/handle-weixin-message-turn"
+  );
+
+  const imageOnlyMessage: WeixinMessage = {
+    from_user_id: "test-user",
+    to_user_id: "bot",
+    msg_id: "msg-image-large",
+    create_time_ms: Date.now(),
+    context_token: "ctx-token-123",
+    item_list: [
+      {
+        type: MessageItemType.IMAGE,
+        image_item: {
+          media: {
+            full_url: "https://cdn.example.com/image",
+          },
+        },
+      },
+    ],
+  };
+  const agent: Agent = {
+    async chat(): Promise<ChatResponse> {
+      agentCalled = true;
+      return { text: "should not run" };
+    },
+  };
+
+  await h(imageOnlyMessage, {
+    accountId: "test-account",
+    agent,
+    baseUrl: "https://example.com",
+    cdnBaseUrl: "https://cdn.example.com",
+    token: "test-token",
+    log: () => {},
+    errLog: () => {},
+  });
+
+  expect(agentCalled).toBe(false);
+  expect(sentTexts).toEqual(["图片超过 100MB，无法处理。"]);
+  mock.restore();
+});
+
+test("handleWeixinMessageTurn maps real downloader oversize failures to a non-retryable image notice", async () => {
+  const sentTexts: string[] = [];
+  let agentCalled = false;
+
+  mock.module("../../../src/weixin/cdn/pic-decrypt.ts", () => ({
+    downloadAndDecryptBuffer: async () => {
+      throw new Error("inbound image: CDN download exceeds 104857600 bytes");
+    },
+    downloadPlainCdnBuffer: async () => {
+      throw new Error("plain path should not be used");
+    },
+  }));
+  mock.module("../../../src/weixin/messaging/send.ts", () => ({
+    markdownToPlainText: (text: string) => text,
+    sendMessageWeixin: async ({ text }: { text: string }) => {
+      sentTexts.push(text);
+      return { messageId: `msg-${sentTexts.length}` };
+    },
+  }));
+
+  const { handleWeixinMessageTurn: h } = await import(
+    "../../../src/weixin/messaging/handle-weixin-message-turn"
+  );
+
+  const imageOnlyMessage: WeixinMessage = {
+    from_user_id: "test-user",
+    to_user_id: "bot",
+    msg_id: "msg-image-real-large",
+    create_time_ms: Date.now(),
+    context_token: "ctx-token-123",
+    item_list: [
+      {
+        type: MessageItemType.IMAGE,
+        image_item: {
+          media: {
+            full_url: "https://cdn.example.com/image",
+            aes_key: Buffer.from("0123456789abcdef").toString("base64"),
+          },
+        },
+      },
+    ],
+  };
+  const agent: Agent = {
+    async chat(): Promise<ChatResponse> {
+      agentCalled = true;
+      return { text: "should not run" };
+    },
+  };
+
+  await h(imageOnlyMessage, {
+    accountId: "test-account",
+    agent,
+    baseUrl: "https://example.com",
+    cdnBaseUrl: "https://cdn.example.com",
+    token: "test-token",
+    log: () => {},
+    errLog: () => {},
+  });
+
+  expect(agentCalled).toBe(false);
+  expect(sentTexts).toEqual(["图片超过 100MB，无法处理。"]);
+  mock.restore();
+});
+
+test("handleWeixinMessageTurn passes successfully downloaded image media to the agent", async () => {
+  let capturedMedia: unknown;
+
+  mock.module("../../../src/weixin/media/media-download.ts", () => ({
+    downloadMediaFromItem: async () => ({
+      decryptedPicPath: "/tmp/weacpx/image.png",
+    }),
+  }));
+  mock.module("../../../src/weixin/messaging/send.ts", () => ({
+    markdownToPlainText: (text: string) => text,
+    sendMessageWeixin: async () => ({ messageId: "msg-ok" }),
+  }));
+
+  const { handleWeixinMessageTurn: h } = await import(
+    "../../../src/weixin/messaging/handle-weixin-message-turn"
+  );
+
+  const imageOnlyMessage: WeixinMessage = {
+    from_user_id: "test-user",
+    to_user_id: "bot",
+    msg_id: "msg-image-ok",
+    create_time_ms: Date.now(),
+    context_token: "ctx-token-123",
+    item_list: [
+      {
+        type: MessageItemType.IMAGE,
+        image_item: {
+          media: {
+            full_url: "https://cdn.example.com/image",
+          },
+        },
+      },
+    ],
+  };
+  const agent: Agent = {
+    async chat(request): Promise<ChatResponse> {
+      capturedMedia = request.media;
+      return { text: "" };
+    },
+  };
+
+  await h(imageOnlyMessage, {
+    accountId: "test-account",
+    agent,
+    baseUrl: "https://example.com",
+    cdnBaseUrl: "https://cdn.example.com",
+    token: "test-token",
+    log: () => {},
+    errLog: () => {},
+  });
+
+  expect(capturedMedia).toEqual({
+    type: "image",
+    filePath: "/tmp/weacpx/image.png",
+    mimeType: "image/*",
+  });
+  mock.restore();
+});
+
+test("handleWeixinMessageTurn removes downloaded inbound image after the turn", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-inbound-cleanup-"));
+  const filePath = join(dir, "image.png");
+  await writeFile(filePath, Buffer.from("89504e470d0a1a0a", "hex"));
+
+  mock.module("../../../src/weixin/media/media-download.ts", () => ({
+    downloadMediaFromItem: async () => ({
+      decryptedPicPath: filePath,
+    }),
+  }));
+  mock.module("../../../src/weixin/messaging/send.ts", () => ({
+    markdownToPlainText: (text: string) => text,
+    sendMessageWeixin: async () => ({ messageId: "msg-ok" }),
+  }));
+
+  const { handleWeixinMessageTurn: h } = await import(
+    "../../../src/weixin/messaging/handle-weixin-message-turn"
+  );
+
+  const imageOnlyMessage: WeixinMessage = {
+    from_user_id: "test-user",
+    to_user_id: "bot",
+    msg_id: "msg-image-cleanup",
+    create_time_ms: Date.now(),
+    context_token: "ctx-token-123",
+    item_list: [
+      {
+        type: MessageItemType.IMAGE,
+        image_item: {
+          media: {
+            full_url: "https://cdn.example.com/image",
+          },
+        },
+      },
+    ],
+  };
+  const agent: Agent = {
+    async chat(): Promise<ChatResponse> {
+      return { text: "" };
+    },
+  };
+
+  try {
+    await h(imageOnlyMessage, {
+      accountId: "test-account",
+      agent,
+      baseUrl: "https://example.com",
+      cdnBaseUrl: "https://cdn.example.com",
+      token: "test-token",
+      log: () => {},
+      errLog: () => {},
+    });
+
+    await expect(access(filePath)).rejects.toThrow();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    mock.restore();
+  }
+});
+
+test("handleWeixinMessageTurn reports image items without downloadable media instead of sending an empty prompt", async () => {
+  const sentTexts: string[] = [];
+  let agentCalled = false;
+
+  mock.module("../../../src/weixin/media/media-download.ts", () => ({
+    downloadMediaFromItem: async () => ({}),
+  }));
+  mock.module("../../../src/weixin/messaging/send.ts", () => ({
+    markdownToPlainText: (text: string) => text,
+    sendMessageWeixin: async ({ text }: { text: string }) => {
+      sentTexts.push(text);
+      return { messageId: `msg-${sentTexts.length}` };
+    },
+  }));
+
+  const { handleWeixinMessageTurn: h } = await import(
+    "../../../src/weixin/messaging/handle-weixin-message-turn"
+  );
+
+  const imageWithoutDownloadInfo: WeixinMessage = {
+    from_user_id: "test-user",
+    to_user_id: "bot",
+    msg_id: "msg-image-missing-media",
+    create_time_ms: Date.now(),
+    context_token: "ctx-token-123",
+    item_list: [
+      {
+        type: MessageItemType.IMAGE,
+        image_item: {},
+      },
+    ],
+  };
+  const agent: Agent = {
+    async chat(): Promise<ChatResponse> {
+      agentCalled = true;
+      return { text: "should not run" };
+    },
+  };
+
+  await h(imageWithoutDownloadInfo, {
+    accountId: "test-account",
+    agent,
+    baseUrl: "https://example.com",
+    cdnBaseUrl: "https://cdn.example.com",
+    token: "test-token",
+    log: () => {},
+    errLog: () => {},
+  });
+
+  expect(agentCalled).toBe(false);
+  expect(sentTexts).toEqual(["图片读取失败，请重试。"]);
+  mock.restore();
+});
+
+test("handleWeixinMessageTurn rejects voice messages with transcript instead of silently dropping audio", async () => {
+  const sentTexts: string[] = [];
+  let agentCalled = false;
+  let downloadCalled = false;
+
+  mock.module("../../../src/weixin/media/media-download.ts", () => ({
+    downloadMediaFromItem: async () => {
+      downloadCalled = true;
+      return {};
+    },
+  }));
+  mock.module("../../../src/weixin/messaging/send.ts", () => ({
+    markdownToPlainText: (text: string) => text,
+    sendMessageWeixin: async ({ text }: { text: string }) => {
+      sentTexts.push(text);
+      return { messageId: `msg-${sentTexts.length}` };
+    },
+  }));
+
+  const { handleWeixinMessageTurn: h } = await import(
+    "../../../src/weixin/messaging/handle-weixin-message-turn"
+  );
+
+  const voiceWithTranscript: WeixinMessage = {
+    from_user_id: "test-user",
+    to_user_id: "bot",
+    msg_id: "msg-voice",
+    create_time_ms: Date.now(),
+    context_token: "ctx-token-123",
+    item_list: [
+      {
+        type: MessageItemType.VOICE,
+        voice_item: {
+          text: "语音转写",
+          media: { full_url: "https://cdn.example.com/voice" },
+        },
+      },
+    ],
+  };
+  const agent: Agent = {
+    async chat(): Promise<ChatResponse> {
+      agentCalled = true;
+      return { text: "should not run" };
+    },
+  };
+
+  await h(voiceWithTranscript, {
+    accountId: "test-account",
+    agent,
+    baseUrl: "https://example.com",
+    cdnBaseUrl: "https://cdn.example.com",
+    token: "test-token",
+    log: () => {},
+    errLog: () => {},
+  });
+
+  expect(agentCalled).toBe(false);
+  expect(downloadCalled).toBe(false);
+  expect(sentTexts).toEqual(["暂不支持处理该类型消息，请发送文字或图片。"]);
+  mock.restore();
+});
+
+test("handleWeixinMessageTurn rejects slash commands with unsupported media before command handling", async () => {
+  const sentTexts: string[] = [];
+  let slashCalled = false;
+  let agentCalled = false;
+
+  mock.module("../../../src/weixin/messaging/slash-commands.ts", () => ({
+    handleSlashCommand: async () => {
+      slashCalled = true;
+      return { handled: true };
+    },
+  }));
+  mock.module("../../../src/weixin/media/media-download.ts", () => ({
+    downloadMediaFromItem: async () => {
+      throw new Error("download should not be called");
+    },
+  }));
+  mock.module("../../../src/weixin/messaging/send.ts", () => ({
+    markdownToPlainText: (text: string) => text,
+    sendMessageWeixin: async ({ text }: { text: string }) => {
+      sentTexts.push(text);
+      return { messageId: `msg-${sentTexts.length}` };
+    },
+  }));
+
+  const { handleWeixinMessageTurn: h } = await import(
+    "../../../src/weixin/messaging/handle-weixin-message-turn"
+  );
+
+  const slashWithFile: WeixinMessage = {
+    from_user_id: "test-user",
+    to_user_id: "bot",
+    msg_id: "msg-slash-file",
+    create_time_ms: Date.now(),
+    context_token: "ctx-token-123",
+    item_list: [
+      {
+        type: MessageItemType.TEXT,
+        text_item: { text: "/status" },
+      },
+      {
+        type: MessageItemType.FILE,
+        file_item: {
+          media: {
+            full_url: "https://cdn.example.com/file",
+          },
+          file_name: "doc.pdf",
+        },
+      },
+    ],
+  };
+  const agent: Agent = {
+    async chat(): Promise<ChatResponse> {
+      agentCalled = true;
+      return { text: "should not run" };
+    },
+  };
+
+  await h(slashWithFile, {
+    accountId: "test-account",
+    agent,
+    baseUrl: "https://example.com",
+    cdnBaseUrl: "https://cdn.example.com",
+    token: "test-token",
+    log: () => {},
+    errLog: () => {},
+  });
+
+  expect(slashCalled).toBe(false);
+  expect(agentCalled).toBe(false);
+  expect(sentTexts).toEqual(["暂不支持处理该类型消息，请发送文字或图片。"]);
+  mock.restore();
+});
+
+test("handleWeixinMessageTurn rejects mixed image and file media before downloading the image", async () => {
+  const sentTexts: string[] = [];
+  let downloadCalled = false;
+  let agentCalled = false;
+
+  mock.module("../../../src/weixin/media/media-download.ts", () => ({
+    downloadMediaFromItem: async () => {
+      downloadCalled = true;
+      return { decryptedPicPath: "/tmp/weacpx/image.png" };
+    },
+  }));
+  mock.module("../../../src/weixin/messaging/send.ts", () => ({
+    markdownToPlainText: (text: string) => text,
+    sendMessageWeixin: async ({ text }: { text: string }) => {
+      sentTexts.push(text);
+      return { messageId: `msg-${sentTexts.length}` };
+    },
+  }));
+
+  const { handleWeixinMessageTurn: h } = await import(
+    "../../../src/weixin/messaging/handle-weixin-message-turn"
+  );
+
+  const mixedMediaMessage: WeixinMessage = {
+    from_user_id: "test-user",
+    to_user_id: "bot",
+    msg_id: "msg-mixed",
+    create_time_ms: Date.now(),
+    context_token: "ctx-token-123",
+    item_list: [
+      {
+        type: MessageItemType.IMAGE,
+        image_item: {
+          media: {
+            full_url: "https://cdn.example.com/image",
+          },
+        },
+      },
+      {
+        type: MessageItemType.FILE,
+        file_item: {
+          media: {
+            full_url: "https://cdn.example.com/file",
+          },
+          file_name: "doc.pdf",
+        },
+      },
+    ],
+  };
+  const agent: Agent = {
+    async chat(): Promise<ChatResponse> {
+      agentCalled = true;
+      return { text: "should not run" };
+    },
+  };
+
+  await h(mixedMediaMessage, {
+    accountId: "test-account",
+    agent,
+    baseUrl: "https://example.com",
+    cdnBaseUrl: "https://cdn.example.com",
+    token: "test-token",
+    log: () => {},
+    errLog: () => {},
+  });
+
+  expect(downloadCalled).toBe(false);
+  expect(agentCalled).toBe(false);
+  expect(sentTexts).toEqual(["暂不支持处理该类型消息，请发送文字或图片。"]);
   mock.restore();
 });
 

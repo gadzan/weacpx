@@ -7,11 +7,13 @@ import type { NonInteractivePermissions, PermissionMode } from "../../config/typ
 import type {
   EnsureSessionProgress,
   PermissionPolicy,
+  PromptOptions,
   ReplyQuotaContext,
   ResolvedSession,
   SessionTransport,
 } from "../types";
 import { getPromptText, normalizeCommandError } from "../prompt-output";
+import { createStructuredPromptFile } from "../prompt-media";
 import { createStreamingPromptState, parseStreamingDataChunk } from "../streaming-prompt";
 import { buildOverflowSummary, createQuotaGatedReplySink } from "../quota-gated-reply-sink";
 import { ensureNodePtyHelperExecutable, resolveNodePtyHelperPath } from "./node-pty-helper";
@@ -169,30 +171,44 @@ export class AcpxCliTransport implements SessionTransport {
     text: string,
     reply?: (text: string) => Promise<void>,
     replyContext?: ReplyQuotaContext,
+    options?: PromptOptions,
   ): Promise<{ text: string }> {
     await this.launchMcpQueueOwnerIfNeeded(session);
-    const args = this.buildPromptArgs(session, text);
-    if (reply) {
-      const formatToolCalls = session.replyMode === "verbose";
-      const { result, overflowCount } = await this.runStreamingPrompt(
-        this.command,
-        args,
-        reply,
-        30_000,
-        formatToolCalls,
-        replyContext,
-      );
-      const baseText = getPromptText(result);
-      const summary = buildOverflowSummary(overflowCount);
-      // Streaming mode already pushed every segment through reply() (mid quota).
-      // Returning baseText again would duplicate what the user just saw. Only
-      // surface a final-tier text when overflow happened — in that case the
-      // summary is new info AND baseText carries the agent's final answer that
-      // may have been partially or fully dropped from the stream.
-      return { text: summary ? `${summary}\n\n${baseText}` : "" };
+    const structuredPrompt = await createStructuredPromptFile(text, options?.media);
+    const args = this.buildPromptArgs(session, text, structuredPrompt?.filePath);
+    try {
+      if (reply || options?.onSegment) {
+        const formatToolCalls = session.replyMode === "verbose";
+        const { result, overflowCount } = await this.runStreamingPrompt(
+          this.command,
+          args,
+          reply,
+          30_000,
+          formatToolCalls,
+          replyContext,
+          options?.onSegment,
+        );
+        const baseText = getPromptText(result);
+        if (!reply) {
+          return { text: baseText };
+        }
+        const summary = buildOverflowSummary(overflowCount);
+        // Streaming mode already pushed every segment through reply() (mid quota).
+        // Returning baseText again would duplicate what the user just saw. Only
+        // surface a final-tier text when overflow happened — in that case the
+        // summary is new info AND baseText carries the agent's final answer that
+        // may have been partially or fully dropped from the stream.
+        return { text: summary ? `${summary}\n\n${baseText}` : "" };
+      }
+      const result = await this.runCommand(this.command, args);
+      return { text: getPromptText(result) };
+    } finally {
+      try {
+        await structuredPrompt?.cleanup();
+      } catch {
+        // Prompt outcome is more important than best-effort temp file cleanup.
+      }
     }
-    const result = await this.runCommand(this.command, args);
-    return { text: getPromptText(result) };
   }
 
   async setMode(session: ResolvedSession, modeId: string): Promise<void> {
@@ -343,10 +359,11 @@ export class AcpxCliTransport implements SessionTransport {
   private async runStreamingPrompt(
     command: string,
     args: string[],
-    reply: (text: string) => Promise<void>,
+    reply: ((text: string) => Promise<void>) | undefined,
     maxSegmentWaitMs: number = 30_000,
     formatToolCalls: boolean = false,
     replyContext?: ReplyQuotaContext,
+    onSegment?: (text: string) => void | Promise<void>,
   ): Promise<{ result: CommandResult; overflowCount: number }> {
     return await new Promise((resolve, reject) => {
       const spawnSpec = resolveSpawnCommand(command, args);
@@ -355,18 +372,33 @@ export class AcpxCliTransport implements SessionTransport {
       let stderr = "";
       const state = createStreamingPromptState(formatToolCalls);
       let lastReplyAt = Date.now();
+      let segmentChain = Promise.resolve();
+      let segmentError: unknown;
 
-      const sink = createQuotaGatedReplySink({
-        reply,
-        ...(replyContext ? { replyContext } : {}),
-      });
+      const sink = reply
+        ? createQuotaGatedReplySink({
+            reply,
+            ...(replyContext ? { replyContext } : {}),
+          })
+        : null;
+
+      const feedSegment = (segment: string) => {
+        if (onSegment) {
+          segmentChain = segmentChain
+            .then(() => onSegment(segment))
+            .catch((error) => {
+              segmentError ??= error;
+            });
+        }
+        sink?.feedSegment(segment);
+        lastReplyAt = Date.now();
+      };
 
       const flushBuffer = () => {
         const remaining = state.buffer.trim();
         if (remaining.length > 0) {
           state.buffer = "";
-          sink.feedSegment(remaining);
-          lastReplyAt = Date.now();
+          feedSegment(remaining);
         }
       };
 
@@ -382,8 +414,7 @@ export class AcpxCliTransport implements SessionTransport {
         stdout += String(chunk);
         parseStreamingDataChunk(state, String(chunk));
         for (const segment of state.segments.splice(0)) {
-          sink.feedSegment(segment);
-          lastReplyAt = Date.now();
+          feedSegment(segment);
         }
       });
 
@@ -399,9 +430,9 @@ export class AcpxCliTransport implements SessionTransport {
         clearInterval(timer);
         const remaining = state.finalize();
         if (remaining.length > 0) {
-          sink.feedSegment(remaining);
+          feedSegment(remaining);
         }
-        const { overflowCount } = sink.finalize();
+        const { overflowCount } = sink?.finalize() ?? { overflowCount: 0 };
         // Note: any aggregator trailing text is folded into the overflow
         // summary path via the final agent message (caller appends summary).
         // Wait for all in-flight reply() rejections to settle before deciding
@@ -409,16 +440,25 @@ export class AcpxCliTransport implements SessionTransport {
         // draining, the deferred error from an outbound pushReply could
         // arrive after we already resolved, and the wake-coordinator catch
         // would never see it — silently clearing injectionPending.
-        void sink.drain({ timeoutMs: 30_000 }).then(() => {
-          const deferred = sink.getPendingError();
+        void Promise.all([
+          sink?.drain({ timeoutMs: 30_000 }) ?? Promise.resolve(),
+          segmentChain,
+        ]).then(() => {
+          const deferred = sink?.getPendingError();
           if (deferred) {
             reject(deferred);
+            return;
+          }
+          if (segmentError) {
+            reject(segmentError);
             return;
           }
           resolve({
             result: { code: code ?? 1, stdout, stderr },
             overflowCount,
           });
+        }).catch((error) => {
+          reject(error);
         });
       });
     });
@@ -439,7 +479,7 @@ export class AcpxCliTransport implements SessionTransport {
     return [...prefix, session.agent, ...tail];
   }
 
-  private buildPromptArgs(session: ResolvedSession, text: string): string[] {
+  private buildPromptArgs(session: ResolvedSession, text: string, promptFile?: string): string[] {
     const prefix = [
       "--format",
       "json",
@@ -448,7 +488,9 @@ export class AcpxCliTransport implements SessionTransport {
       session.cwd,
       ...this.buildPermissionArgs(),
     ];
-    const tail = ["prompt", "-s", session.transportSession, text];
+    const tail = promptFile
+      ? ["prompt", "-s", session.transportSession, "--file", promptFile]
+      : ["prompt", "-s", session.transportSession, text];
 
     if (session.agentCommand) {
       return [...prefix, "--agent", session.agentCommand, ...tail];

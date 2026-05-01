@@ -4,9 +4,17 @@ export function parseSourceHandle(
 ): string | null {
   let fromFlag: string | null = null;
 
-  for (let index = 0; index < args.length - 1; index += 1) {
+  for (let index = 0; index < args.length; index += 1) {
     if (args[index] === "--source-handle") {
-      fromFlag = args[index + 1] ?? null;
+      const value = args[index + 1];
+      if (value === undefined) {
+        throw new Error("--source-handle requires a non-empty value");
+      }
+      const trimmedValue = value.trim();
+      if (trimmedValue.length === 0 || trimmedValue.startsWith("-")) {
+        throw new Error("--source-handle requires a non-empty value");
+      }
+      fromFlag = value;
     }
   }
 

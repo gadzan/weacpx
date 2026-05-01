@@ -8,6 +8,7 @@ import {
   ListToolsRequestSchema,
   McpError,
   type CallToolResult,
+  type Root,
 } from "@modelcontextprotocol/sdk/types.js";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import type { ZodError } from "zod";
@@ -20,8 +21,19 @@ import { createOrchestrationTransport, type WeacpxMcpTransport } from "./weacpx-
 
 export interface WeacpxMcpServerOptions {
   transport: WeacpxMcpTransport;
+  coordinatorSession?: string;
+  sourceHandle?: string;
+  resolveIdentity?: (context: WeacpxMcpIdentityResolutionContext) => Promise<WeacpxMcpIdentity>;
+}
+
+export interface WeacpxMcpIdentity {
   coordinatorSession: string;
   sourceHandle?: string;
+}
+
+export interface WeacpxMcpIdentityResolutionContext {
+  clientName?: string;
+  listRoots: () => Promise<Root[]>;
 }
 
 export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
@@ -37,18 +49,43 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
     },
   );
 
-  const tools = buildWeacpxMcpToolRegistry(options);
-  const toolMap = new Map(tools.map((tool) => [tool.name, tool]));
+  let toolState: ReturnType<typeof buildToolState> | null = null;
+  let toolStatePromise: Promise<ReturnType<typeof buildToolState>> | null = null;
+  async function getToolState() {
+    if (toolState) {
+      return toolState;
+    }
+    if (toolStatePromise) {
+      return await toolStatePromise;
+    }
+    toolStatePromise = resolveMcpIdentity(server, options)
+      .then((identity) => {
+        toolState = buildToolState({
+          transport: options.transport,
+          coordinatorSession: identity.coordinatorSession,
+          ...(identity.sourceHandle ? { sourceHandle: identity.sourceHandle } : {}),
+        });
+        return toolState;
+      })
+      .finally(() => {
+        toolStatePromise = null;
+      });
+    return await toolStatePromise;
+  }
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: tools.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      inputSchema: normalizeInputSchemaJson(zodToJsonSchema(tool.inputSchema)),
-    })),
-  }));
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const tools = (await getToolState()).tools;
+    return {
+      tools: tools.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: normalizeInputSchemaJson(zodToJsonSchema(tool.inputSchema)),
+      })),
+    };
+  });
 
   server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
+    const toolMap = (await getToolState()).toolMap;
     const tool = toolMap.get(request.params.name);
     if (!tool) {
       throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${request.params.name}`);
@@ -65,18 +102,47 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
   return server;
 }
 
+function buildToolState(options: WeacpxMcpServerOptions & { coordinatorSession: string }) {
+  const tools = buildWeacpxMcpToolRegistry(options);
+  return {
+    tools,
+    toolMap: new Map(tools.map((tool) => [tool.name, tool])),
+  };
+}
+
+async function resolveMcpIdentity(server: Server, options: WeacpxMcpServerOptions): Promise<WeacpxMcpIdentity> {
+  if (options.resolveIdentity) {
+    return await options.resolveIdentity({
+      clientName: server.getClientVersion()?.name,
+      listRoots: async () => (await server.listRoots()).roots,
+    });
+  }
+  if (options.coordinatorSession) {
+    return {
+      coordinatorSession: options.coordinatorSession,
+      ...(options.sourceHandle ? { sourceHandle: options.sourceHandle } : {}),
+    };
+  }
+  throw new McpError(
+    ErrorCode.InvalidRequest,
+    "weacpx MCP identity is not configured; run through `weacpx mcp-stdio` or provide --coordinator-session",
+  );
+}
+
 export async function runWeacpxMcpServer(options: {
   endpoint?: OrchestrationIpcEndpoint;
-  coordinatorSession: string;
+  coordinatorSession?: string;
   sourceHandle?: string;
+  resolveIdentity?: WeacpxMcpServerOptions["resolveIdentity"];
 }): Promise<void> {
   const transport = createOrchestrationTransport(
     options.endpoint ?? resolveDefaultOrchestrationEndpoint(process.env, process.platform),
   );
   const server = createWeacpxMcpServer({
     transport,
-    coordinatorSession: options.coordinatorSession,
+    ...(options.coordinatorSession ? { coordinatorSession: options.coordinatorSession } : {}),
     ...(options.sourceHandle ? { sourceHandle: options.sourceHandle } : {}),
+    ...(options.resolveIdentity ? { resolveIdentity: options.resolveIdentity } : {}),
   });
   const stdio = new StdioServerTransport(stdin, stdout);
   await server.connect(stdio);

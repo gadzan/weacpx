@@ -3,7 +3,7 @@ import type { AppConfig } from "../config/types";
 import type { AppLogger } from "../logging/app-logger";
 import { createNoopAppLogger } from "../logging/app-logger";
 import type { SessionService } from "../sessions/session-service";
-import type { ReplyQuotaContext, SessionTransport } from "../transport/types";
+import type { PromptMedia, ReplyQuotaContext, SessionTransport } from "../transport/types";
 import type { ResolvedSession } from "../transport/types";
 import type { QuotaManager } from "../weixin/messaging/quota-manager.js";
 import { resolveSessionAgentCommandFromIndex, type SessionAgentCommandResolver } from "../transport/acpx-session-index";
@@ -109,6 +109,7 @@ export class CommandRouter {
     reply?: (text: string) => Promise<void>,
     replyContextToken?: string,
     accountId?: string,
+    media?: PromptMedia,
   ): Promise<RouterResponse> {
     const startedAt = Date.now();
     const command = parseCommand(input);
@@ -250,6 +251,7 @@ export class CommandRouter {
             reply,
             replyContextToken,
             accountId,
+            media,
           );
       }
     });
@@ -288,6 +290,7 @@ export class CommandRouter {
         this.sessions.resolveSession(alias, agent, workspace, transportSession),
       ensureTransportSession: (session, replyOverride) => this.ensureTransportSession(session, replyOverride ?? reply),
       checkTransportSession: (session) => this.checkTransportSession(session),
+      reserveTransportSession: (transportSession) => this.reserveLogicalTransportSession(transportSession),
       handleSessionShortcut: async (chatKey, agent, target, createNew, replyOverride) => {
         try {
           return await handleSessionShortcutCommand(this.createHandlerContext(), this.createSessionShortcutOps(replyOverride ?? reply), chatKey, agent, target, createNew);
@@ -309,8 +312,8 @@ export class CommandRouter {
     return {
       setModeTransportSession: (session, modeId) => this.setModeTransportSession(session, modeId),
       cancelTransportSession: (session) => this.cancelTransportSession(session),
-      promptTransportSession: (session, text, reply, replyContext) =>
-        this.promptTransportSession(session, text, reply, replyContext),
+      promptTransportSession: (session, text, reply, replyContext, media) =>
+        this.promptTransportSession(session, text, reply, replyContext, media),
     };
   }
 
@@ -327,6 +330,7 @@ export class CommandRouter {
     return {
       ensureTransportSession: (session, replyOverride) => this.ensureTransportSession(session, replyOverride ?? reply),
       checkTransportSession: (session) => this.checkTransportSession(session),
+      reserveTransportSession: (transportSession) => this.reserveLogicalTransportSession(transportSession),
       resolveSession: (alias, agent, workspace, transportSession) =>
         this.sessions.resolveSession(alias, agent, workspace, transportSession),
       refreshSessionTransportAgentCommand: (alias) => this.refreshSessionTransportAgentCommand(alias),
@@ -348,8 +352,16 @@ export class CommandRouter {
         this.sessions.resolveSession(alias, agent, workspace, transportSession),
       ensureTransportSession: (session, replyOverride) => this.ensureTransportSession(session, replyOverride ?? reply),
       checkTransportSession: (session) => this.checkTransportSession(session),
+      reserveTransportSession: (transportSession) => this.reserveLogicalTransportSession(transportSession),
       refreshSessionTransportAgentCommand: (alias) => this.refreshSessionTransportAgentCommand(alias),
     };
+  }
+
+  private async reserveLogicalTransportSession(transportSession: string): Promise<() => Promise<void>> {
+    if (this.orchestration?.reserveLogicalTransportSession) {
+      return await this.orchestration.reserveLogicalTransportSession(transportSession);
+    }
+    return async () => {};
   }
 
   private replaceConfig(updated: AppConfig): void {
@@ -499,10 +511,11 @@ export class CommandRouter {
     text: string,
     reply?: (text: string) => Promise<void>,
     replyContext?: ReplyQuotaContext,
+    media?: PromptMedia,
   ) {
     session.mcpCoordinatorSession ??= session.transportSession;
     return await this.measureTransportCall("prompt", session, () =>
-      this.transport.prompt(session, text, reply, replyContext),
+      this.transport.prompt(session, text, reply, replyContext, media ? { media } : undefined),
     );
   }
 

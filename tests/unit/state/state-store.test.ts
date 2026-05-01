@@ -19,6 +19,7 @@ test("returns an empty state when the file is missing", async () => {
       humanQuestionPackages: {},
       coordinatorQuestionState: {},
       coordinatorRoutes: {},
+      externalCoordinators: {},
     },
   });
 
@@ -78,6 +79,7 @@ test("persists sessions and chat context", async () => {
       humanQuestionPackages: {},
       coordinatorQuestionState: {},
       coordinatorRoutes: {},
+      externalCoordinators: {},
     },
   };
 
@@ -216,6 +218,7 @@ test("round-trips blocker-loop state records through load", async () => {
           updatedAt: "2026-04-21T10:05:00.000Z",
         },
       },
+      externalCoordinators: {},
     },
   };
 
@@ -354,6 +357,7 @@ test("round-trips blocker-loop state records through load", async () => {
           updatedAt: "2026-04-21T10:05:00.000Z",
         },
       },
+      externalCoordinators: {},
     },
   };
 
@@ -425,6 +429,7 @@ test("loads orchestration task records with coordinator injection metadata", asy
       humanQuestionPackages: {},
       coordinatorQuestionState: {},
       coordinatorRoutes: {},
+      externalCoordinators: {},
     },
   });
 
@@ -570,6 +575,7 @@ test("loads orchestration task records with reliability metadata", async () => {
       humanQuestionPackages: {},
       coordinatorQuestionState: {},
       coordinatorRoutes: {},
+      externalCoordinators: {},
     },
   });
 
@@ -592,6 +598,7 @@ test("treats an empty state file as empty state", async () => {
       humanQuestionPackages: {},
       coordinatorQuestionState: {},
       coordinatorRoutes: {},
+      externalCoordinators: {},
     },
   });
 
@@ -646,6 +653,397 @@ test("loads older states without orchestration as empty orchestration state", as
       humanQuestionPackages: {},
       coordinatorQuestionState: {},
       coordinatorRoutes: {},
+      externalCoordinators: {},
+    },
+  });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+
+test("loads older orchestration state without external coordinators as empty external coordinators", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+
+  await Bun.write(
+    path,
+    JSON.stringify({
+      sessions: {},
+      chat_contexts: {},
+      orchestration: {
+        tasks: {},
+        workerBindings: {},
+        groups: {},
+      },
+    }),
+  );
+
+  const state = await store.load();
+  expect(state.orchestration.externalCoordinators).toEqual({});
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("loads and validates external coordinator records", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+
+  await Bun.write(
+    path,
+    JSON.stringify({
+      sessions: {},
+      chat_contexts: {},
+      orchestration: {
+        tasks: {},
+        workerBindings: {},
+        groups: {},
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:05:00.000Z",
+            defaultTargetAgent: "codex",
+          },
+        },
+      },
+    }),
+  );
+
+  await expect(store.load()).resolves.toMatchObject({
+    orchestration: {
+      externalCoordinators: {
+        "codex:backend": {
+          coordinatorSession: "codex:backend",
+          workspace: "backend",
+          createdAt: "2026-04-28T10:00:00.000Z",
+          updatedAt: "2026-04-28T10:05:00.000Z",
+          defaultTargetAgent: "codex",
+        },
+      },
+    },
+  });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("rejects malformed external coordinator records", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+
+  await Bun.write(
+    path,
+    JSON.stringify({
+      sessions: {},
+      chat_contexts: {},
+      orchestration: {
+        tasks: {},
+        workerBindings: {},
+        groups: {},
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: 123,
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:05:00.000Z",
+          },
+        },
+      },
+    }),
+  );
+
+  await expect(store.load()).rejects.toThrow(
+    `state file "${path}" contains an invalid external coordinator at "codex:backend"`,
+  );
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("rejects external coordinator records whose map key does not match coordinatorSession", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+
+  await Bun.write(
+    path,
+    JSON.stringify({
+      sessions: {},
+      chat_contexts: {},
+      orchestration: {
+        tasks: {},
+        workerBindings: {},
+        groups: {},
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:other",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:05:00.000Z",
+          },
+        },
+      },
+    }),
+  );
+
+  await expect(store.load()).rejects.toThrow(
+    `state file "${path}" contains an external coordinator key mismatch at "codex:backend"`,
+  );
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("rejects external coordinator handles that collide with logical sessions in persisted state", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+
+  await Bun.write(
+    path,
+    JSON.stringify({
+      sessions: {
+        main: {
+          alias: "main",
+          agent: "codex",
+          workspace: "backend",
+          transport_session: "codex:backend",
+          created_at: "2026-04-28T10:00:00.000Z",
+          last_used_at: "2026-04-28T10:00:00.000Z",
+        },
+      },
+      chat_contexts: {},
+      orchestration: {
+        tasks: {},
+        workerBindings: {},
+        groups: {},
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:05:00.000Z",
+          },
+        },
+      },
+    }),
+  );
+
+  await expect(store.load()).rejects.toThrow(
+    `state file "${path}" contains external coordinator "codex:backend" that conflicts with a logical session`,
+  );
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("rejects external coordinator handles that collide with worker bindings in persisted state", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+
+  await Bun.write(
+    path,
+    JSON.stringify({
+      sessions: {},
+      chat_contexts: {},
+      orchestration: {
+        tasks: {},
+        workerBindings: {
+          "codex:backend": {
+            sourceHandle: "codex:backend",
+            coordinatorSession: "backend:main",
+            workspace: "backend",
+            targetAgent: "codex",
+          },
+        },
+        groups: {},
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:05:00.000Z",
+          },
+        },
+      },
+    }),
+  );
+
+  await expect(store.load()).rejects.toThrow(
+    `state file "${path}" contains external coordinator "codex:backend" that conflicts with a worker binding`,
+  );
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("rejects external coordinator handles that collide with active task worker sessions in persisted state", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+
+  await Bun.write(
+    path,
+    JSON.stringify({
+      sessions: {},
+      chat_contexts: {},
+      orchestration: {
+        tasks: {
+          "task-1": {
+            taskId: "task-1",
+            sourceHandle: "backend:main",
+            sourceKind: "coordinator",
+            coordinatorSession: "backend:main",
+            workerSession: "codex:backend",
+            workspace: "backend",
+            targetAgent: "codex",
+            task: "review",
+            status: "needs_confirmation",
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+        workerBindings: {},
+        groups: {},
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:05:00.000Z",
+          },
+        },
+      },
+    }),
+  );
+
+  await expect(store.load()).rejects.toThrow(
+    `state file "${path}" contains external coordinator "codex:backend" that conflicts with an active task worker session`,
+  );
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("loads pathless external coordinators and cwd-bound task records", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+
+  await Bun.write(
+    path,
+    JSON.stringify({
+      sessions: {},
+      chat_contexts: {},
+      orchestration: {
+        tasks: {
+          "task-1": {
+            taskId: "task-1",
+            sourceHandle: "external_codex:abcd1234",
+            sourceKind: "coordinator",
+            coordinatorSession: "external_codex:abcd1234",
+            workerSession: "weacpx:claude:external_codex:abcd1234",
+            workspace: "weacpx",
+            cwd: "/repo/weacpx",
+            targetAgent: "claude",
+            task: "review",
+            status: "running",
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+        workerBindings: {
+          "weacpx:claude:external_codex:abcd1234": {
+            sourceHandle: "weacpx:claude:external_codex:abcd1234",
+            coordinatorSession: "external_codex:abcd1234",
+            workspace: "weacpx",
+            cwd: "/repo/weacpx",
+            targetAgent: "claude",
+          },
+        },
+        groups: {},
+        externalCoordinators: {
+          "external_codex:abcd1234": {
+            coordinatorSession: "external_codex:abcd1234",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:05:00.000Z",
+          },
+        },
+      },
+    }),
+  );
+
+  await expect(store.load()).resolves.toMatchObject({
+    orchestration: {
+      tasks: {
+        "task-1": { cwd: "/repo/weacpx" },
+      },
+      workerBindings: {
+        "weacpx:claude:external_codex:abcd1234": { cwd: "/repo/weacpx" },
+      },
+      externalCoordinators: {
+        "external_codex:abcd1234": {
+          coordinatorSession: "external_codex:abcd1234",
+        },
+      },
+    },
+  });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("allows external coordinator handles that only match terminal task worker sessions in persisted state", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+
+  await Bun.write(
+    path,
+    JSON.stringify({
+      sessions: {},
+      chat_contexts: {},
+      orchestration: {
+        tasks: {
+          "task-1": {
+            taskId: "task-1",
+            sourceHandle: "backend:main",
+            sourceKind: "coordinator",
+            coordinatorSession: "backend:main",
+            workerSession: "codex:backend",
+            workspace: "backend",
+            targetAgent: "codex",
+            task: "review",
+            status: "completed",
+            summary: "done",
+            resultText: "ok",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+        workerBindings: {},
+        groups: {},
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:05:00.000Z",
+          },
+        },
+      },
+    }),
+  );
+
+  await expect(store.load()).resolves.toMatchObject({
+    orchestration: {
+      externalCoordinators: {
+        "codex:backend": {
+          workspace: "backend",
+        },
+      },
     },
   });
 
@@ -846,6 +1244,7 @@ test("saves state with owner-only file permissions", async () => {
       humanQuestionPackages: {},
       coordinatorQuestionState: {},
       coordinatorRoutes: {},
+      externalCoordinators: {},
     },
   });
 
@@ -880,6 +1279,7 @@ test("rejects states with malformed session records", async () => {
         humanQuestionPackages: {},
         coordinatorQuestionState: {},
         coordinatorRoutes: {},
+        externalCoordinators: {},
       },
     }),
   );
@@ -905,6 +1305,7 @@ test("rejects states with malformed chat context records", async () => {
         humanQuestionPackages: {},
         coordinatorQuestionState: {},
         coordinatorRoutes: {},
+        externalCoordinators: {},
       },
     }),
   );

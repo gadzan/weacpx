@@ -2,12 +2,34 @@ import { expect, test } from "bun:test";
 
 import { createConfig } from "../commands/command-router-test-support";
 import { OrchestrationService, type OrchestrationServiceDeps } from "../../../src/orchestration/orchestration-service";
+import { AsyncMutex } from "../../../src/orchestration/async-mutex";
 import { createEmptyState, type AppState } from "../../../src/state/types";
 import type { AppConfig } from "../../../src/config/types";
 import { QuotaDeferredError } from "../../../src/weixin/messaging/quota-errors";
 
 function cloneState(state: AppState): AppState {
   return JSON.parse(JSON.stringify(state)) as AppState;
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+class InterleavingMutex extends AsyncMutex {
+  private readonly inner = new AsyncMutex();
+  afterRun?: (result: unknown) => Promise<void>;
+
+  override async run<T>(critical: () => Promise<T>): Promise<T> {
+    const result = await this.inner.run(critical);
+    await this.afterRun?.(result);
+    return result;
+  }
 }
 
 function makeDeps(
@@ -645,6 +667,9 @@ test("attaches an rpc-delegated task to an existing group when groupId is provid
   const group = harness.getState().orchestration.groups!["group-review"]!;
   expect(group.coordinatorInjectedAt).toBeUndefined();
   expect(group.updatedAt).toBe("2026-04-13T10:00:00.000Z");
+  for (let attempt = 0; attempt < 20 && harness.dispatchCalls.length === 0; attempt += 1) {
+    await Bun.sleep(0);
+  }
   expect(harness.dispatchCalls).toHaveLength(1);
 });
 
@@ -1004,6 +1029,9 @@ test("auto-runs and dispatches coordinator-originated rpc delegations", async ()
     workerSession: "backend:claude:reviewer:backend:main",
   });
   expect(harness.ensureCalls).toHaveLength(1);
+  for (let attempt = 0; attempt < 20 && harness.dispatchCalls.length === 0; attempt += 1) {
+    await Bun.sleep(0);
+  }
   expect(harness.dispatchCalls).toHaveLength(1);
   const rpcTask = harness.getState().orchestration.tasks["task-rpc-1"];
   expect(rpcTask).toMatchObject({
@@ -1032,6 +1060,575 @@ test("auto-runs and dispatches coordinator-originated rpc delegations", async ()
     targetAgent: "claude",
     role: "reviewer",
   });
+});
+
+
+test("coordinator-originated rpc delegation returns before slow worker ensure finishes", async () => {
+  const ensureDeferred = createDeferred<string>();
+  const harness = makeDeps({
+    createId: () => "task-rpc-fast-return",
+    ensureWorkerSession: async (request) => {
+      harness.ensureCalls.push(request);
+      return await ensureDeferred.promise;
+    },
+    initialState: {
+      ...createEmptyState(),
+      sessions: {
+        main: {
+          alias: "main",
+          agent: "codex",
+          workspace: "backend",
+          transport_session: "backend:main",
+          created_at: "2026-04-13T10:00:00.000Z",
+          last_used_at: "2026-04-13T10:00:00.000Z",
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const delegatePromise = service.requestDelegateFromRpc({
+    sourceHandle: "backend:main",
+    targetAgent: "claude",
+    task: "review the design",
+  });
+
+  while (harness.ensureCalls.length === 0) {
+    await Bun.sleep(0);
+  }
+
+  try {
+    await expect(
+      Promise.race([
+        delegatePromise,
+        Bun.sleep(20).then(() => "blocked-before-ensure-finished" as const),
+      ]),
+    ).resolves.toEqual({
+      taskId: "task-rpc-fast-return",
+      status: "running",
+      workerSession: "backend:claude:backend:main",
+    });
+    expect(harness.dispatchCalls).toEqual([]);
+    expect(harness.getState().orchestration.tasks["task-rpc-fast-return"]).toMatchObject({
+      status: "running",
+      workerSession: "backend:claude:backend:main",
+    });
+  } finally {
+    ensureDeferred.resolve("backend:claude:backend:main");
+    await delegatePromise.catch(() => undefined);
+  }
+
+  for (let attempt = 0; attempt < 20 && harness.dispatchCalls.length === 0; attempt += 1) {
+    await Bun.sleep(0);
+  }
+  expect(harness.dispatchCalls).toHaveLength(1);
+});
+
+
+test("coordinator-originated rpc worker ensure failure marks the returned task failed", async () => {
+  const ensureDeferred = createDeferred<string>();
+  const harness = makeDeps({
+    createId: () => "task-rpc-ensure-fail",
+    ensureWorkerSession: async (request) => {
+      harness.ensureCalls.push(request);
+      return await ensureDeferred.promise;
+    },
+    initialState: {
+      ...createEmptyState(),
+      sessions: {
+        main: {
+          alias: "main",
+          agent: "codex",
+          workspace: "backend",
+          transport_session: "backend:main",
+          created_at: "2026-04-13T10:00:00.000Z",
+          last_used_at: "2026-04-13T10:00:00.000Z",
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const result = await service.requestDelegateFromRpc({
+    sourceHandle: "backend:main",
+    targetAgent: "claude",
+    task: "review the design",
+  });
+
+  expect(result).toEqual({
+    taskId: "task-rpc-ensure-fail",
+    status: "running",
+    workerSession: "backend:claude:backend:main",
+  });
+  expect(harness.getState().orchestration.tasks["task-rpc-ensure-fail"]).toMatchObject({
+    status: "running",
+  });
+
+  ensureDeferred.reject(new Error("worker cold start failed"));
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const task = harness.getState().orchestration.tasks["task-rpc-ensure-fail"];
+    if (task?.status === "failed") {
+      break;
+    }
+    await Bun.sleep(0);
+  }
+
+  expect(harness.dispatchCalls).toEqual([]);
+  expect(harness.getState().orchestration.tasks["task-rpc-ensure-fail"]).toMatchObject({
+    status: "failed",
+    summary: "worker cold start failed",
+    resultText: "",
+  });
+  expect(harness.getState().orchestration.workerBindings["backend:claude:backend:main"]).toBeUndefined();
+});
+
+
+test("stale rpc startup failure does not clobber a newer binding for the same worker session", async () => {
+  const ensureDeferred = createDeferred<string>();
+  let ensureCalls = 0;
+  const harness = makeDeps({
+    createId: () => ensureCalls === 0 ? "task-stale-startup" : "task-new-owner",
+    reusableWorkerSession: "backend:claude:shared",
+    ensureWorkerSession: async (request) => {
+      harness.ensureCalls.push(request);
+      ensureCalls += 1;
+      if (ensureCalls === 1) {
+        return await ensureDeferred.promise;
+      }
+      return request.workerSession;
+    },
+    initialState: {
+      ...createEmptyState(),
+      sessions: {
+        main: {
+          alias: "main",
+          agent: "codex",
+          workspace: "backend",
+          transport_session: "backend:main",
+          created_at: "2026-04-13T10:00:00.000Z",
+          last_used_at: "2026-04-13T10:00:00.000Z",
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const first = await service.requestDelegateFromRpc({
+    sourceHandle: "backend:main",
+    targetAgent: "claude",
+    task: "first",
+  });
+  expect(first.workerSession).toBe("backend:claude:shared");
+  for (let attempt = 0; attempt < 20 && harness.ensureCalls.length === 0; attempt += 1) {
+    await Bun.sleep(0);
+  }
+  expect(harness.ensureCalls).toHaveLength(1);
+
+  await service.completeTaskCancellation(first.taskId);
+
+  const second = await service.requestDelegateFromRpc({
+    sourceHandle: "backend:main",
+    targetAgent: "claude",
+    task: "second",
+  });
+  expect(second.workerSession).toBe("backend:claude:shared");
+
+  const savesBeforeStaleStartupFailure = harness.savedStates.length;
+  ensureDeferred.reject(new Error("stale startup failed"));
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (harness.savedStates.length > savesBeforeStaleStartupFailure) {
+      break;
+    }
+    await Bun.sleep(0);
+  }
+
+  expect(harness.savedStates.length).toBeGreaterThan(savesBeforeStaleStartupFailure);
+  expect(harness.getState().orchestration.workerBindings["backend:claude:shared"]).toMatchObject({
+    sourceHandle: "backend:claude:shared",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "claude",
+  });
+  expect(harness.getState().orchestration.tasks[second.taskId]).toMatchObject({
+    status: "running",
+    task: "second",
+  });
+});
+
+test("coordinator-originated rpc delegation skips dispatch when cancelled during worker startup", async () => {
+  const ensureDeferred = createDeferred<string>();
+  const harness = makeDeps({
+    createId: () => "task-cancel-during-startup",
+    ensureWorkerSession: async (request) => {
+      harness.ensureCalls.push(request);
+      return await ensureDeferred.promise;
+    },
+    initialState: {
+      ...createEmptyState(),
+      sessions: {
+        main: {
+          alias: "main",
+          agent: "codex",
+          workspace: "backend",
+          transport_session: "backend:main",
+          created_at: "2026-04-13T10:00:00.000Z",
+          last_used_at: "2026-04-13T10:00:00.000Z",
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const delegated = await service.requestDelegateFromRpc({
+    sourceHandle: "backend:main",
+    targetAgent: "claude",
+    task: "review",
+  });
+  await service.cancelTask({
+    taskId: delegated.taskId,
+    coordinatorSession: "backend:main",
+  });
+
+  ensureDeferred.resolve("backend:claude:backend:main");
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await Bun.sleep(0);
+  }
+
+  expect(harness.dispatchCalls).toEqual([]);
+  expect(harness.getState().orchestration.tasks[delegated.taskId]).toMatchObject({
+    status: "cancelled",
+    cancelRequestedAt: "2026-04-13T10:00:00.000Z",
+    cancelCompletedAt: "2026-04-13T10:00:00.000Z",
+  });
+  expect(harness.getState().orchestration.workerBindings["backend:claude:backend:main"]).toBeUndefined();
+});
+
+test("coordinator-originated rpc delegation completes cancellation after startup when early transport cancel fails", async () => {
+  const ensureDeferred = createDeferred<string>();
+  const cancelCalls: Array<Parameters<NonNullable<OrchestrationServiceDeps["cancelWorkerTask"]>>[0]> = [];
+  const harness = makeDeps({
+    createId: () => "task-cancel-after-startup",
+    ensureWorkerSession: async (request) => {
+      harness.ensureCalls.push(request);
+      return await ensureDeferred.promise;
+    },
+    cancelWorkerTask: async (request) => {
+      cancelCalls.push(request);
+      throw new Error("worker session not ready");
+    },
+    initialState: {
+      ...createEmptyState(),
+      sessions: {
+        main: {
+          alias: "main",
+          agent: "codex",
+          workspace: "backend",
+          transport_session: "backend:main",
+          created_at: "2026-04-13T10:00:00.000Z",
+          last_used_at: "2026-04-13T10:00:00.000Z",
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const delegated = await service.requestDelegateFromRpc({
+    sourceHandle: "backend:main",
+    targetAgent: "claude",
+    task: "review",
+  });
+  for (let attempt = 0; attempt < 20 && harness.ensureCalls.length === 0; attempt += 1) {
+    await Bun.sleep(0);
+  }
+
+  await service.cancelTask({
+    taskId: delegated.taskId,
+    coordinatorSession: "backend:main",
+  });
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const task = harness.getState().orchestration.tasks[delegated.taskId];
+    if (task?.lastCancelError === "worker session not ready") {
+      break;
+    }
+    await Bun.sleep(0);
+  }
+  expect(cancelCalls).toHaveLength(1);
+  expect(harness.getState().orchestration.tasks[delegated.taskId]).toMatchObject({
+    status: "running",
+    cancelRequestedAt: "2026-04-13T10:00:00.000Z",
+    lastCancelError: "worker session not ready",
+  });
+
+  ensureDeferred.resolve("backend:claude:backend:main");
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const task = harness.getState().orchestration.tasks[delegated.taskId];
+    if (task?.status === "cancelled") {
+      break;
+    }
+    await Bun.sleep(0);
+  }
+
+  expect(harness.dispatchCalls).toEqual([]);
+  expect(harness.getState().orchestration.tasks[delegated.taskId]).toMatchObject({
+    status: "cancelled",
+    cancelRequestedAt: "2026-04-13T10:00:00.000Z",
+    cancelCompletedAt: "2026-04-13T10:00:00.000Z",
+  });
+  expect(harness.getState().orchestration.tasks[delegated.taskId]!.lastCancelError).toBeUndefined();
+  expect(harness.getState().orchestration.workerBindings["backend:claude:backend:main"]).toBeUndefined();
+});
+
+test("coordinator-originated rpc delegation completes cancellation when startup fails after early transport cancel fails", async () => {
+  const ensureDeferred = createDeferred<string>();
+  const harness = makeDeps({
+    createId: () => "task-cancel-after-startup-fail",
+    ensureWorkerSession: async (request) => {
+      harness.ensureCalls.push(request);
+      return await ensureDeferred.promise;
+    },
+    cancelWorkerTask: async () => {
+      throw new Error("worker session not ready");
+    },
+    initialState: {
+      ...createEmptyState(),
+      sessions: {
+        main: {
+          alias: "main",
+          agent: "codex",
+          workspace: "backend",
+          transport_session: "backend:main",
+          created_at: "2026-04-13T10:00:00.000Z",
+          last_used_at: "2026-04-13T10:00:00.000Z",
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const delegated = await service.requestDelegateFromRpc({
+    sourceHandle: "backend:main",
+    targetAgent: "claude",
+    task: "review",
+  });
+  for (let attempt = 0; attempt < 20 && harness.ensureCalls.length === 0; attempt += 1) {
+    await Bun.sleep(0);
+  }
+
+  await service.cancelTask({
+    taskId: delegated.taskId,
+    coordinatorSession: "backend:main",
+  });
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const task = harness.getState().orchestration.tasks[delegated.taskId];
+    if (task?.lastCancelError === "worker session not ready") {
+      break;
+    }
+    await Bun.sleep(0);
+  }
+
+  ensureDeferred.reject(new Error("worker cold start failed"));
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const task = harness.getState().orchestration.tasks[delegated.taskId];
+    if (task?.status === "cancelled") {
+      break;
+    }
+    await Bun.sleep(0);
+  }
+
+  expect(harness.dispatchCalls).toEqual([]);
+  expect(harness.getState().orchestration.tasks[delegated.taskId]).toMatchObject({
+    status: "cancelled",
+    cancelRequestedAt: "2026-04-13T10:00:00.000Z",
+    cancelCompletedAt: "2026-04-13T10:00:00.000Z",
+  });
+  expect(harness.getState().orchestration.tasks[delegated.taskId]!.lastCancelError).toBeUndefined();
+  expect(harness.getState().orchestration.workerBindings["backend:claude:backend:main"]).toBeUndefined();
+});
+
+test("coordinator-originated rpc startup failure cleans binding after cancellation already completed", async () => {
+  const ensureDeferred = createDeferred<string>();
+  const harness = makeDeps({
+    createId: () => "task-cancelled-before-startup-fail",
+    ensureWorkerSession: async (request) => {
+      harness.ensureCalls.push(request);
+      return await ensureDeferred.promise;
+    },
+    initialState: {
+      ...createEmptyState(),
+      sessions: {
+        main: {
+          alias: "main",
+          agent: "codex",
+          workspace: "backend",
+          transport_session: "backend:main",
+          created_at: "2026-04-13T10:00:00.000Z",
+          last_used_at: "2026-04-13T10:00:00.000Z",
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const delegated = await service.requestDelegateFromRpc({
+    sourceHandle: "backend:main",
+    targetAgent: "claude",
+    task: "review",
+  });
+  for (let attempt = 0; attempt < 20 && harness.ensureCalls.length === 0; attempt += 1) {
+    await Bun.sleep(0);
+  }
+
+  await service.cancelTask({
+    taskId: delegated.taskId,
+    coordinatorSession: "backend:main",
+  });
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const task = harness.getState().orchestration.tasks[delegated.taskId];
+    if (task?.status === "cancelled") {
+      break;
+    }
+    await Bun.sleep(0);
+  }
+
+  expect(harness.getState().orchestration.tasks[delegated.taskId]).toMatchObject({
+    status: "cancelled",
+    cancelRequestedAt: "2026-04-13T10:00:00.000Z",
+    cancelCompletedAt: "2026-04-13T10:00:00.000Z",
+  });
+
+  ensureDeferred.reject(new Error("worker cold start failed"));
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await Bun.sleep(0);
+  }
+
+  expect(harness.dispatchCalls).toEqual([]);
+  expect(harness.getState().orchestration.tasks[delegated.taskId]).toMatchObject({
+    status: "cancelled",
+    cancelCompletedAt: "2026-04-13T10:00:00.000Z",
+  });
+  expect(harness.getState().orchestration.workerBindings["backend:claude:backend:main"]).toBeUndefined();
+});
+
+test("coordinator-originated rpc cancellation during startup restores a previous worker binding", async () => {
+  const ensureDeferred = createDeferred<string>();
+  const harness = makeDeps({
+    createId: () => "task-cancel-restore-binding",
+    reusableWorkerSession: "backend:claude:shared",
+    ensureWorkerSession: async (request) => {
+      harness.ensureCalls.push(request);
+      return await ensureDeferred.promise;
+    },
+    initialState: {
+      ...createEmptyState(),
+      sessions: {
+        main: {
+          alias: "main",
+          agent: "codex",
+          workspace: "backend",
+          transport_session: "backend:main",
+          created_at: "2026-04-13T10:00:00.000Z",
+          last_used_at: "2026-04-13T10:00:00.000Z",
+        },
+      },
+      orchestration: {
+        tasks: {},
+        workerBindings: {
+          "backend:claude:shared": {
+            sourceHandle: "backend:claude:shared",
+            coordinatorSession: "backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+            role: "previous",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const delegated = await service.requestDelegateFromRpc({
+    sourceHandle: "backend:main",
+    targetAgent: "claude",
+    task: "review",
+  });
+  await service.cancelTask({
+    taskId: delegated.taskId,
+    coordinatorSession: "backend:main",
+  });
+
+  ensureDeferred.resolve("backend:claude:shared");
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const task = harness.getState().orchestration.tasks[delegated.taskId];
+    const binding = harness.getState().orchestration.workerBindings["backend:claude:shared"];
+    if (task?.status === "cancelled" && binding?.role === "previous") {
+      break;
+    }
+    await Bun.sleep(0);
+  }
+
+  expect(harness.dispatchCalls).toEqual([]);
+  expect(harness.getState().orchestration.workerBindings["backend:claude:shared"]).toEqual({
+    sourceHandle: "backend:claude:shared",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "claude",
+    role: "previous",
+  });
+});
+
+test("coordinator-originated rpc delegation rechecks cancellation immediately before dispatch", async () => {
+  const interleavingMutex = new InterleavingMutex();
+  let service!: OrchestrationService;
+  let injectedCancel = false;
+  const harness = makeDeps({
+    createId: () => "task-cancel-before-dispatch",
+    stateMutex: interleavingMutex,
+    initialState: {
+      ...createEmptyState(),
+      sessions: {
+        main: {
+          alias: "main",
+          agent: "codex",
+          workspace: "backend",
+          transport_session: "backend:main",
+          created_at: "2026-04-13T10:00:00.000Z",
+          last_used_at: "2026-04-13T10:00:00.000Z",
+        },
+      },
+    },
+  });
+  service = new OrchestrationService(harness.deps);
+  interleavingMutex.afterRun = async (result) => {
+    if (result === "dispatch" && !injectedCancel) {
+      injectedCancel = true;
+      await service.cancelTask({
+        taskId: "task-cancel-before-dispatch",
+        coordinatorSession: "backend:main",
+      });
+    }
+  };
+
+  await service.requestDelegateFromRpc({
+    sourceHandle: "backend:main",
+    targetAgent: "claude",
+    task: "review",
+  });
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const task = harness.getState().orchestration.tasks["task-cancel-before-dispatch"];
+    if (task?.status === "cancelled") {
+      break;
+    }
+    await Bun.sleep(0);
+  }
+
+  expect(injectedCancel).toBe(true);
+  expect(harness.dispatchCalls).toEqual([]);
+  expect(harness.getState().orchestration.tasks["task-cancel-before-dispatch"]).toMatchObject({
+    status: "cancelled",
+    cancelRequestedAt: "2026-04-13T10:00:00.000Z",
+    cancelCompletedAt: "2026-04-13T10:00:00.000Z",
+  });
+  expect(harness.getState().orchestration.workerBindings["backend:claude:backend:main"]).toBeUndefined();
 });
 
 test("approves worker-chained rpc tasks against the worker target captured at request time", async () => {
@@ -1367,6 +1964,1071 @@ test("rejects rpc requests when the coordinator exceeds the pending agent reques
   expect(harness.getState().orchestration.tasks).toHaveProperty("task-3");
 });
 
+test("concurrent worker-originated rpc requests recheck quota before persisting", async () => {
+  let nextId = 1;
+  let lookupCount = 0;
+  const releaseLookups = createDeferred<void>();
+  const harness = makeDeps({
+    createId: () => `task-rpc-quota-${nextId++}`,
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        tasks: {},
+        workerBindings: {
+          "backend:claude:backend:main": {
+            sourceHandle: "backend:claude:backend:main",
+            coordinatorSession: "backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+          },
+        },
+      },
+    },
+    config: {
+      ...createConfig(),
+      orchestration: {
+        maxPendingAgentRequestsPerCoordinator: 1,
+        allowWorkerChainedRequests: true,
+        allowedAgentRequestTargets: [],
+        allowedAgentRequestRoles: [],
+      },
+    },
+    findReusableWorkerSession: async () => {
+      lookupCount += 1;
+      if (lookupCount === 2) {
+        releaseLookups.resolve();
+      }
+      await releaseLookups.promise;
+      return null;
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const first = service.requestDelegateFromRpc({
+    sourceHandle: "backend:claude:backend:main",
+    targetAgent: "codex",
+    role: "first",
+    task: "first follow-up",
+  });
+  const second = service.requestDelegateFromRpc({
+    sourceHandle: "backend:claude:backend:main",
+    targetAgent: "codex",
+    role: "second",
+    task: "second follow-up",
+  });
+
+  const results = await Promise.allSettled([first, second]);
+
+  expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+  const rejected = results.find((result) => result.status === "rejected");
+  expect(rejected).toBeDefined();
+  expect(rejected).toMatchObject({
+    status: "rejected",
+    reason: expect.objectContaining({
+      message: "agent-requested delegation quota exceeded for this coordinator",
+    }),
+  });
+  expect(Object.values(harness.getState().orchestration.tasks)).toHaveLength(1);
+  expect(harness.ensureCalls).toEqual([]);
+  expect(harness.dispatchCalls).toEqual([]);
+});
+
+
+test("task_wait returns terminal task states", async () => {
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        tasks: {
+          "task-1": makeCompletedTask("task-1"),
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(
+    service.waitTask({ coordinatorSession: "backend:main", taskId: "task-1", timeoutMs: 0 }),
+  ).resolves.toMatchObject({
+    status: "terminal",
+    task: { taskId: "task-1", status: "completed", resultText: "result task-1" },
+  });
+});
+
+test("task_wait returns attention_required for coordinator action states", async () => {
+  const attentionTasks = [
+    { ...makeCompletedTask("task-1"), status: "pending" as const, summary: "", resultText: "" },
+    { ...makeCompletedTask("task-1"), status: "needs_confirmation" as const, summary: "", resultText: "" },
+    makeBlockedTask("task-1", "question-1"),
+    { ...makeBlockedTask("task-1", "question-1"), status: "waiting_for_human" as const },
+    {
+      ...makeCompletedTask("task-1"),
+      reviewPending: {
+        reviewId: "review-1",
+        reason: "misrouted_answer" as const,
+        createdAt: "2026-04-13T10:00:00.000Z",
+        resultId: "result-1",
+        resultText: "contested result",
+      },
+    },
+  ];
+
+  for (const task of attentionTasks) {
+    const harness = makeDeps({
+      initialState: {
+        ...createEmptyState(),
+        orchestration: {
+          ...createEmptyState().orchestration,
+          tasks: { "task-1": task },
+        },
+      },
+    });
+    const service = new OrchestrationService(harness.deps);
+
+    await expect(
+      service.waitTask({ coordinatorSession: "backend:main", taskId: "task-1", timeoutMs: 0 }),
+    ).resolves.toMatchObject({ status: "attention_required", task: { taskId: "task-1" } });
+  }
+});
+
+test("task_wait returns timeout current task state while still running", async () => {
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        tasks: {
+          "task-1": { ...makeCompletedTask("task-1"), status: "running", summary: "", resultText: "" },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(
+    service.waitTask({ coordinatorSession: "backend:main", taskId: "task-1", timeoutMs: 0 }),
+  ).resolves.toMatchObject({ status: "timeout", task: { taskId: "task-1", status: "running" } });
+});
+
+test("task_wait defaults to a five minute timeout", async () => {
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        tasks: {
+          "task-1": { ...makeCompletedTask("task-1"), status: "running", summary: "", resultText: "" },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+  const sleepDurations: number[] = [];
+  const originalNow = Date.now;
+  const originalSetTimeout = globalThis.setTimeout;
+  let nowCalls = 0;
+
+  Date.now = (() => {
+    nowCalls += 1;
+    if (nowCalls === 1) return 0;
+    if (nowCalls === 2) return 300_000 - 42;
+    return 300_001;
+  }) as typeof Date.now;
+  globalThis.setTimeout = ((callback: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+    sleepDurations.push(ms ?? 0);
+    queueMicrotask(() => callback(...args));
+    return 0 as unknown as ReturnType<typeof setTimeout>;
+  }) as typeof setTimeout;
+
+  try {
+    await expect(
+      service.waitTask({ coordinatorSession: "backend:main", taskId: "task-1" }),
+    ).resolves.toMatchObject({ status: "timeout", task: { taskId: "task-1", status: "running" } });
+    expect(sleepDurations).toEqual([42]);
+  } finally {
+    Date.now = originalNow;
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
+test("task_wait caps explicit timeout at twenty minutes", async () => {
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        tasks: {
+          "task-1": { ...makeCompletedTask("task-1"), status: "running", summary: "", resultText: "" },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+  const sleepDurations: number[] = [];
+  const originalNow = Date.now;
+  const originalSetTimeout = globalThis.setTimeout;
+  let nowCalls = 0;
+
+  Date.now = (() => {
+    nowCalls += 1;
+    if (nowCalls === 1) return 0;
+    if (nowCalls === 2) return 1_200_000 - 42;
+    return 1_200_001;
+  }) as typeof Date.now;
+  globalThis.setTimeout = ((callback: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+    sleepDurations.push(ms ?? 0);
+    queueMicrotask(() => callback(...args));
+    return 0 as unknown as ReturnType<typeof setTimeout>;
+  }) as typeof setTimeout;
+
+  try {
+    await expect(
+      service.waitTask({ coordinatorSession: "backend:main", taskId: "task-1", timeoutMs: 9_999_999 }),
+    ).resolves.toMatchObject({ status: "timeout", task: { taskId: "task-1", status: "running" } });
+    expect(sleepDurations).toEqual([42]);
+  } finally {
+    Date.now = originalNow;
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
+test("task_wait returns not_found for missing or wrong coordinator tasks", async () => {
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        tasks: {
+          "task-1": { ...makeCompletedTask("task-1"), coordinatorSession: "backend:other" },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(
+    service.waitTask({ coordinatorSession: "backend:main", taskId: "missing", timeoutMs: 0 }),
+  ).resolves.toEqual({ status: "not_found", task: null });
+  await expect(
+    service.waitTask({ coordinatorSession: "backend:main", taskId: "task-1", timeoutMs: 0 }),
+  ).resolves.toEqual({ status: "not_found", task: null });
+});
+
+test("registers or refreshes an external coordinator", async () => {
+  const harness = makeDeps();
+  const service = new OrchestrationService(harness.deps);
+
+  await service.registerExternalCoordinator({
+    coordinatorSession: "codex:backend",
+    workspace: "backend",
+    defaultTargetAgent: "codex",
+  });
+  await service.registerExternalCoordinator({
+    coordinatorSession: "codex:backend",
+    workspace: "backend",
+    defaultTargetAgent: " ",
+  });
+
+  expect(harness.getState().orchestration.externalCoordinators?.["codex:backend"]).toEqual({
+    coordinatorSession: "codex:backend",
+    workspace: "backend",
+    createdAt: "2026-04-13T10:00:00.000Z",
+    updatedAt: "2026-04-13T10:00:00.000Z",
+    defaultTargetAgent: "codex",
+  });
+  expect(harness.savedStates).toHaveLength(2);
+});
+
+test("rejects rebinding an external coordinator to a different workspace", async () => {
+  const harness = makeDeps({
+    config: {
+      ...createConfig(),
+      workspaces: {
+        backend: { cwd: "/tmp/backend" },
+        frontend: { cwd: "/tmp/frontend" },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await service.registerExternalCoordinator({
+    coordinatorSession: "codex:backend",
+    workspace: "backend",
+  });
+
+  await expect(
+    service.registerExternalCoordinator({
+      coordinatorSession: "codex:backend",
+      workspace: "frontend",
+    }),
+  ).rejects.toThrow(
+    'coordinatorSession "codex:backend" is already bound to workspace "backend"; use a new coordinator session for workspace "frontend"',
+  );
+
+  expect(harness.getState().orchestration.externalCoordinators?.["codex:backend"]?.workspace).toBe("backend");
+});
+
+test("rejects external coordinator registration for unknown workspaces", async () => {
+  const harness = makeDeps();
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(
+    service.registerExternalCoordinator({ coordinatorSession: "codex:missing", workspace: "missing" }),
+  ).rejects.toThrow('workspace "missing" is not configured');
+
+  expect(harness.getState().orchestration.externalCoordinators).toEqual({});
+});
+
+test("allows external coordinator registration while an unrelated worker session is starting", async () => {
+  const ensureDeferred = createDeferred<string>();
+  const ensureCalls: Array<Parameters<OrchestrationServiceDeps["ensureWorkerSession"]>[0]> = [];
+  const harness = makeDeps({
+    ensureWorkerSession: async (request) => {
+      ensureCalls.push(request);
+      return await ensureDeferred.promise;
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const delegatePromise = service.requestDelegate({
+    sourceHandle: "wx:user-1",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "codex",
+    task: "review",
+  });
+
+  while (ensureCalls.length === 0) {
+    await Bun.sleep(0);
+  }
+
+  await expect(
+    service.registerExternalCoordinator({ coordinatorSession: "codex:external", workspace: "backend" }),
+  ).resolves.toMatchObject({ coordinatorSession: "codex:external", workspace: "backend" });
+
+  ensureDeferred.resolve("backend:codex:backend:main");
+  await delegatePromise;
+});
+
+test("rejects concurrent delegation to the same worker session", async () => {
+  const ensureDeferred = createDeferred<string>();
+  const ensureCalls: Array<Parameters<OrchestrationServiceDeps["ensureWorkerSession"]>[0]> = [];
+  const harness = makeDeps({
+    reusableWorkerSession: "backend:codex:shared",
+    ensureWorkerSession: async (request) => {
+      ensureCalls.push(request);
+      return await ensureDeferred.promise;
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const first = service.requestDelegate({
+    sourceHandle: "wx:user-1",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "codex",
+    task: "first",
+  });
+  while (ensureCalls.length === 0) {
+    await Bun.sleep(0);
+  }
+
+  await expect(
+    service.requestDelegate({
+      sourceHandle: "wx:user-2",
+      sourceKind: "human",
+      coordinatorSession: "backend:main",
+      workspace: "backend",
+      targetAgent: "codex",
+      task: "second",
+    }),
+  ).rejects.toThrow('worker session "backend:codex:shared" is already in use');
+
+  ensureDeferred.resolve("backend:codex:shared");
+  await first;
+  expect(harness.dispatchCalls).toHaveLength(1);
+});
+
+test("rejects delegation to a worker session with an active task", async () => {
+  const harness = makeDeps({
+    reusableWorkerSession: "backend:codex:shared",
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        tasks: {
+          "task-active": {
+            ...makeCompletedTask("task-active"),
+            status: "running",
+            resultText: "",
+            summary: "",
+            workerSession: "backend:codex:shared",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(
+    service.requestDelegate({
+      sourceHandle: "wx:user-2",
+      sourceKind: "human",
+      coordinatorSession: "backend:main",
+      workspace: "backend",
+      targetAgent: "codex",
+      task: "second",
+    }),
+  ).rejects.toThrow('worker session "backend:codex:shared" is already in use');
+});
+
+test("rejects registering an external coordinator whose handle collides with a worker binding", async () => {
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        workerBindings: {
+          "codex:backend": {
+            sourceHandle: "codex:backend",
+            coordinatorSession: "backend:main",
+            workspace: "backend",
+            targetAgent: "codex",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(
+    service.registerExternalCoordinator({ coordinatorSession: "codex:backend", workspace: "backend" }),
+  ).rejects.toThrow('coordinatorSession "codex:backend" conflicts with an existing worker session');
+
+  expect(harness.getState().orchestration.externalCoordinators).toEqual({});
+});
+
+test("rejects registering an external coordinator whose handle is reserved by a non-terminal task worker", async () => {
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        tasks: {
+          "task-1": {
+            taskId: "task-1",
+            sourceHandle: "backend:claude:backend:main",
+            sourceKind: "worker",
+            coordinatorSession: "backend:main",
+            workerSession: "codex:backend",
+            workspace: "backend",
+            targetAgent: "codex",
+            task: "review",
+            status: "needs_confirmation",
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(
+    service.registerExternalCoordinator({ coordinatorSession: "codex:backend", workspace: "backend" }),
+  ).rejects.toThrow('coordinatorSession "codex:backend" conflicts with an existing worker session');
+
+  expect(harness.getState().orchestration.externalCoordinators).toEqual({});
+});
+
+test("rejects registering an external coordinator whose handle collides with a logical session", async () => {
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      sessions: {
+        "chat-1": {
+          alias: "main",
+          agent: "codex",
+          workspace: "backend",
+          transport_session: "codex:backend",
+          created_at: "2026-04-28T10:00:00.000Z",
+          last_used_at: "2026-04-28T10:00:00.000Z",
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(
+    service.registerExternalCoordinator({ coordinatorSession: "codex:backend", workspace: "backend" }),
+  ).rejects.toThrow('coordinatorSession "codex:backend" conflicts with an existing logical session');
+
+  expect(harness.getState().orchestration.externalCoordinators).toEqual({});
+});
+
+test("rejects refreshing an external coordinator after a worker binding collision appears", async () => {
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+        workerBindings: {
+          "codex:backend": {
+            sourceHandle: "codex:backend",
+            coordinatorSession: "backend:main",
+            workspace: "backend",
+            targetAgent: "codex",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(
+    service.registerExternalCoordinator({ coordinatorSession: "codex:backend", workspace: "backend" }),
+  ).rejects.toThrow('coordinatorSession "codex:backend" conflicts with an existing worker session');
+});
+
+test("rejects refreshing an external coordinator after a logical session collision appears", async () => {
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      sessions: {
+        "chat-1": {
+          alias: "main",
+          agent: "codex",
+          workspace: "backend",
+          transport_session: "codex:backend",
+          created_at: "2026-04-28T10:00:00.000Z",
+          last_used_at: "2026-04-28T10:00:00.000Z",
+        },
+      },
+      orchestration: {
+        ...createEmptyState().orchestration,
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(
+    service.registerExternalCoordinator({ coordinatorSession: "codex:backend", workspace: "backend" }),
+  ).rejects.toThrow('coordinatorSession "codex:backend" conflicts with an existing logical session');
+});
+
+test("rejects worker bindings that would collide with an external coordinator handle", async () => {
+  const harness = makeDeps({
+    reusableWorkerSession: "codex:backend",
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(
+    service.requestDelegate({
+      sourceHandle: "wx:user-1",
+      sourceKind: "human",
+      coordinatorSession: "backend:main",
+      workspace: "backend",
+      targetAgent: "claude",
+      task: "review",
+    }),
+  ).rejects.toThrow('worker session "codex:backend" conflicts with an external coordinator');
+
+  expect(harness.ensureCalls).toEqual([]);
+  expect(harness.getState().orchestration.workerBindings).toEqual({});
+  expect(harness.getState().orchestration.tasks).toEqual({});
+});
+
+test("rejects auto-run rpc worker handles that collide with external coordinators before ensuring transport", async () => {
+  const harness = makeDeps({
+    reusableWorkerSession: "codex:worker",
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+          "codex:worker": {
+            coordinatorSession: "codex:worker",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(
+    service.requestDelegateFromRpc({
+      sourceHandle: "codex:backend",
+      targetAgent: "claude",
+      task: "review",
+    }),
+  ).rejects.toThrow('worker session "codex:worker" conflicts with an external coordinator');
+
+  expect(harness.ensureCalls).toEqual([]);
+  expect(harness.getState().orchestration.workerBindings).toEqual({});
+  expect(harness.getState().orchestration.tasks).toEqual({});
+});
+
+test("worker-originated rpc rechecks external coordinator collisions before persisting pending tasks", async () => {
+  let state = createEmptyState();
+  state.orchestration.workerBindings["backend:claude:backend:main"] = {
+    sourceHandle: "backend:claude:backend:main",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "claude",
+  };
+  let loadCount = 0;
+  const savedStates: AppState[] = [];
+  const harness = makeDeps({
+    createId: () => "task-rpc-race",
+    reusableWorkerSession: "codex:backend",
+    loadState: async () => {
+      loadCount += 1;
+      const snapshot = cloneState(state);
+      if (loadCount >= 3) {
+        snapshot.orchestration.externalCoordinators = {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        };
+      }
+      return snapshot;
+    },
+    saveState: async (nextState) => {
+      state = cloneState(nextState);
+      savedStates.push(cloneState(nextState));
+    },
+    config: {
+      ...createConfig(),
+      orchestration: {
+        maxPendingAgentRequestsPerCoordinator: 3,
+        allowWorkerChainedRequests: true,
+        allowedAgentRequestTargets: [],
+        allowedAgentRequestRoles: [],
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(
+    service.requestDelegateFromRpc({
+      sourceHandle: "backend:claude:backend:main",
+      targetAgent: "codex",
+      task: "review",
+    }),
+  ).rejects.toThrow('worker session "codex:backend" conflicts with an external coordinator');
+
+  expect(harness.ensureCalls).toEqual([]);
+  expect(harness.dispatchCalls).toEqual([]);
+  expect(savedStates).toEqual([]);
+});
+
+test("worker-originated rpc rejects duplicate pending tasks for the same worker session", async () => {
+  let nextId = 1;
+  const harness = makeDeps({
+    createId: () => `task-rpc-${nextId++}`,
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        tasks: {},
+        workerBindings: {
+          "backend:claude:backend:main": {
+            sourceHandle: "backend:claude:backend:main",
+            coordinatorSession: "backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+          },
+        },
+      },
+    },
+    config: {
+      ...createConfig(),
+      orchestration: {
+        maxPendingAgentRequestsPerCoordinator: 3,
+        allowWorkerChainedRequests: true,
+        allowedAgentRequestTargets: [],
+        allowedAgentRequestRoles: [],
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(
+    service.requestDelegateFromRpc({
+      sourceHandle: "backend:claude:backend:main",
+      targetAgent: "codex",
+      task: "first follow-up",
+    }),
+  ).resolves.toEqual({
+    taskId: "task-rpc-1",
+    status: "needs_confirmation",
+  });
+
+  await expect(
+    service.requestDelegateFromRpc({
+      sourceHandle: "backend:claude:backend:main",
+      targetAgent: "codex",
+      task: "second follow-up",
+    }),
+  ).rejects.toThrow('worker session "backend:codex:backend:main" is already in use');
+
+  expect(Object.keys(harness.getState().orchestration.tasks)).toEqual(["task-rpc-1"]);
+  expect(harness.ensureCalls).toEqual([]);
+  expect(harness.dispatchCalls).toEqual([]);
+});
+
+test("rejects approval worker handles that collide with external coordinators before ensuring transport", async () => {
+  const harness = makeDeps({
+    reusableWorkerSession: "codex:worker",
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        externalCoordinators: {
+          "codex:worker": {
+            coordinatorSession: "codex:worker",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+        tasks: {
+          "task-1": {
+            taskId: "task-1",
+            sourceHandle: "worker:requester",
+            sourceKind: "worker",
+            coordinatorSession: "backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "review",
+            status: "needs_confirmation",
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(
+    service.approveTask({ coordinatorSession: "backend:main", taskId: "task-1" }),
+  ).rejects.toThrow('worker session "codex:worker" conflicts with an external coordinator');
+
+  expect(harness.ensureCalls).toEqual([]);
+  expect(harness.getState().orchestration.tasks["task-1"]).toMatchObject({ status: "needs_confirmation" });
+  expect(harness.getState().orchestration.workerBindings).toEqual({});
+});
+
+test("auto-runs rpc delegations from pathless external coordinators using explicit cwd", async () => {
+  const harness = makeDeps({
+    createId: () => "task-external-cwd",
+    reusableWorkerSession: "weacpx:claude:codex:instance",
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(
+    service.registerExternalCoordinator({ coordinatorSession: "codex:instance" } as any),
+  ).resolves.toMatchObject({ coordinatorSession: "codex:instance" });
+
+  const result = await service.requestDelegateFromRpc({
+    sourceHandle: "codex:instance",
+    targetAgent: "claude",
+    task: "review the design",
+    cwd: "/repo/weacpx",
+  } as any);
+
+  expect(result).toEqual({
+    taskId: "task-external-cwd",
+    status: "running",
+    workerSession: "weacpx:claude:codex:instance",
+  });
+  expect(harness.lookupCalls[0]).toMatchObject({
+    sourceHandle: "codex:instance",
+    sourceKind: "coordinator",
+    coordinatorSession: "codex:instance",
+    targetAgent: "claude",
+    cwd: "/repo/weacpx",
+  });
+  expect(harness.ensureCalls[0]).toMatchObject({
+    sourceHandle: "codex:instance",
+    sourceKind: "coordinator",
+    coordinatorSession: "codex:instance",
+    targetAgent: "claude",
+    cwd: "/repo/weacpx",
+  });
+  while (harness.dispatchCalls.length === 0) {
+    await Bun.sleep(0);
+  }
+  expect(harness.dispatchCalls[0]).toMatchObject({
+    taskId: "task-external-cwd",
+    workerSession: "weacpx:claude:codex:instance",
+    coordinatorSession: "codex:instance",
+    targetAgent: "claude",
+    cwd: "/repo/weacpx",
+    task: "review the design",
+  });
+  expect(harness.getState().orchestration.tasks["task-external-cwd"]).toMatchObject({
+    sourceHandle: "codex:instance",
+    sourceKind: "coordinator",
+    coordinatorSession: "codex:instance",
+    workerSession: "weacpx:claude:codex:instance",
+    targetAgent: "claude",
+    cwd: "/repo/weacpx",
+    status: "running",
+  });
+  expect(harness.getState().orchestration.workerBindings["weacpx:claude:codex:instance"]).toMatchObject({
+    sourceHandle: "weacpx:claude:codex:instance",
+    coordinatorSession: "codex:instance",
+    targetAgent: "claude",
+    cwd: "/repo/weacpx",
+  });
+});
+
+test("pathless external coordinator cancellation and resume preserve cwd", async () => {
+  const cancelCalls: Array<Parameters<NonNullable<OrchestrationServiceDeps["cancelWorkerTask"]>>[0]> = [];
+  const blockedTask = makeBlockedTask("task-blocked-cwd", "question-cwd");
+  const harness = makeDeps({
+    cancelWorkerTask: async (request) => {
+      cancelCalls.push(request);
+    },
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        tasks: {
+          "task-running-cwd": {
+            taskId: "task-running-cwd",
+            sourceHandle: "codex:instance",
+            sourceKind: "coordinator",
+            coordinatorSession: "codex:instance",
+            workerSession: "weacpx:claude:codex:instance",
+            workspace: "weacpx",
+            cwd: "/repo/weacpx",
+            targetAgent: "claude",
+            task: "review",
+            status: "running",
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+          "task-blocked-cwd": {
+            ...blockedTask,
+            coordinatorSession: "codex:instance",
+            workerSession: "weacpx:claude:codex:instance",
+            workspace: "weacpx",
+            cwd: "/repo/weacpx",
+          },
+        },
+        workerBindings: {
+          "weacpx:claude:codex:instance": {
+            sourceHandle: "weacpx:claude:codex:instance",
+            coordinatorSession: "codex:instance",
+            workspace: "weacpx",
+            cwd: "/repo/weacpx",
+            targetAgent: "claude",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await service.requestTaskCancellation({
+    taskId: "task-running-cwd",
+    coordinatorSession: "codex:instance",
+  });
+  await service.coordinatorAnswerQuestion({
+    coordinatorSession: "codex:instance",
+    taskId: "task-blocked-cwd",
+    questionId: "question-cwd",
+    answer: "Use this repository.",
+  });
+
+  expect(cancelCalls).toEqual([
+    {
+      taskId: "task-running-cwd",
+      workerSession: "weacpx:claude:codex:instance",
+      workspace: "weacpx",
+      cwd: "/repo/weacpx",
+      targetAgent: "claude",
+    },
+  ]);
+  expect(harness.resumeCalls).toEqual([
+    {
+      taskId: "task-blocked-cwd",
+      workerSession: "weacpx:claude:codex:instance",
+      coordinatorSession: "codex:instance",
+      workspace: "weacpx",
+      cwd: "/repo/weacpx",
+      targetAgent: "claude",
+      answer: "Use this repository.",
+    },
+  ]);
+});
+
+test("rejects pathless external coordinator delegation without explicit cwd", async () => {
+  const harness = makeDeps();
+  const service = new OrchestrationService(harness.deps);
+
+  await service.registerExternalCoordinator({ coordinatorSession: "codex:instance" } as any);
+
+  await expect(
+    service.requestDelegateFromRpc({
+      sourceHandle: "codex:instance",
+      targetAgent: "claude",
+      task: "review the design",
+    }),
+  ).rejects.toThrow("workingDirectory is required");
+
+  expect(harness.ensureCalls).toEqual([]);
+  expect(harness.dispatchCalls).toEqual([]);
+  expect(harness.getState().orchestration.tasks).toEqual({});
+});
+
+test("registered external coordinator accepts arbitrary explicit cwd over its default workspace cwd", async () => {
+  const harness = makeDeps({
+    createId: () => "task-external-default-plus-cwd",
+    reusableWorkerSession: "backend:other-repo:claude:codex:backend",
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const result = await service.requestDelegateFromRpc({
+    sourceHandle: "codex:backend",
+    targetAgent: "claude",
+    task: "review another repo",
+    cwd: "/repo/other-repo",
+  });
+
+  expect(result).toEqual({
+    taskId: "task-external-default-plus-cwd",
+    status: "running",
+    workerSession: "backend:other-repo:claude:codex:backend",
+  });
+  while (harness.ensureCalls.length === 0) {
+    await Bun.sleep(0);
+  }
+  expect(harness.ensureCalls[0]).toMatchObject({
+    workspace: "backend",
+    cwd: "/repo/other-repo",
+  });
+  expect(harness.getState().orchestration.tasks["task-external-default-plus-cwd"]).toMatchObject({
+    workspace: "backend",
+    cwd: "/repo/other-repo",
+  });
+});
+
+test("auto-runs rpc delegations from registered external coordinators using their workspace", async () => {
+  const harness = makeDeps({
+    createId: () => "task-external-rpc",
+    reusableWorkerSession: "backend:claude:reviewer:codex:backend",
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const result = await service.requestDelegateFromRpc({
+    sourceHandle: "codex:backend",
+    targetAgent: "claude",
+    role: "reviewer",
+    task: "review the design",
+  });
+
+  expect(result).toEqual({
+    taskId: "task-external-rpc",
+    status: "running",
+    workerSession: "backend:claude:reviewer:codex:backend",
+  });
+  expect(harness.ensureCalls[0]).toMatchObject({
+    sourceHandle: "codex:backend",
+    sourceKind: "coordinator",
+    coordinatorSession: "codex:backend",
+    workspace: "backend",
+  });
+  expect(harness.getState().orchestration.tasks["task-external-rpc"]).toMatchObject({
+    sourceHandle: "codex:backend",
+    sourceKind: "coordinator",
+    coordinatorSession: "codex:backend",
+    workspace: "backend",
+    status: "running",
+  });
+});
+
 test("rejects rpc requests from unknown source handles", async () => {
   const harness = makeDeps({
     createId: () => "task-rpc-unknown",
@@ -1384,6 +3046,492 @@ test("rejects rpc requests from unknown source handles", async () => {
   expect(harness.ensureCalls).toEqual([]);
   expect(harness.dispatchCalls).toEqual([]);
   expect(harness.getState().orchestration.tasks).toEqual({});
+});
+
+
+
+test("worker questions for external coordinators do not wake coordinator transport", async () => {
+  const harness = makeDeps({
+    createId: () => "question-1",
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+        tasks: {
+          "task-1": {
+            taskId: "task-1",
+            sourceHandle: "codex:backend",
+            sourceKind: "coordinator",
+            coordinatorSession: "codex:backend",
+            workerSession: "backend:claude:codex:backend",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "review",
+            status: "running",
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(
+    service.workerRaiseQuestion({
+      taskId: "task-1",
+      sourceHandle: "backend:claude:codex:backend",
+      question: "Need details",
+      whyBlocked: "missing details",
+      whatIsNeeded: "details",
+    }),
+  ).resolves.toEqual({ taskId: "task-1", questionId: "question-1", status: "blocked" });
+
+  expect(harness.wakeCoordinatorCalls).toEqual([]);
+});
+
+test("external coordinators do not wake transport during stale queued question handoff", async () => {
+  const externalTask1 = {
+    ...makeBlockedTask("task-1", "question-1"),
+    sourceHandle: "codex:backend",
+    sourceKind: "coordinator" as const,
+    coordinatorSession: "codex:backend",
+    workerSession: "backend:claude:codex:backend",
+    status: "waiting_for_human" as const,
+    openQuestion: {
+      ...makeBlockedTask("task-1", "question-1").openQuestion,
+      packageId: "package-1",
+    },
+  };
+  const externalTask2 = {
+    ...makeBlockedTask("task-2", "question-2"),
+    sourceHandle: "codex:backend",
+    sourceKind: "coordinator" as const,
+    coordinatorSession: "codex:backend",
+    workerSession: "backend:claude:codex:backend",
+  };
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+        tasks: {
+          "task-1": externalTask1,
+          "task-2": externalTask2,
+        },
+        humanQuestionPackages: {
+          "package-1": {
+            packageId: "package-1",
+            coordinatorSession: "codex:backend",
+            status: "active",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+            initialTaskIds: ["task-1"],
+            openTaskIds: ["task-1"],
+            resolvedTaskIds: [],
+            awaitingReplyMessageId: "message-1",
+            messages: [
+              {
+                messageId: "message-1",
+                kind: "initial",
+                promptText: "Please answer task 1.",
+                createdAt: "2026-04-28T10:00:00.000Z",
+                taskQuestions: [{ taskId: "task-1", questionId: "question-1" }],
+              },
+            ],
+          },
+        },
+        coordinatorQuestionState: {
+          "codex:backend": {
+            activePackageId: "package-1",
+            queuedQuestions: [
+              {
+                taskId: "task-2",
+                questionId: "question-2",
+                enqueuedAt: "2026-04-28T10:01:00.000Z",
+              },
+            ],
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await service.coordinatorAnswerQuestion({
+    coordinatorSession: "codex:backend",
+    taskId: "task-1",
+    questionId: "question-1",
+    answer: "Use staging instead",
+  });
+
+  expect(harness.wakeCoordinatorCalls).toEqual([]);
+  expect(harness.getState().orchestration.coordinatorQuestionState["codex:backend"]).toEqual({
+    queuedQuestions: [
+      {
+        taskId: "task-2",
+        questionId: "question-2",
+        enqueuedAt: "2026-04-28T10:01:00.000Z",
+      },
+    ],
+  });
+});
+
+test("external coordinator worker replies persist results without coordinator injection", async () => {
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+        tasks: {
+          "task-1": {
+            taskId: "task-1",
+            sourceHandle: "codex:backend",
+            sourceKind: "coordinator",
+            coordinatorSession: "codex:backend",
+            workerSession: "backend:claude:codex:backend",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "review",
+            status: "running",
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const task = await service.recordWorkerReply({
+    taskId: "task-1",
+    sourceHandle: "backend:claude:codex:backend",
+    summary: "done",
+    resultText: "external result",
+  });
+
+  expect(task).toMatchObject({
+    status: "completed",
+    summary: "done",
+    resultText: "external result",
+  });
+  expect(task.injectionPending).toBeUndefined();
+  expect(task.coordinatorInjectedAt).toBeUndefined();
+  await expect(service.getTask("task-1")).resolves.toMatchObject({ resultText: "external result" });
+  await expect(
+    service.waitTask({ coordinatorSession: "codex:backend", taskId: "task-1", timeoutMs: 0 }),
+  ).resolves.toMatchObject({ status: "terminal", task: { resultText: "external result" } });
+  expect(harness.wakeCoordinatorCalls).toEqual([]);
+});
+
+test("external coordinator results are excluded from pending coordinator injection lists", async () => {
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+        groups: {
+          "group-1": {
+            groupId: "group-1",
+            coordinatorSession: "codex:backend",
+            title: "external group",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:05:00.000Z",
+          },
+        },
+        tasks: {
+          "task-standalone": {
+            ...makeCompletedTask("task-standalone"),
+            sourceHandle: "codex:backend",
+            sourceKind: "coordinator",
+            coordinatorSession: "codex:backend",
+            injectionPending: undefined,
+          },
+          "task-group": {
+            ...makeCompletedTask("task-group"),
+            sourceHandle: "codex:backend",
+            sourceKind: "coordinator",
+            coordinatorSession: "codex:backend",
+            groupId: "group-1",
+            injectionPending: undefined,
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(service.listPendingCoordinatorResults("codex:backend")).resolves.toEqual([]);
+  await expect(service.listPendingCoordinatorGroups("codex:backend")).resolves.toEqual([]);
+});
+
+test("discarding external coordinator contested results does not wake coordinator transport", async () => {
+  const harness = makeDeps({
+    createId: () => "replacement-question-1",
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+        tasks: {
+          "task-1": {
+            ...makeCompletedTask("task-1"),
+            sourceHandle: "codex:backend",
+            sourceKind: "coordinator",
+            coordinatorSession: "codex:backend",
+            reviewPending: {
+              reviewId: "review-1",
+              reason: "misrouted_answer",
+              createdAt: "2026-04-28T10:10:00.000Z",
+              resultId: "result-1",
+              resultText: "wrong result",
+            },
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await service.coordinatorReviewContestedResult({
+    coordinatorSession: "codex:backend",
+    taskId: "task-1",
+    reviewId: "review-1",
+    decision: "discard",
+  });
+
+  expect(harness.getState().orchestration.tasks["task-1"]).toMatchObject({
+    status: "blocked",
+    openQuestion: { questionId: "replacement-question-1", status: "open" },
+  });
+  expect(harness.wakeCoordinatorCalls).toEqual([]);
+});
+
+test("external coordinator correction cancellation reopen does not wake coordinator transport", async () => {
+  const harness = makeDeps({
+    createId: () => "replacement-question-1",
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+        tasks: {
+          "task-1": {
+            taskId: "task-1",
+            sourceHandle: "codex:backend",
+            sourceKind: "coordinator",
+            coordinatorSession: "codex:backend",
+            workerSession: "backend:claude:codex:backend",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "review",
+            status: "running",
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:10:00.000Z",
+            correctionPending: {
+              requestedAt: "2026-04-28T10:11:00.000Z",
+              reason: "misrouted_answer",
+            },
+            cancelRequestedAt: "2026-04-28T10:11:00.000Z",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await service.completeTaskCancellation("task-1");
+
+  expect(harness.getState().orchestration.tasks["task-1"]).toMatchObject({
+    status: "blocked",
+    openQuestion: { questionId: "replacement-question-1", status: "open" },
+  });
+  expect(harness.wakeCoordinatorCalls).toEqual([]);
+});
+
+test("human input request for an external coordinator fails with unsupported route", async () => {
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+        tasks: {
+          "task-1": { ...makeBlockedTask("task-1", "question-1"), coordinatorSession: "codex:backend" },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(
+    service.coordinatorRequestHumanInput({
+      coordinatorSession: "codex:backend",
+      taskQuestions: [{ taskId: "task-1", questionId: "question-1" }],
+      promptText: "Need human input",
+    }),
+  ).rejects.toThrow("human input routing is not configured for external coordinator");
+});
+
+test("external coordinator registration cannot race with a worker ensure side effect for the same handle", async () => {
+  const ensureStarted = createDeferred<void>();
+  const releaseEnsure = createDeferred<void>();
+  const harness = makeDeps({
+    reusableWorkerSession: "codex:backend",
+    ensureWorkerSession: async (request) => {
+      harness.ensureCalls.push(request);
+      ensureStarted.resolve();
+      await releaseEnsure.promise;
+      return request.workerSession;
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const delegatePromise = service.requestDelegate({
+    sourceHandle: "wx:user",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "claude",
+    task: "review",
+  });
+  await ensureStarted.promise;
+
+  const registerPromise = service
+    .registerExternalCoordinator({
+      coordinatorSession: "codex:backend",
+      workspace: "backend",
+    })
+    .then(
+      () => undefined,
+      (error) => error,
+    );
+  await Bun.sleep(10);
+  releaseEnsure.resolve();
+
+  await expect(delegatePromise).resolves.toMatchObject({
+    workerSession: "codex:backend",
+  });
+  const registerError = await registerPromise;
+  expect(registerError).toBeInstanceOf(Error);
+  expect((registerError as Error).message).toBe(
+    'coordinatorSession "codex:backend" conflicts with an existing worker session',
+  );
+  expect(harness.getState().orchestration.externalCoordinators).toEqual({});
+  expect(harness.getState().orchestration.workerBindings["codex:backend"]).toMatchObject({
+    coordinatorSession: "backend:main",
+  });
+});
+
+test("external coordinator registration is not blocked by an unrelated proposed worker handle", async () => {
+  const ensureStarted = createDeferred<void>();
+  const releaseEnsure = createDeferred<void>();
+  const harness = makeDeps({
+    reusableWorkerSession: "codex:proposed",
+    ensureWorkerSession: async (request) => {
+      harness.ensureCalls.push(request);
+      ensureStarted.resolve();
+      await releaseEnsure.promise;
+      return "codex:actual";
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const delegatePromise = service.requestDelegate({
+    sourceHandle: "wx:user",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "claude",
+    task: "review",
+  }).then(
+    () => undefined,
+    (error) => error,
+  );
+  await ensureStarted.promise;
+
+  const registerPromise = service
+    .registerExternalCoordinator({
+      coordinatorSession: "codex:actual",
+      workspace: "backend",
+    })
+    .then(
+      () => undefined,
+      (error) => error,
+    );
+  await Bun.sleep(10);
+  releaseEnsure.resolve();
+
+  await expect(registerPromise).resolves.toBeUndefined();
+  const delegateError = await delegatePromise;
+  expect(delegateError).toBeInstanceOf(Error);
+  expect((delegateError as Error).message).toBe(
+    'ensureWorkerSession returned "codex:actual", expected "codex:proposed"',
+  );
+  expect(harness.getState().orchestration.externalCoordinators?.["codex:actual"]).toMatchObject({
+    coordinatorSession: "codex:actual",
+    workspace: "backend",
+  });
+  expect(harness.getState().orchestration.workerBindings).toEqual({});
 });
 
 test("records a completed reply and rejects source-handle mismatches", async () => {
@@ -3514,6 +5662,84 @@ test("active human package snapshots only expose questions that are still open",
   });
 });
 
+test("external coordinator active human packages cannot be read or claimed", async () => {
+  const externalTask = {
+    ...makeBlockedTask("task-1", "question-1"),
+    sourceHandle: "codex:backend",
+    sourceKind: "coordinator" as const,
+    coordinatorSession: "codex:backend",
+    workerSession: "backend:claude:codex:backend",
+    status: "waiting_for_human" as const,
+    openQuestion: {
+      ...makeBlockedTask("task-1", "question-1").openQuestion,
+      packageId: "package-1",
+    },
+  };
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+        tasks: {
+          "task-1": externalTask,
+        },
+        humanQuestionPackages: {
+          "package-1": {
+            packageId: "package-1",
+            coordinatorSession: "codex:backend",
+            status: "active",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+            initialTaskIds: ["task-1"],
+            openTaskIds: ["task-1"],
+            resolvedTaskIds: [],
+            awaitingReplyMessageId: "message-1",
+            messages: [
+              {
+                messageId: "message-1",
+                kind: "initial",
+                promptText: "Please answer task 1.",
+                createdAt: "2026-04-28T10:00:00.000Z",
+                deliveredAt: "2026-04-28T10:00:10.000Z",
+                deliveredChatKey: "wx:human",
+                taskQuestions: [{ taskId: "task-1", questionId: "question-1" }],
+              },
+            ],
+          },
+        },
+        coordinatorQuestionState: {
+          "codex:backend": {
+            activePackageId: "package-1",
+            queuedQuestions: [],
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(service.getActiveHumanQuestionPackage("codex:backend")).resolves.toBeNull();
+  await expect(
+    service.claimActiveHumanReply({
+      coordinatorSession: "codex:backend",
+      chatKey: "wx:human",
+      packageId: "package-1",
+      messageId: "message-1",
+    }),
+  ).resolves.toBeNull();
+
+  expect(harness.savedStates).toEqual([]);
+  expect(harness.getState().orchestration.humanQuestionPackages["package-1"].awaitingReplyMessageId).toBe("message-1");
+});
+
 test("claimActiveHumanReply refuses awaited messages that are missing frozen taskQuestions", async () => {
   const harness = makeDeps({
     initialState: {
@@ -3609,6 +5835,52 @@ test("lists pending blockers and contested coordinator results", async () => {
 
   expect(blockers.map((task) => task.taskId)).toEqual(["task-blocked"]);
   expect(contested.map((task) => task.taskId)).toEqual(["task-contested"]);
+});
+
+test("external coordinator blockers and contested results are excluded from prompt fan-in lists", async () => {
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        externalCoordinators: {
+          "codex:backend": {
+            coordinatorSession: "codex:backend",
+            workspace: "backend",
+            createdAt: "2026-04-28T10:00:00.000Z",
+            updatedAt: "2026-04-28T10:00:00.000Z",
+          },
+        },
+        tasks: {
+          "task-blocked": {
+            ...makeBlockedTask("task-blocked", "question-1"),
+            sourceHandle: "codex:backend",
+            sourceKind: "coordinator",
+            coordinatorSession: "codex:backend",
+            workerSession: "backend:claude:codex:backend",
+          },
+          "task-contested": {
+            ...makeCompletedTask("task-contested"),
+            sourceHandle: "codex:backend",
+            sourceKind: "coordinator",
+            coordinatorSession: "codex:backend",
+            workerSession: "backend:claude:codex:backend",
+            reviewPending: {
+              reviewId: "review-1",
+              reason: "misrouted_answer",
+              createdAt: "2026-04-28T10:03:00.000Z",
+              resultId: "result-1",
+              resultText: "wrong answer",
+            },
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(service.listPendingCoordinatorBlockers("codex:backend")).resolves.toEqual([]);
+  await expect(service.listContestedCoordinatorResults("codex:backend")).resolves.toEqual([]);
 });
 
 test("lists pending coordinator results sorted by updatedAt and excludes injected tasks", async () => {
@@ -5138,6 +7410,52 @@ test("does not persist a human delegate task when worker dispatch fails", async 
   expect(harness.getState().orchestration.workerBindings).toEqual({});
 });
 
+test("human delegate dispatch failure restores group injection metadata", async () => {
+  const initialGroup = {
+    groupId: "group-a",
+    coordinatorSession: "backend:main",
+    title: "review group",
+    createdAt: "2026-04-13T09:00:00.000Z",
+    updatedAt: "2026-04-13T09:30:00.000Z",
+    coordinatorInjectedAt: "2026-04-13T09:31:00.000Z",
+    injectionPending: true,
+    injectionAppliedAt: "2026-04-13T09:32:00.000Z",
+    lastInjectionError: "previous error",
+  };
+  const harness = makeDeps({
+    createId: () => "task-group-dispatch-fail",
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        tasks: {},
+        workerBindings: {},
+        groups: {
+          "group-a": initialGroup,
+        },
+      },
+    },
+    dispatchWorkerTask: async () => {
+      throw new Error("prompt failed");
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(
+    service.requestDelegate({
+      sourceHandle: "wx:user-9",
+      sourceKind: "human",
+      coordinatorSession: "backend:main",
+      workspace: "backend",
+      targetAgent: "claude",
+      groupId: "group-a",
+      task: "review the design",
+    }),
+  ).rejects.toThrow("prompt failed");
+
+  expect(harness.getState().orchestration.tasks).toEqual({});
+  expect(harness.getState().orchestration.groups?.["group-a"]).toEqual(initialGroup);
+});
+
 test("persists a human delegate task and binding before worker dispatch starts", async () => {
   const harness = makeDeps({
     createId: () => "task-visible-1",
@@ -5227,6 +7545,60 @@ test("keeps a worker-chained needs_confirmation task unchanged when approval dis
     resultText: "",
   });
   expect(task?.workerSession).toBe("backend:codex:backend:main");
+});
+
+test("approval dispatch failure restores missing legacy worker session", async () => {
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        tasks: {
+          "task-legacy": {
+            taskId: "task-legacy",
+            sourceHandle: "backend:claude:backend:main",
+            sourceKind: "worker",
+            coordinatorSession: "backend:main",
+            workspace: "backend",
+            targetAgent: "codex",
+            task: "legacy pending request",
+            status: "needs_confirmation",
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-13T10:00:00.000Z",
+            updatedAt: "2026-04-13T10:00:00.000Z",
+          },
+        },
+        workerBindings: {
+          "backend:claude:backend:main": {
+            sourceHandle: "backend:claude:backend:main",
+            coordinatorSession: "backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+          },
+        },
+      },
+    },
+    dispatchWorkerTask: async () => {
+      throw new Error("prompt failed");
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await expect(
+    service.approveTask({
+      taskId: "task-legacy",
+      coordinatorSession: "backend:main",
+    }),
+  ).rejects.toThrow("prompt failed");
+
+  const task = await service.getTask("task-legacy");
+  expect(task).toMatchObject({
+    taskId: "task-legacy",
+    status: "needs_confirmation",
+    updatedAt: "2026-04-13T10:00:00.000Z",
+  });
+  expect(task?.workerSession).toBeUndefined();
+  expect(harness.getState().orchestration.workerBindings["backend:codex:backend:main"]).toBeUndefined();
 });
 
 test("persists approved worker-chained task state and binding before worker dispatch resumes work", async () => {
@@ -6363,7 +8735,7 @@ test("serializes concurrent approvals so only one transition wins", async () => 
   expect(secondResult.status).toBe("rejected");
   if (secondResult.status === "rejected") {
     expect(secondResult.error).toBeInstanceOf(Error);
-    expect(secondResult.error.message).toBe('task "task-concurrent-approve" is running, not needs_confirmation');
+    expect(secondResult.error.message).toBe('worker session "backend:claude:backend:main" is already in use');
   }
   expect(dispatchCalls).toEqual([
     {
@@ -6395,12 +8767,12 @@ test("startWorkerCancellation reads fresh workerSession from state, not stale sn
   const originalLoadState = harness.deps.loadState;
 
   // Intercept loadState: calls through the service path get counted and potentially blocked.
-  // requestDelegateForHuman -> mutate -> loadState (count 1, pass through)
-  // requestTaskCancellation -> mutate -> loadState (count 2, pass through)
-  // startWorkerCancellation -> loadState (count 3, block here)
+  // requestDelegateForHuman -> worker-collision precheck + mutate -> loadState (counts 1-2, pass through)
+  // requestTaskCancellation -> mutate -> loadState (count 3, pass through)
+  // startWorkerCancellation -> loadState (count 4, block here)
   harness.deps.loadState = async () => {
     serviceLoadStateCount++;
-    if (serviceLoadStateCount >= 3) {
+    if (serviceLoadStateCount >= 4) {
       await loadStateBlocker;
     }
     return originalLoadState();

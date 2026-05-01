@@ -1,10 +1,10 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { expect, test } from "bun:test";
 
-import { runCli } from "../../src/cli";
+import { createMcpStdioIdentityResolver, prepareMcpCoordinatorStartup, runCli } from "../../src/cli";
 
 async function withTempHome<T>(fn: (home: string) => Promise<T>): Promise<T> {
   const home = await mkdtemp(join(tmpdir(), "weacpx-cli-"));
@@ -183,7 +183,7 @@ test("prints help for unknown commands", async () => {
     "weacpx doctor - 运行诊断",
     "weacpx version - 查看版本",
     "weacpx workspace list|add|rm - 管理本机工作区（别名：ws）",
-    "weacpx mcp-stdio --coordinator-session <session> [--source-handle <handle>] - 启动 MCP stdio 服务",
+    "weacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务",
   ]);
 });
 
@@ -484,7 +484,419 @@ test("passes subcommand args through to mcp-stdio and returns its exit code", as
   expect(calls).toEqual([["--coordinator-session", "backend:main", "--source-handle", "backend:worker"]]);
 });
 
-test("prints chinese stderr and returns exit code 2 when mcp-stdio is missing coordinator session", async () => {
+
+test("mcp coordinator startup keeps existing weacpx sessions without workspace", async () => {
+  const registrations: unknown[] = [];
+
+  await expect(
+    prepareMcpCoordinatorStartup({
+      coordinatorSession: "backend:main",
+      config: {
+        workspaces: { backend: { cwd: "/tmp/backend" } },
+      },
+      state: {
+        sessions: {
+          main: {
+            alias: "main",
+            agent: "codex",
+            workspace: "backend",
+            transport_session: "backend:main",
+            created_at: "2026-04-28T00:00:00.000Z",
+            last_used_at: "2026-04-28T00:00:00.000Z",
+          },
+        },
+      },
+      client: {
+        registerExternalCoordinator: async (input) => {
+          registrations.push(input);
+          return input as never;
+        },
+      },
+    }),
+  ).resolves.toEqual({ kind: "existing-session" });
+
+  expect(registrations).toEqual([]);
+});
+
+test("mcp coordinator startup registers unknown coordinators with workspace", async () => {
+  const registrations: unknown[] = [];
+
+  await expect(
+    prepareMcpCoordinatorStartup({
+      coordinatorSession: "codex:backend",
+      workspace: "backend",
+      config: {
+        workspaces: { backend: { cwd: "/tmp/backend" } },
+      },
+      state: { sessions: {} },
+      client: {
+        registerExternalCoordinator: async (input) => {
+          registrations.push(input);
+          return input as never;
+        },
+      },
+    }),
+  ).resolves.toEqual({ kind: "external-coordinator", workspace: "backend" });
+
+  expect(registrations).toEqual([{ coordinatorSession: "codex:backend", workspace: "backend" }]);
+});
+
+test("mcp coordinator startup rejects explicit external registration that collides with an existing weacpx session", async () => {
+  const registrations: unknown[] = [];
+
+  await expect(
+    prepareMcpCoordinatorStartup({
+      coordinatorSession: "backend:main",
+      workspace: "backend",
+      config: {
+        workspaces: { backend: { cwd: "/tmp/backend" } },
+      },
+      state: {
+        sessions: {
+          main: {
+            alias: "main",
+            agent: "codex",
+            workspace: "backend",
+            transport_session: "backend:main",
+            created_at: "2026-04-28T00:00:00.000Z",
+            last_used_at: "2026-04-28T00:00:00.000Z",
+          },
+        },
+      },
+      client: {
+        registerExternalCoordinator: async (input) => {
+          registrations.push(input);
+          return input as never;
+        },
+      },
+    }),
+  ).rejects.toThrow('coordinatorSession "backend:main" conflicts with an existing logical session');
+
+  expect(registrations).toEqual([]);
+});
+
+test("mcp coordinator startup accepts registered external coordinators without workspace", async () => {
+  const registrations: unknown[] = [];
+
+  await expect(
+    prepareMcpCoordinatorStartup({
+      coordinatorSession: "codex:backend",
+      config: {
+        workspaces: { backend: { cwd: "/tmp/backend" } },
+      },
+      state: {
+        sessions: {},
+        orchestration: {
+          externalCoordinators: {
+            "codex:backend": {
+              coordinatorSession: "codex:backend",
+              workspace: "backend",
+              createdAt: "2026-04-28T00:00:00.000Z",
+              updatedAt: "2026-04-28T00:00:00.000Z",
+            },
+          },
+        },
+      },
+      client: {
+        registerExternalCoordinator: async (input) => {
+          registrations.push(input);
+          return input as never;
+        },
+      },
+    }),
+  ).resolves.toEqual({ kind: "external-coordinator", workspace: "backend" });
+
+  expect(registrations).toEqual([{ coordinatorSession: "codex:backend", workspace: "backend" }]);
+});
+
+test("mcp coordinator startup verifies daemon IPC when reusing registered external coordinators", async () => {
+  const error = new Error("connect ECONNREFUSED /tmp/weacpx/orchestration.sock") as NodeJS.ErrnoException;
+  error.code = "ECONNREFUSED";
+
+  await expect(
+    prepareMcpCoordinatorStartup({
+      coordinatorSession: "codex:backend",
+      config: {
+        workspaces: { backend: { cwd: "/tmp/backend" } },
+      },
+      state: {
+        sessions: {},
+        orchestration: {
+          externalCoordinators: {
+            "codex:backend": {
+              coordinatorSession: "codex:backend",
+              workspace: "backend",
+              createdAt: "2026-04-28T00:00:00.000Z",
+              updatedAt: "2026-04-28T00:00:00.000Z",
+            },
+          },
+        },
+      },
+      client: {
+        registerExternalCoordinator: async () => {
+          throw error;
+        },
+      },
+    }),
+  ).rejects.toThrow("weacpx daemon orchestration IPC is unavailable; run `weacpx start` and check `weacpx status`");
+});
+
+test("mcp coordinator startup rejects explicit workspace rebind for registered external coordinators", async () => {
+  const registrations: unknown[] = [];
+
+  await expect(
+    prepareMcpCoordinatorStartup({
+      coordinatorSession: "codex:backend",
+      workspace: "frontend",
+      config: {
+        workspaces: {
+          backend: { cwd: "/tmp/backend" },
+          frontend: { cwd: "/tmp/frontend" },
+        },
+      },
+      state: {
+        sessions: {},
+        orchestration: {
+          externalCoordinators: {
+            "codex:backend": {
+              coordinatorSession: "codex:backend",
+              workspace: "backend",
+              createdAt: "2026-04-28T00:00:00.000Z",
+              updatedAt: "2026-04-28T00:00:00.000Z",
+            },
+          },
+        },
+      },
+      client: {
+        registerExternalCoordinator: async (input) => {
+          registrations.push(input);
+          return input as never;
+        },
+      },
+    }),
+  ).rejects.toThrow(
+    'coordinatorSession "codex:backend" is already bound to workspace "backend"; use a new coordinator session for workspace "frontend"',
+  );
+
+  expect(registrations).toEqual([]);
+});
+
+test("mcp coordinator startup rejects stale external coordinator workspaces without explicit refresh", async () => {
+  await expect(
+    prepareMcpCoordinatorStartup({
+      coordinatorSession: "codex:backend",
+      config: {
+        workspaces: { frontend: { cwd: "/tmp/frontend" } },
+      },
+      state: {
+        sessions: {},
+        orchestration: {
+          externalCoordinators: {
+            "codex:backend": {
+              coordinatorSession: "codex:backend",
+              workspace: "backend",
+              createdAt: "2026-04-28T00:00:00.000Z",
+              updatedAt: "2026-04-28T00:00:00.000Z",
+            },
+          },
+        },
+      },
+      client: { registerExternalCoordinator: async (input) => input as never },
+    }),
+  ).rejects.toThrow(
+    'workspace "backend" is not configured for coordinatorSession "codex:backend"; restore that workspace config or use a new coordinator session for a different workspace',
+  );
+});
+
+test("mcp coordinator startup rejects stale external coordinator workspaces even with explicit same workspace", async () => {
+  const registrations: unknown[] = [];
+
+  await expect(
+    prepareMcpCoordinatorStartup({
+      coordinatorSession: "codex:backend",
+      workspace: "backend",
+      config: {
+        workspaces: { frontend: { cwd: "/tmp/frontend" } },
+      },
+      state: {
+        sessions: {},
+        orchestration: {
+          externalCoordinators: {
+            "codex:backend": {
+              coordinatorSession: "codex:backend",
+              workspace: "backend",
+              createdAt: "2026-04-28T00:00:00.000Z",
+              updatedAt: "2026-04-28T00:00:00.000Z",
+            },
+          },
+        },
+      },
+      client: {
+        registerExternalCoordinator: async (input) => {
+          registrations.push(input);
+          return input as never;
+        },
+      },
+    }),
+  ).rejects.toThrow(
+    'workspace "backend" is not configured for coordinatorSession "codex:backend"; restore that workspace config or use a new coordinator session for a different workspace',
+  );
+
+  expect(registrations).toEqual([]);
+});
+
+test("mcp coordinator startup registers unknown coordinators without workspace", async () => {
+  const registrations: unknown[] = [];
+
+  await expect(
+    prepareMcpCoordinatorStartup({
+      coordinatorSession: "codex:backend",
+      config: { workspaces: { backend: { cwd: "/tmp/backend" } } },
+      state: { sessions: {} },
+      client: {
+        registerExternalCoordinator: async (input) => {
+          registrations.push(input);
+          return input as never;
+        },
+      },
+    }),
+  ).resolves.toEqual({ kind: "external-coordinator" });
+
+  expect(registrations).toEqual([{ coordinatorSession: "codex:backend" }]);
+});
+
+test("mcp coordinator startup rejects unconfigured external workspaces", async () => {
+  await expect(
+    prepareMcpCoordinatorStartup({
+      coordinatorSession: "codex:backend",
+      workspace: "missing",
+      config: { workspaces: { backend: { cwd: "/tmp/backend" } } },
+      state: { sessions: {} },
+      client: { registerExternalCoordinator: async (input) => input as never },
+    }),
+  ).rejects.toThrow('workspace "missing" is not configured');
+});
+
+test("mcp coordinator startup turns unavailable daemon IPC into an actionable error", async () => {
+  const error = new Error("connect ENOENT /tmp/weacpx/orchestration.sock") as NodeJS.ErrnoException;
+  error.code = "ENOENT";
+
+  await expect(
+    prepareMcpCoordinatorStartup({
+      coordinatorSession: "codex:backend",
+      workspace: "backend",
+      config: { workspaces: { backend: { cwd: "/tmp/backend" } } },
+      state: { sessions: {} },
+      client: {
+        registerExternalCoordinator: async () => {
+          throw error;
+        },
+      },
+    }),
+  ).rejects.toThrow("weacpx daemon orchestration IPC is unavailable; run `weacpx start` and check `weacpx status`");
+});
+
+test("mcp coordinator startup turns stale daemon workspace config into an actionable error", async () => {
+  await expect(
+    prepareMcpCoordinatorStartup({
+      coordinatorSession: "codex:backend",
+      workspace: "backend",
+      config: { workspaces: { backend: { cwd: "/tmp/backend" } } },
+      state: { sessions: {} },
+      client: {
+        registerExternalCoordinator: async () => {
+          throw new Error('workspace "backend" is not configured');
+        },
+      },
+    }),
+  ).rejects.toThrow(
+    'workspace "backend" is not configured in the running daemon; restart it with `weacpx stop && weacpx start`',
+  );
+});
+
+
+test("mcp-stdio workspace-only identity resolution does not require MCP roots", async () => {
+  const registrations: unknown[] = [];
+  const resolver = createMcpStdioIdentityResolver({
+    parsedCoordinatorSession: undefined,
+    sourceHandle: null,
+    workspace: "backend",
+    config: { workspaces: { backend: { cwd: "/repo/backend" } } },
+    state: { sessions: {} },
+    client: {
+      registerExternalCoordinator: async (input) => {
+        registrations.push(input);
+      },
+    },
+  });
+
+  await expect(
+    resolver({
+      clientName: "Claude Code",
+      listRoots: async () => {
+        throw new Error("roots unsupported");
+      },
+    }),
+  ).resolves.toEqual({ coordinatorSession: "external_claude-code:backend" });
+
+  expect(registrations).toEqual([{ coordinatorSession: "external_claude-code:backend", workspace: "backend" }]);
+});
+
+test("mcp-stdio identity resolution without workspace does not require MCP roots", async () => {
+  const registrations: unknown[] = [];
+  const resolver = createMcpStdioIdentityResolver({
+    parsedCoordinatorSession: undefined,
+    sourceHandle: null,
+    workspace: null,
+    config: { workspaces: { backend: { cwd: "/repo/backend" } } },
+    state: { sessions: {} },
+    client: {
+      registerExternalCoordinator: async (input) => {
+        registrations.push(input);
+      },
+    },
+  });
+
+  const identity = await resolver({
+    clientName: "Claude Code",
+    listRoots: async () => {
+      throw new Error("roots unsupported");
+    },
+  });
+
+  expect(identity.coordinatorSession).toMatch(/^external_claude-code:[0-9a-f-]+$/);
+  expect(registrations).toEqual([{ coordinatorSession: identity.coordinatorSession }]);
+});
+
+test("mcp-stdio returns a controlled startup error when workspace flag is missing a value", async () => {
+  const stderr: string[] = [];
+
+  await expect(
+    runCli(["mcp-stdio", "--coordinator-session", "codex:backend", "--workspace", "--source-handle", "worker:1"], {
+      stderr: (text) => {
+        stderr.push(text);
+      },
+    }),
+  ).resolves.toBe(2);
+
+  expect(stderr).toEqual(['--workspace requires a non-empty value\n']);
+});
+
+test("mcp-stdio returns a controlled startup error when coordinator session flag is missing a value", async () => {
+  const stderr: string[] = [];
+
+  await expect(
+    runCli(["mcp-stdio", "--coordinator-session", "--workspace", "backend"], {
+      stderr: (text) => {
+        stderr.push(text);
+      },
+    }),
+  ).resolves.toBe(2);
+
+  expect(stderr).toEqual(["--coordinator-session requires a non-empty value\n"]);
+});
+
+test("mcp-stdio without coordinator session starts with a process-scoped external identity", async () => {
   const stderr: string[] = [];
 
   await expect(
@@ -493,11 +905,41 @@ test("prints chinese stderr and returns exit code 2 when mcp-stdio is missing co
         stderr.push(text);
       },
     }),
-  ).resolves.toBe(2);
+  ).resolves.toBe(0);
 
-  expect(stderr).toEqual([
-    "weacpx mcp-stdio 需要 --coordinator-session <handle> 或 WEACPX_COORDINATOR_SESSION 环境变量\n",
-  ]);
+  expect(stderr).toEqual([]);
+});
+
+test("mcp-stdio returns a controlled startup error when local state is malformed", async () => {
+  await withTempHome(async (home) => {
+    const root = join(home, ".weacpx");
+    await mkdir(root, { recursive: true });
+    await writeFile(
+      join(root, "config.json"),
+      JSON.stringify({
+        transport: { type: "acpx-cli", command: "acpx" },
+        agents: { codex: { driver: "codex" } },
+        workspaces: {
+          backend: {
+            cwd: "/tmp/backend",
+            allowed_agents: ["codex"],
+          },
+        },
+      }),
+    );
+    await writeFile(join(root, "state.json"), "{not-json");
+    const stderr: string[] = [];
+
+    await expect(
+      runCli(["mcp-stdio", "--coordinator-session", "codex:backend", "--workspace", "backend"], {
+        stderr: (text) => {
+          stderr.push(text);
+        },
+      }),
+    ).resolves.toBe(2);
+
+    expect(stderr.join("")).toContain(`failed to parse state file "${join(root, "state.json")}"`);
+  });
 });
 
 test("prints help for '--help' flag and exits 0", async () => {
@@ -512,7 +954,7 @@ test("prints help for '--help' flag and exits 0", async () => {
   ).resolves.toBe(0);
 
   expect(lines).toContain("weacpx version - 查看版本");
-  expect(lines).toContain("weacpx mcp-stdio --coordinator-session <session> [--source-handle <handle>] - 启动 MCP stdio 服务");
+  expect(lines).toContain("weacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务");
 });
 
 test("prints help for '-h' flag and exits 0", async () => {
@@ -527,5 +969,5 @@ test("prints help for '-h' flag and exits 0", async () => {
   ).resolves.toBe(0);
 
   expect(lines).toContain("weacpx version - 查看版本");
-  expect(lines).toContain("weacpx mcp-stdio --coordinator-session <session> [--source-handle <handle>] - 启动 MCP stdio 服务");
+  expect(lines).toContain("weacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务");
 });

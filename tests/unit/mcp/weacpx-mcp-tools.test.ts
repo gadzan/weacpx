@@ -4,7 +4,7 @@ import { buildWeacpxMcpToolRegistry } from "../../../src/mcp/weacpx-mcp-tools";
 import { createMemoryTransport } from "../../../src/mcp/weacpx-mcp-transport";
 import { QuotaDeferredError } from "../../../src/weixin/messaging/quota-errors";
 
-test("builds 15 MCP tools and appends blocker-loop actions after the original orchestration tools", async () => {
+test("builds 16 MCP tools and appends blocker-loop actions after the original orchestration tools", async () => {
   const calls: unknown[] = [];
   const transport = createMemoryTransport(
     async (input) => {
@@ -23,6 +23,10 @@ test("builds 15 MCP tools and appends blocker-loop actions after the original or
       cancelTask: async () => {
         throw new Error("cancel not implemented");
       },
+      waitTask: async (input) => {
+        calls.push(input);
+        return { status: "timeout", task: null };
+      },
       workerRaiseQuestion: async (input) => {
         calls.push(input);
         return { taskId: "task-1", questionId: "question-1", status: "blocked" };
@@ -36,7 +40,7 @@ test("builds 15 MCP tools and appends blocker-loop actions after the original or
     sourceHandle: "backend:worker",
   });
 
-  expect(registry).toHaveLength(15);
+  expect(registry).toHaveLength(16);
   expect(registry.map((tool) => tool.name)).toEqual([
     "delegate_request",
     "group_new",
@@ -48,6 +52,7 @@ test("builds 15 MCP tools and appends blocker-loop actions after the original or
     "task_approve",
     "task_reject",
     "task_cancel",
+    "task_wait",
     "worker_raise_question",
     "coordinator_answer_question",
     "coordinator_request_human_input",
@@ -62,6 +67,14 @@ test("builds 15 MCP tools and appends blocker-loop actions after the original or
       sourceHandle: "spoofed",
       targetAgent: "claude",
       task: "review",
+    }).success,
+  ).toBe(false);
+  expect(
+    delegateTool?.inputSchema.safeParse({
+      coordinatorSession: "spoofed",
+      targetAgent: "claude",
+      task: "review",
+      workingDirectory: "/repo/weacpx",
     }).success,
   ).toBe(false);
   const workerRaiseQuestionTool = registry.find((tool) => tool.name === "worker_raise_question");
@@ -80,11 +93,22 @@ test("builds 15 MCP tools and appends blocker-loop actions after the original or
   expect(taskListTool).toBeDefined();
   expect(taskListTool?.inputSchema.safeParse({ status: "blocked" }).success).toBe(true);
   expect(taskListTool?.inputSchema.safeParse({ status: "waiting_for_human" }).success).toBe(true);
+  const taskWaitTool = registry.find((tool) => tool.name === "task_wait");
+  expect(taskWaitTool).toBeDefined();
+  expect(taskWaitTool?.inputSchema.safeParse({ taskId: "task-1", timeoutMs: 1000, pollIntervalMs: 50 }).success).toBe(true);
+  expect(taskWaitTool?.inputSchema.safeParse({ taskId: "task-1", timeoutMs: 1_200_000 }).success).toBe(true);
+  expect(taskWaitTool?.inputSchema.safeParse({ taskId: "task-1", timeoutMs: 1_200_001 }).success).toBe(false);
 
   const response = await delegateTool?.handler({
     targetAgent: "claude",
     task: "review",
+    workingDirectory: "/repo/weacpx",
     role: "reviewer",
+  });
+  const waitResponse = await taskWaitTool?.handler({
+    taskId: "task-1",
+    timeoutMs: 1000,
+    pollIntervalMs: 50,
   });
   const workerResponse = await workerRaiseQuestionTool?.handler({
     taskId: "task-1",
@@ -99,7 +123,14 @@ test("builds 15 MCP tools and appends blocker-loop actions after the original or
       sourceHandle: "backend:worker",
       targetAgent: "claude",
       task: "review",
+      workingDirectory: "/repo/weacpx",
       role: "reviewer",
+    },
+    {
+      coordinatorSession: "backend:main",
+      taskId: "task-1",
+      timeoutMs: 1000,
+      pollIntervalMs: 50,
     },
     {
       sourceHandle: "backend:worker",
@@ -112,6 +143,10 @@ test("builds 15 MCP tools and appends blocker-loop actions after the original or
   expect(response).toEqual({
     content: [{ type: "text", text: "Delegation task task-9 is needs_confirmation." }],
     structuredContent: { taskId: "task-9", status: "needs_confirmation" },
+  });
+  expect(waitResponse).toEqual({
+    content: [{ type: "text", text: "Task wait timeout; current state is unavailable." }],
+    structuredContent: { status: "timeout", task: null },
   });
   expect(workerResponse).toEqual({
     content: [{ type: "text", text: "任务「task-1」已提交 blocker 问题。\n- questionId：question-1" }],
