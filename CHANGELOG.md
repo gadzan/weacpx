@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.3.2] - 2026-05-01
+
+### Added
+
+- **外部 MCP 协调器自动发现：** `weacpx mcp-stdio` 现在支持自动从 MCP roots 推断工作区并生成协调器会话标识，`--coordinator-session` 参数变为可选；新增 `inferExternalCoordinatorSession` 与 `inferWorkspaceFromRoots` 智能推断逻辑。
+- **任务等待工具：** 新增 `task_wait` MCP 工具，支持 worker 轮询等待任务完成或需要人工介入，带可配置的超时与轮询间隔上限。
+- **Prompt 媒体支持：** Transport prompt 接口新增 `PromptMedia` 类型，支持图片文件作为结构化 prompt 输入，自动进行 MIME 类型检测与大小校验。
+- **外部协调器注册：** 编排服务新增 `registerExternalCoordinator` 方法，支持外部 MCP 客户端注册为协调器，与现有 worker/session 机制隔离。
+
+### Changed
+
+- **版本升级至 0.3.2**，`acpx` 依赖升级至 `^0.6.1`。
+- **编排服务并发安全增强：** `OrchestrationService` 与 `SessionService` 新增 `AsyncMutex` 状态锁，避免并发操作导致状态不一致。
+- **`mcp-stdio` 命令增强：** 新增 `--workspace` 参数支持，协调器会话与工作区绑定逻辑更完善，启动前会校验 workspace 配置有效性与会话冲突。
+- **README 文档更新：** 精简项目定位说明，补充外部 MCP 接入说明与更多 Agent 支持。
+
+### Tests
+
+- 新增 `infer-coordinator-identity`、`parse-coordinator-workspace`、`prompt-media`、`task-wait-timeouts`、`weacpx-mcp-transport` 等单元测试。
+- 大幅扩充 `orchestration-service`、`orchestration-client`、`orchestration-server`、`session-service`、`state-store`、`bridge-server`、`cli`、`main`、`acpx-cli-transport`、`acpx-bridge-transport`、`handle-weixin-message-turn` 等测试覆盖。
+
+### Docs
+
+- 新增 `docs/external-mcp.md`：外部 MCP 协调器接入指南。
+
 ## [0.3.1] - 2026-04-28
 
 ### Added
