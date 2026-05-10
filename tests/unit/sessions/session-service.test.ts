@@ -1,16 +1,22 @@
-import { expect, test } from "bun:test";
+import { beforeAll, expect, test } from "bun:test";
 
 import type { AppConfig } from "../../../src/config/types";
 import { createEmptyState } from "../../../src/state/types";
 import type { AppState } from "../../../src/state/types";
 import type { StateStore } from "../../../src/state/state-store";
 import { SessionService } from "../../../src/sessions/session-service";
+import { registerKnownChannelId } from "../../../src/channels/channel-scope";
+
+beforeAll(() => {
+  registerKnownChannelId("feishu");
+});
 
 function createConfig(): AppConfig {
   return {
     transport: { type: "acpx-cli", command: "acpx", permissionMode: "approve-all", nonInteractivePermissions: "deny" },
     logging: { level: "info", maxSizeBytes: 1024, maxFiles: 2, retentionDays: 1 },
-    wechat: { replyMode: "stream" },
+    channel: { type: "weixin", replyMode: "stream" },
+    channels: [{ id: "weixin", type: "weixin", enabled: true }],
     agents: {
       codex: { driver: "codex" },
       claude: { driver: "claude" },
@@ -228,6 +234,7 @@ test("lists logical sessions with current markers", async () => {
   expect(await service.listSessions("wx:user")).toEqual([
     {
       alias: "api-fix",
+      internalAlias: "api-fix",
       agent: "codex",
       workspace: "backend",
       isCurrent: true,
@@ -287,4 +294,87 @@ test("throws when removing a non-existent session", async () => {
   const service = new SessionService(createConfig(), store, createEmptyState());
 
   expect(service.removeSession("nope")).rejects.toThrow('session "nope" does not exist');
+});
+
+test("lists legacy and scoped weixin sessions with display aliases", async () => {
+  const state = createEmptyState();
+  state.sessions["backend:codex"] = {
+    alias: "backend:codex",
+    agent: "codex",
+    workspace: "backend",
+    transport_session: "backend:codex",
+    created_at: "2026-05-03T00:00:00.000Z",
+    last_used_at: "2026-05-03T00:00:00.000Z",
+  };
+  state.sessions["weixin:frontend:codex"] = {
+    alias: "weixin:frontend:codex",
+    agent: "codex",
+    workspace: "backend",
+    transport_session: "frontend:codex",
+    created_at: "2026-05-03T00:00:00.000Z",
+    last_used_at: "2026-05-03T00:00:00.000Z",
+  };
+  state.sessions["feishu:backend:codex"] = {
+    alias: "feishu:backend:codex",
+    agent: "codex",
+    workspace: "backend",
+    transport_session: "feishu:backend:codex",
+    created_at: "2026-05-03T00:00:00.000Z",
+    last_used_at: "2026-05-03T00:00:00.000Z",
+  };
+  const config = createConfig();
+  const service = new SessionService(config, new MemoryStateStore(), state);
+
+  const sessions = await service.listSessions("weixin:default:wxid_alice");
+
+  expect(sessions.map((session) => session.alias)).toEqual(["backend:codex", "frontend:codex"]);
+});
+
+test("lists only feishu scoped sessions with display aliases", async () => {
+  const state = createEmptyState();
+  state.sessions["backend:codex"] = {
+    alias: "backend:codex",
+    agent: "codex",
+    workspace: "backend",
+    transport_session: "backend:codex",
+    created_at: "2026-05-03T00:00:00.000Z",
+    last_used_at: "2026-05-03T00:00:00.000Z",
+  };
+  state.sessions["feishu:backend:codex"] = {
+    alias: "feishu:backend:codex",
+    agent: "codex",
+    workspace: "backend",
+    transport_session: "feishu:backend:codex",
+    created_at: "2026-05-03T00:00:00.000Z",
+    last_used_at: "2026-05-03T00:00:00.000Z",
+  };
+  const service = new SessionService(createConfig(), new MemoryStateStore(), state);
+
+  const sessions = await service.listSessions("feishu:default:oc_chat");
+
+  expect(sessions.map((session) => session.alias)).toEqual(["backend:codex"]);
+});
+
+test("resolves display alias to internal alias per channel", async () => {
+  const state = createEmptyState();
+  state.sessions["backend:codex"] = {
+    alias: "backend:codex",
+    agent: "codex",
+    workspace: "backend",
+    transport_session: "backend:codex",
+    created_at: "2026-05-03T00:00:00.000Z",
+    last_used_at: "2026-05-03T00:00:00.000Z",
+  };
+  state.sessions["feishu:backend:codex"] = {
+    alias: "feishu:backend:codex",
+    agent: "codex",
+    workspace: "backend",
+    transport_session: "feishu:backend:codex",
+    created_at: "2026-05-03T00:00:00.000Z",
+    last_used_at: "2026-05-03T00:00:00.000Z",
+  };
+  const service = new SessionService(createConfig(), new MemoryStateStore(), state);
+
+  expect(await service.resolveAliasForChat("weixin:default:wxid_alice", "backend:codex")).toBe("backend:codex");
+  expect(await service.resolveAliasForChat("feishu:default:oc_chat", "backend:codex")).toBe("feishu:backend:codex");
 });

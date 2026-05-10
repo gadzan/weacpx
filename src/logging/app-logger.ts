@@ -9,8 +9,10 @@ const LEVEL_ORDER: Record<LoggingLevel, number> = {
   debug: 2,
 };
 
+type LogContextValue = string | number | boolean | null | undefined | Record<string, unknown> | unknown[];
+
 interface LogContext {
-  [key: string]: string | number | boolean | null | undefined;
+  [key: string]: LogContextValue;
 }
 
 interface CreateAppLoggerOptions {
@@ -180,7 +182,7 @@ function formatLogLine(
   return `${time.toISOString()} ${level.toUpperCase()} ${event} message=${formatValue(message)}${suffix}\n`;
 }
 
-function formatValue(value: string | number | boolean | null | undefined): string {
+function formatValue(value: LogContextValue): string {
   if (value === null) {
     return "null";
   }

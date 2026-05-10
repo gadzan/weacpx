@@ -1,4 +1,5 @@
 import type { AppLogger } from "../../logging/app-logger";
+import { normalizeWeixinUserIdFromChatKey } from "./inbound.js";
 import { QuotaDeferredError } from "./quota-errors.js";
 import { describeWeixinSendError } from "./send-errors.js";
 import { sendMessageWeixin } from "./send.js";
@@ -24,7 +25,7 @@ export async function deliverCoordinatorMessage(
   input: DeliverCoordinatorMessageInput,
   deps: DeliverCoordinatorMessageDeps,
 ): Promise<void> {
-  if (deps.reserveMidSegment && !deps.reserveMidSegment(input.chatKey)) {
+  if (deps.reserveMidSegment && !deps.reserveMidSegment(normalizeWeixinUserIdFromChatKey(input.chatKey))) {
     await deps.logger.info(
       "orchestration.coordinator_message.deferred",
       "deferring coordinator message because outbound quota is exhausted",
@@ -64,7 +65,7 @@ export async function deliverCoordinatorMessage(
 
     try {
       await sendMessage({
-        to: input.chatKey,
+        to: normalizeWeixinUserIdFromChatKey(input.chatKey),
         text: input.text,
         opts: {
           baseUrl: account.baseUrl,

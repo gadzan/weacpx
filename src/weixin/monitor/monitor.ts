@@ -5,6 +5,7 @@ import { SESSION_EXPIRED_ERRCODE, pauseSession, getRemainingPauseMs } from "../a
 import { createConversationExecutor } from "../messaging/conversation-executor.js";
 import { getWeixinMessageTurnLane, handleWeixinMessageTurn } from "../messaging/handle-weixin-message-turn.js";
 import type { PendingFinalChunk } from "../messaging/quota-manager.js";
+import type { RuntimeMediaStore } from "../../channels/media-store.js";
 import { MessageItemType, type MessageItem } from "../api/types.js";
 import { getSyncBufFilePath, loadGetUpdatesBuf, saveGetUpdatesBuf } from "../storage/sync-buf.js";
 import { logger } from "../util/logger.js";
@@ -38,6 +39,8 @@ export type MonitorWeixinOpts = {
   prependPendingFinal?: (chatKey: string, chunks: PendingFinalChunk[]) => void;
   enqueuePendingFinal?: (chatKey: string, chunks: PendingFinalChunk[]) => void;
   dropPendingFinal?: (chatKey: string) => void;
+  mediaStore?: RuntimeMediaStore;
+  allowedMediaRoots?: string[];
 };
 
 function extractInboundText(itemList?: MessageItem[]): string {
@@ -234,6 +237,8 @@ export async function monitorWeixinProvider(opts: MonitorWeixinOpts): Promise<vo
               ...(opts.prependPendingFinal
                 ? { prependPendingFinal: opts.prependPendingFinal }
                 : {}),
+              ...(opts.mediaStore ? { mediaStore: opts.mediaStore } : {}),
+              ...(opts.allowedMediaRoots ? { allowedMediaRoots: opts.allowedMediaRoots } : {}),
             }),
           )
           .catch((err) => {

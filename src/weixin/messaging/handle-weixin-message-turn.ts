@@ -7,17 +7,25 @@ import type { Agent, ChatRequest } from "../agent/interface.js";
 import { sendTyping } from "../api/api.js";
 import type { WeixinMessage, MessageItem } from "../api/types.js";
 import { MessageItemType, TypingStatus } from "../api/types.js";
+import {
+  RuntimeMediaStore,
+  DEFAULT_ATTACHMENT_MAX_BYTES,
+  DEFAULT_IMAGE_MAX_BYTES,
+  DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE,
+} from "../../channels/media-store.js";
+import { resolveSafeOutboundMediaPath as resolveSafeMediaPath } from "../../channels/outbound-media-safety.js";
 import { downloadMediaFromItem } from "../media/media-download.js";
 import { getExtensionFromMime } from "../media/mime.js";
 
 import { executeChatTurn } from "./execute-chat-turn.js";
 import { buildFinalHeadsUp } from "./final-heads-up.js";
-import { setContextToken, bodyFromItemList, isMediaItem } from "./inbound.js";
+import { setContextToken, bodyFromItemList, extractWeixinMediaDescriptors } from "./inbound.js";
 import { sendWeixinErrorNotice } from "./error-notice.js";
 import { sendWeixinMediaFile } from "./send-media.js";
 import { markdownToPlainText, sendMessageWeixin } from "./send.js";
 import type { PendingFinalChunk } from "./quota-manager.js";
 import { handleSlashCommand } from "./slash-commands.js";
+import { normalizeMediaArray } from "../../channels/media-types.js";
 
 // Conservative WeChat single-message text upper bound; leaves headroom for
 // `(i/N) ` prefixes and the heads-up tail. WeChat's actual limit varies by
@@ -121,40 +129,6 @@ export function resolveMediaTempDir(customRoot?: string): string {
   return customRoot ?? path.join(tmpdir(), "weacpx", "media");
 }
 
-async function resolveSafeOutboundMediaPath(mediaUrl: string, mediaTempDir: string): Promise<string | null> {
-  if (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://")) {
-    return null;
-  }
-
-  const candidate = path.isAbsolute(mediaUrl) ? mediaUrl : path.resolve(mediaUrl);
-  const allowedRoots = [mediaTempDir, process.cwd()];
-  const realCandidate = await realpathOrNull(candidate);
-  if (!realCandidate) {
-    return null;
-  }
-
-  for (const root of allowedRoots) {
-    const realRoot = await realpathOrNull(root);
-    if (realRoot && isPathInside(realCandidate, realRoot)) {
-      return realCandidate;
-    }
-  }
-
-  return null;
-}
-
-async function realpathOrNull(filePath: string): Promise<string | null> {
-  try {
-    return await fs.realpath(filePath);
-  } catch {
-    return null;
-  }
-}
-
-function isPathInside(candidate: string, root: string): boolean {
-  const relative = path.relative(root, candidate);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-}
 
 function createSaveMediaBuffer(mediaTempDir?: string) {
   return async function saveMediaBuffer(
@@ -180,45 +154,6 @@ function createSaveMediaBuffer(mediaTempDir?: string) {
     await fs.writeFile(filePath, buffer);
     return { path: filePath };
   };
-}
-
-function inboundMediaUnavailableMessage(item: MessageItem): string {
-  if (item.type === MessageItemType.IMAGE) {
-    return "图片读取失败，请重试。";
-  }
-
-  return "暂不支持处理该类型消息，请发送文字或图片。";
-}
-
-function inboundImageFailureMessage(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes("exceeds 104857600 bytes") || message.includes("exceeds 100MB")
-    ? "图片超过 100MB，无法处理。"
-    : "图片读取失败，请重试。";
-}
-
-async function sendInboundMediaUnavailableNotice(input: {
-  to: string;
-  notice: string;
-  contextToken?: string;
-  deps: HandleWeixinMessageTurnDeps;
-}): Promise<void> {
-  const { to, notice, contextToken, deps } = input;
-  const reserved = deps.reserveFinal ? deps.reserveFinal(to) : true;
-  if (!reserved) {
-    deps.errLog(`weixin.final.dropped reason=quota_exhausted kind=media_unavailable chatKey=${to}`);
-    return;
-  }
-
-  try {
-    await sendMessageWeixin({
-      to,
-      text: notice,
-      opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
-    });
-  } catch (err) {
-    deps.errLog(`media unavailable notice failed: ${String(err)}`);
-  }
 }
 
 export type HandleWeixinMessageTurnDeps = {
@@ -249,6 +184,9 @@ export type HandleWeixinMessageTurnDeps = {
   hasPendingFinal?: (chatKey: string) => boolean;
   drainPendingFinal?: (chatKey: string, available: number) => PendingFinalChunk[];
   prependPendingFinal?: (chatKey: string, chunks: PendingFinalChunk[]) => void;
+  mediaStore?: RuntimeMediaStore;
+  downloadMediaFromItemFn?: typeof downloadMediaFromItem;
+  allowedMediaRoots?: string[];
 };
 
 function extractTextBody(itemList?: MessageItem[]): string {
@@ -279,39 +217,20 @@ export function getWeixinMessageTurnLane(full: WeixinMessage): "normal" | "contr
     : "normal";
 }
 
-function findUnsupportedMediaItem(itemList?: MessageItem[]): MessageItem | undefined {
-  if (!itemList?.length) return undefined;
-
-  const direct = itemList.find(
-    (item) =>
-      item.type === MessageItemType.VIDEO ||
-      item.type === MessageItemType.FILE ||
-      item.type === MessageItemType.VOICE,
-  );
-  if (direct) return direct;
-
-  const refItem = itemList.find(
-    (item) =>
-      item.type === MessageItemType.TEXT &&
-      item.ref_msg?.message_item &&
-      item.ref_msg.message_item.type !== MessageItemType.IMAGE &&
-      isMediaItem(item.ref_msg.message_item),
-  );
-  return refItem?.ref_msg?.message_item ?? undefined;
+function buildWeixinChatKey(accountId: string, userId: string): string {
+  return `weixin:${accountId}:${userId}`;
 }
 
-function findImageMediaItem(itemList?: MessageItem[]): MessageItem | undefined {
-  if (!itemList?.length) return undefined;
+function defaultWeixinMime(kind: "image" | "file" | "audio" | "video"): string {
+  if (kind === "image") return "image/*";
+  if (kind === "video") return "video/mp4";
+  if (kind === "audio") return "audio/wav";
+  return "application/octet-stream";
+}
 
-  const direct = itemList.find((item) => item.type === MessageItemType.IMAGE);
-  if (direct) return direct;
-
-  const refItem = itemList.find(
-    (item) =>
-      item.type === MessageItemType.TEXT &&
-      item.ref_msg?.message_item?.type === MessageItemType.IMAGE,
-  );
-  return refItem?.ref_msg?.message_item ?? undefined;
+function appendAttachmentNotes(text: string, notes: string[]): string {
+  if (notes.length === 0) return text;
+  return [text, "", "Attachment notes:", ...notes.map((note) => `- ${note}`)].filter(Boolean).join("\n");
 }
 
 export async function handleWeixinMessageTurn(
@@ -368,35 +287,24 @@ export async function handleWeixinMessageTurn(
     setContextToken(deps.accountId, full.from_user_id ?? "", contextToken);
   }
 
-  const unsupportedMediaItem = findUnsupportedMediaItem(full.item_list);
-  if (unsupportedMediaItem) {
-    await sendInboundMediaUnavailableNotice({
-      to,
-      notice: inboundMediaUnavailableMessage(unsupportedMediaItem),
-      contextToken,
-      deps,
-    });
-    return;
-  }
-
   if (textBody.startsWith("/")) {
     const shouldTypeForSlash = isClearSlashCommand(textBody);
     if (shouldTypeForSlash) {
       startTypingIndicator();
     }
-    const conversationId = full.from_user_id ?? "";
+    const chatKey = buildWeixinChatKey(deps.accountId, full.from_user_id ?? "");
     try {
       const slashResult = await handleSlashCommand(
         textBody,
         {
-          to: conversationId,
+          to,
           contextToken: full.context_token,
           baseUrl: deps.baseUrl,
           token: deps.token,
           accountId: deps.accountId,
           log: deps.log,
           errLog: deps.errLog,
-          onClear: () => deps.agent.clearSession?.(conversationId),
+          onClear: () => deps.agent.clearSession?.(chatKey),
           ...(deps.hasPendingFinal ? { hasPendingFinal: deps.hasPendingFinal } : {}),
           ...(deps.drainPendingFinal ? { drainPendingFinal: deps.drainPendingFinal } : {}),
           ...(deps.prependPendingFinal ? { prependPendingFinal: deps.prependPendingFinal } : {}),
@@ -416,38 +324,45 @@ export async function handleWeixinMessageTurn(
 
   startTypingIndicator();
 
-  let media: ChatRequest["media"];
-  let inboundImagePath: string | undefined;
-  const mediaItem = findImageMediaItem(full.item_list);
-  if (mediaItem) {
-    let mediaUnavailableNotice: string | undefined;
+  const mediaStore = deps.mediaStore ?? new RuntimeMediaStore({ rootDir: resolveMediaTempDir(deps.mediaTempDir) });
+  const media: NonNullable<ChatRequest["media"]> = [];
+  const attachmentNotes: string[] = [];
+  const descriptors = extractWeixinMediaDescriptors(full.item_list).slice(0, DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE);
+  const download = deps.downloadMediaFromItemFn ?? downloadMediaFromItem;
+  for (const descriptor of descriptors) {
     try {
-      const downloaded = await downloadMediaFromItem(mediaItem, {
+      const downloaded = await download(descriptor.item, {
         cdnBaseUrl: deps.cdnBaseUrl,
         saveMedia: createSaveMediaBuffer(deps.mediaTempDir),
         log: deps.log,
         errLog: deps.errLog,
         label: "inbound",
       });
-      if (downloaded.decryptedPicPath) {
-        inboundImagePath = downloaded.decryptedPicPath;
-        media = { type: "image", filePath: downloaded.decryptedPicPath, mimeType: "image/*" };
-      } else {
-        mediaUnavailableNotice = inboundMediaUnavailableMessage(mediaItem);
+      const filePath = downloaded.decryptedPicPath ?? downloaded.decryptedVideoPath ?? downloaded.decryptedFilePath ?? downloaded.decryptedVoicePath;
+      if (!filePath) {
+        attachmentNotes.push(`Skipped ${descriptor.kind}: media was unavailable.`);
+        continue;
+      }
+      try {
+        const buffer = await fs.readFile(filePath);
+        const mimeType = downloaded.fileMediaType ?? downloaded.voiceMediaType ?? defaultWeixinMime(descriptor.kind);
+        media.push(await mediaStore.saveMediaBuffer({
+          channelId: "weixin",
+          accountId: deps.accountId,
+          chatKey: buildWeixinChatKey(deps.accountId, full.from_user_id ?? ""),
+          messageId: full.message_id ? String(full.message_id) : full.context_token ?? String(full.create_time_ms ?? Date.now()),
+          fileName: descriptor.fileName,
+          mimeType,
+          kind: descriptor.kind,
+          buffer,
+          maxBytes: descriptor.kind === "image" ? DEFAULT_IMAGE_MAX_BYTES : DEFAULT_ATTACHMENT_MAX_BYTES,
+        }));
+      } finally {
+        await fs.rm(filePath, { force: true }).catch(() => {});
       }
     } catch (err) {
       deps.errLog(`media download failed: ${String(err)}`);
-      mediaUnavailableNotice = inboundImageFailureMessage(err);
-    }
-    if (!media) {
-      await sendInboundMediaUnavailableNotice({
-        to,
-        notice: mediaUnavailableNotice ?? inboundMediaUnavailableMessage(mediaItem),
-        contextToken,
-        deps,
-      });
-      stopTypingIndicator();
-      return;
+      attachmentNotes.push(`Skipped ${descriptor.kind}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -470,11 +385,12 @@ export async function handleWeixinMessageTurn(
     }
   };
 
+  const requestText = appendAttachmentNotes(bodyFromItemList(full.item_list), attachmentNotes);
   const request: Omit<ChatRequest, "reply"> = {
     accountId: deps.accountId,
-    conversationId: full.from_user_id ?? "",
-    text: bodyFromItemList(full.item_list),
-    media,
+    conversationId: buildWeixinChatKey(deps.accountId, full.from_user_id ?? ""),
+    text: requestText,
+    ...(media.length > 0 ? { media } : {}),
     replyContextToken: contextToken,
   };
 
@@ -485,99 +401,113 @@ export async function handleWeixinMessageTurn(
       onReplySegment: sendReplySegment,
     });
 
-    if (turn.media) {
-      const mediaUrl = turn.media.url;
-      const filePath = await resolveSafeOutboundMediaPath(mediaUrl, resolveMediaTempDir(deps.mediaTempDir));
+    // Text is sent first, then media items in sequence.
+    const outboundMedia = normalizeMediaArray(turn.media);
+    if (turn.text) {
+      const finalText = markdownToPlainText(turn.text).trim();
+      if (finalText.length > 0) {
+        const rawChunks = chunkFinalText(finalText, MAX_FINAL_CHUNK_BYTES);
+        if (rawChunks.length > 0) {
+          const total = rawChunks.length;
+          if (total === 1) {
+            const reserved = deps.reserveFinal ? deps.reserveFinal(to) : true;
+            if (!reserved) {
+              deps.errLog(
+                `weixin.final.dropped reason=quota_exhausted kind=text chatKey=${to}`,
+              );
+            } else {
+              await sendMessageWeixin({
+                to,
+                text: rawChunks[0]!,
+                opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
+              });
+            }
+          } else {
+            // v1.4: pre-format every chunk with its (k/N) prefix, send the first
+            // wave (up to finalRemaining slots), park the rest in pending. If the
+            // wave does not finish the answer, append a heads-up tail to the
+            // wave's last chunk so the user knows to reply `/jx`.
+            const prefixed = rawChunks.map((body, i) => `(${i + 1}/${total}) ${body}`);
+            const available = deps.finalRemaining ? deps.finalRemaining(to) : total;
+            const waveSize = Math.max(Math.min(available, total), 0);
+            const wave = prefixed.slice(0, waveSize);
+            const rest = prefixed.slice(waveSize);
+            if (wave.length > 0 && rest.length > 0) {
+              const sentSoFar = wave.length;
+              wave[wave.length - 1] = `${wave[wave.length - 1]!}\n\n${buildFinalHeadsUp({
+                total,
+                sentSoFar,
+              })}`;
+            }
+            let sent = 0;
+            for (let i = 0; i < wave.length; i += 1) {
+              const reserved = deps.reserveFinal ? deps.reserveFinal(to) : true;
+              if (!reserved) {
+                deps.errLog(
+                  `weixin.final.dropped reason=quota_exhausted kind=text_paginated chatKey=${to} chunk=${i + 1}/${total}`,
+                );
+                break;
+              }
+              try {
+                await sendMessageWeixin({
+                  to,
+                  text: wave[i]!,
+                  opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
+                });
+                sent += 1;
+              } catch (sendErr) {
+                deps.errLog(
+                  `weixin.final.dropped reason=send_failed kind=text_paginated chatKey=${to} chunk=${i + 1}/${total} err=${String(sendErr)}`,
+                );
+                break;
+              }
+            }
+            const restToPark = prefixed.slice(sent);
+            if (restToPark.length > 0 && deps.enqueuePendingFinal) {
+              const pending: PendingFinalChunk[] = restToPark.map((text, idx) => {
+                const seq = sent + idx + 1;
+                const entry: PendingFinalChunk = { text, seq, total };
+                if (contextToken !== undefined) entry.contextToken = contextToken;
+                if (deps.accountId !== undefined) entry.accountId = deps.accountId;
+                return entry;
+              });
+              deps.enqueuePendingFinal(to, pending);
+            }
+          }
+        }
+      }
+    }
+    for (const mediaItem of outboundMedia) {
+      const filePath = await resolveSafeMediaPath(mediaItem.filePath, [mediaStore.rootDir, resolveMediaTempDir(deps.mediaTempDir), ...(deps.allowedMediaRoots ?? [])]);
       if (!filePath) {
-        deps.errLog(`outbound media rejected: url=${mediaUrl}`);
-        return;
+        deps.errLog(`outbound media rejected: path=${mediaItem.filePath}`);
+        continue;
+      }
+      const caption = mediaItem.caption ? markdownToPlainText(mediaItem.caption) : "";
+      const captionReserve = caption && deps.reserveFinal ? deps.reserveFinal(to) : true;
+      if (!captionReserve) {
+        deps.errLog(
+          `weixin.final.dropped reason=quota_exhausted kind=media_caption chatKey=${to}`,
+        );
       }
       const reservedMedia = deps.reserveFinal ? deps.reserveFinal(to) : true;
       if (!reservedMedia) {
         deps.errLog(
           `weixin.final.dropped reason=quota_exhausted kind=media chatKey=${to}`,
         );
-      } else {
+        continue;
+      }
+      try {
         await sendWeixinMediaFile({
+          media: mediaItem,
           filePath,
           to,
-          text: turn.text ? markdownToPlainText(turn.text) : "",
+          text: captionReserve ? caption : "",
           opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
           cdnBaseUrl: deps.cdnBaseUrl,
         });
-      }
-    } else if (turn.text) {
-      const finalText = markdownToPlainText(turn.text).trim();
-      if (finalText.length === 0) {
-        return;
-      }
-      const rawChunks = chunkFinalText(finalText, MAX_FINAL_CHUNK_BYTES);
-      if (rawChunks.length === 0) return;
-      const total = rawChunks.length;
-      if (total === 1) {
-        const reserved = deps.reserveFinal ? deps.reserveFinal(to) : true;
-        if (!reserved) {
-          deps.errLog(
-            `weixin.final.dropped reason=quota_exhausted kind=text chatKey=${to}`,
-          );
-        } else {
-          await sendMessageWeixin({
-            to,
-            text: rawChunks[0]!,
-            opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
-          });
-        }
-      } else {
-        // v1.4: pre-format every chunk with its (k/N) prefix, send the first
-        // wave (up to finalRemaining slots), park the rest in pending. If the
-        // wave does not finish the answer, append a heads-up tail to the
-        // wave's last chunk so the user knows to reply `/jx`.
-        const prefixed = rawChunks.map((body, i) => `(${i + 1}/${total}) ${body}`);
-        const available = deps.finalRemaining ? deps.finalRemaining(to) : total;
-        const waveSize = Math.max(Math.min(available, total), 0);
-        const wave = prefixed.slice(0, waveSize);
-        const rest = prefixed.slice(waveSize);
-        if (wave.length > 0 && rest.length > 0) {
-          const sentSoFar = wave.length;
-          wave[wave.length - 1] = `${wave[wave.length - 1]!}\n\n${buildFinalHeadsUp({
-            total,
-            sentSoFar,
-          })}`;
-        }
-        let sent = 0;
-        for (let i = 0; i < wave.length; i += 1) {
-          const reserved = deps.reserveFinal ? deps.reserveFinal(to) : true;
-          if (!reserved) {
-            deps.errLog(
-              `weixin.final.dropped reason=quota_exhausted kind=text_paginated chatKey=${to} chunk=${i + 1}/${total}`,
-            );
-            break;
-          }
-          try {
-            await sendMessageWeixin({
-              to,
-              text: wave[i]!,
-              opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
-            });
-            sent += 1;
-          } catch (sendErr) {
-            deps.errLog(
-              `weixin.final.dropped reason=send_failed kind=text_paginated chatKey=${to} chunk=${i + 1}/${total} err=${String(sendErr)}`,
-            );
-            break;
-          }
-        }
-        const restToPark = prefixed.slice(sent);
-        if (restToPark.length > 0 && deps.enqueuePendingFinal) {
-          const pending: PendingFinalChunk[] = restToPark.map((text, idx) => {
-            const seq = sent + idx + 1;
-            const entry: PendingFinalChunk = { text, seq, total };
-            if (contextToken !== undefined) entry.contextToken = contextToken;
-            if (deps.accountId !== undefined) entry.accountId = deps.accountId;
-            return entry;
-          });
-          deps.enqueuePendingFinal(to, pending);
-        }
+      } catch (err) {
+        deps.errLog(`outbound media send failed: ${String(err)}`);
       }
     }
   } catch (err) {
@@ -599,11 +529,6 @@ export async function handleWeixinMessageTurn(
       });
     }
   } finally {
-    if (inboundImagePath) {
-      await fs.rm(inboundImagePath, { force: true }).catch((err) => {
-        deps.errLog(`inbound image cleanup failed: ${String(err)}`);
-      });
-    }
     stopTypingIndicator();
   }
 }

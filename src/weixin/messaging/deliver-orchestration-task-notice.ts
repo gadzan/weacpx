@@ -1,5 +1,6 @@
 import type { AppLogger } from "../../logging/app-logger";
 import type { OrchestrationTaskRecord } from "../../orchestration/orchestration-types";
+import { normalizeWeixinUserIdFromChatKey } from "./inbound.js";
 import { resolveOrchestrationNoticeAccountIds } from "./orchestration-notice-accounts.js";
 import { describeWeixinSendError } from "./send-errors.js";
 import { sendOrchestrationTaskNotice } from "./send-orchestration-notice.js";
@@ -48,7 +49,7 @@ export async function deliverOrchestrationTaskNotice(
   // the final-tier budget. v1.3 made reserveFinal a real budget — if the
   // final tier is exhausted we log and skip the send (markFailed retains the
   // pending state so it gets retried after the next inbound resets quota).
-  if (deps.reserveFinal && !deps.reserveFinal(task.chatKey)) {
+  if (deps.reserveFinal && !deps.reserveFinal(normalizeWeixinUserIdFromChatKey(task.chatKey))) {
     await deps.logger.error(
       "orchestration.notice.final_quota_exhausted",
       "skipping task notice because final quota is exhausted; will retry on next inbound",

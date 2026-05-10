@@ -16,6 +16,7 @@ import {
 } from "./auth/login-qr.js";
 import { monitorWeixinProvider } from "./monitor/monitor.js";
 import type { PendingFinalChunk } from "./messaging/quota-manager.js";
+import type { RuntimeMediaStore } from "../channels/media-store.js";
 import { logger } from "./util/logger.js";
 
 export type LoginOptions = {
@@ -28,6 +29,8 @@ export type LoginOptions = {
 export type StartOptions = {
   /** Account ID to use. Auto-selects the first registered account if omitted. */
   accountId?: string;
+  /** Additional allowed root directories for outbound media paths. */
+  allowedMediaRoots?: string[];
   /** AbortSignal to stop the bot. */
   abortSignal?: AbortSignal;
   /** Log callback (defaults to console.log). */
@@ -45,6 +48,7 @@ export type StartOptions = {
   prependPendingFinal?: (chatKey: string, chunks: PendingFinalChunk[]) => void;
   enqueuePendingFinal?: (chatKey: string, chunks: PendingFinalChunk[]) => void;
   dropPendingFinal?: (chatKey: string) => void;
+  mediaStore?: RuntimeMediaStore;
 };
 
 /**
@@ -162,6 +166,7 @@ export async function start(agent: Agent, opts?: StartOptions): Promise<void> {
   await monitorWeixinProvider({
     baseUrl: account.baseUrl,
     cdnBaseUrl: account.cdnBaseUrl,
+    ...(opts?.allowedMediaRoots ? { allowedMediaRoots: opts.allowedMediaRoots } : {}),
     token: account.token,
     accountId: account.accountId,
     agent,
@@ -175,5 +180,6 @@ export async function start(agent: Agent, opts?: StartOptions): Promise<void> {
     ...(opts?.prependPendingFinal ? { prependPendingFinal: opts.prependPendingFinal } : {}),
     ...(opts?.enqueuePendingFinal ? { enqueuePendingFinal: opts.enqueuePendingFinal } : {}),
     ...(opts?.dropPendingFinal ? { dropPendingFinal: opts.dropPendingFinal } : {}),
+    ...(opts?.mediaStore ? { mediaStore: opts.mediaStore } : {}),
   });
 }

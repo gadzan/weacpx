@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 
+import { normalize } from "node:path";
+
 import { createConfig } from "../commands/command-router-test-support";
 import { OrchestrationService, type OrchestrationServiceDeps } from "../../../src/orchestration/orchestration-service";
 import { AsyncMutex } from "../../../src/orchestration/async-mutex";
@@ -127,6 +129,13 @@ function makeDeps(
     deliverCoordinatorCalls,
     interruptCalls,
   };
+}
+
+/**
+ * 构造 reset coordinator 的 transport session 名称（用于 :reset- 识别规则）。
+ */
+function makeResetCoordinatorSession(ts: string) {
+  return `weacpx:weacpx:claude:reset-${ts}`;
 }
 
 function makeBlockedTask(taskId: string, questionId: string) {
@@ -2769,6 +2778,7 @@ test("rejects approval worker handles that collide with external coordinators be
 });
 
 test("auto-runs rpc delegations from pathless external coordinators using explicit cwd", async () => {
+  const cwd = normalize("/repo/weacpx");
   const harness = makeDeps({
     createId: () => "task-external-cwd",
     reusableWorkerSession: "weacpx:claude:codex:instance",
@@ -2783,7 +2793,7 @@ test("auto-runs rpc delegations from pathless external coordinators using explic
     sourceHandle: "codex:instance",
     targetAgent: "claude",
     task: "review the design",
-    cwd: "/repo/weacpx",
+    cwd,
   } as any);
 
   expect(result).toEqual({
@@ -2796,14 +2806,14 @@ test("auto-runs rpc delegations from pathless external coordinators using explic
     sourceKind: "coordinator",
     coordinatorSession: "codex:instance",
     targetAgent: "claude",
-    cwd: "/repo/weacpx",
+    cwd,
   });
   expect(harness.ensureCalls[0]).toMatchObject({
     sourceHandle: "codex:instance",
     sourceKind: "coordinator",
     coordinatorSession: "codex:instance",
     targetAgent: "claude",
-    cwd: "/repo/weacpx",
+    cwd,
   });
   while (harness.dispatchCalls.length === 0) {
     await Bun.sleep(0);
@@ -2813,7 +2823,7 @@ test("auto-runs rpc delegations from pathless external coordinators using explic
     workerSession: "weacpx:claude:codex:instance",
     coordinatorSession: "codex:instance",
     targetAgent: "claude",
-    cwd: "/repo/weacpx",
+    cwd,
     task: "review the design",
   });
   expect(harness.getState().orchestration.tasks["task-external-cwd"]).toMatchObject({
@@ -2822,18 +2832,19 @@ test("auto-runs rpc delegations from pathless external coordinators using explic
     coordinatorSession: "codex:instance",
     workerSession: "weacpx:claude:codex:instance",
     targetAgent: "claude",
-    cwd: "/repo/weacpx",
+    cwd,
     status: "running",
   });
   expect(harness.getState().orchestration.workerBindings["weacpx:claude:codex:instance"]).toMatchObject({
     sourceHandle: "weacpx:claude:codex:instance",
     coordinatorSession: "codex:instance",
     targetAgent: "claude",
-    cwd: "/repo/weacpx",
+    cwd,
   });
 });
 
 test("pathless external coordinator cancellation and resume preserve cwd", async () => {
+  const cwd = normalize("/repo/weacpx");
   const cancelCalls: Array<Parameters<NonNullable<OrchestrationServiceDeps["cancelWorkerTask"]>>[0]> = [];
   const blockedTask = makeBlockedTask("task-blocked-cwd", "question-cwd");
   const harness = makeDeps({
@@ -2852,7 +2863,7 @@ test("pathless external coordinator cancellation and resume preserve cwd", async
             coordinatorSession: "codex:instance",
             workerSession: "weacpx:claude:codex:instance",
             workspace: "weacpx",
-            cwd: "/repo/weacpx",
+            cwd,
             targetAgent: "claude",
             task: "review",
             status: "running",
@@ -2866,7 +2877,7 @@ test("pathless external coordinator cancellation and resume preserve cwd", async
             coordinatorSession: "codex:instance",
             workerSession: "weacpx:claude:codex:instance",
             workspace: "weacpx",
-            cwd: "/repo/weacpx",
+            cwd,
           },
         },
         workerBindings: {
@@ -2874,7 +2885,7 @@ test("pathless external coordinator cancellation and resume preserve cwd", async
             sourceHandle: "weacpx:claude:codex:instance",
             coordinatorSession: "codex:instance",
             workspace: "weacpx",
-            cwd: "/repo/weacpx",
+            cwd,
             targetAgent: "claude",
           },
         },
@@ -2899,7 +2910,7 @@ test("pathless external coordinator cancellation and resume preserve cwd", async
       taskId: "task-running-cwd",
       workerSession: "weacpx:claude:codex:instance",
       workspace: "weacpx",
-      cwd: "/repo/weacpx",
+      cwd,
       targetAgent: "claude",
     },
   ]);
@@ -2909,7 +2920,7 @@ test("pathless external coordinator cancellation and resume preserve cwd", async
       workerSession: "weacpx:claude:codex:instance",
       coordinatorSession: "codex:instance",
       workspace: "weacpx",
-      cwd: "/repo/weacpx",
+      cwd,
       targetAgent: "claude",
       answer: "Use this repository.",
     },
@@ -2936,6 +2947,7 @@ test("rejects pathless external coordinator delegation without explicit cwd", as
 });
 
 test("registered external coordinator accepts arbitrary explicit cwd over its default workspace cwd", async () => {
+  const cwd = normalize("/repo/other-repo");
   const harness = makeDeps({
     createId: () => "task-external-default-plus-cwd",
     reusableWorkerSession: "backend:other-repo:claude:codex:backend",
@@ -2960,7 +2972,7 @@ test("registered external coordinator accepts arbitrary explicit cwd over its de
     sourceHandle: "codex:backend",
     targetAgent: "claude",
     task: "review another repo",
-    cwd: "/repo/other-repo",
+    cwd,
   });
 
   expect(result).toEqual({
@@ -2973,11 +2985,11 @@ test("registered external coordinator accepts arbitrary explicit cwd over its de
   }
   expect(harness.ensureCalls[0]).toMatchObject({
     workspace: "backend",
-    cwd: "/repo/other-repo",
+    cwd,
   });
   expect(harness.getState().orchestration.tasks["task-external-default-plus-cwd"]).toMatchObject({
     workspace: "backend",
-    cwd: "/repo/other-repo",
+    cwd,
   });
 });
 
@@ -7908,6 +7920,344 @@ test("cleanTasks leaves bindings owned by other coordinators alone even when unr
   const state = await harness.deps.loadState();
   expect(state.orchestration.workerBindings["backend:claude:backend:main"]).toBeUndefined();
   expect(state.orchestration.workerBindings["backend:claude:backend:other"]).toBeDefined();
+});
+
+test("purgeExpiredResetCoordinators uses max(route.updatedAt, tasks.updatedAt) as activityAt", async () => {
+  const coordinator = makeResetCoordinatorSession("activity-max");
+  const harness = makeDeps({
+    now: () => new Date("2026-04-13T10:00:00.000Z"),
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        coordinatorRoutes: {
+          [coordinator]: {
+            coordinatorSession: coordinator,
+            chatKey: "weixin:u",
+            updatedAt: "2026-04-12T00:00:00.000Z",
+          },
+        },
+        tasks: {
+          "task-1": {
+            taskId: "task-1",
+            sourceHandle: "wx:user-1",
+            sourceKind: "human",
+            coordinatorSession: coordinator,
+            workerSession: "w:1",
+            workspace: "weacpx",
+            targetAgent: "claude",
+            task: "t1",
+            status: "completed",
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-01T00:00:00.000Z",
+            updatedAt: "2026-04-01T00:00:00.000Z",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const result = await service.purgeExpiredResetCoordinators({ cutoffDays: 7, trigger: "startup" });
+
+  expect(result).toEqual({
+    candidates: 1,
+    purgedCoordinators: 0,
+    removed: {
+      tasks: 0,
+      workerBindings: 0,
+      groups: 0,
+      coordinatorRoutes: 0,
+      humanQuestionPackages: 0,
+      coordinatorQuestionState: 0,
+    },
+  });
+  expect(harness.savedStates.length).toBe(0);
+});
+
+test("purgeExpiredResetCoordinators considers route-only and task-only reset coordinators as candidates", async () => {
+  const routeOnly = makeResetCoordinatorSession("route-only");
+  const taskOnly = makeResetCoordinatorSession("task-only");
+  const harness = makeDeps({
+    now: () => new Date("2026-04-13T10:00:00.000Z"),
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        coordinatorRoutes: {
+          [routeOnly]: {
+            coordinatorSession: routeOnly,
+            chatKey: "weixin:u",
+            updatedAt: "2026-03-01T00:00:00.000Z",
+          },
+        },
+        tasks: {
+          "task-1": {
+            taskId: "task-1",
+            sourceHandle: "wx:user-1",
+            sourceKind: "human",
+            coordinatorSession: taskOnly,
+            workerSession: "w:1",
+            workspace: "weacpx",
+            targetAgent: "claude",
+            task: "t1",
+            status: "completed",
+            summary: "",
+            resultText: "",
+            createdAt: "2026-03-01T00:00:00.000Z",
+            updatedAt: "2026-03-01T00:00:00.000Z",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const result = await service.purgeExpiredResetCoordinators({ cutoffDays: 7, trigger: "startup" });
+
+  expect(result.candidates).toBe(2);
+  expect(result.purgedCoordinators).toBe(2);
+});
+
+test("purgeExpiredResetCoordinators skips reset coordinators with unparseable activityAt", async () => {
+  const coordinator = makeResetCoordinatorSession("bad-date");
+  const harness = makeDeps({
+    now: () => new Date("2026-04-13T10:00:00.000Z"),
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        coordinatorRoutes: {
+          [coordinator]: {
+            coordinatorSession: coordinator,
+            chatKey: "weixin:u",
+            updatedAt: "not-a-date",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const result = await service.purgeExpiredResetCoordinators({ cutoffDays: 7, trigger: "startup" });
+
+  expect(result).toEqual({
+    candidates: 1,
+    purgedCoordinators: 0,
+    removed: {
+      tasks: 0,
+      workerBindings: 0,
+      groups: 0,
+      coordinatorRoutes: 0,
+      humanQuestionPackages: 0,
+      coordinatorQuestionState: 0,
+    },
+  });
+  expect(harness.savedStates.length).toBe(0);
+});
+
+test("purgeExpiredResetCoordinators does not purge reset coordinators referenced by logical sessions", async () => {
+  const coordinator = makeResetCoordinatorSession("active");
+  const harness = makeDeps({
+    now: () => new Date("2026-04-13T10:00:00.000Z"),
+    initialState: {
+      ...createEmptyState(),
+      sessions: {
+        "weacpx:claude": {
+          alias: "weacpx:claude",
+          agent: "claude",
+          workspace: "weacpx",
+          transport_session: coordinator,
+          created_at: "2026-04-01T00:00:00.000Z",
+          last_used_at: "2026-04-01T00:00:00.000Z",
+        },
+      },
+      orchestration: {
+        ...createEmptyState().orchestration,
+        coordinatorRoutes: {
+          [coordinator]: {
+            coordinatorSession: coordinator,
+            chatKey: "weixin:u",
+            updatedAt: "2026-03-01T00:00:00.000Z",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const result = await service.purgeExpiredResetCoordinators({ cutoffDays: 7, trigger: "startup" });
+
+  expect(result.purgedCoordinators).toBe(0);
+  expect(harness.getState().orchestration.coordinatorRoutes[coordinator]).toBeDefined();
+});
+
+test("purgeExpiredResetCoordinators cascades deletion across orchestration state maps", async () => {
+  const coordinator = makeResetCoordinatorSession("cascade");
+  const harness = makeDeps({
+    now: () => new Date("2026-04-13T10:00:00.000Z"),
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        coordinatorRoutes: {
+          [coordinator]: {
+            coordinatorSession: coordinator,
+            chatKey: "weixin:u",
+            updatedAt: "2026-03-01T00:00:00.000Z",
+          },
+          "backend:main": {
+            coordinatorSession: "backend:main",
+            chatKey: "wx:keep",
+            updatedAt: "2026-04-12T00:00:00.000Z",
+          },
+        },
+        coordinatorQuestionState: {
+          [coordinator]: {
+            activePackageId: "package-1",
+            queuedQuestions: [],
+          },
+          "backend:main": {
+            queuedQuestions: [],
+          },
+        },
+        humanQuestionPackages: {
+          "package-1": {
+            packageId: "package-1",
+            coordinatorSession: coordinator,
+            status: "active",
+            createdAt: "2026-03-01T00:00:00.000Z",
+            updatedAt: "2026-03-01T00:00:00.000Z",
+            initialTaskIds: [],
+            openTaskIds: [],
+            resolvedTaskIds: [],
+            awaitingReplyMessageId: "message-1",
+            messages: [
+              {
+                messageId: "message-1",
+                kind: "initial",
+                promptText: "x",
+                createdAt: "2026-03-01T00:00:00.000Z",
+              },
+            ],
+          },
+          "package-keep": {
+            packageId: "package-keep",
+            coordinatorSession: "backend:main",
+            status: "active",
+            createdAt: "2026-04-12T00:00:00.000Z",
+            updatedAt: "2026-04-12T00:00:00.000Z",
+            initialTaskIds: [],
+            openTaskIds: [],
+            resolvedTaskIds: [],
+            awaitingReplyMessageId: "message-keep",
+            messages: [
+              {
+                messageId: "message-keep",
+                kind: "initial",
+                promptText: "y",
+                createdAt: "2026-04-12T00:00:00.000Z",
+              },
+            ],
+          },
+        },
+        groups: {
+          "group-1": {
+            groupId: "group-1",
+            coordinatorSession: coordinator,
+            title: "gc",
+            createdAt: "2026-03-01T00:00:00.000Z",
+            updatedAt: "2026-03-01T00:00:00.000Z",
+          },
+          "group-keep": {
+            groupId: "group-keep",
+            coordinatorSession: "backend:main",
+            title: "keep",
+            createdAt: "2026-04-12T00:00:00.000Z",
+            updatedAt: "2026-04-12T00:00:00.000Z",
+          },
+        },
+        workerBindings: {
+          "w:gc": {
+            sourceHandle: "w:gc",
+            coordinatorSession: coordinator,
+            workspace: "weacpx",
+            targetAgent: "claude",
+          },
+          "w:keep": {
+            sourceHandle: "w:keep",
+            coordinatorSession: "backend:main",
+            workspace: "weacpx",
+            targetAgent: "claude",
+          },
+        },
+        tasks: {
+          "task-gc": {
+            taskId: "task-gc",
+            sourceHandle: "wx:user-1",
+            sourceKind: "human",
+            coordinatorSession: coordinator,
+            workerSession: "w:gc",
+            workspace: "weacpx",
+            targetAgent: "claude",
+            task: "t",
+            status: "completed",
+            summary: "",
+            resultText: "",
+            createdAt: "2026-03-01T00:00:00.000Z",
+            updatedAt: "2026-03-01T00:00:00.000Z",
+          },
+          "task-keep": {
+            taskId: "task-keep",
+            sourceHandle: "wx:user-1",
+            sourceKind: "human",
+            coordinatorSession: "backend:main",
+            workerSession: "w:keep",
+            workspace: "weacpx",
+            targetAgent: "claude",
+            task: "t",
+            status: "completed",
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-12T00:00:00.000Z",
+            updatedAt: "2026-04-12T00:00:00.000Z",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const result = await service.purgeExpiredResetCoordinators({ cutoffDays: 7, trigger: "startup" });
+
+  expect(result).toEqual({
+    candidates: 1,
+    purgedCoordinators: 1,
+    removed: {
+      tasks: 1,
+      workerBindings: 1,
+      groups: 1,
+      coordinatorRoutes: 1,
+      humanQuestionPackages: 1,
+      coordinatorQuestionState: 1,
+    },
+  });
+
+  const next = harness.getState();
+  expect(next.orchestration.tasks["task-gc"]).toBeUndefined();
+  expect(next.orchestration.workerBindings["w:gc"]).toBeUndefined();
+  expect(next.orchestration.groups["group-1"]).toBeUndefined();
+  expect(next.orchestration.coordinatorRoutes[coordinator]).toBeUndefined();
+  expect(next.orchestration.humanQuestionPackages["package-1"]).toBeUndefined();
+  expect(next.orchestration.coordinatorQuestionState[coordinator]).toBeUndefined();
+
+  expect(next.orchestration.tasks["task-keep"]).toBeDefined();
+  expect(next.orchestration.workerBindings["w:keep"]).toBeDefined();
+  expect(next.orchestration.groups["group-keep"]).toBeDefined();
+  expect(next.orchestration.coordinatorRoutes["backend:main"]).toBeDefined();
+  expect(next.orchestration.humanQuestionPackages["package-keep"]).toBeDefined();
+  expect(next.orchestration.coordinatorQuestionState["backend:main"]).toBeDefined();
 });
 
 test("listSessionBlockingTasks returns non-terminal tasks touching the transport session as coord or worker", async () => {

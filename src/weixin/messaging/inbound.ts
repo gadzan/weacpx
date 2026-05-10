@@ -1,3 +1,4 @@
+import type { ChannelMediaKind } from "../../channels/media-types.js";
 import { logger } from "../util/logger.js";
 import { generateId } from "../util/random.js";
 import type { WeixinMessage, MessageItem } from "../api/types.js";
@@ -28,12 +29,21 @@ export function setContextToken(accountId: string, userId: string, token: string
 
 /** Retrieve the cached context token for a given account+user pair. */
 export function getContextToken(accountId: string, userId: string): string | undefined {
-  const k = contextTokenKey(accountId, userId);
+  const k = contextTokenKey(accountId, normalizeWeixinUserIdFromChatKey(userId));
   const val = contextTokenStore.get(k);
   logger.debug(
     `getContextToken: key=${k} found=${val !== undefined} storeSize=${contextTokenStore.size}`,
   );
   return val;
+}
+
+/** Strip the `weixin:accountId:` prefix from a chat key, returning the bare user id. */
+export function normalizeWeixinUserIdFromChatKey(chatKey: string): string {
+  const parts = chatKey.split(":");
+  if (parts[0] === "weixin" && parts[2]) {
+    return parts.slice(2).join(":");
+  }
+  return chatKey;
 }
 
 // ---------------------------------------------------------------------------
@@ -168,4 +178,35 @@ export function weixinMessageToMsgContext(
 /** Extract the context_token from an inbound WeixinMsgContext. */
 export function getContextTokenFromMsgContext(ctx: WeixinMsgContext): string | undefined {
   return ctx.context_token;
+}
+
+// ---------------------------------------------------------------------------
+// Multi-media descriptor extraction
+// ---------------------------------------------------------------------------
+
+export interface WeixinInboundMediaDescriptor {
+  item: MessageItem;
+  kind: ChannelMediaKind;
+  fileName?: string;
+}
+
+export function extractWeixinMediaDescriptors(itemList?: MessageItem[]): WeixinInboundMediaDescriptor[] {
+  const out: WeixinInboundMediaDescriptor[] = [];
+  for (const item of itemList ?? []) {
+    const descriptor = descriptorFromItem(item);
+    if (descriptor) out.push(descriptor);
+    const ref = item.type === MessageItemType.TEXT ? item.ref_msg?.message_item : undefined;
+    const refDescriptor = descriptorFromItem(ref);
+    if (refDescriptor) out.push(refDescriptor);
+  }
+  return out;
+}
+
+function descriptorFromItem(item?: MessageItem): WeixinInboundMediaDescriptor | undefined {
+  if (!item) return undefined;
+  if (item.type === MessageItemType.IMAGE) return { item, kind: "image" };
+  if (item.type === MessageItemType.VIDEO) return { item, kind: "video" };
+  if (item.type === MessageItemType.FILE) return { item, kind: "file", fileName: item.file_item?.file_name };
+  if (item.type === MessageItemType.VOICE) return { item, kind: "audio" };
+  return undefined;
 }

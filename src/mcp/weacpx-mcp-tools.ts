@@ -39,13 +39,14 @@ export function buildWeacpxMcpToolRegistry(input: {
   transport: WeacpxMcpTransport;
   coordinatorSession: string;
   sourceHandle?: string;
+  availableAgents?: string[];
 }): WeacpxMcpToolDefinition<unknown>[] {
-  const { transport, coordinatorSession, sourceHandle } = input;
+  const { transport, coordinatorSession, sourceHandle, availableAgents } = input;
 
   return [
     {
       name: "delegate_request",
-      description: "Delegate a subtask to another agent under the current coordinator.",
+      description: `Delegate a subtask to another agent under the current coordinator.${availableAgents && availableAgents.length > 0 ? ` Available agents: ${availableAgents.join(", ")}.` : ""}`,
       inputSchema: z
         .object({
           targetAgent: z.string().min(1),

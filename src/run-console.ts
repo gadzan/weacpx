@@ -1,5 +1,5 @@
 import type { AppRuntime, RuntimePaths } from "./main";
-import type { PendingFinalChunk } from "./weixin/messaging/quota-manager";
+import type { ChannelStartInput, ConsumerLock, ConsumerLockMetadata } from "./channels/types.js";
 import { ActiveWeixinConsumerLockError } from "./weixin/monitor/consumer-lock";
 
 interface DaemonLifecycle {
@@ -8,38 +8,14 @@ interface DaemonLifecycle {
   stop: () => Promise<void>;
 }
 
-interface ConsumerLock {
-  acquire: (meta: {
-    pid: number;
-    mode: "foreground" | "daemon";
-    startedAt: string;
-    configPath: string;
-    statePath: string;
-    hostname?: string;
-  }) => Promise<void>;
-  release: () => Promise<void>;
+interface ChannelRegistry {
+  startAll(input: ChannelStartInput): Promise<void>;
+  stopAll?(): void | Promise<void>;
 }
 
 interface RunConsoleDeps {
   buildApp: (paths: RuntimePaths) => Promise<AppRuntime>;
-  loadWeixinSdk: () => Promise<{
-    start: (
-      agent: AppRuntime["agent"],
-      options?: {
-        abortSignal?: AbortSignal;
-        onInbound?: (chatKey: string) => void;
-        reserveFinal?: (chatKey: string) => boolean;
-        finalRemaining?: (chatKey: string) => number;
-        hasPendingFinal?: (chatKey: string) => boolean;
-        drainPendingFinal?: (chatKey: string, available: number) => PendingFinalChunk[];
-        prependPendingFinal?: (chatKey: string, chunks: PendingFinalChunk[]) => void;
-        enqueuePendingFinal?: (chatKey: string, chunks: PendingFinalChunk[]) => void;
-        dropPendingFinal?: (chatKey: string) => void;
-      },
-    ) => Promise<void>;
-    login: () => Promise<string>;
-    isLoggedIn: () => boolean;
-  }>;
+  channels: ChannelRegistry;
   daemonRuntime?: DaemonLifecycle;
   heartbeatIntervalMs?: number;
   setInterval?: (fn: () => void | Promise<void>, delay: number) => unknown;
@@ -58,11 +34,13 @@ interface RunCleanupSequenceInput {
   signalHandler: () => void;
   clearIntervalFn: (timer: unknown) => void;
   heartbeatTimer: unknown;
+  gcResetTimer: unknown;
   daemonRuntime?: DaemonLifecycle;
   runtime: AppRuntime | null;
   consumerLock?: ConsumerLock;
   consumerLockAcquired: boolean;
   processPid: number;
+  channels?: ChannelRegistry;
 }
 
 export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Promise<void> {
@@ -77,8 +55,8 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
 
   let runtime: AppRuntime | null = null;
   let consumerLock: ConsumerLock | undefined;
-  let sdk: Awaited<ReturnType<RunConsoleDeps["loadWeixinSdk"]>> | null = null;
   let heartbeatTimer: unknown = null;
+  let gcResetTimer: unknown = null;
   let consumerLockAcquired = false;
   const shutdownController = new AbortController();
   const signalHandler = () => {
@@ -89,8 +67,13 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
 
   try {
     runtime = await deps.buildApp(paths);
+    try {
+      await runtime.orchestration.service.purgeExpiredResetCoordinators({
+        cutoffDays: 7,
+        trigger: "startup",
+      });
+    } catch {}
     consumerLock = deps.consumerLock ?? deps.consumerLockFactory?.(runtime);
-    sdk = await deps.loadWeixinSdk();
 
     if (deps.daemonRuntime) {
       await deps.daemonRuntime.start({
@@ -104,10 +87,19 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
         },
         deps.heartbeatIntervalMs ?? 30_000,
       );
+      const runtimeForGc = runtime;
+      gcResetTimer = setIntervalFn(
+        () => {
+          void runtimeForGc.orchestration.service
+            .purgeExpiredResetCoordinators({ cutoffDays: 7, trigger: "interval" })
+            .catch(() => {});
+        },
+        86_400_000,
+      );
     }
 
     if (consumerLock) {
-      const lockMeta: Parameters<ConsumerLock["acquire"]>[0] = {
+      const lockMeta: ConsumerLockMetadata = {
         pid: processPid,
         mode: deps.daemonRuntime ? "daemon" : "foreground",
         startedAt: now(),
@@ -154,25 +146,11 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
       }
     }
 
-    // Auto-detect login status, trigger QR login if not logged in
-    if (!sdk.isLoggedIn()) {
-      console.log("[weacpx] 未检测到登录凭证，正在启动扫码登录...");
-      await sdk.login();
-    }
-
-    await sdk.start(runtime.agent, {
+    await deps.channels.startAll({
+      agent: runtime.agent,
       abortSignal: shutdownController.signal,
-      onInbound: (chatKey) => runtime!.quota.onInbound(chatKey),
-      reserveFinal: (chatKey) => runtime!.quota.reserveFinal(chatKey),
-      finalRemaining: (chatKey) => runtime!.quota.finalRemaining(chatKey),
-      hasPendingFinal: (chatKey) => runtime!.quota.hasPendingFinal(chatKey),
-      drainPendingFinal: (chatKey, available) =>
-        runtime!.quota.drainPendingFinalUpToBudget(chatKey, available),
-      prependPendingFinal: (chatKey, chunks) =>
-        runtime!.quota.prependPendingFinal(chatKey, chunks),
-      enqueuePendingFinal: (chatKey, chunks) =>
-        runtime!.quota.enqueuePendingFinal(chatKey, chunks),
-      dropPendingFinal: (chatKey) => runtime!.quota.clearPendingFinal(chatKey),
+      quota: runtime.quota,
+      logger: runtime.logger,
     });
   } finally {
     await runCleanupSequence({
@@ -180,11 +158,13 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
       signalHandler,
       clearIntervalFn,
       heartbeatTimer,
+      gcResetTimer,
       ...(deps.daemonRuntime ? { daemonRuntime: deps.daemonRuntime } : {}),
       runtime,
       consumerLock,
       consumerLockAcquired,
       processPid,
+      channels: deps.channels,
     });
   }
 }
@@ -195,6 +175,9 @@ async function runCleanupSequence(input: RunCleanupSequenceInput): Promise<void>
   input.removeProcessListener("SIGTERM", input.signalHandler);
   if (input.heartbeatTimer !== null) {
     input.clearIntervalFn(input.heartbeatTimer);
+  }
+  if (input.gcResetTimer !== null) {
+    input.clearIntervalFn(input.gcResetTimer);
   }
 
   if (input.daemonRuntime && input.runtime) {
@@ -208,6 +191,14 @@ async function runCleanupSequence(input: RunCleanupSequenceInput): Promise<void>
   if (input.runtime) {
     try {
       await input.runtime.dispose();
+    } catch (error) {
+      cleanupError ??= error;
+    }
+  }
+
+  if (input.channels) {
+    try {
+      await input.channels.stopAll?.();
     } catch (error) {
       cleanupError ??= error;
     }

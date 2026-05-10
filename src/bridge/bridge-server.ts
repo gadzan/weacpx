@@ -6,7 +6,7 @@ import {
   type BridgeResponse,
 } from "../transport/acpx-bridge/acpx-bridge-protocol";
 import { PromptCommandError } from "../transport/prompt-output";
-import type { PromptMedia } from "../transport/types";
+import type { PromptMedia, PromptMediaInput } from "../transport/types";
 import { BridgeRequestScheduler, type BridgeRequestLane } from "./bridge-request-scheduler";
 import { BridgeRuntime, EnsureSessionFailedError } from "./bridge-runtime";
 
@@ -149,7 +149,7 @@ export class BridgeServer {
           }
         });
       case "prompt":
-        const media = asOptionalPromptMedia(params.media);
+        const media = asOptionalPromptMediaInput(params.media);
         return await this.runtime.prompt({
           agent: requireString(params, "agent"),
           agentCommand: asOptionalString(params.agentCommand),
@@ -282,13 +282,14 @@ function requireString(params: Record<string, unknown>, key: string): string {
   return value;
 }
 
-function requirePromptText(params: Record<string, unknown>, media?: PromptMedia): string {
+function requirePromptText(params: Record<string, unknown>, media?: PromptMediaInput): string {
   const value = params.text;
   if (typeof value !== "string") {
     throw new BridgeInvalidRequestError("text must be a non-empty string");
   }
-  if (value.length === 0 && media?.type !== "image") {
-    throw new BridgeInvalidRequestError("text must be a non-empty string unless image media is provided");
+  const hasMedia = Array.isArray(media) ? media.length > 0 : Boolean(media);
+  if (value.length === 0 && !hasMedia) {
+    throw new BridgeInvalidRequestError("text must be a non-empty string unless media is provided");
   }
   return value;
 }
@@ -319,33 +320,32 @@ function asOptionalString(value: unknown): string | undefined {
   return value;
 }
 
-function asOptionalPromptMedia(value: unknown): PromptMedia | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
+function asOptionalPromptMediaInput(value: unknown): PromptMediaInput | undefined {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value)) return value.map(asPromptMedia);
+  return asPromptMedia(value);
+}
+
+function asPromptMedia(value: unknown): PromptMedia {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new BridgeInvalidRequestError("media must be an object when provided");
+    throw new BridgeInvalidRequestError("media must be an object or array of objects when provided");
   }
   const record = value as Record<string, unknown>;
   const type = record.type;
-  const filePath = record.filePath;
-  const mimeType = record.mimeType;
-  if (type !== "image") {
-    throw new BridgeInvalidRequestError("media.type must be image");
+  if (type !== "image" && type !== "audio" && type !== "video" && type !== "file") {
+    throw new BridgeInvalidRequestError("media.type must be image, audio, video, or file");
   }
-  if (typeof filePath !== "string" || filePath.length === 0) {
+  if (typeof record.filePath !== "string" || record.filePath.trim().length === 0) {
     throw new BridgeInvalidRequestError("media.filePath must be a non-empty string");
   }
-  if (typeof mimeType !== "string" || mimeType.length === 0) {
+  if (typeof record.mimeType !== "string" || record.mimeType.trim().length === 0) {
     throw new BridgeInvalidRequestError("media.mimeType must be a non-empty string");
   }
   return {
     type,
-    filePath,
-    mimeType,
-    ...(typeof record.fileName === "string" && record.fileName.length > 0
-      ? { fileName: record.fileName }
-      : {}),
+    filePath: record.filePath,
+    mimeType: record.mimeType,
+    ...(typeof record.fileName === "string" && record.fileName ? { fileName: record.fileName } : {}),
   };
 }
 

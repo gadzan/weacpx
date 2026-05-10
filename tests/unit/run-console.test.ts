@@ -6,7 +6,10 @@ import { runConsole } from "../../src/run-console";
 test("runs the foreground service with daemon lifecycle hooks", async () => {
   const events: string[] = [];
   let heartbeatTick: (() => void | Promise<void>) | null = null;
-  let clearedTimer: unknown = null;
+  const intervalDelays: number[] = [];
+  const clearedTimers: unknown[] = [];
+  let purgeCalls = 0;
+  let purgeInput: unknown = null;
 
   await runConsole(
     {
@@ -30,18 +33,23 @@ test("runs the foreground service with daemon lifecycle hooks", async () => {
               events.push("orchestration:stop");
             },
           },
+          service: {
+            purgeExpiredResetCoordinators: async (input) => {
+              purgeCalls += 1;
+              purgeInput = input;
+            },
+          },
         },
         dispose: async () => {
           events.push("dispose");
         },
       }),
-      loadWeixinSdk: async () => ({
-        isLoggedIn: () => true,
-        start: async () => {
-          events.push("sdk:start");
+      channels: {
+        startAll: async () => {
+          events.push("channel:start");
           await heartbeatTick?.();
         },
-      }),
+      },
       daemonRuntime: {
         start: async ({ configPath, statePath }) => {
           events.push(`daemon:start:${configPath}:${statePath}`);
@@ -54,12 +62,15 @@ test("runs the foreground service with daemon lifecycle hooks", async () => {
         },
       },
       heartbeatIntervalMs: 5_000,
-      setInterval: (fn) => {
-        heartbeatTick = fn;
-        return "timer-id";
+      setInterval: (fn, delay) => {
+        intervalDelays.push(delay);
+        if (delay === 5_000) {
+          heartbeatTick = fn;
+        }
+        return `timer-${delay}`;
       },
       clearInterval: (timer) => {
-        clearedTimer = timer;
+        clearedTimers.push(timer);
       },
     },
   );
@@ -67,13 +78,16 @@ test("runs the foreground service with daemon lifecycle hooks", async () => {
   expect(events).toEqual([
     "daemon:start:/cfg:/state",
     "orchestration:start",
-    "sdk:start",
+    "channel:start",
     "daemon:heartbeat",
     "orchestration:stop",
     "dispose",
     "daemon:stop",
   ]);
-  expect(clearedTimer).toBe("timer-id");
+  expect(intervalDelays).toEqual([5_000, 86_400_000]);
+  expect(clearedTimers).toEqual(["timer-5000", "timer-86400000"]);
+  expect(purgeCalls).toBe(1);
+  expect(purgeInput).toEqual({ cutoffDays: 7, trigger: "startup" });
 });
 
 test("still stops daemon runtime when startup fails", async () => {
@@ -107,12 +121,11 @@ test("still stops daemon runtime when startup fails", async () => {
             events.push("dispose");
           },
         }),
-        loadWeixinSdk: async () => ({
-          isLoggedIn: () => true,
-          start: async () => {
+        channels: {
+          startAll: async () => {
             throw new Error("boom");
           },
-        }),
+        },
         daemonRuntime: {
           start: async () => {
             events.push("daemon:start");
@@ -162,8 +175,10 @@ test("disposes runtime when loading the sdk fails before startup", async () => {
             events.push("dispose");
           },
         }),
-        loadWeixinSdk: async () => {
-          throw new Error("sdk load failed");
+        channels: {
+          startAll: async () => {
+            throw new Error("sdk load failed");
+          },
         },
       },
     ),
@@ -193,15 +208,17 @@ test("swallows heartbeat failures inside the timer callback", async () => {
             start: async () => {},
             stop: async () => {},
           },
+          service: {
+            purgeExpiredResetCoordinators: async () => {},
+          },
         },
         dispose: async () => {},
       }),
-      loadWeixinSdk: async () => ({
-        isLoggedIn: () => true,
-        start: async () => {
+      channels: {
+        startAll: async () => {
           await heartbeatTick?.();
         },
-      }),
+      },
       daemonRuntime: {
         start: async () => {},
         heartbeat: async () => {
@@ -209,13 +226,56 @@ test("swallows heartbeat failures inside the timer callback", async () => {
         },
         stop: async () => {},
       },
-      setInterval: (fn) => {
-        heartbeatTick = fn;
-        return "timer-id";
+      setInterval: (fn, delay) => {
+        if (delay === 30_000) {
+          heartbeatTick = fn;
+        }
+        return `timer-${delay}`;
       },
       clearInterval: () => {},
     },
   );
+});
+
+test("does not register gc interval in foreground mode", async () => {
+  const intervalDelays: number[] = [];
+
+  await runConsole(
+    {
+      configPath: "/cfg",
+      statePath: "/state",
+    },
+    {
+      buildApp: async () => ({
+        agent: {} as never,
+        router: {} as never,
+        sessions: {} as never,
+        stateStore: {} as never,
+        configStore: {} as never,
+        logger: createNoopAppLogger(),
+        orchestration: {
+          server: {
+            start: async () => {},
+            stop: async () => {},
+          },
+          service: {
+            purgeExpiredResetCoordinators: async () => {},
+          },
+        },
+        dispose: async () => {},
+      }),
+      channels: {
+        startAll: async () => {},
+      },
+      setInterval: (_fn, delay) => {
+        intervalDelays.push(delay);
+        return `timer-${delay}`;
+      },
+      clearInterval: () => {},
+    },
+  );
+
+  expect(intervalDelays).toEqual([]);
 });
 
 test("still stops daemon runtime when dispose fails", async () => {
@@ -244,18 +304,20 @@ test("still stops daemon runtime when dispose fails", async () => {
                 events.push("orchestration:stop");
               },
             },
+          service: {
+            purgeExpiredResetCoordinators: async () => {},
+          },
           },
           dispose: async () => {
             events.push("dispose");
             throw new Error("dispose failed");
           },
         }),
-        loadWeixinSdk: async () => ({
-          isLoggedIn: () => true,
-          start: async () => {
-            events.push("sdk:start");
+        channels: {
+          startAll: async () => {
+            events.push("channel:start");
           },
-        }),
+        },
         daemonRuntime: {
           start: async () => {
             events.push("daemon:start");
@@ -269,7 +331,7 @@ test("still stops daemon runtime when dispose fails", async () => {
     ),
   ).rejects.toThrow("dispose failed");
 
-  expect(events).toEqual(["daemon:start", "orchestration:start", "sdk:start", "orchestration:stop", "dispose", "daemon:stop"]);
+  expect(events).toEqual(["daemon:start", "orchestration:start", "channel:start", "orchestration:stop", "dispose", "daemon:stop"]);
 });
 
 test("handles SIGINT by aborting the sdk start and running cleanup", async () => {
@@ -298,20 +360,22 @@ test("handles SIGINT by aborting the sdk start and running cleanup", async () =>
               events.push("orchestration:stop");
             },
           },
+          service: {
+            purgeExpiredResetCoordinators: async () => {},
+          },
         },
         dispose: async () => {
           events.push("dispose");
         },
       }),
-      loadWeixinSdk: async () => ({
-        isLoggedIn: () => true,
-        start: async (_agent, options) => {
-          events.push("sdk:start");
+      channels: {
+        startAll: async (input) => {
+          events.push("channel:start");
           await new Promise<void>((resolve) => {
-            options?.abortSignal?.addEventListener(
+            input.abortSignal.addEventListener(
               "abort",
               () => {
-                events.push("sdk:abort");
+                events.push("channel:abort");
                 resolve();
               },
               { once: true },
@@ -319,7 +383,7 @@ test("handles SIGINT by aborting the sdk start and running cleanup", async () =>
             signalHandlers.get("SIGINT")?.();
           });
         },
-      }),
+      },
       daemonRuntime: {
         start: async () => {
           events.push("daemon:start");
@@ -340,6 +404,6 @@ test("handles SIGINT by aborting the sdk start and running cleanup", async () =>
     },
   );
 
-  expect(events).toEqual(["daemon:start", "orchestration:start", "sdk:start", "sdk:abort", "orchestration:stop", "dispose", "daemon:stop"]);
+  expect(events).toEqual(["daemon:start", "orchestration:start", "channel:start", "channel:abort", "orchestration:stop", "dispose", "daemon:stop"]);
   expect(signalHandlers.size).toBe(0);
 });

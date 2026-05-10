@@ -24,12 +24,11 @@ test("acquires and releases the weixin consumer lock around sdk.start", async ()
           events.push("dispose");
         },
       }),
-      loadWeixinSdk: async () => ({
-        isLoggedIn: () => true,
-        start: async () => {
-          events.push("sdk:start");
+      channels: {
+        startAll: async () => {
+          events.push("channel:start");
         },
-      }),
+      },
       consumerLock: {
         acquire: async (meta) => {
           events.push(`lock:acquire:${meta.mode}`);
@@ -41,7 +40,7 @@ test("acquires and releases the weixin consumer lock around sdk.start", async ()
     },
   );
 
-  expect(events).toEqual(["lock:acquire:foreground", "sdk:start", "dispose", "lock:release"]);
+  expect(events).toEqual(["lock:acquire:foreground", "channel:start", "dispose", "lock:release"]);
 });
 
 test("releases the weixin consumer lock when sdk.start fails", async () => {
@@ -65,12 +64,11 @@ test("releases the weixin consumer lock when sdk.start fails", async () => {
             events.push("dispose");
           },
         }),
-        loadWeixinSdk: async () => ({
-          isLoggedIn: () => true,
-          start: async () => {
+        channels: {
+          startAll: async () => {
             throw new Error("boom");
           },
-        }),
+        },
         consumerLock: {
           acquire: async () => {
             events.push("lock:acquire");
@@ -107,12 +105,11 @@ test("does not release the lock if acquisition fails before startup", async () =
             events.push("dispose");
           },
         }),
-        loadWeixinSdk: async () => ({
-          isLoggedIn: () => true,
-          start: async () => {
-            events.push("sdk:start");
+        channels: {
+          startAll: async () => {
+            events.push("channel:start");
           },
-        }),
+        },
         consumerLock: {
           acquire: async () => {
             throw new Error("already running");
@@ -157,10 +154,9 @@ test("logs active lock holder diagnostics when another consumer already owns the
           },
           dispose: async () => {},
         }),
-        loadWeixinSdk: async () => ({
-          isLoggedIn: () => true,
-          start: async () => {},
-        }),
+        channels: {
+          startAll: async () => {},
+        },
         consumerLock: {
           acquire: async () => {
             throw new ActiveWeixinConsumerLockError("/runtime/weixin-consumer.lock.json", {

@@ -50,15 +50,17 @@ test("passes replyContextToken through to the command router", async () => {
     replyContextToken: "ctx-123",
   });
 
-  expect(calls[0]).toEqual(["wx:user", "/dg claude 回复我 ok", undefined, "ctx-123", "acc-1"]);
+  expect(calls[0]).toEqual(["wx:user", "/dg claude 回复我 ok", undefined, "ctx-123", "acc-1", undefined, undefined]);
 });
 
-test("treats media-only messages as non-empty and passes media to the command router", async () => {
+test("treats media-only messages as non-empty and passes media array to the command router", async () => {
   const calls: unknown[][] = [];
   const media = {
-    type: "image" as const,
+    kind: "image" as const,
     filePath: "/tmp/weacpx/inbound/image.bin",
     mimeType: "image/*",
+    sizeBytes: 100,
+    source: { channelId: "weixin" as const, accountId: "default", chatKey: "wx:user", messageId: "msg_1" },
   };
   const agent = new ConsoleAgent({
     handle: async (...args: unknown[]) => {
@@ -81,55 +83,54 @@ test("treats media-only messages as non-empty and passes media to the command ro
   });
 
   expect(response.text).toBe("ok");
-  expect(calls[0]).toEqual(["wx:user", "", undefined, undefined, "acc-1", media]);
+  expect(calls[0]?.[5]).toEqual([{ type: "image", filePath: "/tmp/weacpx/inbound/image.bin", mimeType: "image/*" }]);
 });
 
-test("returns an explicit unsupported message for non-image media without text", async () => {
+test("passes non-image media arrays to the command router", async () => {
   const calls: unknown[][] = [];
   const agent = new ConsoleAgent({
     handle: async (...args: unknown[]) => {
       calls.push(args);
-      return { text: "router reached" };
+      return { text: "ok" };
     },
   });
 
-  const response = await agent.chat({
+  const media = [
+    { kind: "file" as const, filePath: "/tmp/report.pdf", mimeType: "application/pdf", fileName: "report.pdf", sizeBytes: 100, source: { channelId: "weixin" as const, accountId: "default", chatKey: "wx:user", messageId: "msg_1" } },
+    { kind: "audio" as const, filePath: "/tmp/voice.opus", mimeType: "audio/opus", fileName: "voice.opus", sizeBytes: 50, source: { channelId: "weixin" as const, accountId: "default", chatKey: "wx:user", messageId: "msg_2" } },
+  ];
+
+  const result = await agent.chat({
     accountId: "acc-1",
     conversationId: "wx:user",
     text: "",
-    media: {
-      type: "audio",
-      filePath: "/tmp/weacpx/inbound/audio.wav",
-      mimeType: "audio/wav",
-    },
+    media,
   });
 
-  expect(response.text).toBe("暂不支持处理该类型消息，请发送文字或图片。");
-  expect(calls).toEqual([]);
+  expect(result).toEqual({ text: "ok" });
+  expect(calls[0]?.[5]).toEqual([
+    { type: "file", filePath: "/tmp/report.pdf", mimeType: "application/pdf", fileName: "report.pdf" },
+    { type: "audio", filePath: "/tmp/voice.opus", mimeType: "audio/opus", fileName: "voice.opus" },
+  ]);
 });
 
-test("returns an explicit unsupported message for non-image media even when text is present", async () => {
+test("passes request metadata to the command router", async () => {
   const calls: unknown[][] = [];
   const agent = new ConsoleAgent({
     handle: async (...args: unknown[]) => {
       calls.push(args);
-      return { text: "router reached" };
+      return { text: "ok" };
     },
   });
 
-  const response = await agent.chat({
+  await agent.chat({
     accountId: "acc-1",
-    conversationId: "wx:user",
-    text: "请处理附件",
-    media: {
-      type: "file",
-      filePath: "/tmp/weacpx/inbound/doc.pdf",
-      mimeType: "application/pdf",
-    },
+    conversationId: "yuanbao:default:group:g1",
+    text: "/status",
+    metadata: { channel: "yuanbao", chatType: "group", senderId: "u1", groupId: "g1", isOwner: false },
   });
 
-  expect(response.text).toBe("暂不支持处理该类型附件；请发送文字或图片。");
-  expect(calls).toEqual([]);
+  expect(calls[0]?.[6]).toEqual({ channel: "yuanbao", chatType: "group", senderId: "u1", groupId: "g1", isOwner: false });
 });
 
 test("delegates clearSession to the command router", async () => {
@@ -159,4 +160,12 @@ test("delegates clearSession to the command router", async () => {
   await pending;
   expect(calls).toEqual(["wx:user"]);
   expect(resolved).toBe(true);
+});
+
+test("reports known weacpx command prefixes", () => {
+  const agent = new ConsoleAgent({ handle: async () => ({ text: "ok" }) });
+
+  expect(agent.isKnownCommand("/status")).toBe(true);
+  expect(agent.isKnownCommand("/ss codex --ws backend")).toBe(true);
+  expect(agent.isKnownCommand("/unknown")).toBe(false);
 });

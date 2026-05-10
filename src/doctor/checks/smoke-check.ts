@@ -262,7 +262,7 @@ function buildSession(options: {
     ...(agentConfig.command ? { agentCommand: agentConfig.command } : {}),
     workspace: options.workspace,
     transportSession: `weacpx-doctor-${timestamp}`,
-    replyMode: options.config.wechat.replyMode,
+    replyMode: options.config.channel.replyMode,
     cwd: workspaceConfig.cwd,
   };
 }

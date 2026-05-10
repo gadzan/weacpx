@@ -1,3 +1,5 @@
+import type { ChannelMediaAttachment, OutboundChannelMedia } from "../../channels/media-types.js";
+
 /**
  * Agent interface — any AI backend that can handle a chat message.
  *
@@ -9,6 +11,8 @@
 export interface Agent {
   /** Process a single message and return a reply. */
   chat(request: ChatRequest): Promise<ChatResponse>;
+  /** Return true when the text begins with a command prefix handled by this agent. */
+  isKnownCommand?(text: string): boolean;
   /** Clear/reset the session for a given conversation. */
   clearSession?(conversationId: string): void | Promise<void>;
 }
@@ -20,16 +24,8 @@ export interface ChatRequest {
   conversationId: string;
   /** Text content of the message. */
   text: string;
-  /** Attached media file (image, audio, video, or generic file). */
-  media?: {
-    type: "image" | "audio" | "video" | "file";
-    /** Local file path (already downloaded and decrypted). */
-    filePath: string;
-    /** MIME type, e.g. "image/jpeg", "audio/wav". */
-    mimeType: string;
-    /** Original filename (available for file attachments). */
-    fileName?: string;
-  };
+  /** Attached media file(s) (image, audio, video, or generic file). */
+  media?: ChannelMediaAttachment | ChannelMediaAttachment[];
   /**
    * Optional callback for streaming text out during long-running agent
    * processing. When the channel delivers any non-empty reply segment,
@@ -39,6 +35,17 @@ export interface ChatRequest {
   reply?: (text: string) => Promise<void>;
   /** Latest inbound Weixin context token for follow-up replies in the same chat. */
   replyContextToken?: string;
+  /** Channel-provided facts for command authorization and routing policy. */
+  metadata?: ChatRequestMetadata;
+}
+
+export interface ChatRequestMetadata {
+  channel?: string;
+  chatType?: "direct" | "group";
+  senderId?: string;
+  senderName?: string;
+  groupId?: string;
+  isOwner?: boolean;
 }
 
 export interface ChatResponse {
@@ -47,12 +54,6 @@ export interface ChatResponse {
    * the same turn. May contain markdown and will be normalized before send.
    */
   text?: string;
-  /** Reply media file. */
-  media?: {
-    type: "image" | "video" | "file";
-    /** Local file path or HTTPS URL. */
-    url: string;
-    /** Filename hint (for file attachments). */
-    fileName?: string;
-  };
+  /** Reply media file(s). */
+  media?: OutboundChannelMedia | OutboundChannelMedia[];
 }

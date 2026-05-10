@@ -4,6 +4,7 @@ import { logger } from "../util/logger.js";
 import { getMimeFromFilename } from "../media/mime.js";
 import { sendFileMessageWeixin, sendImageMessageWeixin, sendVideoMessageWeixin } from "./send.js";
 import { uploadFileAttachmentToWeixin, uploadFileToWeixin, uploadVideoToWeixin } from "../cdn/upload.js";
+import type { OutboundChannelMedia } from "../../channels/media-types.js";
 
 /**
  * Upload a local file and send it as a weixin message, routing by MIME type:
@@ -15,14 +16,15 @@ import { uploadFileAttachmentToWeixin, uploadFileToWeixin, uploadVideoToWeixin }
  * sendMedia path (channel.ts) so they stay in sync.
  */
 export async function sendWeixinMediaFile(params: {
+  media?: OutboundChannelMedia;
   filePath: string;
   to: string;
   text: string;
   opts: WeixinApiOptions & { contextToken?: string };
   cdnBaseUrl: string;
 }): Promise<{ messageId: string }> {
-  const { filePath, to, text, opts, cdnBaseUrl } = params;
-  const mime = getMimeFromFilename(filePath);
+  const { media, filePath, to, text, opts, cdnBaseUrl } = params;
+  const mime = media?.mimeType ?? getMimeFromFilename(filePath);
   const uploadOpts: WeixinApiOptions = { baseUrl: opts.baseUrl, token: opts.token };
 
   if (mime.startsWith("video/")) {
@@ -54,7 +56,7 @@ export async function sendWeixinMediaFile(params: {
   }
 
   // File attachment: pdf, doc, zip, etc.
-  const fileName = path.basename(filePath);
+  const fileName = media?.fileName ?? path.basename(filePath);
   logger.info(
     `[weixin] sendWeixinMediaFile: uploading file attachment filePath=${filePath} name=${fileName} to=${to}`,
   );

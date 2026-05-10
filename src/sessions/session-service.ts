@@ -4,9 +4,17 @@ import { AsyncMutex } from "../orchestration/async-mutex";
 import type { StateStore } from "../state/state-store";
 import type { AppState, LogicalSession } from "../state/types";
 import type { ResolvedSession } from "../transport/types";
+import {
+  buildDefaultTransportSession,
+  getChannelIdFromChatKey,
+  isSessionAliasVisibleInChannel,
+  resolveSessionAliasForInput,
+  toDisplaySessionAlias,
+} from "../channels/channel-scope";
 
 interface SessionListItem {
   alias: string;
+  internalAlias: string;
   agent: string;
   workspace: string;
   isCurrent: boolean;
@@ -80,15 +88,31 @@ export class SessionService {
 
   async useSession(chatKey: string, alias: string): Promise<void> {
     await this.mutate(async () => {
-      const session = this.state.sessions[alias];
+      const channelId = getChannelIdFromChatKey(chatKey);
+      const internalAlias = resolveSessionAliasForInput(channelId, alias, Object.keys(this.state.sessions));
+      const session = this.state.sessions[internalAlias];
       if (!session) {
         throw new Error(`session "${alias}" does not exist`);
       }
 
       session.last_used_at = new Date().toISOString();
-      this.state.chat_contexts[chatKey] = { current_session: alias };
+      this.state.chat_contexts[chatKey] = { current_session: internalAlias };
       await this.persist();
     });
+  }
+
+  async resolveAliasForChat(chatKey: string, displayAlias: string): Promise<string> {
+    const channelId = getChannelIdFromChatKey(chatKey);
+    const candidate = resolveSessionAliasForInput(channelId, displayAlias, Object.keys(this.state.sessions));
+    return candidate;
+  }
+
+  buildDefaultTransportSessionForChat(chatKey: string, displayAlias: string): string {
+    return buildDefaultTransportSession(getChannelIdFromChatKey(chatKey), displayAlias);
+  }
+
+  listInternalAliases(): string[] {
+    return Object.keys(this.state.sessions);
   }
 
   async setCurrentSessionMode(chatKey: string, modeId: string | undefined): Promise<void> {
@@ -157,13 +181,17 @@ export class SessionService {
   }
 
   async listSessions(chatKey: string): Promise<SessionListItem[]> {
+    const channelId = getChannelIdFromChatKey(chatKey);
     const currentAlias = this.state.chat_contexts[chatKey]?.current_session;
-    return Object.values(this.state.sessions).map((session) => ({
-      alias: session.alias,
-      agent: session.agent,
-      workspace: session.workspace,
-      isCurrent: session.alias === currentAlias,
-    }));
+    return Object.values(this.state.sessions)
+      .filter((session) => isSessionAliasVisibleInChannel(session.alias, channelId))
+      .map((session) => ({
+        alias: toDisplaySessionAlias(session.alias),
+        internalAlias: session.alias,
+        agent: session.agent,
+        workspace: session.workspace,
+        isCurrent: session.alias === currentAlias,
+      }));
   }
 
   countAliasesSharingTransport(transportSession: string, excludeAlias?: string): number {

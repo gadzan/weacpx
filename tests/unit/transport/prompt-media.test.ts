@@ -22,16 +22,6 @@ test("createStructuredPromptFile rejects non-regular image paths", async () => {
   }
 });
 
-test("createStructuredPromptFile rejects non-image media instead of silently dropping it", async () => {
-  await expect(
-    createStructuredPromptFile("caption", {
-      type: "file",
-      filePath: "/tmp/document.pdf",
-      mimeType: "application/pdf",
-    }),
-  ).rejects.toThrow("prompt media type is not supported; only image media is supported");
-});
-
 test("createStructuredPromptFile rejects empty image files", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-prompt-media-empty-"));
   const filePath = join(dir, "empty.png");
@@ -133,4 +123,69 @@ test("createStructuredPromptFile writes text and image blocks and cleanup remove
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("createStructuredPromptFile writes multiple image blocks", async () => {
+  const writes = new Map<string, string>();
+  const file = await createStructuredPromptFile("look", [
+    { type: "image", filePath: "/tmp/a.png", mimeType: "image/png" },
+    { type: "image", filePath: "/tmp/b.jpg", mimeType: "image/jpeg", fileName: "b.jpg" },
+  ], {
+    readImageFile: async (filePath) =>
+      filePath.endsWith("a.png")
+        ? Buffer.from("89504e470d0a1a0a", "hex")
+        : Buffer.from([0xff, 0xd8, 0xff, 0x00]),
+    mkdtemp: async () => "/tmp/structured",
+    writeFile: async (filePath, data) => {
+      writes.set(filePath, data);
+    },
+    rm: async () => {},
+    tmpdir: () => "/tmp",
+  });
+
+  expect(file?.filePath.replaceAll("\\", "/")).toBe("/tmp/structured/prompt.json");
+  const blocks = JSON.parse(writes.get(file!.filePath)!) as unknown[];
+  expect(blocks).toHaveLength(3);
+  expect(blocks[0]).toEqual({ type: "text", text: "look" });
+  expect(blocks[1]).toMatchObject({ type: "image", mimeType: "image/png" });
+  expect(blocks[2]).toMatchObject({ type: "image", mimeType: "image/jpeg" });
+});
+
+test("createStructuredPromptFile converts non-images into resource blocks and summary text", async () => {
+  const writes = new Map<string, string>();
+  const file = await createStructuredPromptFile("summarize", [
+    {
+      type: "file",
+      filePath: "/Users/me/report.pdf",
+      mimeType: "application/pdf",
+      fileName: "report.pdf",
+    },
+    {
+      type: "audio",
+      filePath: "/Users/me/voice.opus",
+      mimeType: "audio/opus",
+      fileName: "voice.opus",
+    },
+  ], {
+    readImageFile: async () => Buffer.alloc(0),
+    mkdtemp: async () => "/tmp/structured",
+    writeFile: async (filePath, data) => {
+      writes.set(filePath, data);
+    },
+    rm: async () => {},
+    tmpdir: () => "/tmp",
+  });
+
+  expect(file?.filePath.replaceAll("\\", "/")).toBe("/tmp/structured/prompt.json");
+  const blocks = JSON.parse(writes.get(file!.filePath)!) as Array<Record<string, unknown>>;
+  expect(blocks[0]).toMatchObject({ type: "text", text: "summarize" });
+  expect(String((blocks[1] as { text: string }).text)).toContain("Attachments available as local files");
+  expect(blocks[2]).toMatchObject({
+    type: "resource",
+    resource: { uri: "file:///Users/me/report.pdf" },
+  });
+  expect(blocks[3]).toMatchObject({
+    type: "resource",
+    resource: { uri: "file:///Users/me/voice.opus" },
+  });
 });

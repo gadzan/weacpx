@@ -1,5 +1,6 @@
 import type { AppLogger } from "../../logging/app-logger";
 import type { OrchestrationTaskRecord } from "../../orchestration/orchestration-types";
+import { normalizeWeixinUserIdFromChatKey } from "./inbound.js";
 import { resolveOrchestrationNoticeAccountIds } from "./orchestration-notice-accounts.js";
 import { describeWeixinSendError } from "./send-errors.js";
 import { sendMessageWeixin } from "./send.js";
@@ -27,7 +28,7 @@ export async function deliverOrchestrationTaskProgress(
     return;
   }
 
-  if (deps.reserveMidSegment && !deps.reserveMidSegment(task.chatKey)) {
+  if (deps.reserveMidSegment && !deps.reserveMidSegment(normalizeWeixinUserIdFromChatKey(task.chatKey))) {
     await deps.logger.info(
       "orchestration.progress.deferred",
       "task progress deferred due to outbound quota",
@@ -58,7 +59,7 @@ export async function deliverOrchestrationTaskProgress(
 
     try {
       await sendMessage({
-        to: task.chatKey,
+        to: normalizeWeixinUserIdFromChatKey(task.chatKey),
         text,
         opts: {
           baseUrl: account.baseUrl,

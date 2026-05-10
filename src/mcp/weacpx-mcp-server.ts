@@ -24,6 +24,7 @@ export interface WeacpxMcpServerOptions {
   coordinatorSession?: string;
   sourceHandle?: string;
   resolveIdentity?: (context: WeacpxMcpIdentityResolutionContext) => Promise<WeacpxMcpIdentity>;
+  availableAgents?: string[];
 }
 
 export interface WeacpxMcpIdentity {
@@ -64,6 +65,7 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
           transport: options.transport,
           coordinatorSession: identity.coordinatorSession,
           ...(identity.sourceHandle ? { sourceHandle: identity.sourceHandle } : {}),
+          ...(options.availableAgents ? { availableAgents: options.availableAgents } : {}),
         });
         return toolState;
       })
@@ -134,6 +136,7 @@ export async function runWeacpxMcpServer(options: {
   coordinatorSession?: string;
   sourceHandle?: string;
   resolveIdentity?: WeacpxMcpServerOptions["resolveIdentity"];
+  availableAgents?: string[];
 }): Promise<void> {
   const transport = createOrchestrationTransport(
     options.endpoint ?? resolveDefaultOrchestrationEndpoint(process.env, process.platform),
@@ -143,8 +146,33 @@ export async function runWeacpxMcpServer(options: {
     ...(options.coordinatorSession ? { coordinatorSession: options.coordinatorSession } : {}),
     ...(options.sourceHandle ? { sourceHandle: options.sourceHandle } : {}),
     ...(options.resolveIdentity ? { resolveIdentity: options.resolveIdentity } : {}),
+    ...(options.availableAgents ? { availableAgents: options.availableAgents } : {}),
   });
   const stdio = new StdioServerTransport(stdin, stdout);
+
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    // Force-exit fallback: if server.close() / stdio.close() hangs (e.g. an
+    // orphaned RPC waiting on a wedged daemon), bail after 3s so the parent
+    // process never sees a lingering child.
+    const forceExit = setTimeout(() => process.exit(0), 3000);
+    forceExit.unref();
+    try {
+      await server.close();
+      await stdio.close();
+    } catch {
+      // ignore errors during shutdown
+    }
+    clearTimeout(forceExit);
+    process.exit(0);
+  };
+
+  stdin.on("end", () => void shutdown());
+  process.on("SIGTERM", () => void shutdown());
+  process.on("SIGINT", () => void shutdown());
+
   await server.connect(stdio);
 }
 

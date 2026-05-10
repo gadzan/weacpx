@@ -36,9 +36,11 @@ export type EnsureSessionProgress =
   | EnsureSessionProgressStage
   | { kind: "note"; text: string };
 
+export type PromptMediaInput = PromptMedia | PromptMedia[];
+
 export interface PromptOptions {
   onSegment?: (text: string) => void | Promise<void>;
-  media?: PromptMedia;
+  media?: PromptMediaInput;
 }
 
 export interface SessionTransport {

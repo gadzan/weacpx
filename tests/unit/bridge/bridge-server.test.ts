@@ -484,8 +484,58 @@ test("bridge-server rejects malformed prompt media instead of silently dropping 
   );
 });
 
-test("bridge-server rejects non-image prompt media even when text is present", async () => {
-  const runtime = new BridgeRuntime("acpx", async () => ({ code: 0, stdout: "ok", stderr: "" }));
+test("bridge prompt accepts media array", async () => {
+  const calls: Record<string, unknown>[] = [];
+  const runtime = {
+    shutdown: async () => ({}),
+    hasSession: async () => ({ exists: true }),
+    ensureSession: async () => ({}),
+    prompt: async (input: Record<string, unknown>) => {
+      calls.push(input);
+      return { text: "ok" };
+    },
+    setMode: async () => ({}),
+    cancel: async () => ({ cancelled: true, message: "cancelled" }),
+  } as unknown as BridgeRuntime;
+  const server = new BridgeServer(runtime);
+
+  const mediaArray = [
+    { type: "file", filePath: "/tmp/report.pdf", mimeType: "application/pdf", fileName: "report.pdf" },
+    { type: "audio", filePath: "/tmp/voice.opus", mimeType: "audio/opus" },
+  ];
+
+  const response = await server.handleLine(
+    JSON.stringify({
+      id: "media-array",
+      method: "prompt",
+      params: {
+        agent: "codex",
+        cwd: "/repo",
+        name: "demo",
+        text: "process these",
+        media: mediaArray,
+      },
+    }),
+  );
+
+  const parsed = JSON.parse(response);
+  expect(parsed.ok).toBe(true);
+  expect(calls[0]?.media).toEqual(mediaArray);
+});
+
+test("bridge-server accepts non-image prompt media when text is present", async () => {
+  const calls: Record<string, unknown>[] = [];
+  const runtime = {
+    shutdown: async () => ({}),
+    hasSession: async () => ({ exists: true }),
+    ensureSession: async () => ({}),
+    prompt: async (input: Record<string, unknown>) => {
+      calls.push(input);
+      return { text: "ok" };
+    },
+    setMode: async () => ({}),
+    cancel: async () => ({ cancelled: true, message: "cancelled" }),
+  } as unknown as BridgeRuntime;
   const server = new BridgeServer(runtime);
 
   const response = await server.handleLine(
@@ -502,13 +552,24 @@ test("bridge-server rejects non-image prompt media even when text is present", a
     }),
   );
 
-  expect(response).toBe(
-    '{"id":"file-media","ok":false,"error":{"code":"BRIDGE_INVALID_REQUEST","message":"media.type must be image"}}\n',
-  );
+  const parsed = JSON.parse(response);
+  expect(parsed.ok).toBe(true);
+  expect(calls[0]?.media).toEqual({ type: "file", filePath: "/tmp/document.pdf", mimeType: "application/pdf" });
 });
 
-test("bridge-server only allows empty prompt text for image media", async () => {
-  const runtime = new BridgeRuntime("acpx", async () => ({ code: 0, stdout: "ok", stderr: "" }));
+test("bridge-server allows empty prompt text for any media type", async () => {
+  const calls: Record<string, unknown>[] = [];
+  const runtime = {
+    shutdown: async () => ({}),
+    hasSession: async () => ({ exists: true }),
+    ensureSession: async () => ({}),
+    prompt: async (input: Record<string, unknown>) => {
+      calls.push(input);
+      return { text: "ok" };
+    },
+    setMode: async () => ({}),
+    cancel: async () => ({ cancelled: true, message: "cancelled" }),
+  } as unknown as BridgeRuntime;
   const server = new BridgeServer(runtime);
 
   const response = await server.handleLine(
@@ -525,9 +586,9 @@ test("bridge-server only allows empty prompt text for image media", async () => 
     }),
   );
 
-  expect(response).toBe(
-    '{"id":"empty-audio","ok":false,"error":{"code":"BRIDGE_INVALID_REQUEST","message":"media.type must be image"}}\n',
-  );
+  const parsed = JSON.parse(response);
+  expect(parsed.ok).toBe(true);
+  expect(calls[0]?.media).toEqual({ type: "audio", filePath: "/tmp/audio.wav", mimeType: "audio/wav" });
 });
 
 test("returns the final agent message from json-strict prompt output", async () => {

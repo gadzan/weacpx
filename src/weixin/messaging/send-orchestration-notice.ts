@@ -1,4 +1,5 @@
 import type { OrchestrationTaskRecord } from "../../orchestration/orchestration-types";
+import { normalizeWeixinUserIdFromChatKey } from "./inbound.js";
 import { sendMessageWeixin } from "./send.js";
 
 interface NoticeDeps {
@@ -35,7 +36,7 @@ export async function sendOrchestrationTaskNotice(
         ].join("\n");
 
   await sendMessage({
-    to: task.chatKey,
+    to: normalizeWeixinUserIdFromChatKey(task.chatKey),
     text,
     opts: {
       baseUrl: deps.baseUrl,

@@ -19,10 +19,12 @@ function createConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       retentionDays: 1,
       ...(overrides.logging ?? {}),
     },
-    wechat: {
+    channel: {
+      type: "weixin",
       replyMode: "stream",
-      ...(overrides.wechat ?? {}),
+      ...(overrides.channel ?? {}),
     },
+    channels: overrides.channels ?? [{ id: "weixin", type: "weixin", enabled: true }],
     agents: overrides.agents ?? {
       codex: { driver: "codex" },
       claude: { driver: "claude" },

@@ -1,9 +1,13 @@
 import { expect, mock, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, normalize } from "node:path";
 import { tmpdir } from "node:os";
 
-import { buildApp, resolveRuntimePaths } from "../../src/main";
+import { buildApp as buildAppRaw, resolveRuntimePaths } from "../../src/main";
+
+type BuildAppArgs = Parameters<typeof buildAppRaw>;
+const buildApp = (paths: BuildAppArgs[0], deps: BuildAppArgs[1] = {}): ReturnType<typeof buildAppRaw> =>
+  buildAppRaw(paths, { stateSaveDebounceMs: 0, ...deps });
 
 async function readJsonWithRetry<T>(path: string, attempts = 5): Promise<T> {
   let lastError: unknown;
@@ -778,6 +782,8 @@ test("external coordinator worker completion does not wake coordinator transport
 });
 
 test("pathless external coordinator dispatches workers in the requested cwd", async () => {
+  const requestedCwd = "/tmp/standalone-project";
+  const expectedCwd = normalize(requestedCwd);
   const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
   const configPath = join(dir, "config.json");
   const statePath = join(dir, "state.json");
@@ -831,7 +837,7 @@ test("pathless external coordinator dispatches workers in the requested cwd", as
     sourceHandle: "codex:instance",
     targetAgent: "claude",
     task: "review external change",
-    cwd: "/tmp/standalone-project",
+    cwd: requestedCwd,
   });
   for (let attempt = 0; attempt < 40; attempt += 1) {
     if (prompt.mock.calls.length > 0) {
@@ -843,12 +849,12 @@ test("pathless external coordinator dispatches workers in the requested cwd", as
 
   expect(delegated.status).toBe("running");
   expect(ensureSession.mock.calls[0]?.[0]).toMatchObject({
-    cwd: "/tmp/standalone-project",
+    cwd: expectedCwd,
     workspace: "standalone-project",
     transportSession: delegated.workerSession,
   });
   expect(prompt.mock.calls[0]?.[0]).toMatchObject({
-    cwd: "/tmp/standalone-project",
+    cwd: expectedCwd,
     workspace: "standalone-project",
     transportSession: delegated.workerSession,
     mcpCoordinatorSession: "codex:instance",
@@ -2264,7 +2270,7 @@ test("coordinatorAnswerQuestion resumes asynchronously and persists the resumed 
       answerSettled = true;
     });
 
-  await Bun.sleep(20);
+  await answerPromise;
   expect(answerSettled).toBe(true);
   expect(await runtime.orchestration.service.getTask(taskId)).toMatchObject({
     taskId,
@@ -2297,4 +2303,24 @@ test("coordinatorAnswerQuestion resumes asynchronously and persists the resumed 
   await answerPromise;
   await runtime.dispose();
   await rm(dir, { recursive: true, force: true });
+});
+
+import { join as joinPath2 } from "node:path";
+import { loadConfiguredPlugins } from "../../src/plugins/plugin-loader";
+import { createMessageChannels } from "../../src/channels/create-channel";
+
+test("loadConfiguredPlugins registers plugin channels usable by createMessageChannels", async () => {
+  const fixture = joinPath2(process.cwd(), "tests/fixtures/channel-demo-plugin/index.mjs");
+
+  await loadConfiguredPlugins({
+    plugins: [{ name: "demo-fixture-plugin", enabled: true }],
+    importPlugin: async () => await import(fixture),
+  });
+
+  const channels = createMessageChannels([
+    { id: "demo-fixture", type: "demo-fixture", enabled: true },
+  ]);
+
+  expect(channels.length).toBe(1);
+  expect(channels[0]?.id).toBe("demo-fixture");
 });

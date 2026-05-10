@@ -1,6 +1,9 @@
 import type { ChatRequest, ChatResponse, WechatAgent } from "./wechat-types";
+import type { ChatRequestMetadata } from "./weixin/agent/interface";
 import type { AppLogger } from "./logging/app-logger";
 import { createNoopAppLogger } from "./logging/app-logger";
+import { normalizeMediaArray } from "./channels/media-types.js";
+import { isKnownWeacpxCommandText } from "./commands/command-list";
 
 interface RouterLike {
   handle(
@@ -9,7 +12,8 @@ interface RouterLike {
     reply?: (text: string) => Promise<void>,
     replyContextToken?: string,
     accountId?: string,
-    media?: ChatRequest["media"],
+    media?: unknown,
+    metadata?: ChatRequestMetadata,
   ): Promise<ChatResponse>;
   clearSession?: (chatKey: string) => Promise<void>;
 }
@@ -22,22 +26,24 @@ export class ConsoleAgent implements WechatAgent {
   }
 
   async chat(request: ChatRequest): Promise<ChatResponse> {
+    const media = normalizeMediaArray(request.media);
     const hasText = request.text.trim().length > 0;
-    if (!hasText && !request.media) {
+    if (!hasText && media.length === 0) {
       return { text: "消息内容为空。" };
     }
-    if (request.media && request.media.type !== "image") {
-      return {
-        text: hasText
-          ? "暂不支持处理该类型附件；请发送文字或图片。"
-          : "暂不支持处理该类型消息，请发送文字或图片。",
-      };
-    }
+
     await this.logger.info("chat.received", "received inbound chat message", {
       chatKey: request.conversationId,
       kind: request.text.trim().startsWith("/") ? "command" : "prompt",
       text: summarizeText(request.text),
     });
+
+    const promptMedia = media.length > 0 ? media.map((m) => ({
+      type: (m.kind ?? m.type) as "image" | "audio" | "video" | "file",
+      filePath: m.filePath,
+      mimeType: m.mimeType,
+      ...(m.fileName ? { fileName: m.fileName } : {}),
+    })) : undefined;
 
     return await this.router.handle(
       request.conversationId,
@@ -45,8 +51,13 @@ export class ConsoleAgent implements WechatAgent {
       request.reply,
       request.replyContextToken,
       request.accountId,
-      request.media,
+      promptMedia,
+      request.metadata,
     );
+  }
+
+  isKnownCommand(text: string): boolean {
+    return isKnownWeacpxCommandText(text);
   }
 
   async clearSession(conversationId: string): Promise<void> {

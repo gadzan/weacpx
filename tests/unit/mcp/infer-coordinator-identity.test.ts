@@ -7,13 +7,15 @@ import {
 } from "../../../src/mcp/infer-coordinator-identity";
 
 test("infers the most specific configured workspace from MCP file roots", () => {
+  const repoRoot = process.platform === "win32" ? "C:\\repo" : "/repo";
+  const backendRoot = process.platform === "win32" ? "C:\\repo\\backend" : "/repo/backend";
   expect(
     inferWorkspaceFromRoots({
-      roots: [{ uri: pathToFileURL("/repo/backend/src").href }],
+      roots: [{ uri: pathToFileURL(process.platform === "win32" ? "C:\\repo\\backend\\src" : "/repo/backend/src").href }],
       config: {
         workspaces: {
-          repo: { cwd: "/repo" },
-          backend: { cwd: "/repo/backend" },
+          repo: { cwd: repoRoot },
+          backend: { cwd: backendRoot },
         },
       },
     }),
@@ -21,20 +23,22 @@ test("infers the most specific configured workspace from MCP file roots", () => 
 });
 
 test("rejects missing or ambiguous MCP roots instead of guessing a workspace", () => {
+  const backendRoot = process.platform === "win32" ? "C:\\repo\\backend" : "/repo/backend";
   expect(() =>
     inferWorkspaceFromRoots({
       roots: [{ uri: "memory://not-a-file-root" }],
-      config: { workspaces: { backend: { cwd: "/repo/backend" } } },
+      config: { workspaces: { backend: { cwd: backendRoot } } },
     }),
   ).toThrow("cannot infer workspace from MCP roots; configure --workspace <name>");
 
+  const ambiguousRoot = process.platform === "win32" ? "C:\\repo\\backend" : "/repo/backend";
   expect(() =>
     inferWorkspaceFromRoots({
-      roots: [{ uri: pathToFileURL("/repo/backend").href }],
+      roots: [{ uri: pathToFileURL(ambiguousRoot).href }],
       config: {
         workspaces: {
-          backend: { cwd: "/repo/backend" },
-          alias: { cwd: "/repo/backend" },
+          backend: { cwd: ambiguousRoot },
+          alias: { cwd: ambiguousRoot },
         },
       },
     }),
@@ -43,16 +47,18 @@ test("rejects missing or ambiguous MCP roots instead of guessing a workspace", (
 
 
 test("rejects independent roots that match different workspaces", () => {
+  const aRoot = process.platform === "win32" ? "C:\\repo\\a" : "/repo/a";
+  const backendRoot = process.platform === "win32" ? "C:\\repo\\backend-longer" : "/repo/backend-longer";
   expect(() =>
     inferWorkspaceFromRoots({
       roots: [
-        { uri: pathToFileURL("/repo/a").href },
-        { uri: pathToFileURL("/repo/backend-longer").href },
+        { uri: pathToFileURL(aRoot).href },
+        { uri: pathToFileURL(backendRoot).href },
       ],
       config: {
         workspaces: {
-          a: { cwd: "/repo/a" },
-          backend: { cwd: "/repo/backend-longer" },
+          a: { cwd: aRoot },
+          backend: { cwd: backendRoot },
         },
       },
     }),

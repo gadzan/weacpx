@@ -61,83 +61,89 @@ function freshState(): QuotaState {
 export class QuotaManager {
   private readonly states = new Map<string, QuotaState>();
   private readonly observer: QuotaObserver | undefined;
+  private readonly normalizeKey: (key: string) => string;
 
-  constructor(observer?: QuotaObserver) {
+  constructor(observer?: QuotaObserver, normalizeKey?: (key: string) => string) {
     this.observer = observer;
+    this.normalizeKey = normalizeKey ?? ((key) => key);
   }
 
   onInbound(chatKey: string): void {
+    const key = this.normalizeKey(chatKey);
     // v1.4: reset usage counters but PRESERVE pendingFinalChunks. The decision
     // about whether to drain or drop pending depends on the inbound content
     // (only `/jx` drains; everything else drops) and is made by the caller —
     // see monitor.ts (drops on non-/jx) and slash-commands.ts (drains on /jx).
-    const existing = this.states.get(chatKey);
+    const existing = this.states.get(key);
     const pending = existing?.pendingFinalChunks ?? [];
-    this.states.set(chatKey, { midUsed: 0, finalUsed: 0, pendingFinalChunks: pending });
-    this.observer?.onInbound?.(chatKey);
+    this.states.set(key, { midUsed: 0, finalUsed: 0, pendingFinalChunks: pending });
+    this.observer?.onInbound?.(key);
   }
 
   reserveMidSegment(chatKey: string): boolean {
-    const state = this.getOrCreate(chatKey);
+    const key = this.normalizeKey(chatKey);
+    const state = this.getOrCreate(key);
     if (state.midUsed >= MID_BUDGET) {
-      this.observer?.onMidRejected?.(chatKey, this.snapshot(chatKey));
+      this.observer?.onMidRejected?.(key, this.snapshot(key));
       return false;
     }
     state.midUsed += 1;
-    this.observer?.onMidReserved?.(chatKey, this.snapshot(chatKey));
+    this.observer?.onMidReserved?.(key, this.snapshot(key));
     return true;
   }
 
   reserveFinal(chatKey: string): boolean {
-    const state = this.getOrCreate(chatKey);
+    const key = this.normalizeKey(chatKey);
+    const state = this.getOrCreate(key);
     if (state.finalUsed >= FINAL_BUDGET) {
-      this.observer?.onFinalRejected?.(chatKey, this.snapshot(chatKey));
+      this.observer?.onFinalRejected?.(key, this.snapshot(key));
       return false;
     }
     state.finalUsed += 1;
-    this.observer?.onFinalReserved?.(chatKey, this.snapshot(chatKey));
+    this.observer?.onFinalReserved?.(key, this.snapshot(key));
     return true;
   }
 
   finalRemaining(chatKey: string): number {
-    return FINAL_BUDGET - this.getOrCreate(chatKey).finalUsed;
+    return FINAL_BUDGET - this.getOrCreate(this.normalizeKey(chatKey)).finalUsed;
   }
 
   enqueuePendingFinal(chatKey: string, chunks: PendingFinalChunk[]): void {
     if (chunks.length === 0) return;
-    const state = this.getOrCreate(chatKey);
+    const state = this.getOrCreate(this.normalizeKey(chatKey));
     state.pendingFinalChunks.push(...chunks);
   }
 
   prependPendingFinal(chatKey: string, chunks: PendingFinalChunk[]): void {
     if (chunks.length === 0) return;
-    const state = this.getOrCreate(chatKey);
+    const state = this.getOrCreate(this.normalizeKey(chatKey));
     state.pendingFinalChunks.unshift(...chunks);
   }
 
   drainPendingFinalUpToBudget(chatKey: string, available: number): PendingFinalChunk[] {
     if (available <= 0) return [];
-    const state = this.getOrCreate(chatKey);
+    const state = this.getOrCreate(this.normalizeKey(chatKey));
     if (state.pendingFinalChunks.length === 0) return [];
     return state.pendingFinalChunks.splice(0, available);
   }
 
   hasPendingFinal(chatKey: string): boolean {
-    return (this.states.get(chatKey)?.pendingFinalChunks.length ?? 0) > 0;
+    return (this.states.get(this.normalizeKey(chatKey))?.pendingFinalChunks.length ?? 0) > 0;
   }
 
   countPendingFinal(chatKey: string): number {
-    return this.states.get(chatKey)?.pendingFinalChunks.length ?? 0;
+    return this.states.get(this.normalizeKey(chatKey))?.pendingFinalChunks.length ?? 0;
   }
 
   clearPendingFinal(chatKey: string): void {
-    const state = this.states.get(chatKey);
+    const state = this.states.get(this.normalizeKey(chatKey));
     if (!state) return;
     state.pendingFinalChunks = [];
   }
 
   snapshot(chatKey: string): QuotaSnapshot {
-    const state = this.states.get(chatKey) ?? freshState();
+    const key = this.normalizeKey(chatKey);
+    const state = this.states.get(key) ?? freshState();
     const midRemaining = MID_BUDGET - state.midUsed;
     const finalRemaining = FINAL_BUDGET - state.finalUsed;
     return {
@@ -149,11 +155,11 @@ export class QuotaManager {
     };
   }
 
-  private getOrCreate(chatKey: string): QuotaState {
-    let state = this.states.get(chatKey);
+  private getOrCreate(key: string): QuotaState {
+    let state = this.states.get(key);
     if (!state) {
       state = freshState();
-      this.states.set(chatKey, state);
+      this.states.set(key, state);
     }
     return state;
   }

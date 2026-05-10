@@ -16,7 +16,7 @@ import type {
   EnsureSessionProgress,
   MissingOptionalDepErrorData,
 } from "../transport/acpx-bridge/acpx-bridge-protocol";
-import type { PromptMedia } from "../transport/types";
+import type { PromptMediaInput } from "../transport/types";
 
 export class EnsureSessionFailedError extends Error {
   readonly kind: "missing_optional_dep" | "generic";
@@ -55,7 +55,7 @@ interface BridgeSessionInput {
   mcpCoordinatorSession?: string;
   mcpSourceHandle?: string;
   replyMode?: "stream" | "final" | "verbose";
-  media?: PromptMedia;
+  media?: PromptMediaInput;
 }
 
 interface StreamingPromptRunnerOptions {

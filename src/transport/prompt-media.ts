@@ -1,12 +1,14 @@
 import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { tmpdir as defaultTmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
-import type { PromptMedia } from "./types";
+import type { PromptMedia, PromptMediaInput } from "./types";
 
 type AcpContentBlock =
   | { type: "text"; text: string }
-  | { type: "image"; mimeType: string; data: string };
+  | { type: "image"; mimeType: string; data: string }
+  | { type: "resource"; resource: { uri: string; text: string } };
 
 const MAX_STRUCTURED_IMAGE_BYTES = 100 * 1024 * 1024;
 
@@ -25,52 +27,76 @@ export interface StructuredPromptFileDeps {
 
 export async function createStructuredPromptFile(
   text: string,
-  media?: PromptMedia,
+  media?: PromptMediaInput,
   deps: StructuredPromptFileDeps = defaultStructuredPromptFileDeps,
 ): Promise<StructuredPromptFile | null> {
-  if (!media) {
+  const mediaList = normalizePromptMedia(media);
+  if (mediaList.length === 0) {
     return null;
   }
-  if (media.type !== "image") {
-    throw new Error("prompt media type is not supported; only image media is supported");
-  }
 
-  const imageData = await deps.readImageFile(media.filePath, MAX_STRUCTURED_IMAGE_BYTES);
-  if (imageData.byteLength === 0) {
-    throw new Error("image prompt must not be empty");
-  }
-  if (imageData.byteLength > MAX_STRUCTURED_IMAGE_BYTES) {
-    throw new Error(`image prompt exceeds ${MAX_STRUCTURED_IMAGE_BYTES} bytes`);
-  }
   const blocks: AcpContentBlock[] = [];
   if (text.trim().length > 0) {
     blocks.push({ type: "text", text });
   }
-  blocks.push({
-    type: "image",
-    mimeType: resolveImageMimeType(imageData, media.mimeType),
-    data: imageData.toString("base64"),
-  });
 
+  const nonImages = mediaList.filter((item) => item.type !== "image");
+  if (nonImages.length > 0) {
+    blocks.push({ type: "text", text: buildAttachmentSummary(nonImages) });
+  }
+
+  for (const item of mediaList) {
+    if (item.type === "image") {
+      const imageData = await deps.readImageFile(item.filePath, MAX_STRUCTURED_IMAGE_BYTES);
+      if (imageData.byteLength === 0) throw new Error("image prompt must not be empty");
+      if (imageData.byteLength > MAX_STRUCTURED_IMAGE_BYTES) {
+        throw new Error(`image prompt exceeds ${MAX_STRUCTURED_IMAGE_BYTES} bytes`);
+      }
+      blocks.push({
+        type: "image",
+        mimeType: resolveImageMimeType(imageData, item.mimeType),
+        data: imageData.toString("base64"),
+      });
+      continue;
+    }
+
+    blocks.push({
+      type: "resource",
+      resource: {
+        uri: pathToFileURL(item.filePath).toString(),
+        text: `${item.fileName ?? path.basename(item.filePath)} ${item.mimeType} ${item.type}`,
+      },
+    });
+  }
+
+  return await writeStructuredPromptBlocks(blocks, deps);
+}
+
+function normalizePromptMedia(media?: PromptMediaInput): PromptMedia[] {
+  if (!media) return [];
+  return Array.isArray(media) ? media : [media];
+}
+
+function buildAttachmentSummary(items: PromptMedia[]): string {
+  const lines = ["Attachments available as local files:"];
+  for (const [index, item] of items.entries()) {
+    lines.push(`${index + 1}. ${item.type} ${item.fileName ?? path.basename(item.filePath)} ${item.mimeType} ${item.filePath}`);
+  }
+  return lines.join("\n");
+}
+
+async function writeStructuredPromptBlocks(
+  blocks: AcpContentBlock[],
+  deps: StructuredPromptFileDeps,
+): Promise<StructuredPromptFile> {
   let dir = "";
   try {
     dir = await deps.mkdtemp(path.join(deps.tmpdir(), "weacpx-acp-prompt-"));
     const filePath = path.join(dir, "prompt.json");
     await deps.writeFile(filePath, JSON.stringify(blocks), "utf8");
-    return {
-      filePath,
-      cleanup: async () => {
-        await deps.rm(dir, { recursive: true, force: true });
-      },
-    };
+    return { filePath, cleanup: async () => deps.rm(dir, { recursive: true, force: true }) };
   } catch (error) {
-    if (dir) {
-      try {
-        await deps.rm(dir, { recursive: true, force: true });
-      } catch {
-        // Preserve the original create/write failure.
-      }
-    }
+    if (dir) await deps.rm(dir, { recursive: true, force: true }).catch(() => {});
     throw error;
   }
 }

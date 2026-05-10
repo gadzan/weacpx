@@ -21,6 +21,7 @@ import { OrchestrationService } from "./orchestration/orchestration-service";
 import { buildCoordinatorPrompt } from "./orchestration/build-coordinator-prompt";
 import { buildWorkerAnswerPrompt, buildWorkerTaskPrompt } from "./orchestration/worker-prompts";
 import { SessionService } from "./sessions/session-service";
+import { DebouncedStateStore } from "./state/debounced-state-store";
 import { StateStore } from "./state/state-store";
 import type { AppState } from "./state/types";
 import { runConsole } from "./run-console";
@@ -28,15 +29,13 @@ import { spawnAcpxBridgeClient } from "./transport/acpx-bridge/acpx-bridge-clien
 import { AcpxBridgeTransport } from "./transport/acpx-bridge/acpx-bridge-transport";
 import { AcpxCliTransport } from "./transport/acpx-cli/acpx-cli-transport";
 import type { ResolvedSession, SessionTransport } from "./transport/types";
-import { listWeixinAccountIds, resolveWeixinAccount, sendMessageWeixin } from "./weixin";
-import { deliverOrchestrationTaskNotice } from "./weixin/messaging/deliver-orchestration-task-notice";
-import { deliverCoordinatorMessage as deliverCoordinatorMessageWeixin } from "./weixin/messaging/deliver-coordinator-message";
+import type { MessageChannelRuntime, CoordinatorMessageInput } from "./channels/types.js";
+import { MessageChannelRegistry } from "./channels/channel-registry.js";
+import { RuntimeMediaStore } from "./channels/media-store.js";
 import { isQuotaDeferredError } from "./weixin/messaging/quota-errors";
-import { getContextToken } from "./weixin/messaging/inbound";
-import { loadWeixinSdk } from "./weixin-sdk";
+import { normalizeWeixinUserIdFromChatKey } from "./weixin/messaging/inbound.js";
 import { ProgressLineBuffer } from "./orchestration/progress-line-parser";
 import { renderTaskHeartbeat, renderTaskProgress } from "./formatting/render-text";
-import { deliverOrchestrationTaskProgress } from "./weixin/messaging/deliver-orchestration-task-progress";
 import { QuotaManager } from "./weixin/messaging/quota-manager";
 
 export interface RuntimePaths {
@@ -66,21 +65,24 @@ interface RuntimeDeps {
   createBridgeTransport?: () => Promise<SessionTransport>;
   defaultLoggingLevel?: LoggingLevel;
   loggerNow?: () => Date;
+  channel?: Pick<MessageChannelRuntime, "notifyTaskCompletion" | "notifyTaskProgress" | "sendCoordinatorMessage"> & {
+    configureOrchestration?: MessageChannelRuntime["configureOrchestration"];
+  };
   sendOrchestrationNotice?: (task: OrchestrationTaskRecord) => Promise<void>;
-  sendCoordinatorMessage?: (input: {
-    coordinatorSession: string;
-    chatKey: string;
-    accountId?: string;
-    replyContextToken?: string;
-    text: string;
-  }) => Promise<void>;
+  sendCoordinatorMessage?: (input: CoordinatorMessageInput) => Promise<void>;
+  /**
+   * state.json write debounce window in ms. Coalesces bursts of mutations
+   * into one disk write. Defaults to 50ms; tests pass 0 for deterministic
+   * sync semantics.
+   */
+  stateSaveDebounceMs?: number;
 }
 
 function startProgressHeartbeat(
   orchestration: OrchestrationService,
   config: AppConfig,
   logger: AppLogger,
-  quota: QuotaManager,
+  channel: RuntimeDeps["channel"] | null,
 ): NodeJS.Timeout | undefined {
   const thresholdSeconds = config.orchestration.progressHeartbeatSeconds;
   if (thresholdSeconds <= 0) {
@@ -94,14 +96,8 @@ function startProgressHeartbeat(
         try {
           const elapsedSeconds =
             (Date.now() - new Date(task.lastProgressAt ?? task.createdAt).getTime()) / 1000;
-          if (task.chatKey && task.replyContextToken) {
-            await deliverOrchestrationTaskProgress(task, renderTaskHeartbeat(task, elapsedSeconds), {
-              listAccountIds: () => listWeixinAccountIds(),
-              resolveAccount: (accountId) => resolveWeixinAccount(accountId),
-              getContextToken: (accountId, userId) => getContextToken(accountId, userId),
-              reserveMidSegment: (chatKey) => quota.reserveMidSegment(chatKey),
-              logger,
-            });
+          if (task.chatKey && task.replyContextToken && channel) {
+            await channel.notifyTaskProgress(task, renderTaskHeartbeat(task, elapsedSeconds));
           }
           await orchestration.recordTaskProgress(task.taskId);
         } catch (error) {
@@ -119,7 +115,10 @@ function startProgressHeartbeat(
   }, 60_000);
 }
 
+import { bootstrapBuiltinChannels } from "./channels/bootstrap.js";
+
 export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Promise<AppRuntime> {
+  bootstrapBuiltinChannels();
   await ensureConfigExists(paths.configPath);
   const configStore = new ConfigStore(paths.configPath);
   const config = await loadConfig(paths.configPath, {
@@ -138,7 +137,16 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
   const stateStore = new StateStore(paths.statePath);
   const state = await stateStore.load();
   const stateMutex = new AsyncMutex();
-  const sessions = new SessionService(config, stateStore, state, { stateMutex });
+  const debouncedStateStore = new DebouncedStateStore({
+    delegate: stateStore,
+    intervalMs: deps.stateSaveDebounceMs ?? 50,
+    onError: (error) => {
+      void logger.error("state.debounced_save.failed", "debounced state.json write failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    },
+  });
+  const sessions = new SessionService(config, debouncedStateStore, state, { stateMutex });
   const pendingWorkerDispatches = new Set<Promise<void>>();
   const transport =
     config.transport.type === "acpx-bridge"
@@ -198,11 +206,13 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
         },
       );
     },
-  });
+  }, (key) => key.startsWith("weixin:") ? normalizeWeixinUserIdFromChatKey(key) : key);
   let orchestration!: OrchestrationService;
   let sendCompletionNotice!: (task: OrchestrationTaskRecord) => Promise<void>;
   const sendCoordinatorMessage =
-    deps.sendCoordinatorMessage ?? createDefaultCoordinatorMessageSender(logger, quota);
+    deps.sendCoordinatorMessage ?? (deps.channel
+      ? (input: CoordinatorMessageInput) => deps.channel!.sendCoordinatorMessage(input)
+      : async () => {});
 
   const wakeCoordinatorLocks = new Map<string, Promise<void>>();
   const wakeCoordinator = async (coordinatorSession: string): Promise<void> => {
@@ -401,18 +411,8 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
                 try {
                   await orchestration.recordTaskProgress(input.taskId);
                   const taskState = await orchestration.getTask(input.taskId);
-                  if (taskState?.chatKey && taskState.replyContextToken) {
-                    await deliverOrchestrationTaskProgress(
-                      taskState,
-                      renderTaskProgress(taskState, summary),
-                      {
-                        listAccountIds: () => listWeixinAccountIds(),
-                        resolveAccount: (accountId) => resolveWeixinAccount(accountId),
-                        getContextToken: (accountId, userId) => getContextToken(accountId, userId),
-                        reserveMidSegment: (chatKey) => quota.reserveMidSegment(chatKey),
-                        logger,
-                      },
-                    );
+                  if (taskState?.chatKey && taskState.replyContextToken && deps.channel) {
+                    await deps.channel.notifyTaskProgress(taskState, renderTaskProgress(taskState, summary));
                   }
                 } catch (error) {
                   await logger.error(
@@ -494,7 +494,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     config,
     loadState: async () => JSON.parse(JSON.stringify(state)) as typeof state,
     saveState: async (nextState) => {
-      await stateStore.save(nextState);
+      await debouncedStateStore.save(nextState);
       replaceRuntimeState(state, nextState);
     },
     stateMutex,
@@ -560,8 +560,20 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     },
     logger,
   });
+  if (deps.channel) {
+    deps.channel.configureOrchestration?.({
+      markTaskNoticeDelivered: async (taskId, accountId) => {
+        await orchestration.markTaskNoticeDelivered(taskId, accountId);
+      },
+      markTaskNoticeFailed: async (taskId, errorMessage) => {
+        await orchestration.markTaskNoticeFailed({ taskId, errorMessage });
+      },
+    });
+  }
   sendCompletionNotice =
-    deps.sendOrchestrationNotice ?? createDefaultOrchestrationNoticeSender(orchestration, logger, quota);
+    deps.sendOrchestrationNotice ?? (deps.channel
+      ? async (task) => { await deps.channel!.notifyTaskCompletion(task); }
+      : async () => {});
   for (const task of await orchestration.listPendingTaskNotices()) {
     try {
       await sendCompletionNotice(task);
@@ -572,7 +584,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
       });
     }
   }
-  const progressHeartbeatInterval = startProgressHeartbeat(orchestration, config, logger, quota);
+  const progressHeartbeatInterval = startProgressHeartbeat(orchestration, config, logger, deps.channel ?? null);
   const orchestrationEndpoint = createOrchestrationEndpoint(
     paths.orchestrationSocketPath ?? resolveOrchestrationSocketPathFromConfigPath(paths.configPath),
   );
@@ -598,6 +610,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
         clearInterval(progressHeartbeatInterval);
       }
       await Promise.allSettled([...pendingWorkerDispatches]);
+      await debouncedStateStore.dispose();
       if ("dispose" in transport && typeof transport.dispose === "function") {
         await transport.dispose();
       }
@@ -616,9 +629,18 @@ export async function main(): Promise<void> {
   const paths = resolveRuntimePaths();
 
   try {
+    const { createMessageChannels } = await import("./channels/create-channel.js");
+    await ensureConfigExists(paths.configPath);
+    const startupConfig = await loadConfig(paths.configPath);
+
+    const { loadConfiguredPlugins } = await import("./plugins/plugin-loader.js");
+    await loadConfiguredPlugins({ plugins: startupConfig.plugins });
+
+    const { channelDeps } = await prepareChannelMedia(paths.configPath, startupConfig);
+    const channelRegistry = new MessageChannelRegistry(createMessageChannels(startupConfig.channels, channelDeps));
     await runConsole(paths, {
-      buildApp,
-      loadWeixinSdk,
+      buildApp: (paths) => buildApp(paths, { channel: channelRegistry }),
+      channels: channelRegistry,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -635,6 +657,20 @@ export async function main(): Promise<void> {
 
 if (import.meta.main) {
   await main();
+}
+
+export async function prepareChannelMedia(configPath: string, config: AppConfig): Promise<{
+  mediaStore: RuntimeMediaStore;
+  channelDeps: import("./channels/create-channel").CreateChannelDeps;
+}> {
+  const runtimeDir = join(dirname(configPath), "runtime");
+  const mediaRootDir = join(runtimeDir, "media");
+  const mediaStore = new RuntimeMediaStore({ rootDir: mediaRootDir });
+  await mediaStore.cleanupExpired().catch((error) => {
+    console.error("[weacpx] media cleanup failed:", error instanceof Error ? error.message : String(error));
+  });
+  const allowedMediaRoots = Object.values(config.workspaces).map((ws) => ws.cwd);
+  return { mediaStore, channelDeps: { mediaStore, allowedMediaRoots } };
 }
 
 export function resolveRuntimePaths(): RuntimePaths {
@@ -678,39 +714,3 @@ function shouldNotifyTaskCompletion(task: OrchestrationTaskRecord): boolean {
   return Boolean(task.chatKey && task.replyContextToken && (task.status === "completed" || task.status === "failed"));
 }
 
-function createDefaultOrchestrationNoticeSender(
-  orchestration: OrchestrationService,
-  logger: AppLogger,
-  quota: QuotaManager,
-): (task: OrchestrationTaskRecord) => Promise<void> {
-  return async (task) => {
-    await deliverOrchestrationTaskNotice(task, {
-      listAccountIds: () => listWeixinAccountIds(),
-      resolveAccount: (accountId) => resolveWeixinAccount(accountId),
-      getContextToken: (accountId, userId) => getContextToken(accountId, userId),
-      markDelivered: async (taskId, accountId) => {
-        await orchestration.markTaskNoticeDelivered(taskId, accountId);
-      },
-      markFailed: async (taskId, errorMessage) => {
-        await orchestration.markTaskNoticeFailed({ taskId, errorMessage });
-      },
-      reserveFinal: (chatKey) => quota.reserveFinal(chatKey),
-      logger,
-    });
-  };
-}
-
-function createDefaultCoordinatorMessageSender(
-  logger: AppLogger,
-  quota: QuotaManager,
-): NonNullable<RuntimeDeps["sendCoordinatorMessage"]> {
-  return async (input) =>
-    await deliverCoordinatorMessageWeixin(input, {
-      listAccountIds: () => listWeixinAccountIds(),
-      resolveAccount: (accountId) => resolveWeixinAccount(accountId),
-      getContextToken: (accountId, userId) => getContextToken(accountId, userId),
-      sendMessage: sendMessageWeixin,
-      reserveMidSegment: (chatKey) => quota.reserveMidSegment(chatKey),
-      logger,
-    });
-}
