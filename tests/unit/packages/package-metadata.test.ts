@@ -31,7 +31,7 @@ test("first-party channel plugins peer depend on weacpx", () => {
   const yuanbao = readJson("packages/channel-yuanbao/package.json");
 
   for (const pkg of [feishu, yuanbao]) {
-    expect(pkg.peerDependencies.weacpx).toBe(">=0.3.3");
+    expect(pkg.peerDependencies.weacpx).toBe(">=0.4.0-0");
     expect(pkg.peerDependencies["weacpx-console"]).toBeUndefined();
     expect(pkg.peerDependenciesMeta.weacpx.optional).toBe(true);
     expect(pkg.peerDependenciesMeta["weacpx-console"]).toBeUndefined();

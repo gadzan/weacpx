@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.4.0-beta.0] - 2026-05-11
+
+> ⚠️ **预发布版本（prerelease）。** 通过 `npm install weacpx@next` 或 `npm install weacpx@0.4.0-beta.0` 获取；`npm install weacpx`（默认 `latest` 标签）仍指向 0.3.x 稳定版。本次为新插件架构的首个公开预览，欢迎试用反馈，正式版预计随 0.4.0 一同发布。
+
+### Added
+
+- **Channel 插件运行时：** 新增 `weacpx/plugin-api` 公开入口，配套 `src/channels/` 与 `src/plugins/` 提供 channel 注册表、scope、媒体存储、出站媒体安全校验、插件加载/校验/诊断/CLI、known-plugins 列表，外部 npm 包可在不依赖内部模块的情况下实现自定义 channel。
+- **channel-feishu / channel-yuanbao 拆分：** 飞书与腾讯元宝 channel 独立为 `@ganglion/weacpx-channel-feishu`、`@ganglion/weacpx-channel-yuanbao`，仅依赖公开的 `weacpx/plugin-api`，按需 `npm install` 即可启用。
+- **Channel/Plugin CLI：** 新增 `weacpx channel|ch list|show|add|rm|enable|disable [--account <id>]` 与 `weacpx plugin list|add|update|remove|enable|disable|doctor|known`，支持多账号 bot 与第三方插件管理；新增 `weacpx restart` 守护进程重启子命令，并提供更友好的启动失败提示。
+- **Command Policy：** 新增 `command-list` / `command-policy`，slash 命令现在按 channel / 权限策略声明式启用，便于不同 channel 暴露不同命令面。
+- **DebouncedStateStore：** 新增防抖 state store，将突发的状态变更聚合为单次磁盘写入，保留 last-write-wins 语义。
+- **发包验证工具链：** 新增 `scripts/verify-publish.mjs`（基于 `bun pm pack --dry-run` 的多包内容/peer-dep/exclusion 校验）、`scripts/smoke-local-install.mjs`（把三个 tarball 装进临时项目并跑 `weacpx --version`），以及 `bun run verify:publish` / `publish:plugins` 脚本。
+- **Bun workspace + plugin-api 构建：** 仓库切换为 bun workspace，根包与 `packages/channel-*` 同源；新增 `tsconfig.plugin-api.json` 与 `build:plugin-api` 让 `weacpx/plugin-api` 同时输出 `.js` 与 `.d.ts`。
+- **新增文档：** `docs/channel-management.md`、`docs/plugin-development.md`、`docs/code-wiki.md`，更新 README/AGENTS/commands/config-* 反映新的 channel/plugin 架构。
+
+### Changed
+
+- **配置结构升级：** `wechat.replyMode` 被更通用的 `channel` 配置块取代（`type`、`replyMode`、channel 专属 `options`），并新增 `plugins`、按 channel 的运行时配置；旧的 `wechat.replyMode` 字段仍可通过兼容路径加载。
+- **运行时全面接入 ChannelRuntime：** `buildApp`、`runConsole`、`console-agent` 注入 `MessageChannelRuntime`，编排进度/协调器消息/任务完成通知统一通过已注册的 channel 路由，不再硬编码到微信路径。
+- **微信路径迁移到共享 channel API：** 微信 messaging、monitor、agent、quota-manager 改用 `src/channels/` 的媒体存储、出站媒体安全校验、入站媒体描述符、账号路由等共享能力；bridge runtime/server、transport prompt-media、sessions service、mcp server/tools、orchestration service、doctor smoke-check、logging 同步对齐。
+- **私有文件原子写入加固：** `private-file.ts` 用 `proper-lockfile` + `write-file-atomic` 替换手写实现，并发写入串行化、Windows AV/EPERM 抖动可重试，写入完成后强制 `fsync`。
+- **Plugin compat：** 兼容性比较时把当前 weacpx 版本中的预发布后缀视为其基础发行版（如 `0.4.0-beta.0` 视为 `0.4.0`），插件作者无须为每个 prerelease tag 额外声明。
+- **版本升级：** weacpx 升至 `0.4.0-beta.0`，`@ganglion/weacpx-channel-feishu` / `@ganglion/weacpx-channel-yuanbao` 均为 `0.1.0-beta.0`，channel 包的 `peerDependencies.weacpx` 收紧到 `>=0.4.0-0`，要求 weacpx 0.4.x 起的核心 API。
+
+### Fixed
+
+- **`readVersion` 安装/开发布局兼容：** `src/version.ts` 同时支持 `dist/cli.js → ../package.json` 与 `src/version.ts → ../package.json` 两种布局，避免在 `npm install` 后无法读取版本。
+- **跨平台 `run-tests` 脚本：** Windows 下使用 `npx.cmd` 与 `shell: true` 启动子进程，避免 ENOENT。
+
+### Tests
+
+- 新增 `tests/unit/channels/`（registry/scope/media-store/cli/plugin-boundary/weixin-channel/moved-channel-hints）、`tests/unit/plugins/`（loader/validator/doctor/cli/compatibility/known-plugins/package-manager/config/api-types）、`tests/unit/packages/`（channel-feishu / channel-yuanbao 的 channel/config/inbound/media/plugin/send/provider）等覆盖。
+- 新增 `tests/unit/util/private-file.test.ts`、`tests/unit/cli-help.test.ts`、`tests/unit/commands/command-policy.test.ts`、`tests/unit/scripts/verify-publish.test.ts`、`tests/unit/version.test.ts`，并扩充 cli/main/run-console/orchestration/sessions/transport/weixin 现有测试以覆盖 channel runtime 注入。
+
+### Docs
+
+- 新增 `docs/channel-management.md`、`docs/plugin-development.md`、`docs/code-wiki.md`；更新 README、AGENTS、`docs/commands.md`、`docs/config-command.md`、`docs/config-reference.md`、`docs/developments.md` 反映新的 channel/plugin 命令面与 workspace 发包流程。
+
 ## [0.3.2] - 2026-05-01
 
 ### Added

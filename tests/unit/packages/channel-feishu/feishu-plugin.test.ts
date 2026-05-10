@@ -4,7 +4,7 @@ import plugin, { FeishuChannel, feishuCliProvider } from "../../../../packages/c
 import { validateWeacpxPlugin } from "../../../../src/plugins/validate-plugin";
 
 test("@ganglion/weacpx-channel-feishu exports a valid plugin definition", () => {
-  const validated = validateWeacpxPlugin(plugin, "@ganglion/weacpx-channel-feishu", { currentWeacpxVersion: "0.3.3" });
+  const validated = validateWeacpxPlugin(plugin, "@ganglion/weacpx-channel-feishu", { currentWeacpxVersion: "0.4.0" });
 
   expect(validated.name).toBe("@ganglion/weacpx-channel-feishu");
   expect(validated.channels?.map((channel) => channel.type)).toEqual(["feishu"]);
@@ -13,7 +13,7 @@ test("@ganglion/weacpx-channel-feishu exports a valid plugin definition", () => 
 
 test("@ganglion/weacpx-channel-feishu declares D3 compatibility metadata", () => {
   expect(plugin.apiVersion).toBe(1);
-  expect(plugin.minWeacpxVersion).toBe("0.3.3");
+  expect(plugin.minWeacpxVersion).toBe("0.4.0");
 });
 
 test("feishu plugin factory creates the FeishuChannel runtime", () => {
