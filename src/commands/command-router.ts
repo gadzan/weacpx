@@ -3,12 +3,14 @@ import type { AppConfig } from "../config/types";
 import type { AppLogger } from "../logging/app-logger";
 import { createNoopAppLogger } from "../logging/app-logger";
 import type { SessionService } from "../sessions/session-service";
-import type { PromptMedia, ReplyQuotaContext, SessionTransport } from "../transport/types";
+import type { PromptMediaInput, ReplyQuotaContext, SessionTransport } from "../transport/types";
 import type { ResolvedSession } from "../transport/types";
 import type { QuotaManager } from "../weixin/messaging/quota-manager.js";
 import { resolveSessionAgentCommandFromIndex, type SessionAgentCommandResolver } from "../transport/acpx-session-index";
 import { PromptCommandError } from "../transport/prompt-output";
 import { parseCommand } from "./parse-command";
+import { authorizeCommandForChat, renderCommandAccessDenied } from "./command-policy";
+import type { ChatRequestMetadata } from "../weixin/agent/interface";
 import { handlePermissionAutoSet, handlePermissionAutoStatus, handlePermissionModeSet, handlePermissionStatus } from "./handlers/permission-handler";
 import { handleConfigSet, handleConfigShow } from "./handlers/config-handler";
 import {
@@ -109,7 +111,8 @@ export class CommandRouter {
     reply?: (text: string) => Promise<void>,
     replyContextToken?: string,
     accountId?: string,
-    media?: PromptMedia,
+    media?: PromptMediaInput,
+    metadata?: ChatRequestMetadata,
   ): Promise<RouterResponse> {
     const startedAt = Date.now();
     const command = parseCommand(input);
@@ -117,6 +120,18 @@ export class CommandRouter {
       chatKey,
       kind: command.kind,
     });
+
+    const access = authorizeCommandForChat(command, metadata);
+    if (!access.allowed) {
+      await this.logger.info("command.blocked", "blocked command by chat policy", {
+        chatKey,
+        kind: command.kind,
+        reason: access.reason,
+        channel: metadata?.channel,
+        senderId: metadata?.senderId,
+      });
+      return { text: renderCommandAccessDenied(command) };
+    }
 
     return await this.executeCommand(chatKey, command.kind, startedAt, async () => {
       switch (command.kind) {
@@ -372,7 +387,14 @@ export class CommandRouter {
     // Replace reference to prevent mutation of caller's object
     this.config.transport = { ...updated.transport };
     this.config.logging = { ...updated.logging };
-    this.config.wechat = { ...updated.wechat };
+    this.config.channel = {
+      ...updated.channel,
+      ...(updated.channel.options ? { options: { ...updated.channel.options } } : {}),
+    };
+    this.config.channels = updated.channels.map((channel) => ({
+      ...channel,
+      ...(channel.options ? { options: { ...channel.options } } : {}),
+    }));
     this.config.agents = { ...updated.agents };
     this.config.workspaces = { ...updated.workspaces };
   }
@@ -511,7 +533,7 @@ export class CommandRouter {
     text: string,
     reply?: (text: string) => Promise<void>,
     replyContext?: ReplyQuotaContext,
-    media?: PromptMedia,
+    media?: PromptMediaInput,
   ) {
     session.mcpCoordinatorSession ??= session.transportSession;
     return await this.measureTransportCall("prompt", session, () =>

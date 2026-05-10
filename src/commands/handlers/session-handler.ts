@@ -5,10 +5,11 @@ import type {
   SessionLifecycleOps,
   SessionRenderRecoveryOps,
 } from "../router-types";
-import type { PromptMedia, ResolvedSession } from "../../transport/types";
-import type { WechatReplyMode } from "../../config/types";
+import type { PromptMediaInput, ResolvedSession } from "../../transport/types";
+import type { ReplyMode } from "../../config/types";
 import type { HelpTopicMetadata } from "../help/help-types";
 import { buildCoordinatorPrompt } from "../../orchestration/build-coordinator-prompt";
+import { toDisplaySessionAlias, getChannelIdFromChatKey, toInternalSessionAlias, resolveSessionAliasForInput } from "../../channels/channel-scope";
 
 export interface SessionHandlerContext extends CommandRouterContext {
   lifecycle: SessionLifecycleOps;
@@ -83,7 +84,23 @@ export const cancelHelp: HelpTopicMetadata = {
 export async function handleSessions(context: SessionHandlerContext, chatKey: string): Promise<RouterResponse> {
   const sessions = await context.sessions.listSessions(chatKey);
   if (sessions.length === 0) {
-    return { text: "还没有会话。请先执行 /session new <alias> --agent <name> --ws <name>。" };
+    const channelId = getChannelIdFromChatKey(chatKey);
+    const internalAliases = context.sessions.listInternalAliases();
+    const hasOtherChannelSessions = internalAliases.some((alias) => {
+      if (channelId !== "weixin" && !alias.includes(":")) {
+        return true;
+      }
+      const prefix = alias.split(":", 1)[0];
+      return prefix !== alias && prefix !== channelId;
+    });
+
+    const lines = ["还没有会话。"];
+    if (hasOtherChannelSessions) {
+      lines.push("提示：检测到其他渠道已有会话记录；不同渠道的会话相互隔离，请在当前渠道重新创建或绑定。");
+    }
+    lines.push("创建会话：/ss <agent> -d /path/to/the/project");
+    lines.push("例如：/ss claude -d /path/to/the/project");
+    return { text: lines.join("\n") };
   }
 
   return {
@@ -103,7 +120,9 @@ export async function handleSessionNew(
   agent: string,
   workspace: string,
 ): Promise<RouterResponse> {
-  const session = context.lifecycle.resolveSession(alias, agent, workspace, `${workspace}:${alias}`);
+  const channelId = getChannelIdFromChatKey(chatKey);
+  const internalAlias = channelId === "weixin" ? alias : toInternalSessionAlias(channelId, alias);
+  const session = context.lifecycle.resolveSession(internalAlias, agent, workspace, `${workspace}:${internalAlias}`);
   const releaseTransportReservation = await context.lifecycle.reserveTransportSession(session.transportSession);
   try {
     try {
@@ -116,11 +135,11 @@ export async function handleSessionNew(
       return context.recovery.renderSessionCreationError(session, error);
     }
 
-    await context.sessions.attachSession(alias, agent, workspace, session.transportSession);
-    await context.lifecycle.refreshSessionTransportAgentCommand(alias);
-    await context.sessions.useSession(chatKey, alias);
+    await context.sessions.attachSession(internalAlias, agent, workspace, session.transportSession);
+    await context.sessions.useSession(chatKey, internalAlias);
+    await refreshSessionTransportAgentCommandBestEffort(context, internalAlias, "session.agent_command_refresh_failed");
     await context.logger.info("session.created", "created and selected logical session", {
-      alias,
+      alias: internalAlias,
       agent,
       workspace,
     });
@@ -148,7 +167,9 @@ export async function handleSessionAttach(
   workspace: string,
   transportSession: string,
 ): Promise<RouterResponse> {
-  const attached = context.lifecycle.resolveSession(alias, agent, workspace, transportSession);
+  const channelId = getChannelIdFromChatKey(chatKey);
+  const internalAlias = channelId === "weixin" ? alias : toInternalSessionAlias(channelId, alias);
+  const attached = context.lifecycle.resolveSession(internalAlias, agent, workspace, transportSession);
   const releaseTransportReservation = await context.lifecycle.reserveTransportSession(attached.transportSession);
   try {
     const exists = await context.lifecycle.checkTransportSession(attached);
@@ -161,11 +182,11 @@ export async function handleSessionAttach(
       };
     }
 
-    await context.sessions.attachSession(alias, agent, workspace, transportSession);
-    await context.lifecycle.refreshSessionTransportAgentCommand(alias);
-    await context.sessions.useSession(chatKey, alias);
+    await context.sessions.attachSession(internalAlias, agent, workspace, transportSession);
+    await context.sessions.useSession(chatKey, internalAlias);
+    await refreshSessionTransportAgentCommandBestEffort(context, internalAlias, "session.attach.agent_command_refresh_failed");
     await context.logger.info("session.attached", "attached existing transport session", {
-      alias,
+      alias: internalAlias,
       agent,
       workspace,
       transportSession,
@@ -173,6 +194,21 @@ export async function handleSessionAttach(
     return { text: `会话「${alias}」已绑定并切换` };
   } finally {
     await releaseTransportReservation();
+  }
+}
+
+async function refreshSessionTransportAgentCommandBestEffort(
+  context: SessionHandlerContext,
+  alias: string,
+  event: string,
+): Promise<void> {
+  try {
+    await context.lifecycle.refreshSessionTransportAgentCommand(alias);
+  } catch (error) {
+    await context.logger.error(event, "failed to refresh session agent command", {
+      alias,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
@@ -198,7 +234,7 @@ export async function handleModeShow(context: SessionHandlerContext, chatKey: st
   return {
     text: [
       "当前 mode：",
-      `- 会话：${session.alias}`,
+      `- 会话：${toDisplaySessionAlias(session.alias)}`,
       `- mode：${session.modeId ?? "未设置"}`,
     ].join("\n"),
   };
@@ -225,14 +261,14 @@ export async function handleReplyModeShow(context: SessionHandlerContext, chatKe
     return { text: NO_CURRENT_SESSION_TEXT };
   }
 
-  const globalDefault = context.config?.wechat.replyMode ?? "verbose";
+  const globalDefault = context.config?.channel.replyMode ?? "verbose";
   const sessionOverride = session.replyMode;
   const effective = sessionOverride ?? globalDefault;
 
   return {
     text: [
       "当前 reply mode：",
-      `- 会话：${session.alias}`,
+      `- 会话：${toDisplaySessionAlias(session.alias)}`,
       `- 全局默认：${globalDefault}`,
       `- 当前会话覆盖：${sessionOverride ?? "未设置"}`,
       `- 当前生效：${effective}`,
@@ -261,7 +297,7 @@ export async function handleReplyModeReset(context: SessionHandlerContext, chatK
   }
 
   await context.sessions.setCurrentSessionReplyMode(chatKey, undefined);
-  const globalDefault = context.config?.wechat.replyMode ?? "verbose";
+  const globalDefault = context.config?.channel.replyMode ?? "verbose";
   return { text: `已重置当前会话 reply mode，当前回退到全局默认：${globalDefault}` };
 }
 
@@ -274,7 +310,7 @@ export async function handleStatus(context: SessionHandlerContext, chatKey: stri
   return {
     text: [
       "当前会话：",
-      `- 名称：${session.alias}`,
+      `- 名称：${toDisplaySessionAlias(session.alias)}`,
       `- Agent：${session.agent}`,
       `- 工作区：${session.workspace}`,
     ].join("\n"),
@@ -309,7 +345,8 @@ export async function handleSessionRemove(
   chatKey: string,
   alias: string,
 ): Promise<RouterResponse> {
-  const session = await context.sessions.getSession(alias);
+  const internalAlias = await context.sessions.resolveAliasForChat(chatKey, alias);
+  const session = await context.sessions.getSession(internalAlias);
   if (!session) {
     return { text: `会话「${alias}」不存在。` };
   }
@@ -326,8 +363,8 @@ export async function handleSessionRemove(
     }
   }
 
-  const sharedAliasCount = context.sessions.countAliasesSharingTransport(session.transportSession, alias);
-  const { wasActive } = await context.sessions.removeSession(alias);
+  const sharedAliasCount = context.sessions.countAliasesSharingTransport(session.transportSession, internalAlias);
+  const { wasActive } = await context.sessions.removeSession(internalAlias);
 
   let orchestrationPurgeWarning: string | undefined;
   if (context.orchestration) {
@@ -337,7 +374,7 @@ export async function handleSessionRemove(
       const message = error instanceof Error ? error.message : String(error);
       orchestrationPurgeWarning = message;
       await context.logger.error("session.orchestration_purge_failed", "failed to purge orchestration references after logical remove", {
-        alias,
+        alias: internalAlias,
         transportSession: session.transportSession,
         message,
       });
@@ -353,14 +390,14 @@ export async function handleSessionRemove(
       const message = error instanceof Error ? error.message : String(error);
       transportTeardownWarning = message;
       await context.logger.error("session.transport_teardown_failed", "failed to close acpx session after logical remove", {
-        alias,
+        alias: internalAlias,
         transportSession: session.transportSession,
         message,
       });
     }
   }
   await context.logger.info("session.removed", "removed logical session", {
-    alias,
+    alias: internalAlias,
     sharedAliasCount,
     transportClosed: shouldTeardownTransport && transportTeardownWarning === undefined,
   });
@@ -389,9 +426,9 @@ async function promptWithSession(
   reply?: (text: string) => Promise<void>,
   replyContextToken?: string,
   accountId?: string,
-  media?: PromptMedia,
+  media?: PromptMediaInput,
 ): Promise<RouterResponse> {
-  const effectiveReplyMode = session.replyMode ?? context.config?.wechat.replyMode ?? "verbose";
+  const effectiveReplyMode = session.replyMode ?? context.config?.channel.replyMode ?? "verbose";
   const transportReply = effectiveReplyMode !== "final" ? reply : undefined;
   if (context.orchestration) {
     try {
@@ -470,7 +507,7 @@ export async function handlePrompt(
   reply?: (text: string) => Promise<void>,
   replyContextToken?: string,
   accountId?: string,
-  media?: PromptMedia,
+  media?: PromptMediaInput,
 ): Promise<RouterResponse> {
   const session = await context.sessions.getCurrentSession(chatKey);
   if (!session) {

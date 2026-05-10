@@ -27,7 +27,8 @@ import { StateStore } from "./state/state-store";
 import type { AppConfig } from "./config/types";
 import type { AppState } from "./state/types";
 import { readVersion } from "./version.js";
-import { createWeixinConsumerLock } from "./weixin/monitor/consumer-lock";
+import { handleChannelCli, type ChannelCliDeps } from "./channels/cli/channel-cli";
+import { handlePluginCli, type PluginCliDeps } from "./plugins/plugin-cli";
 
 
 export interface PrepareMcpCoordinatorStartupInput {
@@ -211,12 +212,19 @@ interface CliDeps {
   login?: () => Promise<void>;
   logout?: () => Promise<void>;
   run?: () => Promise<void>;
+  readVersion?: () => string;
   doctor?: (options: DoctorRunOptions) => number | Promise<number>;
   mcpStdio?: (args: string[]) => number | Promise<number>;
   controller?: CliController;
   print?: (line: string) => void;
   stderr?: (text: string) => void;
   cwd?: () => string;
+  channelCliDeps?: Partial<ChannelCliDeps>;
+  pluginCliDeps?: Partial<PluginCliDeps>;
+  loadConfiguredPluginsForChannelCli?: () => Promise<void>;
+  isInteractive?: () => boolean;
+  promptText?: (message: string) => Promise<string>;
+  promptSecret?: (message: string) => Promise<string>;
 }
 
 const HELP_LINES = [
@@ -227,13 +235,23 @@ const HELP_LINES = [
   "weacpx start  - 后台启动",
   "weacpx status - 查看状态",
   "weacpx stop   - 停止服务",
+  "weacpx restart - 重启后台服务",
+  "weacpx channel|ch list|show|add|rm|enable|disable [--account <id>] - 管理消息频道（多 bot 用 --account）",
+  "weacpx plugin list|add|update|remove|enable|disable|doctor|known - 管理插件",
   "weacpx doctor - 运行诊断",
   "weacpx version - 查看版本",
   "weacpx workspace list|add|rm - 管理本机工作区（别名：ws）",
   "weacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务",
 ];
 
+export function getUsageText(): string {
+  return HELP_LINES.join("\n");
+}
+
+import { bootstrapBuiltinChannels } from "./channels/bootstrap.js";
+
 export async function runCli(args: string[], deps: CliDeps = {}): Promise<number> {
+  bootstrapBuiltinChannels();
   const command = args[0];
   const print = deps.print ?? ((line: string) => console.log(line));
 
@@ -241,7 +259,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
     case "version":
     case "--version":
     case "-v":
-      print(readVersion());
+      print((deps.readVersion ?? readVersion)());
       return 0;
     case "--help":
     case "-h": {
@@ -284,20 +302,63 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       }
       return result;
     }
+    case "plugin": {
+      const result = await handlePluginCli(args.slice(1), await createPluginCliDeps({
+        print,
+        controller: deps.controller,
+        isInteractive: deps.isInteractive,
+        promptText: deps.promptText,
+        overrides: deps.pluginCliDeps,
+      }));
+      if (result === null) {
+        for (const line of HELP_LINES) {
+          print(line);
+        }
+        return 1;
+      }
+      return result;
+    }
+    case "channel":
+    case "ch": {
+      await (deps.loadConfiguredPluginsForChannelCli ?? defaultLoadConfiguredPluginsForChannelCli)();
+      const result = await handleChannelCli(args.slice(1), await createChannelCliDeps({
+        print,
+        stderr: deps.stderr,
+        controller: deps.controller,
+        isInteractive: deps.isInteractive,
+        promptText: deps.promptText,
+        promptSecret: deps.promptSecret,
+        overrides: deps.channelCliDeps,
+      }));
+      if (result === null) {
+        for (const line of HELP_LINES) {
+          print(line);
+        }
+        return 1;
+      }
+      return result;
+    }
     case "mcp-stdio":
       return await (deps.mcpStdio ?? ((subArgs) => defaultMcpStdio(subArgs, { stderr: deps.stderr })))(args.slice(1));
     case "start": {
       const controller = deps.controller ?? createDefaultController();
-      const result = await controller.start();
-      if (result.state === "already-running") {
-        print("weacpx 已在后台运行");
+      try {
+        const result = await controller.start();
+        if (result.state === "already-running") {
+          print("weacpx 已在后台运行");
+          print(`PID: ${result.pid}`);
+          return 0;
+        }
+
+        print("weacpx 已在后台启动");
         print(`PID: ${result.pid}`);
         return 0;
+      } catch (error) {
+        print(`weacpx 启动失败：${describeFriendlyError(error)}`);
+        const stderrPath = safeStderrLogPath();
+        if (stderrPath) print(`请查看 Stderr: ${stderrPath}`);
+        return 1;
       }
-
-      print("weacpx 已在后台启动");
-      print(`PID: ${result.pid}`);
-      return 0;
     }
     case "status": {
       const controller = deps.controller ?? createDefaultController();
@@ -333,6 +394,17 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       }
       print("weacpx 已停止");
       return 0;
+    }
+    case "restart": {
+      const controller = deps.controller ?? createDefaultController();
+      try {
+        return await restartDaemonCli(controller, print);
+      } catch (error) {
+        print(`weacpx 重启失败：${describeFriendlyError(error)}`);
+        const stderrPath = safeStderrLogPath();
+        if (stderrPath) print(`请查看 Stderr: ${stderrPath}`);
+        return 1;
+      }
     }
     default:
       for (const line of HELP_LINES) {
@@ -440,40 +512,66 @@ async function createCliConfigStore(): Promise<ConfigStore> {
   return new ConfigStore(configPath);
 }
 
+export async function resolveLoginChannelForCli(): Promise<ReturnType<typeof createMessageChannel>> {
+  const { createMessageChannel } = await import("./channels/create-channel.js");
+  return createMessageChannel("weixin");
+}
+
 async function defaultLogin(): Promise<void> {
-  const { main } = await import("./login");
-  await main();
+  const channel = await resolveLoginChannelForCli();
+  await channel.login();
 }
 
 async function defaultLogout(): Promise<void> {
-  const { logout } = await import("./weixin-sdk");
-  logout();
+  const channel = await resolveLoginChannelForCli();
+  channel.logout();
+}
+
+async function defaultLoadConfiguredPluginsForChannelCli(): Promise<void> {
+  const store = await createCliConfigStore();
+  const config = await store.load();
+  const { loadConfiguredPlugins } = await import("./plugins/plugin-loader.js");
+  await loadConfiguredPlugins({ plugins: config.plugins });
 }
 
 async function defaultRun(): Promise<void> {
-  const [{ buildApp, resolveRuntimePaths }, { loadWeixinSdk }, { runConsole }] = await Promise.all([
+  const [{ buildApp, resolveRuntimePaths, prepareChannelMedia }, { runConsole }] = await Promise.all([
     import("./main"),
-    import("./weixin-sdk"),
     import("./run-console"),
   ]);
   const runtimePaths = resolveRuntimePaths();
+  await ensureConfigExists(runtimePaths.configPath);
+  const config = await loadConfig(runtimePaths.configPath);
+  const { loadConfiguredPlugins } = await import("./plugins/plugin-loader.js");
+  await loadConfiguredPlugins({ plugins: config.plugins });
+  const { createMessageChannels } = await import("./channels/create-channel.js");
+  const { MessageChannelRegistry } = await import("./channels/channel-registry.js");
   const daemonPaths = resolveDaemonPaths({ home: requireHome() });
   const daemonRuntime = new DaemonRuntime(daemonPaths, { pid: process.pid });
+  const { channelDeps } = await prepareChannelMedia(runtimePaths.configPath, config);
+  const channelRegistry = new MessageChannelRegistry(createMessageChannels(config.channels, channelDeps));
+  const lockCreators = channelRegistry.createConsumerLocks();
+  const firstLockCreator = lockCreators[0];
 
   await runConsole(runtimePaths, {
     buildApp: (paths) =>
       buildApp(paths, {
         defaultLoggingLevel: resolveCliEntryPath().includes(`${sep}src${sep}`) ? "debug" : "info",
+        channel: channelRegistry,
       }),
-    loadWeixinSdk,
+    channels: channelRegistry,
     daemonRuntime,
-    consumerLockFactory: (runtime) =>
-      createWeixinConsumerLock({
-        lockFilePath: `${daemonPaths.runtimeDir}${sep}weixin-consumer.lock.json`,
-        onDiagnostic: async (event, context) => {
-          await runtime.logger.info(`weixin.consumer_lock.${event}`, "weixin consumer lock diagnostic", context);
-        },
-      }),
+    ...(firstLockCreator
+      ? {
+          consumerLockFactory: (runtime) =>
+            firstLockCreator.create({
+              lockFilePath: `${daemonPaths.runtimeDir}${sep}${firstLockCreator.channel.id}-consumer.lock.json`,
+              onDiagnostic: async (event, context) => {
+                await runtime.logger.info(`${firstLockCreator.channel.id}.consumer_lock.${event}`, `${firstLockCreator.channel.id} consumer lock diagnostic`, context);
+              },
+            }),
+        }
+      : {}),
   });
 }
 
@@ -490,6 +588,7 @@ async function defaultMcpStdio(
   let sourceHandle: string | null;
   let endpoint: ReturnType<typeof resolveDefaultOrchestrationEndpoint>;
   let identityResolver: Parameters<typeof runWeacpxMcpServer>[0]["resolveIdentity"] | undefined;
+  let availableAgents: string[] | undefined;
   try {
     const parsedCoordinatorSession = parseCoordinatorSession(args, process.env);
     sourceHandle = parseSourceHandle(args, process.env);
@@ -499,6 +598,7 @@ async function defaultMcpStdio(
     const runtimePaths = (await import("./main")).resolveRuntimePaths();
     await ensureConfigExists(runtimePaths.configPath);
     const config = await loadConfig(runtimePaths.configPath);
+    availableAgents = Object.keys(config.agents);
     const state = await new StateStore(runtimePaths.statePath).load();
     const resolveIdentity = createMcpStdioIdentityResolver({
       parsedCoordinatorSession,
@@ -525,6 +625,7 @@ async function defaultMcpStdio(
     ...(coordinatorSession ? { coordinatorSession } : {}),
     ...(sourceHandle ? { sourceHandle } : {}),
     ...(identityResolver ? { resolveIdentity: identityResolver } : {}),
+    ...(availableAgents ? { availableAgents } : {}),
   });
   return 0;
 }
@@ -532,6 +633,156 @@ async function defaultMcpStdio(
 function isUnknownCoordinatorRequiresWorkspaceError(error: unknown, coordinatorSession: string): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return message === `unknown coordinator session "${coordinatorSession}" requires --workspace <name>`;
+}
+
+export async function restartDaemonCli(
+  controller: CliController,
+  print: (line: string) => void,
+): Promise<number> {
+  const status = await controller.getStatus();
+  if (status.state === "indeterminate") {
+    print("weacpx 进程仍在运行，但状态元数据缺失");
+    print(`PID: ${status.pid}`);
+    print("请先执行 `weacpx stop`，或手动清理 stale PID/status 后再重试。");
+    return 1;
+  }
+
+  if (status.state === "running") {
+    print("weacpx 正在重启...");
+    await controller.stop();
+    print("weacpx 已停止");
+  } else {
+    print("weacpx 未运行，正在启动...");
+  }
+
+  const started = await controller.start();
+  if (started.state === "already-running") {
+    print("weacpx 已在后台运行");
+    print(`PID: ${started.pid}`);
+    return 0;
+  }
+
+  print("weacpx 已在后台启动");
+  print(`PID: ${started.pid}`);
+  return 0;
+}
+
+async function createChannelCliDeps(input: {
+  print: (line: string) => void;
+  stderr?: (text: string) => void;
+  controller?: CliController;
+  isInteractive?: () => boolean;
+  promptText?: (message: string) => Promise<string>;
+  promptSecret?: (message: string) => Promise<string>;
+  overrides?: Partial<ChannelCliDeps>;
+}): Promise<ChannelCliDeps> {
+  const store = await createCliConfigStore();
+  const controller = input.controller ?? createDefaultController();
+  const base: ChannelCliDeps = {
+    loadConfig: async () => await store.load(),
+    saveConfig: async (config) => await store.save(config),
+    print: input.print,
+    stderr: input.stderr ?? ((text: string) => process.stderr.write(text)),
+    isInteractive: input.isInteractive ?? (() => Boolean(process.stdin.isTTY && process.stdout.isTTY)),
+    promptText: input.promptText ?? defaultPromptText,
+    promptSecret: input.promptSecret ?? defaultPromptSecret,
+    getDaemonStatus: async () => {
+      const status = await controller.getStatus();
+      if (status.state === "running") return { state: "running" as const, pid: status.pid };
+      if (status.state === "indeterminate") return { state: "indeterminate" as const, pid: status.pid, reason: status.reason };
+      return { state: "stopped" as const };
+    },
+    restartDaemon: async () => await restartDaemonCli(controller, input.print),
+  };
+  return { ...base, ...input.overrides };
+}
+
+async function createPluginCliDeps(input: {
+  print: (line: string) => void;
+  controller?: CliController;
+  isInteractive?: () => boolean;
+  promptText?: (message: string) => Promise<string>;
+  overrides?: Partial<PluginCliDeps>;
+}): Promise<PluginCliDeps> {
+  const store = await createCliConfigStore();
+  const controller = input.controller ?? createDefaultController();
+  const base: PluginCliDeps = {
+    loadConfig: async () => await store.load(),
+    saveConfig: async (config) => await store.save(config),
+    print: input.print,
+    isInteractive: input.isInteractive ?? (() => Boolean(process.stdin.isTTY && process.stdout.isTTY)),
+    promptText: input.promptText ?? defaultPromptText,
+    getDaemonStatus: async () => {
+      const status = await controller.getStatus();
+      if (status.state === "running") return { state: "running" as const, pid: status.pid };
+      if (status.state === "indeterminate") return { state: "indeterminate" as const, pid: status.pid, reason: status.reason };
+      return { state: "stopped" as const };
+    },
+    restartDaemon: async () => await restartDaemonCli(controller, input.print),
+  };
+  return { ...base, ...input.overrides };
+}
+
+async function defaultPromptText(message: string): Promise<string> {
+  const readline = await import("node:readline/promises");
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await rl.question(message);
+  } finally {
+    rl.close();
+  }
+}
+
+async function defaultPromptSecret(message: string): Promise<string> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY || typeof process.stdin.setRawMode !== "function") {
+    return await defaultPromptText(message);
+  }
+
+  process.stdout.write(message);
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+
+  return await new Promise<string>((resolve, reject) => {
+    const chunks: string[] = [];
+    let inEscape = false;
+    const cleanup = () => {
+      process.stdin.off("data", onData);
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+      process.stdout.write("\n");
+    };
+    const onData = (buffer: Buffer) => {
+      const text = buffer.toString("utf8");
+      for (const char of text) {
+        if (inEscape) {
+          if ((char >= "a" && char <= "z") || (char >= "A" && char <= "Z") || char === "~") {
+            inEscape = false;
+          }
+          continue;
+        }
+        if (char === "\u001b") {
+          inEscape = true;
+          continue;
+        }
+        if (char === "\u0003") {
+          cleanup();
+          reject(new Error("secret input cancelled"));
+          return;
+        }
+        if (char === "\r" || char === "\n") {
+          cleanup();
+          resolve(chunks.join(""));
+          return;
+        }
+        if (char === "\u007f" || char === "\b") {
+          chunks.pop();
+          continue;
+        }
+        chunks.push(char);
+      }
+    };
+    process.stdin.on("data", onData);
+  });
 }
 
 function createDefaultController(): CliController {
@@ -550,6 +801,18 @@ function requireHome(): string {
     throw new Error("Unable to resolve the current user home directory");
   }
   return home;
+}
+
+function describeFriendlyError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function safeStderrLogPath(): string | null {
+  try {
+    return resolveDaemonPaths({ home: requireHome() }).stderrLog;
+  } catch {
+    return null;
+  }
 }
 
 function resolveCliEntryPath(): string {

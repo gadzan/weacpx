@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { expect, test } from "bun:test";
 
-import { createMcpStdioIdentityResolver, prepareMcpCoordinatorStartup, runCli } from "../../src/cli";
+import { createMcpStdioIdentityResolver, prepareMcpCoordinatorStartup, resolveLoginChannelForCli, runCli } from "../../src/cli";
 
 async function withTempHome<T>(fn: (home: string) => Promise<T>): Promise<T> {
   const home = await mkdtemp(join(tmpdir(), "weacpx-cli-"));
@@ -142,6 +142,75 @@ test("prints already running on repeated start", async () => {
   expect(lines).toEqual(["weacpx 已在后台运行", "PID: 12345"]);
 });
 
+test("start prints friendly error and exit code 1 when controller throws", async () => {
+  const lines: string[] = [];
+
+  await expect(
+    runCli(["start"], {
+      controller: {
+        getStatus: async () => ({ state: "stopped" }),
+        start: async () => {
+          throw new Error("daemon exited before reporting ready state (pid 9999)");
+        },
+        stop: async () => ({ state: "stopped", detail: "stopped" }),
+      },
+      print: (line) => {
+        lines.push(line);
+      },
+    }),
+  ).resolves.toBe(1);
+
+  expect(lines.some((line) => line.startsWith("weacpx 启动失败：daemon exited before reporting ready state"))).toBe(true);
+  expect(lines.every((line) => !line.includes("at "))).toBe(true);
+});
+
+test("start surfaces stderr log hint when daemon dies before ready (missing plugin scenario)", async () => {
+  // Simulates the case where the daemon fails to spawn because configured
+  // channel `yuanbao` has no plugin installed: the foreground CLI must point
+  // the user at the log file instead of printing a Node stack.
+  const lines: string[] = [];
+
+  await expect(
+    runCli(["start"], {
+      controller: {
+        getStatus: async () => ({ state: "stopped" }),
+        start: async () => {
+          throw new Error("weacpx daemon exited before reporting ready state (pid 31415)");
+        },
+        stop: async () => ({ state: "stopped", detail: "stopped" }),
+      },
+      print: (line) => {
+        lines.push(line);
+      },
+    }),
+  ).resolves.toBe(1);
+
+  expect(lines.some((line) => line.startsWith("weacpx 启动失败：weacpx daemon exited before reporting ready state"))).toBe(true);
+  expect(lines.some((line) => line.startsWith("请查看 Stderr: ") && line.includes("stderr.log"))).toBe(true);
+});
+
+test("restart prints friendly error and exit code 1 when controller throws", async () => {
+  const lines: string[] = [];
+
+  await expect(
+    runCli(["restart"], {
+      controller: {
+        getStatus: async () => ({ state: "running", pid: 1234, status: { pid: 1234, started_at: "", heartbeat_at: "", config_path: "", state_path: "", app_log: "", stdout_log: "", stderr_log: "" } }),
+        start: async () => {
+          throw new Error("startup polling timed out");
+        },
+        stop: async () => ({ state: "stopped", detail: "stopped" }),
+      },
+      print: (line) => {
+        lines.push(line);
+      },
+    }),
+  ).resolves.toBe(1);
+
+  expect(lines.some((line) => line.startsWith("weacpx 重启失败：startup polling timed out"))).toBe(true);
+  expect(lines.every((line) => !line.includes("at "))).toBe(true);
+});
+
 test("prints stop result", async () => {
   const lines: string[] = [];
 
@@ -180,6 +249,9 @@ test("prints help for unknown commands", async () => {
     "weacpx start  - 后台启动",
     "weacpx status - 查看状态",
     "weacpx stop   - 停止服务",
+    "weacpx restart - 重启后台服务",
+    "weacpx channel|ch list|show|add|rm|enable|disable [--account <id>] - 管理消息频道（多 bot 用 --account）",
+    "weacpx plugin list|add|update|remove|enable|disable|doctor|known - 管理插件",
     "weacpx doctor - 运行诊断",
     "weacpx version - 查看版本",
     "weacpx workspace list|add|rm - 管理本机工作区（别名：ws）",
@@ -432,11 +504,12 @@ test("prints version for 'version' command", async () => {
       print: (line) => {
         lines.push(line);
       },
+      readVersion: () => "9.9.9",
     }),
   ).resolves.toBe(0);
 
   expect(lines).toHaveLength(1);
-  expect(lines[0]).toBe("unknown");
+  expect(lines[0]).toBe("9.9.9");
 });
 
 test("prints version for '--version' flag", async () => {
@@ -447,11 +520,12 @@ test("prints version for '--version' flag", async () => {
       print: (line) => {
         lines.push(line);
       },
+      readVersion: () => "9.9.9",
     }),
   ).resolves.toBe(0);
 
   expect(lines).toHaveLength(1);
-  expect(lines[0]).toBe("unknown");
+  expect(lines[0]).toBe("9.9.9");
 });
 
 test("prints version for '-v' flag", async () => {
@@ -462,11 +536,28 @@ test("prints version for '-v' flag", async () => {
       print: (line) => {
         lines.push(line);
       },
+      readVersion: () => "9.9.9",
     }),
   ).resolves.toBe(0);
 
   expect(lines).toHaveLength(1);
-  expect(lines[0]).toBe("unknown");
+  expect(lines[0]).toBe("9.9.9");
+});
+
+test("default readVersion returns the real package version", async () => {
+  const lines: string[] = [];
+
+  await expect(
+    runCli(["version"], {
+      print: (line) => {
+        lines.push(line);
+      },
+    }),
+  ).resolves.toBe(0);
+
+  expect(lines).toHaveLength(1);
+  expect(lines[0]).not.toBe("unknown");
+  expect(lines[0]).toMatch(/^\d+\.\d+\.\d+/);
 });
 
 test("passes subcommand args through to mcp-stdio and returns its exit code", async () => {
@@ -938,7 +1029,49 @@ test("mcp-stdio returns a controlled startup error when local state is malformed
       }),
     ).resolves.toBe(2);
 
-    expect(stderr.join("")).toContain(`failed to parse state file "${join(root, "state.json")}"`);
+    const expectedStatePath = join(root, "state.json").replaceAll("\\", "/");
+    expect(stderr.join("").replaceAll("\\", "/")).toContain(`failed to parse state file "${expectedStatePath}"`);
+  });
+});
+
+test("login channel resolver ignores feishu channel.type and returns weixin", async () => {
+  await withTempHome(async (home) => {
+    const configPath = join(home, ".weacpx", "config.json");
+    await mkdir(join(home, ".weacpx"), { recursive: true });
+    await writeFile(configPath, JSON.stringify({
+      transport: { type: "acpx-bridge" },
+      channel: {
+        type: "feishu",
+        replyMode: "stream",
+        feishu: {
+          appId: "cli_xxx",
+          appSecret: "secret_xxx",
+          domain: "feishu",
+          requireMention: true,
+          textMessageFormat: "text",
+          dedupTtlMs: 43200000,
+          dedupMaxEntries: 5000,
+        },
+      },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {},
+    }, null, 2));
+
+    const channel = await resolveLoginChannelForCli();
+
+    expect(channel.id).toBe("weixin");
+  });
+});
+
+test("dispatches channel alias to channel CLI", async () => {
+  await withTempHome(async (home) => {
+    const lines: string[] = [];
+
+    await expect(runCli(["ch", "list"], { print: (line) => lines.push(line) })).resolves.toBe(0);
+
+    expect(lines).toContain("消息频道：");
+    const config = await readConfigJson(home);
+    expect(config.channels).toEqual([{ id: "weixin", type: "weixin", enabled: true }]);
   });
 });
 
@@ -957,6 +1090,99 @@ test("prints help for '--help' flag and exits 0", async () => {
   expect(lines).toContain("weacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务");
 });
 
+test("help includes restart and channel commands", async () => {
+  const lines: string[] = [];
+
+  await expect(runCli(["--help"], { print: (line) => lines.push(line) })).resolves.toBe(0);
+
+  expect(lines).toContain("weacpx restart - 重启后台服务");
+  expect(lines).toContain("weacpx channel|ch list|show|add|rm|enable|disable [--account <id>] - 管理消息频道（多 bot 用 --account）");
+});
+
+test("restart stops then starts a running daemon", async () => {
+  const lines: string[] = [];
+  const events: string[] = [];
+
+  await expect(
+    runCli(["restart"], {
+      controller: {
+        getStatus: async () => ({
+          state: "running",
+          pid: 111,
+          status: {
+            pid: 111,
+            started_at: "2026-05-05T00:00:00.000Z",
+            heartbeat_at: "2026-05-05T00:00:01.000Z",
+            config_path: "/cfg",
+            state_path: "/state",
+            app_log: "/app",
+            stdout_log: "/out",
+            stderr_log: "/err",
+          },
+        }),
+        stop: async () => {
+          events.push("stop");
+          return { state: "stopped", detail: "stopped" };
+        },
+        start: async () => {
+          events.push("start");
+          return { state: "started", pid: 222 };
+        },
+      },
+      print: (line) => lines.push(line),
+    }),
+  ).resolves.toBe(0);
+
+  expect(events).toEqual(["stop", "start"]);
+  expect(lines).toEqual(["weacpx 正在重启...", "weacpx 已停止", "weacpx 已在后台启动", "PID: 222"]);
+});
+
+test("restart starts a stopped daemon", async () => {
+  const lines: string[] = [];
+  const events: string[] = [];
+
+  await expect(
+    runCli(["restart"], {
+      controller: {
+        getStatus: async () => ({ state: "stopped" }),
+        stop: async () => {
+          events.push("stop");
+          return { state: "stopped", detail: "not-running" };
+        },
+        start: async () => {
+          events.push("start");
+          return { state: "started", pid: 333 };
+        },
+      },
+      print: (line) => lines.push(line),
+    }),
+  ).resolves.toBe(0);
+
+  expect(events).toEqual(["start"]);
+  expect(lines).toEqual(["weacpx 未运行，正在启动...", "weacpx 已在后台启动", "PID: 333"]);
+});
+
+test("restart rejects indeterminate daemon state", async () => {
+  const lines: string[] = [];
+
+  await expect(
+    runCli(["restart"], {
+      controller: {
+        getStatus: async () => ({ state: "indeterminate", pid: 444, reason: "missing-status" }),
+        stop: async () => ({ state: "stopped", detail: "stopped" }),
+        start: async () => ({ state: "started", pid: 555 }),
+      },
+      print: (line) => lines.push(line),
+    }),
+  ).resolves.toBe(1);
+
+  expect(lines).toEqual([
+    "weacpx 进程仍在运行，但状态元数据缺失",
+    "PID: 444",
+    "请先执行 `weacpx stop`，或手动清理 stale PID/status 后再重试。",
+  ]);
+});
+
 test("prints help for '-h' flag and exits 0", async () => {
   const lines: string[] = [];
 
@@ -970,4 +1196,35 @@ test("prints help for '-h' flag and exits 0", async () => {
 
   expect(lines).toContain("weacpx version - 查看版本");
   expect(lines).toContain("weacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务");
+});
+
+test("runCli routes plugin command", async () => {
+  const lines: string[] = [];
+  const code = await runCli(["plugin", "list"], {
+    print: (line) => lines.push(line),
+    pluginCliDeps: {
+      loadConfig: async () => ({
+        transport: { type: "acpx-bridge", permissionMode: "approve-all", nonInteractivePermissions: "deny" },
+        logging: { level: "info", maxSizeBytes: 2097152, maxFiles: 5, retentionDays: 7 },
+        channel: { type: "weixin", replyMode: "stream" },
+        channels: [{ id: "weixin", type: "weixin", enabled: true }],
+        plugins: [],
+        agents: {},
+        workspaces: {},
+        orchestration: {
+          maxPendingAgentRequestsPerCoordinator: 3,
+          allowWorkerChainedRequests: false,
+          allowedAgentRequestTargets: [],
+          allowedAgentRequestRoles: [],
+          progressHeartbeatSeconds: 300,
+        },
+      }),
+      saveConfig: async () => {},
+      getDaemonStatus: async () => ({ state: "stopped" }),
+      restartDaemon: async () => 0,
+    },
+  });
+
+  expect(code).toBe(0);
+  expect(lines).toEqual(["还没有安装插件。"]);
 });

@@ -1,8 +1,13 @@
-import { expect, mock, test } from "bun:test";
+import { beforeAll, expect, mock, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { CommandRouter } from "../../../src/commands/command-router";
+import { registerKnownChannelId } from "../../../src/channels/channel-scope";
+
+beforeAll(() => {
+  registerKnownChannelId("feishu");
+});
 import { normalizeWorkspacePath } from "../../../src/commands/workspace-path";
 import { MissingOptionalDepError, AutoInstallFailedError } from "../../../src/recovery/errors";
 import {
@@ -188,6 +193,34 @@ test("creates a workspace and session from the shortcut command", async () => {
     workspace: workspaceName,
     transportSession: `${workspaceName}:codex`,
     cwd: normalizeWorkspacePath(dir),
+  });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("shortcut creation still selects the session when agent command refresh fails", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-shortcut-"));
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(
+    sessions,
+    transport,
+    config,
+    new MemoryConfigStore(config),
+    undefined,
+    async () => {
+      throw new Error("index read failed");
+    },
+  );
+  const workspaceName = basename(dir);
+
+  const reply = await router.handle("wx:user", `/ss codex -d "${dir}"`);
+
+  expect(reply.text).toContain(`已创建并切换到会话「${workspaceName}:codex」`);
+  expect(await sessions.getCurrentSession("wx:user")).toMatchObject({
+    alias: `${workspaceName}:codex`,
+    workspace: workspaceName,
   });
 
   await rm(dir, { recursive: true, force: true });
@@ -640,4 +673,50 @@ test("reply reaches ensureTransportSession via /session reset", async () => {
   });
 
   expect(replies.some((m) => m.includes("正在启动"))).toBe(true);
+});
+
+test("feishu session shortcut creates scoped internal alias but displays plain alias", async () => {
+  const config = createConfig();
+  config.agents.codex = { driver: "codex" };
+  config.workspaces.backend = { cwd: "/tmp/backend" };
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const response = await router.handle("feishu:default:oc_chat", "/ss codex --ws backend");
+
+  expect(response.text).toContain("已创建并切换到会话「backend:codex」");
+  expect(await sessions.getSession("feishu:backend:codex")).not.toBeNull();
+  expect(await sessions.getSession("backend:codex")).toBeNull();
+});
+
+test("weixin session shortcut reuses legacy alias when present", async () => {
+  const config = createConfig();
+  config.agents.codex = { driver: "codex" };
+  config.workspaces.backend = { cwd: "/tmp/backend" };
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+  await sessions.attachSession("backend:codex", "codex", "backend", "backend:codex");
+
+  const response = await router.handle("weixin:default:wxid_alice", "/ss codex --ws backend");
+
+  expect(response.text).toContain("已切换到会话「backend:codex」");
+  expect(await sessions.getSession("weixin:backend:codex")).toBeNull();
+});
+
+test("/session use resolves display alias inside current channel", async () => {
+  const config = createConfig();
+  config.agents.codex = { driver: "codex" };
+  config.workspaces.backend = { cwd: "/tmp/backend" };
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+  await sessions.attachSession("feishu:backend:codex", "codex", "backend", "feishu:backend:codex");
+
+  const response = await router.handle("feishu:default:oc_chat", "/use backend:codex");
+
+  expect(response.text).toContain("已切换到会话「backend:codex」");
+  const current = await sessions.getCurrentSession("feishu:default:oc_chat");
+  expect(current?.alias).toBe("feishu:backend:codex");
 });

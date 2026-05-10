@@ -1,0 +1,38 @@
+export const WEACPX_KNOWN_COMMAND_PREFIXES = [
+  "/help",
+  "/agents",
+  "/workspaces",
+  "/sessions",
+  "/tasks",
+  "/status",
+  "/cancel",
+  "/stop",
+  "/clear",
+  "/mode",
+  "/replymode",
+  "/config",
+  "/permission",
+  "/pm",
+  "/session",
+  "/ss",
+  "/workspace",
+  "/ws",
+  "/use",
+  "/agent",
+  "/delegate",
+  "/dg",
+  "/group",
+  "/groups",
+  "/task",
+] as const;
+
+const KNOWN_COMMAND_PREFIX_SET = new Set<string>(WEACPX_KNOWN_COMMAND_PREFIXES);
+
+export function isKnownWeacpxCommandPrefix(prefix: string): boolean {
+  return KNOWN_COMMAND_PREFIX_SET.has(prefix.toLowerCase());
+}
+
+export function isKnownWeacpxCommandText(text: string): boolean {
+  const firstToken = text.trim().split(/\s+/, 1)[0];
+  return Boolean(firstToken && isKnownWeacpxCommandPrefix(firstToken));
+}

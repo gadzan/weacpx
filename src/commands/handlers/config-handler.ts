@@ -3,7 +3,7 @@ import type {
   LoggingLevel,
   NonInteractivePermissions,
   PermissionMode,
-  WechatReplyMode,
+  ReplyMode,
 } from "../../config/types";
 import type { HelpTopicMetadata } from "../help/help-types";
 import type { CommandRouterContext, RouterResponse } from "../router-types";
@@ -19,11 +19,17 @@ const SUPPORTED_CONFIG_PATHS = [
   "logging.maxSizeBytes",
   "logging.maxFiles",
   "logging.retentionDays",
-  "wechat.replyMode",
+  "channel.replyMode",
   "agents.<name>.driver",
   "agents.<name>.command",
   "workspaces.<name>.cwd",
   "workspaces.<name>.description",
+] as const;
+
+const LEGACY_CONFIG_PATHS = [
+  "wechat.replyMode（已弃用，请使用 channel.replyMode）",
+  "channel.type（已禁用写入；请使用 weacpx channel ... 管理 channels[]）",
+  "channels[]（多频道运行配置，请编辑 JSON）",
 ] as const;
 
 export const configHelp: HelpTopicMetadata = {
@@ -34,14 +40,16 @@ export const configHelp: HelpTopicMetadata = {
     { usage: "/config", description: "查看当前支持修改的配置路径" },
     { usage: "/config set <path> <value>", description: "修改一个受支持的配置值" },
   ],
-  examples: ["/config set wechat.replyMode final", "/config set logging.level debug"],
+  examples: ["/config set channel.replyMode final", "/config set logging.level debug"],
 };
 
 export function handleConfigShow(context: CommandRouterContext): RouterResponse {
   const lines = ["支持修改的配置字段：", ...SUPPORTED_CONFIG_PATHS.map((path) => `- ${path}`)];
 
+  lines.push("", "兼容旧配置：", ...LEGACY_CONFIG_PATHS.map((path) => `- ${path}`));
+
   if (context.config) {
-    lines.push("", "示例：", "- /config set wechat.replyMode final", "- /config set logging.level debug");
+    lines.push("", "示例：", "- /config set channel.replyMode final", "- /config set logging.level debug");
   }
 
   return { text: lines.join("\n") };
@@ -135,11 +143,23 @@ function applySupportedConfigUpdate(
       config.logging.retentionDays = parsed.value;
       return { renderedValue: String(parsed.value) };
     }
-    case "wechat.replyMode": {
-      const parsed = parseEnum<WechatReplyMode>(rawValue, ["stream", "final", "verbose"]);
-      if (!parsed) return { error: "wechat.replyMode 只支持：stream、final、verbose" };
-      config.wechat.replyMode = parsed;
+    case "channel.type":
+      return {
+        error: "channel.type 是旧单频道字段，/config set 已禁用写入；请使用 `weacpx channel ...` 管理 channels[]，然后重启 weacpx。",
+      };
+    case "channel.replyMode": {
+      const parsed = parseEnum<ReplyMode>(rawValue, ["stream", "final", "verbose"]);
+      if (!parsed) return { error: "channel.replyMode 只支持：stream、final、verbose" };
+      config.channel.replyMode = parsed;
       return { renderedValue: parsed };
+    }
+    case "wechat.replyMode": {
+      const parsed = parseEnum<ReplyMode>(rawValue, ["stream", "final", "verbose"]);
+      if (!parsed) return { error: "wechat.replyMode 只支持：stream、final、verbose" };
+      config.channel.replyMode = parsed;
+      return {
+        renderedValue: `${parsed}（已映射到 channel.replyMode）`,
+      };
     }
   }
 
@@ -202,4 +222,3 @@ function parsePositiveNumber(
   }
   return { value };
 }
-

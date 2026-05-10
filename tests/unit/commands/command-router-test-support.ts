@@ -29,9 +29,12 @@ export function createConfig(): AppConfig {
       maxFiles: 5,
       retentionDays: 7,
     },
-    wechat: {
+    channel: {
+      type: "weixin",
       replyMode: "stream",
     },
+    channels: [{ id: "weixin", type: "weixin", enabled: true }],
+    plugins: [],
     agents: {
       codex: { driver: "codex" },
     },
@@ -55,14 +58,18 @@ export class MemoryStateStore implements Pick<StateStore, "save"> {
 }
 
 export class MemoryConfigStore
-  implements Pick<ConfigStore, "save" | "upsertWorkspace" | "removeWorkspace" | "upsertAgent" | "removeAgent" | "updateTransport" | "updateWechat">
+  implements Pick<ConfigStore, "save" | "upsertWorkspace" | "removeWorkspace" | "upsertAgent" | "removeAgent" | "updateTransport" | "updateChannel">
 {
   constructor(private readonly config: AppConfig) {}
 
   async save(config: AppConfig): Promise<void> {
     this.config.transport = { ...config.transport };
     this.config.logging = { ...config.logging };
-    this.config.wechat = { ...config.wechat };
+    this.config.channel = { ...config.channel };
+    this.config.channels = config.channels.map((channel) => ({
+      ...channel,
+      ...(channel.feishu ? { feishu: { ...channel.feishu } } : {}),
+    }));
     this.config.agents = Object.fromEntries(Object.entries(config.agents).map(([name, agent]) => [name, { ...agent }]));
     this.config.workspaces = Object.fromEntries(
       Object.entries(config.workspaces).map(([name, workspace]) => [name, { ...workspace }]),
@@ -105,10 +112,10 @@ export class MemoryConfigStore
     return this.config;
   }
 
-  async updateWechat(wechat: Partial<AppConfig["wechat"]>): Promise<AppConfig> {
-    this.config.wechat = {
-      ...this.config.wechat,
-      ...wechat,
+  async updateChannel(channel: Partial<AppConfig["channel"]>): Promise<AppConfig> {
+    this.config.channel = {
+      ...this.config.channel,
+      ...channel,
     };
     return this.config;
   }

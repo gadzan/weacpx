@@ -1,4 +1,5 @@
 import type { OrchestrationTaskStatus } from "../orchestration/orchestration-types";
+import { isKnownWeacpxCommandPrefix } from "./command-list";
 
 export interface TaskListFilter {
   status?: OrchestrationTaskStatus;
@@ -421,32 +422,8 @@ function normalizeCommand(command: string): string {
   return command;
 }
 
-const RECOGNIZED_COMMANDS = new Set([
-  "/help",
-  "/agents",
-  "/workspaces",
-  "/sessions",
-  "/tasks",
-  "/status",
-  "/cancel",
-  "/clear",
-  "/mode",
-  "/replymode",
-  "/config",
-  "/permission",
-  "/session",
-  "/workspace",
-  "/use",
-  "/agent",
-  "/delegate",
-  "/dg",
-  "/group",
-  "/groups",
-  "/task",
-]);
-
 function isRecognizedCommand(command: string): boolean {
-  return RECOGNIZED_COMMANDS.has(command);
+  return isKnownWeacpxCommandPrefix(command);
 }
 
 function toPermissionMode(value: string): "approve-all" | "approve-reads" | "deny-all" | null {

@@ -3,7 +3,7 @@ import type { AppConfig } from "../config/types";
 import type { AppLogger } from "../logging/app-logger";
 import type { OrchestrationService } from "../orchestration/orchestration-service";
 import type { SessionService } from "../sessions/session-service";
-import type { PromptMedia, ReplyQuotaContext, SessionTransport } from "../transport/types";
+import type { PromptMediaInput, ReplyQuotaContext, SessionTransport } from "../transport/types";
 import type { QuotaManager } from "../weixin/messaging/quota-manager.js";
 
 export interface RouterResponse {
@@ -46,7 +46,7 @@ export interface ActiveHumanQuestionPackageContext {
 
 export type WritableConfigStore = Pick<
   ConfigStore,
-  "save" | "upsertWorkspace" | "removeWorkspace" | "upsertAgent" | "removeAgent" | "updateTransport" | "updateWechat"
+  "save" | "upsertWorkspace" | "removeWorkspace" | "upsertAgent" | "removeAgent" | "updateTransport" | "updateChannel"
 >;
 
 export interface CommandRouterContext {
@@ -124,7 +124,7 @@ export interface SessionInteractionOps {
     text: string,
     reply?: (text: string) => Promise<void>,
     replyContext?: ReplyQuotaContext,
-    media?: PromptMedia,
+    media?: PromptMediaInput,
   ) => Promise<{ text: string }>;
 }
 

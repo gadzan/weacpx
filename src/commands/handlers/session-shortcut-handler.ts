@@ -1,6 +1,7 @@
 import { basenameForWorkspacePath, normalizeWorkspacePath, pathExists, sameWorkspacePath } from "../workspace-path";
 import type { CommandRouterContext, RouterResponse, SessionShortcutOps } from "../router-types";
 import { AutoInstallFailedError } from "../../recovery/errors";
+import { getChannelIdFromChatKey, toDisplaySessionAlias } from "../../channels/channel-scope";
 
 interface ShortcutWorkspaceResolution {
   name: string;
@@ -40,7 +41,10 @@ export async function handleSessionShortcutCommand(
   });
 
   const baseAlias = `${workspace.name}:${agent}`;
-  const alias = createNew ? await allocateUniqueSessionAlias(context, baseAlias, chatKey) : baseAlias;
+  const channelId = getChannelIdFromChatKey(chatKey);
+  const scopedBase = channelId === "weixin" ? baseAlias : `${channelId}:${baseAlias}`;
+  const alias = createNew ? await allocateUniqueSessionAlias(context, scopedBase, chatKey) : scopedBase;
+  const display = toDisplaySessionAlias(alias);
 
   if (!createNew && (await hasLogicalSession(context, alias, chatKey))) {
     await context.sessions.useSession(chatKey, alias);
@@ -51,30 +55,38 @@ export async function handleSessionShortcutCommand(
     });
     return {
       text: [
-        `已切换到会话「${alias}」`,
+        `已切换到会话「${display}」`,
         `- 复用工作区：${workspace.name}`,
-        `- 复用会话：${alias}`,
+        `- 复用会话：${display}`,
       ].join("\n"),
     };
   }
 
-  const session = ops.resolveSession(alias, agent, workspace.name, alias);
+  const transportSession = channelId === "weixin" ? alias : context.sessions.buildDefaultTransportSessionForChat(chatKey, display);
+  const session = ops.resolveSession(alias, agent, workspace.name, transportSession);
   const releaseTransportReservation = await ops.reserveTransportSession(session.transportSession);
   try {
     try {
       await ops.ensureTransportSession(session);
       const exists = await ops.checkTransportSession(session);
       if (!exists) {
-        return renderShortcutSessionCreationError(workspace, alias);
+        return renderShortcutSessionCreationError(workspace, display);
       }
     } catch (err) {
       if (err instanceof AutoInstallFailedError) throw err;
-      return renderShortcutSessionCreationError(workspace, alias);
+      return renderShortcutSessionCreationError(workspace, display);
     }
 
     await context.sessions.attachSession(alias, agent, workspace.name, session.transportSession);
-    await ops.refreshSessionTransportAgentCommand(alias);
     await context.sessions.useSession(chatKey, alias);
+    try {
+      await ops.refreshSessionTransportAgentCommand(alias);
+    } catch (error) {
+      await context.logger.error("session.shortcut.agent_command_refresh_failed", "failed to refresh session agent command", {
+        alias,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     await context.logger.info("session.shortcut.created", "created new logical session from shortcut", {
       alias,
       workspace: workspace.name,
@@ -84,9 +96,9 @@ export async function handleSessionShortcutCommand(
 
     return {
       text: [
-        `已创建并切换到会话「${alias}」`,
+        `已创建并切换到会话「${display}」`,
         workspace.reused ? `- 复用工作区：${workspace.name}` : `- 新增工作区：${workspace.name} -> ${workspace.cwd}`,
-        `- 新增会话：${alias}`,
+        `- 新增会话：${display}`,
       ].join("\n"),
     };
   } finally {
@@ -175,7 +187,7 @@ async function allocateUniqueSessionAlias(
 
 async function hasLogicalSession(context: CommandRouterContext, alias: string, chatKey: string): Promise<boolean> {
   const sessions = await context.sessions.listSessions(chatKey);
-  return sessions.some((session) => session.alias === alias);
+  return sessions.some((session) => session.internalAlias === alias);
 }
 
 function renderShortcutSessionCreationError(

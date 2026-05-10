@@ -228,6 +228,70 @@ test("rejects config set with invalid typed values", async () => {
   expect(numberReply.text).toBe("logging.maxFiles 必须是正数。");
 });
 
+test("updates channel reply mode through /config set", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const response = await router.handle("wx:user", "/config set channel.replyMode final");
+
+  expect(response.text).toBe("配置已更新：channel.replyMode = final");
+  expect(config.channel.replyMode).toBe("final");
+});
+
+test("rejects channel type updates through /config set", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const response = await router.handle("wx:user", "/config set channel.type weixin");
+
+  expect(response.text).toBe("channel.type 是旧单频道字段，/config set 已禁用写入；请使用 `weacpx channel ...` 管理 channels[]，然后重启 weacpx。");
+  expect(config.channel.type).toBe("weixin");
+});
+
+test("does not report success for ineffective channel type changes", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const response = await router.handle("wx:user", "/config set channel.type feishu");
+
+  expect(response.text).toBe("channel.type 是旧单频道字段，/config set 已禁用写入；请使用 `weacpx channel ...` 管理 channels[]，然后重启 weacpx。");
+  expect(config.channel.type).toBe("weixin");
+  expect(config.channels).toEqual([{ id: "weixin", type: "weixin", enabled: true }]);
+});
+
+test("maps legacy wechat reply mode config command to channel reply mode", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const response = await router.handle("wx:user", "/config set wechat.replyMode stream");
+
+  expect(response.text).toBe("配置已更新：wechat.replyMode = stream（已映射到 channel.replyMode）");
+  expect(config.channel.replyMode).toBe("stream");
+});
+
+test("shows channel config paths and legacy compatibility paths", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const response = await router.handle("wx:user", "/config");
+
+  expect(response.text).toContain("- channel.replyMode");
+  expect(response.text).toContain("兼容旧配置：");
+  expect(response.text).toContain("- wechat.replyMode（已弃用，请使用 channel.replyMode）");
+  expect(response.text).toContain("- channel.type（已禁用写入；请使用 weacpx channel ... 管理 channels[]）");
+  expect(response.text).toContain("- channels[]（多频道运行配置，请编辑 JSON）");
+});
+
 test("refuses config writes when writable config is unavailable", async () => {
   const config = createConfig();
   const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
@@ -436,6 +500,48 @@ test("updates the live transport policy after /pm set", async () => {
   const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
 
   await router.handle("wx:user", "/pm set read");
+
+  expect(getUpdatePermissionPolicyMock(transport)).toHaveBeenCalledWith(expect.objectContaining({
+    permissionMode: "approve-reads",
+    nonInteractivePermissions: "deny",
+  }));
+});
+
+test("blocks mutating commands from non-owner group members", async () => {
+  const config = createConfig();
+  const transport = createTransport();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle(
+    "yuanbao:default:group:g1",
+    "/pm set read",
+    undefined,
+    undefined,
+    "default",
+    undefined,
+    { channel: "yuanbao", chatType: "group", senderId: "u1", groupId: "g1", isOwner: false },
+  );
+
+  expect(reply.text).toContain("仅限群创建者/频道 owner 使用");
+  expect(getUpdatePermissionPolicyMock(transport)).not.toHaveBeenCalled();
+});
+
+test("allows mutating commands from group owner", async () => {
+  const config = createConfig();
+  const transport = createTransport();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  await router.handle(
+    "yuanbao:default:group:g1",
+    "/pm set read",
+    undefined,
+    undefined,
+    "default",
+    undefined,
+    { channel: "yuanbao", chatType: "group", senderId: "u1", groupId: "g1", isOwner: true },
+  );
 
   expect(getUpdatePermissionPolicyMock(transport)).toHaveBeenCalledWith(expect.objectContaining({
     permissionMode: "approve-reads",
