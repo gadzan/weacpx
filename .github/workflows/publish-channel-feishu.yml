@@ -53,7 +53,20 @@ jobs:
             ${{ runner.os }}-bun-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        env:
+          BUN_CONFIG_MAX_CONCURRENT_HTTP_REQUESTS: "4"
+        run: |
+          for attempt in 1 2 3 4; do
+            if bun install --frozen-lockfile; then
+              break
+            fi
+            if [ $attempt -eq 4 ]; then
+              echo "::error::bun install failed after 4 attempts"
+              exit 1
+            fi
+            echo "::warning::install attempt $attempt failed (likely transient FailedToOpenSocket); retrying in $((attempt * 10))s"
+            sleep $((attempt * 10))
+          done
 
       - name: Run tests
         run: npm test
