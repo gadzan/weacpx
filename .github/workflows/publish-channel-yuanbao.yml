@@ -41,32 +41,10 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org/
-
-      - name: Cache Bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.bun/install/cache
-            node_modules
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock', 'package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
+          cache: 'npm'
 
       - name: Install dependencies
-        env:
-          BUN_CONFIG_MAX_CONCURRENT_HTTP_REQUESTS: "4"
-        run: |
-          for attempt in 1 2 3 4; do
-            if bun install --frozen-lockfile; then
-              break
-            fi
-            if [ $attempt -eq 4 ]; then
-              echo "::error::bun install failed after 4 attempts"
-              exit 1
-            fi
-            echo "::warning::install attempt $attempt failed (likely transient FailedToOpenSocket); retrying in $((attempt * 10))s"
-            sleep $((attempt * 10))
-          done
+        run: npm ci
 
       - name: Run tests
         run: npm test
