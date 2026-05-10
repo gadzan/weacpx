@@ -1,0 +1,37 @@
+{
+  "name": "@ganglion/weacpx-channel-yuanbao",
+  "version": "0.1.0",
+  "description": "Tencent Yuanbao channel plugin for weacpx.",
+  "license": "MIT",
+  "keywords": ["weacpx", "yuanbao", "channel", "plugin"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ganglion-ai/weacpx.git",
+    "directory": "packages/channel-yuanbao"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "peerDependencies": {
+    "weacpx": ">=0.3.3"
+  },
+  "peerDependenciesMeta": {
+    "weacpx": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "protobufjs": "^7.5.6",
+    "ws": "^8.20.0"
+  }
+}

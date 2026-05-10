@@ -1,0 +1,36 @@
+{
+  "name": "@ganglion/weacpx-channel-feishu",
+  "version": "0.1.0",
+  "description": "Feishu channel plugin for weacpx.",
+  "license": "MIT",
+  "keywords": ["weacpx", "feishu", "channel", "plugin"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ganglion-ai/weacpx.git",
+    "directory": "packages/channel-feishu"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "peerDependencies": {
+    "weacpx": ">=0.3.3"
+  },
+  "peerDependenciesMeta": {
+    "weacpx": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.60.0"
+  }
+}
