@@ -7,9 +7,13 @@ dist
 openclaw
 .claude/
 .agents/
-.npm*
+.codex/
+.opencode/
 .nvm*
+.npm*
 *.local.md
-
 **.DS_Store**
 
+docs/superpowers
+docs/releases
+docs/202*

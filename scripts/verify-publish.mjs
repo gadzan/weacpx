@@ -1,0 +1,207 @@
+import { existsSync } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
+import { join, relative } from "node:path";
+import { pathToFileURL } from "node:url";
+import { spawnSync } from "node:child_process";
+
+/**
+ * @typedef {Object} PublishPackageConfig
+ * @property {string} id
+ * @property {string} dir
+ * @property {string} expectedName
+ * @property {string[]} requiredFiles
+ * @property {string=} requiredPeer
+ * @property {string=} forbiddenPeer
+ * @property {string=} expectedExportedName
+ */
+
+const DEFAULT_PACKAGES = [
+  {
+    id: "root",
+    dir: ".",
+    expectedName: "weacpx",
+    requiredFiles: ["dist/cli.js", "dist/plugin-api.js", "dist/plugin-api.d.ts", "README.md", "config.example.json", "package.json"],
+    forbiddenPathPatterns: [
+      "^dist/channels/feishu/",
+      "^dist/channels/cli/feishu-provider",
+      "^dist/channels/yuanbao/",
+      "^dist/channels/cli/yuanbao-provider",
+    ],
+  },
+  {
+    id: "channel-feishu",
+    dir: "packages/channel-feishu",
+    expectedName: "@ganglion/weacpx-channel-feishu",
+    requiredFiles: ["dist/index.js", "dist/index.d.ts", "README.md", "package.json"],
+    requiredPeer: "weacpx",
+    forbiddenPeer: "weacpx-console",
+    expectedExportedName: "@ganglion/weacpx-channel-feishu",
+  },
+  {
+    id: "channel-yuanbao",
+    dir: "packages/channel-yuanbao",
+    expectedName: "@ganglion/weacpx-channel-yuanbao",
+    requiredFiles: ["dist/index.js", "dist/index.d.ts", "README.md", "package.json"],
+    requiredPeer: "weacpx",
+    forbiddenPeer: "weacpx-console",
+    expectedExportedName: "@ganglion/weacpx-channel-yuanbao",
+  },
+];
+
+const DEFAULT_SCAN_PATHS = [
+  "package.json",
+  "packages",
+  "README.md",
+  "docs/plugin-development.md",
+  "docs/channel-management.md",
+  "docs/config-reference.md",
+  "docs/superpowers/specs/2026-05-08-channel-plugin-next-roadmap.md",
+  "docs/superpowers/specs/2026-05-08-channel-plugin-toolchain-design.md",
+];
+
+export async function collectPublishVerificationFailures(input = {}) {
+  const repoRoot = input.repoRoot ?? process.cwd();
+  const packages = input.packages ?? DEFAULT_PACKAGES;
+  const scanPaths = input.scanPaths ?? DEFAULT_SCAN_PATHS;
+  const runDryRun = input.runDryRun ?? true;
+  const failures = [];
+
+  for (const pkg of packages) {
+    await verifyPackage(repoRoot, pkg, failures, runDryRun);
+  }
+
+  await verifyNoStaleConsoleReferences(repoRoot, scanPaths, failures);
+
+  return failures;
+}
+
+async function verifyPackage(repoRoot, pkg, failures, runDryRun) {
+  const packageRoot = join(repoRoot, pkg.dir);
+  const packageJsonPath = join(packageRoot, "package.json");
+  let packageJson;
+  try {
+    packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+  } catch (error) {
+    failures.push(`${pkg.id}: failed to read package.json: ${error instanceof Error ? error.message : String(error)}`);
+    return;
+  }
+
+  if (packageJson.name !== pkg.expectedName) {
+    failures.push(`${pkg.id}: package.json name must be ${pkg.expectedName}, got ${String(packageJson.name)}`);
+  }
+
+  for (const file of pkg.requiredFiles) {
+    if (!existsSync(join(packageRoot, file))) {
+      failures.push(`${pkg.id}: missing required publish file ${file}`);
+    }
+  }
+
+  if (pkg.requiredPeer && !(pkg.requiredPeer in (packageJson.peerDependencies ?? {}))) {
+    failures.push(`${pkg.id}: package.json peerDependencies must include ${pkg.requiredPeer}`);
+  }
+  if (pkg.forbiddenPeer && pkg.forbiddenPeer in (packageJson.peerDependencies ?? {})) {
+    failures.push(`${pkg.id}: package.json peerDependencies must not include ${pkg.forbiddenPeer}`);
+  }
+  if (pkg.requiredPeer && packageJson.peerDependenciesMeta?.[pkg.requiredPeer]?.optional !== true) {
+    failures.push(`${pkg.id}: package.json peerDependenciesMeta.${pkg.requiredPeer}.optional must be true`);
+  }
+
+  if (pkg.expectedExportedName) {
+    await verifyExportedPluginName(packageRoot, pkg, failures);
+  }
+
+  if (runDryRun) {
+    const dryRun = spawnSync("bun", ["pm", "pack", "--dry-run"], {
+      cwd: packageRoot,
+      encoding: "utf8",
+    });
+    if (dryRun.status !== 0) {
+      failures.push(`${pkg.id}: bun pm pack --dry-run failed: ${(dryRun.stderr || dryRun.stdout).trim()}`);
+      return;
+    }
+    const packedPaths = parsePackedPaths(`${dryRun.stdout}\n${dryRun.stderr}`);
+    for (const file of pkg.requiredFiles) {
+      if (!packedPaths.includes(file)) {
+        failures.push(`${pkg.id}: tarball missing required file ${file}`);
+      }
+    }
+    for (const pattern of pkg.forbiddenPathPatterns ?? []) {
+      const regex = new RegExp(pattern);
+      const matches = packedPaths.filter((p) => regex.test(p));
+      for (const match of matches) {
+        failures.push(`${pkg.id}: tarball contains forbidden path ${match} (matched ${pattern})`);
+      }
+    }
+  }
+}
+
+function parsePackedPaths(output) {
+  const paths = [];
+  for (const line of output.split(/\r?\n/)) {
+    const match = line.match(/^\s*packed\s+\S+\s+(.+)$/);
+    if (match) paths.push(match[1].trim());
+  }
+  return paths;
+}
+
+async function verifyExportedPluginName(packageRoot, pkg, failures) {
+  const entry = join(packageRoot, "src/index.ts");
+  let source;
+  try {
+    source = await readFile(entry, "utf8");
+  } catch (error) {
+    failures.push(`${pkg.id}: failed to read src/index.ts: ${error instanceof Error ? error.message : String(error)}`);
+    return;
+  }
+  if (!source.includes(`name: "${pkg.expectedExportedName}"`) && !source.includes(`name: '${pkg.expectedExportedName}'`)) {
+    failures.push(`${pkg.id}: exported plugin name must be ${pkg.expectedExportedName}`);
+  }
+}
+
+async function verifyNoStaleConsoleReferences(repoRoot, scanPaths, failures) {
+  const files = [];
+  for (const scanPath of scanPaths) {
+    await collectFiles(join(repoRoot, scanPath), files);
+  }
+  for (const file of files) {
+    if (!isTextFile(file)) continue;
+    const text = await readFile(file, "utf8");
+    if (text.includes("weacpx-console/plugin-api")) {
+      failures.push(`${relative(repoRoot, file)}: replace stale weacpx-console/plugin-api reference with weacpx/plugin-api`);
+    }
+  }
+}
+
+async function collectFiles(path, out) {
+  if (!existsSync(path)) return;
+  const entries = await readdir(path, { withFileTypes: true }).catch(() => null);
+  if (!entries) {
+    out.push(path);
+    return;
+  }
+  for (const entry of entries) {
+    if (entry.name === "node_modules" || entry.name === "dist") continue;
+    const child = join(path, entry.name);
+    if (entry.isDirectory()) await collectFiles(child, out);
+    else if (entry.isFile()) out.push(child);
+  }
+}
+
+function isTextFile(file) {
+  return /\.(json|md|ts|tsx|js|mjs|cjs|yaml|yml|toml)$/.test(file);
+}
+
+async function main() {
+  const failures = await collectPublishVerificationFailures();
+  if (failures.length > 0) {
+    console.error("Publish verification failed:");
+    for (const failure of failures) console.error(`- ${failure}`);
+    process.exitCode = 1;
+    return;
+  }
+  console.log("Publish verification passed.");
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  await main();
+}

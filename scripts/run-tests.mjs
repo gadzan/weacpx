@@ -16,6 +16,7 @@ async function runOne(command, args) {
   return await new Promise((resolve) => {
     const child = spawn(command, args, {
       stdio: "inherit",
+      ...(process.platform === "win32" ? { shell: true } : {}),
     });
 
     child.on("exit", (code, signal) => {
