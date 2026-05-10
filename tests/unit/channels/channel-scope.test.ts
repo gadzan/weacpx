@@ -1,0 +1,65 @@
+import { beforeAll, expect, test } from "bun:test";
+
+import {
+  buildDefaultTransportSession,
+  getChannelIdFromChatKey,
+  isLegacyWeixinChatKey,
+  isSessionAliasVisibleInChannel,
+  registerKnownChannelId,
+  resolveSessionAliasForInput,
+  toDisplaySessionAlias,
+  toInternalSessionAlias,
+} from "../../../src/channels/channel-scope";
+
+// After Phase C2, feishu is plugin-provided. These tests cover scope helpers
+// for known channel ids; register feishu as a known id so the existing
+// expectations continue to model the post-plugin-registration runtime state.
+beforeAll(() => {
+  registerKnownChannelId("feishu");
+});
+
+test("extracts channel id from prefixed chat keys and treats legacy keys as weixin", () => {
+  expect(getChannelIdFromChatKey("feishu:default:oc_chat")).toBe("feishu");
+  expect(getChannelIdFromChatKey("weixin:default:wxid_alice")).toBe("weixin");
+  expect(getChannelIdFromChatKey("wxid_alice")).toBe("weixin");
+  expect(isLegacyWeixinChatKey("wxid_alice")).toBe(true);
+  expect(isLegacyWeixinChatKey("feishu:default:oc_chat")).toBe(false);
+});
+
+test("registered plugin channel ids are recognized as chat key prefixes", () => {
+  registerKnownChannelId("custom-review-channel");
+
+  expect(getChannelIdFromChatKey("custom-review-channel:default:chat")).toBe("custom-review-channel");
+  expect(getChannelIdFromChatKey("unknown-review-channel:default:chat")).toBe("weixin");
+});
+
+test("converts internal and display aliases", () => {
+  expect(toInternalSessionAlias("feishu", "backend:codex")).toBe("feishu:backend:codex");
+  expect(toInternalSessionAlias("weixin", "backend:codex")).toBe("weixin:backend:codex");
+  expect(toDisplaySessionAlias("feishu:backend:codex")).toBe("backend:codex");
+  expect(toDisplaySessionAlias("weixin:backend:codex")).toBe("backend:codex");
+  expect(toDisplaySessionAlias("backend:codex")).toBe("backend:codex");
+});
+
+test("filters aliases visible in each channel", () => {
+  expect(isSessionAliasVisibleInChannel("backend:codex", "weixin")).toBe(true);
+  expect(isSessionAliasVisibleInChannel("weixin:backend:codex", "weixin")).toBe(true);
+  expect(isSessionAliasVisibleInChannel("feishu:backend:codex", "weixin")).toBe(false);
+  expect(isSessionAliasVisibleInChannel("backend:codex", "feishu")).toBe(false);
+  expect(isSessionAliasVisibleInChannel("feishu:backend:codex", "feishu")).toBe(true);
+});
+
+test("resolves input aliases with legacy weixin preference", () => {
+  expect(resolveSessionAliasForInput("weixin", "backend:codex", ["backend:codex"])).toBe("backend:codex");
+  expect(resolveSessionAliasForInput("weixin", "backend:codex", [])).toBe("weixin:backend:codex");
+  expect(resolveSessionAliasForInput("weixin", "backend:codex", ["weixin:backend:codex"])).toBe("weixin:backend:codex");
+  expect(resolveSessionAliasForInput("feishu", "backend:codex", ["backend:codex"])).toBe("feishu:backend:codex");
+  expect(resolveSessionAliasForInput("feishu", "backend:codex", [])).toBe("feishu:backend:codex");
+  expect(resolveSessionAliasForInput("feishu", "feishu:backend:codex", [])).toBe("feishu:backend:codex");
+});
+
+test("builds default transport session names per channel", () => {
+  expect(buildDefaultTransportSession("weixin", "backend:codex")).toBe("backend:codex");
+  expect(buildDefaultTransportSession("feishu", "backend:codex")).toBe("feishu:backend:codex");
+  expect(buildDefaultTransportSession("dingtalk", "backend:codex")).toBe("dingtalk:backend:codex");
+});
