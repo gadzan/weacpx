@@ -89,6 +89,38 @@ There are two session concepts:
 - `tests/smoke/` - Real-environment tests (real acpx, real WeChat). Not run by default.
 - `tests/helpers/` - Shared test utilities.
 
+## Onboarding Notes (where to look first)
+
+### Mental model
+
+- Treat weacpx as a bridge: **Channel runtime (built-in Weixin or plugin channel such as Feishu/Yuanbao) → Router (slash commands + prompt) → Session mapping → Transport (acpx)**.
+- There are two sessions: **logical session** (weacpx-managed) vs **transport session** (acpx-managed). Most bugs are mismatches between the two.
+
+### Start reading from entrypoints
+
+- CLI surface: [`src/cli.ts`](src/cli.ts)
+- Wiring/DI and runtime paths: [`src/main.ts`](src/main.ts)
+- Main loop (startup/shutdown ordering): [`src/run-console.ts`](src/run-console.ts)
+- Router and command boundaries: [`src/commands/command-router.ts`](src/commands/command-router.ts) + [`src/commands/parse-command.ts`](src/commands/parse-command.ts)
+- Session state model: [`src/sessions/session-service.ts`](src/sessions/session-service.ts)
+- Transport boundary: [`src/transport/types.ts`](src/transport/types.ts)
+
+### When changing behavior, follow the boundaries
+
+- Core channel work stays inside [`src/channels/`](src/channels/) and is limited to Weixin plus generic channel/plugin infrastructure. New non-Weixin channels must be implemented as plugin packages under [`packages/channel-*`](packages/) or as external npm plugins.
+- Command semantics live in [`src/commands/`](src/commands/) (parse + handlers + router).
+- Anything that touches `acpx` must go through transport implementations in [`src/transport/`](src/transport/).
+- Daemon lifecycle lives in [`src/daemon/`](src/daemon/) and should remain compatible with `weacpx start/status/stop`.
+
+### Docs to rely on (don’t reverse-engineer from code first)
+
+- Configuration schema and defaults: [`docs/config-reference.md`](docs/config-reference.md)
+- WeChat command surface: [`docs/commands.md`](docs/commands.md)
+- Daemon subsystem notes: [`docs/daemon-module.md`](docs/daemon-module.md)
+- Commands module notes: [`docs/commands-module.md`](docs/commands-module.md)
+- MCP integration (external coordinators): [`docs/external-mcp.md`](docs/external-mcp.md)
+- Code Wiki (architecture map): [`docs/code-wiki.md`](docs/code-wiki.md)
+
 ## Package Manager
 
 Uses **Bun** for development scripts and builds. Dependencies are in `package.json`. The lockfile is `bun.lock`.
@@ -98,10 +130,26 @@ Uses **Bun** for development scripts and builds. Dependencies are in `package.js
 - [weixin-agent-sdk](https://github.com/wong2/weixin-agent-sdk)
 - [acpx](https://github.com/openclaw/acpx)
 - 测试文档请参考 [docs\testing.md](docs\testing.md)
+- 配置文件详解 [docs/config-reference.md](docs/config-reference.md)
 - `/config` 命令说明 [docs/config-command.md](docs/config-command.md)
 - `src/commands` 模块说明 [commands-module.md](docs/commands-module.md)
 - `src/daemon` 模块说明 [daemon-module.md](docs/daemon-module.md)
+- 计划文档 [superpower/plans](docs/superpowers/plans/)
 - 项目介绍 [README.md](README.md)
-- 配置文件详解 [docs/config-reference.md](docs/config-reference.md)
-- `src/commands` 模块说明 [commands-module.md](docs/commands-module.md)
-- `src/daemon` 模块说明 [daemon-module.md](docs/daemon-module.md)
+
+# 其它
+weacpx 运行日志：` ~/.weacpx/runtime/app.log`;
+acpx 源码：`../acpx`;
+
+## 维护 AGENTS.md
+
+- 目标：让第一次接触仓库的人能在 10 分钟内建立正确心智模型，并能快速定位到“该改哪里/该看哪份文档/该跑什么命令”。
+- 内容原则：
+  - 只写长期稳定的约束与导航；易变的实现细节放到 `docs/` 或 Code Wiki。
+  - 优先给“入口文件/模块目录/文档链接”，而不是给具体函数行号或内部流程细节。
+  - 链接一律使用仓库相对路径，避免机器相关的绝对路径。
+- 更新流程：
+  - 当新增/重构一个子系统时：先补齐对应 `docs/*.md`（或更新现有文档），再在本文件里追加一条导航入口。
+  - 当新增 CLI/配置/命令面能力时：优先更新 `README.md` / `docs/commands.md` / `docs/config-reference.md`，然后在本文件“Docs to rely on”里补链接。
+  - 保持本文件短；超过一屏的细节应迁移到 `docs/` 或 `docs/code-wiki.md`。
+- `CLAUDE.md` 是 `AGENTS.md` 的符号链接；只编辑 `AGENTS.md`，不要直接改 `CLAUDE.md`。

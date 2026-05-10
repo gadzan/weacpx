@@ -208,7 +208,8 @@ Session 是你在微信里操作的逻辑会话。每个会话绑定一个 agent
 - `logging.maxSizeBytes`
 - `logging.maxFiles`
 - `logging.retentionDays`
-- `wechat.replyMode`
+- `channel.type`
+- `channel.replyMode`
 - `agents.<name>.driver`
 - `agents.<name>.command`
 - `workspaces.<name>.cwd`
@@ -217,7 +218,7 @@ Session 是你在微信里操作的逻辑会话。每个会话绑定一个 agent
 示例：
 
 ```text
-/config set wechat.replyMode final
+/config set channel.replyMode final
 /config set logging.level debug
 /config set transport.sessionInitTimeoutMs 30000
 ```

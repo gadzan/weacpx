@@ -1,6 +1,6 @@
 # weacpx
 
-> 用微信远程驱动 Codex、Claude Code 等 acpx 会话。
+> 用微信、飞书或元宝远程驱动 Codex、Claude Code 等 acpx 会话。
 
 [![npm](https://img.shields.io/npm/v/weacpx?style=flat-square)](https://www.npmjs.com/package/weacpx)
 [![Node.js Version](https://img.shields.io/node/v/weacpx?style=flat-square)](https://nodejs.org)
@@ -11,7 +11,7 @@
 
 ## 这是什么
 
-`weacpx` 是一个可以通过微信直接控制 Codex / Claude Code / Gemini / OpenCode 的工具。它把微信消息通过 `acpx` 连接到 Agent CLI 会话上，让你直接在手机里：
+`weacpx` 是一个可以通过微信、飞书或元宝直接控制 Codex / Claude Code / Gemini / OpenCode 的工具。它把聊天消息通过 `acpx` 连接到 Agent CLI 会话上，让你直接在手机里：
 
 - 新建和切换会话
 - 让 Agent 继续在指定项目目录里工作
@@ -19,11 +19,11 @@
 - 调整权限策略
 - 在需要时做多 Agent 编排
 
-如果你需要临时远程编码或办公，`weacpx` 提供的是一个方便快捷的**远程入口**，让你在微信里就能随时随地干活。
+如果你需要临时远程编码或办公，`weacpx` 提供的是一个方便快捷的**远程入口**，让你在微信或飞书里就能随时随地干活。
 
 ## 适合谁
 
-`weacpx` 适合轻量临时使用多 Agent 办公的用户。你可以用微信盯任务、发指令、看结果，并在同一个聊天里管理多个会话。
+`weacpx` 适合轻量临时使用多 Agent 办公的用户。你可以用微信、飞书或元宝盯任务、发指令、看结果，并在同一个聊天里管理多个会话。
 
 > `weacpx` 的会话是跟本地隔离的，它目前还不能使用 CLI 已有的会话，你在 weacpx 也无法看到本地的 CLI 会话记录。
 
@@ -35,9 +35,9 @@
 
 - Node.js 22+ 或 Bun
 - 已可用的 Codex / Claude Code / Gemini / OpenCode
-- 一台装了微信的手机
+- 一台装了微信、飞书或元宝的手机
 
-> `weacpx` 基于 `weixin-agent-sdk` 和 `acpx` 工作。正常情况下，你不需要额外全局安装 `acpx`。
+> 微信频道基于 `weixin-agent-sdk` 工作，飞书频道使用飞书自建应用凭据，元宝频道使用 `appKey` / `appSecret`；底层 Agent 会话由 `acpx` 驱动。正常情况下，你不需要额外全局安装 `acpx`。
 
 ### 安装
 
@@ -54,6 +54,8 @@ weacpx login
 ```
 
 终端会显示二维码，请继续用微信扫码登录。
+
+如果你想使用飞书或元宝而不是微信，请先看下面的“切换/添加其它频道”。
 
 ### 启动服务
 
@@ -77,6 +79,29 @@ hello
 ```
 
 如果一切正常，普通文本会进入当前会话，Agent 的回复会回到微信。
+
+### 切换/添加其它频道
+
+微信是内置默认频道。飞书和元宝以官方插件包分发，第三方频道也走同样的插件流程。如果记不住包名，先看一眼官方插件清单：
+
+```bash
+weacpx plugin known
+# 安装：weacpx plugin add <package>
+```
+
+```bash
+# 飞书
+weacpx plugin add @ganglion/weacpx-channel-feishu
+weacpx channel add feishu     # 按提示输入 appId/appSecret
+weacpx restart
+
+# 元宝
+weacpx plugin add @ganglion/weacpx-channel-yuanbao
+weacpx channel add yuanbao    # 按提示输入 appKey/appSecret
+weacpx restart
+```
+
+完整的密钥配置、参数、`enable/disable/rm` 等管理命令见 [docs/channel-management.md](./docs/channel-management.md)。如果你想自己写一个频道插件，见 [docs/plugin-development.md](./docs/plugin-development.md)。
 
 ## 你的日常使用流程
 
@@ -143,6 +168,11 @@ hello
 | `weacpx start` | 后台启动服务 |
 | `weacpx status` | 查看后台状态、PID、配置路径、日志路径 |
 | `weacpx stop` | 停止后台实例 |
+| `weacpx restart` | 重启后台实例，让频道配置变更生效 |
+| `weacpx channel list` | 查看已配置的消息频道 |
+| `weacpx plugin known` | 查看官方插件清单（飞书/元宝包名） |
+| `weacpx plugin add @ganglion/weacpx-channel-feishu && weacpx channel add feishu` | 安装并添加飞书频道，会提示输入飞书应用凭据 |
+| `weacpx plugin add @ganglion/weacpx-channel-yuanbao && weacpx channel add yuanbao` | 安装并添加元宝频道，会提示输入元宝 appKey/appSecret |
 | `weacpx doctor` | 运行环境诊断 |
 | `weacpx version` | 查看当前版本 |
 | `weacpx workspace list` | 查看本机已注册的 workspace |
@@ -206,9 +236,9 @@ weacpx doctor --smoke --agent codex --workspace backend
 - `--agent` / `--workspace` 只影响 `--smoke`
 - 如果不传 `--smoke`，相关检查会显示为 `SKIP`
 
-## 常用微信命令
+## 常用聊天命令
 
-完整微信命令参考见：[docs/commands.md](./docs/commands.md)。
+这些命令在微信或飞书聊天里发送。完整命令参考见：[docs/commands.md](./docs/commands.md)。
 
 ### Agent 管理
 
@@ -262,7 +292,7 @@ weacpx doctor --smoke --agent codex --workspace backend
 
 | 命令 | 说明 |
 |------|------|
-| `/config` | 查看支持通过微信修改的配置路径 |
+| `/config` | 查看支持通过聊天命令修改的配置路径 |
 | `/config set <path> <value>` | 修改一个白名单配置项 |
 | `/pm` / `/permission` | 查看当前权限模式 |
 | `/pm set allow` | 切到 `approve-all` |
@@ -446,12 +476,14 @@ bun run dev
 
 ### 安装与配置
 
+- 想配置微信、飞书、元宝、或第三方插件频道：[docs/channel-management.md](./docs/channel-management.md)
+- 想自己写一个频道插件：[docs/plugin-development.md](./docs/plugin-development.md)
 - 想看完整配置字段：[docs/config-reference.md](./docs/config-reference.md)
 - 想在微信里改配置：[docs/config-command.md](./docs/config-command.md)
 
 ### 日常使用
 
-- 想查看完整微信命令参考：[docs/commands.md](./docs/commands.md)
+- 想查看完整聊天命令参考：[docs/commands.md](./docs/commands.md)
 - 想理解什么时候该用 delegate、什么时候该开 group：[docs/weacpx-group-usage-guide.md](./docs/weacpx-group-usage-guide.md)
 
 ### 排错与验证

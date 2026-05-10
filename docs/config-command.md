@@ -2,7 +2,7 @@
 
 `/config` 是一个**受限的配置写入口**。
 
-目标不是让微信变成任意 JSON 编辑器，而是：
+目标不是让聊天窗口变成任意 JSON 编辑器，而是：
 
 - 允许修改一组明确支持的配置字段
 - 拒绝不支持的字段
@@ -19,7 +19,7 @@
 /config
 ```
 
-返回当前允许通过微信修改的配置路径白名单。
+返回当前允许通过聊天命令修改的配置路径白名单。
 
 ### 修改配置
 
@@ -30,7 +30,7 @@
 例如：
 
 ```text
-/config set wechat.replyMode final
+/config set channel.replyMode final
 /config set logging.level debug
 /config set transport.permissionMode approve-reads
 /config set workspaces.backend.description backend repo
@@ -51,7 +51,14 @@
 - `logging.maxSizeBytes`
 - `logging.maxFiles`
 - `logging.retentionDays`
-- `wechat.replyMode`
+- `channel.replyMode`
+
+兼容旧配置：
+
+- `channel.type`（旧单频道配置；多频道请使用 `weacpx channel ...`）
+- `channels[]`（多频道运行配置；推荐使用 `weacpx channel ...` 管理）
+
+飞书凭据和多频道配置请优先用电脑终端里的频道 CLI 管理，例如 `weacpx channel add feishu`。完整说明见 [`docs/channel-management.md`](./channel-management.md)。
 
 动态字段：
 
@@ -96,7 +103,8 @@
 
 例如：
 
-- `wechat.replyMode` 只支持 `stream` / `final` / `verbose`
+- `channel.replyMode` 只支持 `stream` / `final` / `verbose`
+- `wechat.replyMode`（兼容旧配置）同样只支持 `stream` / `final` / `verbose`
 - `transport.permissionMode` 只支持 `approve-all` / `approve-reads` / `deny-all`
 - `logging.maxFiles`、`logging.maxSizeBytes`、`logging.retentionDays`、`transport.sessionInitTimeoutMs` 必须是正数
 
@@ -115,18 +123,21 @@
 
 `/config` 不是为了替代现有高层命令。
 
-- `agent` / `workspace` 的创建和删除，仍然优先用：
+- `agent` 的创建和删除，仍然优先用：
   - `/agent add`
   - `/agent rm`
+- `workspace` 的创建和删除，优先用高层命令：
   - `/ws new`
   - `/workspace rm`
+  - 或在电脑当前目录执行 `weacpx workspace add [name]` / `weacpx workspace rm <name>`
 - `/replymode` 改的是**当前逻辑会话覆盖**
-- `wechat.replyMode` 改的是**全局默认值**
+- `channel.replyMode` 改的是**全局默认值**
 
 也就是说：
 
-- `/config set wechat.replyMode final`：改全局默认
+- `/config set channel.replyMode final`：改全局默认
 - `/replymode final`：只改当前逻辑会话
+- `/config set wechat.replyMode final`：兼容旧路径，等同于改 `channel.replyMode`
 
 ---
 
@@ -144,4 +155,3 @@
 
 - 只开放高频且可安全校验的字段
 - 其余字段保持显式实现
-

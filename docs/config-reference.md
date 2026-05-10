@@ -2,7 +2,7 @@
 
 `~/.weacpx/config.json` 是 weacpx 的主配置文件。
 
-如果你想在微信里直接修改一部分配置，而不是手改 JSON，请看 [`docs/config-command.md`](./config-command.md)。
+如果你想管理微信/飞书消息频道，请看 [`docs/channel-management.md`](./channel-management.md)。如果你想在聊天里直接修改一部分配置，而不是手改 JSON，请看 [`docs/config-command.md`](./config-command.md)。
 
 ## 完整示例
 
@@ -13,9 +13,13 @@
     "command": "acpx",
     "sessionInitTimeoutMs": 120000
   },
-  "wechat": {
+  "channel": {
     "replyMode": "verbose"
   },
+  "channels": [
+    { "id": "weixin", "type": "weixin", "enabled": true }
+  ],
+  "plugins": [],
   "agents": {
     "codex": {
       "driver": "codex"
@@ -95,35 +99,180 @@ WEACPX_CLI_COMMAND="node /path/to/weacpx/dist/cli.js" weacpx run
 
 ---
 
-## `wechat`
+## `channel`
 
-控制微信侧回复投递行为。
+全局消息平台默认配置。
 
-### `wechat.replyMode`
+### `channel.replyMode`
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `replyMode` | `"stream"` \| `"final"` \| `"verbose"` | 否 | 微信回复模式。默认 `"verbose"` |
+| `replyMode` | `"stream"` \| `"final"` \| `"verbose"` | 否 | 回复模式。默认 `"verbose"` |
 
 说明：
 
-- `stream`：有中间文本分段时，优先流式发送到微信
+- `stream`：有中间文本分段时，优先流式发送
 - `final`：抑制中间文本分段，只在最后发送一次最终文本
 - `verbose`：在 stream 基础上额外发送工具调用等实时事件
 - 这个配置是**全局默认值**
 - 可以通过 `/replymode` 为**当前逻辑会话**设置覆盖值
-- `/replymode reset` 会清除当前会话覆盖，回退到 `wechat.replyMode`
-- `final` 只影响微信侧文本是否实时发送，不改变 acpx transport 的输出生成方式
+- `/replymode reset` 会清除当前会话覆盖，回退到 `channel.replyMode`
+- `final` 只影响文本是否实时发送，不改变 acpx transport 的输出生成方式
+
+### 兼容旧配置
+
+旧配置文件中的 `wechat.replyMode` 仍然可以正常使用，加载时会自动映射到 `channel.replyMode`。保存后会写入 `channel` 格式。
+
+---
+
+## `channels`
+
+多频道运行配置。定义要启动的消息频道列表。省略时根据 `channel.type`（旧单频道配置）自动生成。
+
+推荐通过频道 CLI 管理这一段配置：
+
+```bash
+weacpx channel list
+weacpx channel add feishu
+weacpx channel disable weixin
+weacpx restart
+```
+
+完整操作说明见：[docs/channel-management.md](./channel-management.md)。
+
+### `ChannelRuntimeConfig`
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | `string` | 是 | 频道唯一标识，必须与 `type` 相同（内置：`"weixin"`；插件：例如 `"feishu"`、`"yuanbao"`） |
+| `type` | `string` | 是 | 频道类型。内置频道类型只有 `"weixin"`。`"feishu"` 由 `@ganglion/weacpx-channel-feishu` 提供，`"yuanbao"` 由 `@ganglion/weacpx-channel-yuanbao` 提供；其它类型由已安装插件提供 |
+| `enabled` | `boolean` | 否 | 是否启用。默认 `true` |
+| `options` | `object` | 视频道而定 | 频道配置（飞书/元宝字段见下方） |
+
+### 飞书频道配置（`options`）
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `options.appId` | `string` | 单 bot 时必填；多 bot 可省 | 飞书应用 App ID。顶层填一份等价于"单 bot 默认账号"；多 bot 时把每个 bot 的 `appId` 写在 `accounts.<id>.appId`，顶层可留空 |
+| `options.appSecret` | `string` | 单 bot 时必填；多 bot 可省 | 飞书应用 App Secret。规则同 `appId` |
+| `options.domain` | `"feishu"` \| `"lark"` | 否 | API 域名。默认 `"feishu"` |
+| `options.requireMention` | `boolean` | 否 | 群聊是否需要 @机器人。默认 `true` |
+| `options.textMessageFormat` | `"text"` | 否 | 发送格式。当前仅支持 `"text"` |
+| `options.dedupTtlMs` | `number` | 否 | 消息去重 TTL（毫秒）。默认 `43200000`（12 小时） |
+| `options.dedupMaxEntries` | `number` | 否 | 去重缓存最大条目。默认 `5000` |
+| `options.defaultAccount` | `string` | 否 | 多 bot 模式下的默认账号 id；省略时优先 `default`，否则取第一个 `accounts.<id>` |
+| `options.accounts` | `object` | 否 | 按 `accountId` 索引的多账号覆盖配置；每个子项可覆盖 `appId/appSecret/domain/requireMention/dmPolicy/groupPolicy/allowFrom/enabled/name`。chatKey 形如 `feishu:<accountId>:<chatId>`。详见 [docs/channel-management.md](./channel-management.md#飞书多-bot同一频道多个账号) |
+| `options.dmPolicy` | `"open"` \| `"allowlist"` \| `"disabled"` | 否 | 私聊准入策略，默认 `"open"`（保持旧行为，任何人发起私聊都接收）。`"allowlist"` 时只接受 `allowFrom` 列表中的发送者；`"disabled"` 时全部丢弃 |
+| `options.groupPolicy` | `"open"` \| `"allowlist"` \| `"disabled"` | 否 | 群聊准入策略，默认 `"open"`。语义同 `dmPolicy`，`requireMention` 仍然独立生效 |
+| `options.allowFrom` | `string[]` | 否 | 发送者 `open_id` 白名单；只在任一 policy 为 `"allowlist"` 时生效。包含 `"*"` 等价于"任何带 open_id 的发送者"。`allowlist` 模式下不能为空 |
+
+### 元宝频道配置（`options`，由 `@ganglion/weacpx-channel-yuanbao` 提供）
+
+元宝频道由插件 `@ganglion/weacpx-channel-yuanbao` 提供：插件内置元宝签名、WebSocket、消息收发、chatKey 路由、inbound → agent、去重、同会话串行和基础 outbound 策略。先 `weacpx plugin add @ganglion/weacpx-channel-yuanbao`，再添加频道；正常用户不需要配置 gateway module。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `options.appKey` | `string` | 与 `appSecret` 成对必填 | 元宝机器人 App Key |
+| `options.appSecret` | `string` | 与 `appKey` 成对必填 | 元宝机器人 App Secret |
+| `options.token` | `string` | 否 | 静态 token；兼容 `appKey:appSecret` 形式，加载时会拆成 appKey/appSecret。真正的静态 auth token 需要同时配置 `botId` |
+| `options.gatewayModule` | `string` | 否 | 兼容旧配置/开发调试用的外部 gateway 覆盖；普通用户不要配置 |
+| `options.botId` | `string` | 否 | 机器人账号 ID，用于本地识别 @机器人 与过滤自消息；通常 sign-token 会返回并自动补齐 |
+| `options.apiDomain` | `string` | 否 | 元宝 API 域名，默认 `"bot.yuanbao.tencent.com"` |
+| `options.wsUrl` | `string` | 否 | 元宝 WebSocket 地址，默认 `"wss://bot-wss.yuanbao.tencent.com/wss/connection"` |
+| `options.requireMention` | `boolean` | 否 | 群聊是否需要 @机器人。默认 `true` |
+| `options.replyToMode` | `"off"` \| `"first"` \| `"all"` | 否 | 引用回复策略，默认 `"first"` |
+| `options.overflowPolicy` | `"stop"` \| `"split"` | 否 | 超长文本策略，默认 `"split"` |
+| `options.maxChars` | `number` | 否 | weacpx 出站文本拆分阈值，默认 `3000` |
+| `options.outboundQueueStrategy` | `"immediate"` \| `"merge-text"` | 否 | gateway 可用的预留字段；weacpx 当前不执行合并队列 |
+| `options.minChars` / `options.idleMs` | `number` | 否 | gateway 可用的预留字段；weacpx 当前不执行基于空闲时间的合并 |
+| `options.mediaMaxMb` | `number` | 否 | 媒体大小上限，默认 `20` |
+| `options.historyLimit` | `number` | 否 | gateway 可用的预留字段，默认 `100` |
+| `options.disableBlockStreaming` | `boolean` | 否 | 是否禁用块状流式回复，默认 `false` |
+| `options.fallbackReply` | `string` | 否 | agent 无文本返回时发送的兜底文案 |
+| `options.markdownHintEnabled` | `boolean` | 否 | gateway 可用的预留字段，默认 `true` |
+| `options.accounts` | `object` | 否 | 多账号覆盖配置；子项会继承顶层配置 |
 
 ### 示例
 
+仅微信：
+
 ```json
 {
-  "wechat": {
-    "replyMode": "verbose"
-  }
+  "channels": [
+    { "id": "weixin", "type": "weixin", "enabled": true }
+  ]
 }
 ```
+
+微信 + 飞书：
+
+```json
+{
+  "channels": [
+    { "id": "weixin", "type": "weixin", "enabled": true },
+    {
+      "id": "feishu",
+      "type": "feishu",
+      "enabled": true,
+      "options": {
+        "appId": "cli_xxx",
+        "appSecret": "...",
+        "domain": "feishu"
+      }
+    }
+  ]
+}
+```
+
+元宝（需先安装 `@ganglion/weacpx-channel-yuanbao`）：
+
+```json
+{
+  "plugins": [
+    { "name": "@ganglion/weacpx-channel-yuanbao", "enabled": true }
+  ],
+  "channels": [
+    {
+      "id": "yuanbao",
+      "type": "yuanbao",
+      "enabled": true,
+      "options": {
+        "appKey": "yb_xxx",
+        "appSecret": "...",
+        "requireMention": true
+      }
+    }
+  ]
+}
+```
+
+### 兼容旧配置
+
+旧配置文件中的 `channel.type` 仍然可以正常使用，加载时会自动生成单频道的 `channels[]`。新的多频道配置推荐使用 `weacpx channel ...` 管理。
+
+旧版飞书配置中的 `feishu` 对象仍作为 legacy alias 兼容读取；新配置请统一写入 `options`。
+
+---
+
+## `plugins`
+
+通过 `weacpx plugin add <npm-package>` 安装的外部插件包。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `name` | `string` | 是 | npm 包名 |
+| `version` | `string` | 否 | 安装时记录的版本范围或版本号 |
+| `enabled` | `boolean` | 否 | 是否加载该插件，默认 `true` |
+
+`plugins[]` is lifecycle metadata for packages installed under `~/.weacpx/plugins`. It does not enable a channel by itself; `channels[]` still controls which channel runtimes start. After changing plugin install, update, enable, disable, or remove state while the daemon is running, restart the daemon so plugin registration is reloaded.
+
+安装插件只表示频道类型可用，不会自动启用频道。启用频道仍然需要：
+
+```bash
+weacpx channel add <channel-type>
+```
+
+详见 [`docs/plugin-development.md`](./plugin-development.md)。
 
 ---
 
@@ -256,11 +405,11 @@ WEACPX_CLI_COMMAND="node /path/to/weacpx/dist/cli.js" weacpx run
 }
 ```
 
-`transport.type` 默认为 `"acpx-bridge"`，其他字段留空或省略即可。agents 和 workspaces 可以先留空，后续在微信里通过命令创建。
+`transport.type` 默认为 `"acpx-bridge"`，其他字段留空或省略即可。agents 和 workspaces 可以先留空，后续在聊天里通过命令创建。
 
 ---
 
-## 通过微信修改配置
+## 通过聊天命令修改配置
 
 weacpx 支持通过 `/config` 和 `/config set <path> <value>` 修改**部分受支持字段**。
 
