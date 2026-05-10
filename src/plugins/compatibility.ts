@@ -8,9 +8,21 @@ export const WEACPX_PLUGIN_API_SUPPORTED_VERSIONS: readonly number[] = [1];
 
 // Minimum core version that the current plugin API version corresponds to.
 // First-party plugins should declare `minWeacpxVersion` >= this value.
-export const WEACPX_PLUGIN_MIN_CORE_VERSION = "0.3.3" as const;
+export const WEACPX_PLUGIN_MIN_CORE_VERSION = "0.4.0" as const;
 
 const SEMVER_RE = /^(\d+)\.(\d+)\.(\d+)$/;
+
+// For compatibility checks we treat a prerelease build (e.g. `0.4.0-beta.0`)
+// as its base release (`0.4.0`). Plugins built against the upcoming stable
+// version need to load on its prereleases without authors having to declare
+// every prerelease tag in `minWeacpxVersion`.
+export function normalizeCoreVersionForCompat(version: string): string {
+  const dashIdx = version.indexOf("-");
+  const plusIdx = version.indexOf("+");
+  const cutPositions = [dashIdx, plusIdx].filter((i) => i >= 0);
+  if (cutPositions.length === 0) return version;
+  return version.slice(0, Math.min(...cutPositions));
+}
 
 export function compareSemver(a: string, b: string): -1 | 0 | 1 {
   const lhs = parseSemverStrict(a);
@@ -115,13 +127,15 @@ export function validatePluginCompatibility(
     return; // can't decide core-version compatibility; skip rather than block on a guess.
   }
 
+  const normalizedCurrent = normalizeCoreVersionForCompat(currentWeacpxVersion);
+
   if (metadata.minWeacpxVersion !== undefined) {
     if (typeof metadata.minWeacpxVersion !== "string") {
       throw new Error(`插件 ${packageName} 元数据非法：minWeacpxVersion 必须是字符串 (invalid plugin metadata)`);
     }
     let satisfied: boolean;
     try {
-      satisfied = compareSemver(currentWeacpxVersion, metadata.minWeacpxVersion) >= 0;
+      satisfied = compareSemver(normalizedCurrent, metadata.minWeacpxVersion) >= 0;
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`插件 ${packageName} 元数据非法：minWeacpxVersion (${detail}) (invalid plugin metadata)`);
@@ -140,7 +154,7 @@ export function validatePluginCompatibility(
     }
     let satisfied: boolean;
     try {
-      satisfied = isVersionSatisfied(currentWeacpxVersion, metadata.compatibleWeacpxVersions);
+      satisfied = isVersionSatisfied(normalizedCurrent, metadata.compatibleWeacpxVersions);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       throw new Error(`插件 ${packageName} 元数据非法：compatibleWeacpxVersions (${detail}) (invalid plugin metadata)`);

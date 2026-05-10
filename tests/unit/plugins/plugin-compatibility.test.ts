@@ -101,6 +101,17 @@ test("validatePluginCompatibility skips core-version checks when current version
   )).not.toThrow();
 });
 
+test("validatePluginCompatibility tolerates prerelease tags on the running core", () => {
+  expect(() => validatePluginCompatibility(
+    { apiVersion: 1, minWeacpxVersion: "0.4.0" },
+    { packageName: "weacpx-channel-demo", currentWeacpxVersion: "0.4.0-beta.0" },
+  )).not.toThrow();
+  expect(() => validatePluginCompatibility(
+    { apiVersion: 1, compatibleWeacpxVersions: ">=0.4.0" },
+    { packageName: "weacpx-channel-demo", currentWeacpxVersion: "0.4.0-rc.1" },
+  )).not.toThrow();
+});
+
 test("WEACPX_PLUGIN_API_SUPPORTED_VERSIONS includes the current API version", () => {
   expect(WEACPX_PLUGIN_API_SUPPORTED_VERSIONS).toContain(WEACPX_PLUGIN_API_VERSION);
 });
