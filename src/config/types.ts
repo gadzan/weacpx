@@ -1,6 +1,19 @@
 export type PermissionMode = "approve-all" | "approve-reads" | "deny-all";
 export type NonInteractivePermissions = "deny" | "fail";
-export type WechatReplyMode = "stream" | "final" | "verbose";
+export type ReplyMode = "stream" | "final" | "verbose";
+/** @deprecated Use ReplyMode. */
+export type WechatReplyMode = ReplyMode;
+
+export interface ChannelConfig {
+  type: string;
+  replyMode: ReplyMode;
+  options?: Record<string, unknown>;
+}
+
+/** @deprecated Legacy input shape only. Use ChannelConfig. */
+export interface WechatConfig {
+  replyMode: ReplyMode;
+}
 
 export interface TransportConfig {
   type: "acpx-cli" | "acpx-bridge";
@@ -17,10 +30,6 @@ export interface LoggingConfig {
   maxSizeBytes: number;
   maxFiles: number;
   retentionDays: number;
-}
-
-export interface WechatConfig {
-  replyMode: WechatReplyMode;
 }
 
 export interface AgentConfig {
@@ -41,10 +50,25 @@ export interface OrchestrationConfig {
   progressHeartbeatSeconds: number;
 }
 
+export interface ChannelRuntimeConfig {
+  id: string;
+  type: string;
+  enabled: boolean;
+  options?: Record<string, unknown>;
+}
+
+export interface PluginConfig {
+  name: string;
+  version?: string;
+  enabled: boolean;
+}
+
 export interface AppConfig {
   transport: TransportConfig;
   logging: LoggingConfig;
-  wechat: WechatConfig;
+  channel: ChannelConfig;
+  channels: ChannelRuntimeConfig[];
+  plugins: PluginConfig[];
   agents: Record<string, AgentConfig>;
   workspaces: Record<string, WorkspaceConfig>;
   orchestration: OrchestrationConfig;

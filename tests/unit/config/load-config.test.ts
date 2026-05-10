@@ -240,7 +240,8 @@ test("defaults logging to bounded info mode when omitted", async () => {
     maxFiles: 5,
     retentionDays: 7,
   });
-  expect(config.wechat).toEqual({
+  expect(config.channel).toEqual({
+    type: "weixin",
     replyMode: "verbose",
   });
   expect(config.orchestration).toEqual({
@@ -337,7 +338,8 @@ test("loads explicit wechat reply mode", async () => {
   );
 
   const config = await loadConfig(path);
-  expect(config.wechat.replyMode).toBe("final");
+  expect(config.channel).toEqual({ type: "weixin", replyMode: "final" });
+  expect("wechat" in config).toBe(false);
 
   await rm(dir, { recursive: true, force: true });
 });
@@ -440,4 +442,255 @@ test("throws when transport.sessionInitTimeoutMs is not a positive number", asyn
 
   await expect(loadConfig(path)).rejects.toThrow("transport.sessionInitTimeoutMs");
   await rm(dir, { recursive: true, force: true });
+});
+
+test("loads explicit channel reply mode", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-bridge" },
+      channel: { type: "weixin", replyMode: "final" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {},
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.channel).toEqual({ type: "weixin", replyMode: "final" });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("defaults channel config when channel and legacy wechat are omitted", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-bridge" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {},
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.channel).toEqual({ type: "weixin", replyMode: "verbose" });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("maps legacy wechat reply mode to channel config", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-bridge" },
+      wechat: { replyMode: "stream" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {},
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.channel).toEqual({ type: "weixin", replyMode: "stream" });
+  expect("wechat" in config).toBe(false);
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("prefers channel over legacy wechat when both are present", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-bridge" },
+      channel: { type: "weixin", replyMode: "final" },
+      wechat: { replyMode: "stream" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {},
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.channel).toEqual({ type: "weixin", replyMode: "final" });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("throws when channel is not an object", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-bridge" },
+      channel: "weixin",
+      agents: { codex: { driver: "codex" } },
+      workspaces: {},
+    }),
+  );
+
+  await expect(loadConfig(path)).rejects.toThrow("channel must be an object");
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("throws when channel.type is not a string", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-bridge" },
+      channel: { type: 123, replyMode: "stream" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {},
+    }),
+  );
+
+  await expect(loadConfig(path)).rejects.toThrow("channel.type must be a string");
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("throws when channel.replyMode is invalid", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-bridge" },
+      channel: { type: "weixin", replyMode: "chatty" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {},
+    }),
+  );
+
+  await expect(loadConfig(path)).rejects.toThrow("channel.replyMode must be stream, final, or verbose");
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("throws when legacy wechat.replyMode is invalid", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-bridge" },
+      wechat: { replyMode: "chatty" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {},
+    }),
+  );
+
+  await expect(loadConfig(path)).rejects.toThrow("wechat.replyMode must be stream, final, or verbose");
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("loads multiple enabled channel runtime configs", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-bridge" },
+      channel: { replyMode: "final" },
+      channels: [
+        { id: "weixin", type: "weixin", enabled: true },
+        {
+          id: "feishu-main",
+          type: "feishu",
+          enabled: true,
+          feishu: {
+            appId: "cli_test",
+            appSecret: "secret_test",
+            domain: "feishu",
+          },
+        },
+      ],
+      agents: { codex: { driver: "codex" } },
+      workspaces: {},
+    }),
+  );
+
+  try {
+    const config = await loadConfig(path);
+
+    expect(config.channel.replyMode).toBe("final");
+    expect(config.channels).toEqual([
+      { id: "weixin", type: "weixin", enabled: true },
+      {
+        id: "feishu-main",
+        type: "feishu",
+        enabled: true,
+        options: {
+          appId: "cli_test",
+          appSecret: "secret_test",
+          domain: "feishu",
+        },
+      },
+    ]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("maps legacy channel.type to a single enabled runtime channel", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-bridge" },
+      channel: { type: "weixin", replyMode: "verbose" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {},
+    }),
+  );
+
+  try {
+    const config = await loadConfig(path);
+
+    expect(config.channel).toEqual({ type: "weixin", replyMode: "verbose" });
+    expect(config.channels).toEqual([{ id: "weixin", type: "weixin", enabled: true }]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("rejects duplicate channel ids", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-bridge" },
+      channel: { replyMode: "final" },
+      channels: [
+        { id: "weixin", type: "weixin" },
+        { id: "weixin", type: "weixin" },
+      ],
+      agents: { codex: { driver: "codex" } },
+      workspaces: {},
+    }),
+  );
+
+  try {
+    await expect(loadConfig(path)).rejects.toThrow("channels ids must be unique");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

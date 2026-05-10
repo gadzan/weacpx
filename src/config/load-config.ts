@@ -5,12 +5,15 @@ import { resolveAgentCommand } from "./resolve-agent-command";
 import type {
   AgentConfig,
   AppConfig,
-  OrchestrationConfig,
+  ChannelConfig,
+  ChannelRuntimeConfig,
   LoggingConfig,
   LoggingLevel,
   NonInteractivePermissions,
+  OrchestrationConfig,
   PermissionMode,
-  WechatReplyMode,
+  PluginConfig,
+  ReplyMode,
   WorkspaceConfig,
 } from "./types";
 
@@ -22,7 +25,10 @@ const DEFAULT_LOGGING_CONFIG: LoggingConfig = {
 };
 const DEFAULT_PERMISSION_MODE: PermissionMode = "approve-all";
 const DEFAULT_NON_INTERACTIVE_PERMISSIONS: NonInteractivePermissions = "deny";
-const DEFAULT_WECHAT_REPLY_MODE: WechatReplyMode = "verbose";
+const DEFAULT_CHANNEL_CONFIG: ChannelConfig = {
+  type: "weixin",
+  replyMode: "verbose",
+};
 const DEFAULT_ORCHESTRATION_CONFIG: OrchestrationConfig = {
   maxPendingAgentRequestsPerCoordinator: 3,
   allowWorkerChainedRequests: false,
@@ -34,8 +40,61 @@ const DEFAULT_ORCHESTRATION_CONFIG: OrchestrationConfig = {
 type ParsedAgentRecord = Record<string, AgentConfig & { command?: string }>;
 type ParsedWorkspaceRecord = Record<string, WorkspaceConfig & { allowed_agents?: string[] }>;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isReplyMode(value: unknown): value is ReplyMode {
+  return value === "stream" || value === "final" || value === "verbose";
+}
+
+export function parsePositiveOptionalNumber(value: unknown, path: string, defaultValue: number): number {
+  if (value === undefined) return defaultValue;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    throw new Error(`${path} must be a positive number`);
+  }
+  return value;
+}
+
+function parseChannelConfig(channel: unknown, legacyWechat: unknown): ChannelConfig {
+  if (channel !== undefined) {
+    if (!isRecord(channel)) {
+      throw new Error("channel must be an object");
+    }
+    if ("type" in channel && typeof channel.type !== "string") {
+      throw new Error("channel.type must be a string");
+    }
+    if ("replyMode" in channel && !isReplyMode(channel.replyMode)) {
+      throw new Error("channel.replyMode must be stream, final, or verbose");
+    }
+    const type = typeof channel.type === "string" ? channel.type : "weixin";
+    let options: Record<string, unknown> | undefined = undefined;
+    if ("feishu" in channel && isRecord(channel.feishu)) {
+      options = channel.feishu;
+    } else if ("options" in channel && isRecord(channel.options)) {
+      options = channel.options;
+    }
+    return {
+      type,
+      replyMode: isReplyMode(channel.replyMode) ? channel.replyMode : DEFAULT_CHANNEL_CONFIG.replyMode,
+      ...(options ? { options } : {}),
+    };
+  }
+
+  if (legacyWechat !== undefined) {
+    if (!isRecord(legacyWechat)) {
+      throw new Error("wechat must be an object");
+    }
+    if ("replyMode" in legacyWechat && !isReplyMode(legacyWechat.replyMode)) {
+      throw new Error("wechat.replyMode must be stream, final, or verbose");
+    }
+    return {
+      type: "weixin",
+      replyMode: isReplyMode(legacyWechat.replyMode) ? legacyWechat.replyMode : DEFAULT_CHANNEL_CONFIG.replyMode,
+    };
+  }
+
+  return { ...DEFAULT_CHANNEL_CONFIG };
 }
 
 export async function loadConfig(path: string): Promise<AppConfig>;
@@ -100,13 +159,11 @@ export function parseConfig(
   }
 
   const logging = raw.logging;
-  const wechat = raw.wechat;
+  const channel = raw.channel;
+  const legacyWechat = raw.wechat;
   const orchestration = raw.orchestration;
   if (logging !== undefined && !isRecord(logging)) {
     throw new Error("logging must be an object");
-  }
-  if (wechat !== undefined && !isRecord(wechat)) {
-    throw new Error("wechat must be an object");
   }
   if (orchestration !== undefined && !isRecord(orchestration)) {
     throw new Error("orchestration must be an object");
@@ -128,15 +185,6 @@ export function parseConfig(
     ) {
       throw new Error(`logging.${field} must be a positive number`);
     }
-  }
-  if (
-    isRecord(wechat) &&
-    "replyMode" in wechat &&
-    wechat.replyMode !== "stream" &&
-    wechat.replyMode !== "final" &&
-    wechat.replyMode !== "verbose"
-  ) {
-    throw new Error("wechat.replyMode must be stream, final, or verbose");
   }
 
   for (const [name, agent] of Object.entries(raw.agents)) {
@@ -199,11 +247,10 @@ export function parseConfig(
     loggingLevel === "error" || loggingLevel === "info" || loggingLevel === "debug"
       ? loggingLevel
       : (options.defaultLoggingLevel ?? DEFAULT_LOGGING_CONFIG.level);
-  const replyMode: WechatReplyMode =
-    wechat?.replyMode === "stream" || wechat?.replyMode === "final" || wechat?.replyMode === "verbose"
-      ? wechat.replyMode
-      : DEFAULT_WECHAT_REPLY_MODE;
+  const channelConfig = parseChannelConfig(channel, legacyWechat);
+  const channelsConfig = parseRuntimeChannels(raw.channels, channelConfig);
   const orchestrationConfig = parseOrchestrationConfig(orchestration);
+  const plugins = parsePlugins(raw.plugins);
 
   return {
     transport: {
@@ -223,13 +270,103 @@ export function parseConfig(
       retentionDays:
         typeof logging?.retentionDays === "number" ? logging.retentionDays : DEFAULT_LOGGING_CONFIG.retentionDays,
     },
-    wechat: {
-      replyMode,
-    },
+    channel: channelConfig,
+    channels: channelsConfig,
+    plugins,
     agents,
     workspaces,
     orchestration: orchestrationConfig,
   };
+}
+
+function parsePluginConfig(raw: unknown, index: number): PluginConfig {
+  if (!isRecord(raw)) {
+    throw new Error(`plugins[${index}] must be an object`);
+  }
+  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  if (!name) {
+    throw new Error(`plugins[${index}].name must be a non-empty string`);
+  }
+  if ("version" in raw && typeof raw.version !== "string") {
+    throw new Error(`plugins[${index}].version must be a string`);
+  }
+  if ("enabled" in raw && typeof raw.enabled !== "boolean") {
+    throw new Error(`plugins[${index}].enabled must be a boolean`);
+  }
+  return {
+    name,
+    ...(typeof raw.version === "string" ? { version: raw.version } : {}),
+    enabled: raw.enabled !== false,
+  };
+}
+
+function parsePlugins(rawPlugins: unknown): PluginConfig[] {
+  if (rawPlugins === undefined) return [];
+  if (!Array.isArray(rawPlugins)) {
+    throw new Error("plugins must be an array");
+  }
+  const parsed = rawPlugins.map((entry, index) => parsePluginConfig(entry, index));
+  const names = new Set<string>();
+  for (const entry of parsed) {
+    if (names.has(entry.name)) {
+      throw new Error("plugins names must be unique");
+    }
+    names.add(entry.name);
+  }
+  return parsed;
+}
+
+function parseRuntimeChannelConfig(raw: unknown, index: number): ChannelRuntimeConfig {
+  if (!isRecord(raw)) {
+    throw new Error(`channels[${index}] must be an object`);
+  }
+  const id = typeof raw.id === "string" ? raw.id.trim() : "";
+  if (!id) {
+    throw new Error(`channels[${index}].id must be a non-empty string`);
+  }
+  if (typeof raw.type !== "string" || !raw.type.trim()) {
+    throw new Error(`channels[${index}].type must be a non-empty string`);
+  }
+  const enabled = raw.enabled !== false;
+  let options: Record<string, unknown> | undefined = undefined;
+  if ("feishu" in raw && isRecord(raw.feishu)) {
+    options = raw.feishu;
+  } else if ("options" in raw && isRecord(raw.options)) {
+    options = raw.options;
+  }
+  return {
+    id,
+    type: raw.type,
+    enabled,
+    ...(options ? { options } : {}),
+  };
+}
+
+function parseRuntimeChannels(rawChannels: unknown, channel: ChannelConfig): ChannelRuntimeConfig[] {
+  if (rawChannels !== undefined) {
+    if (!Array.isArray(rawChannels)) {
+      throw new Error("channels must be an array");
+    }
+    const parsed = rawChannels.map((entry, index) => parseRuntimeChannelConfig(entry, index));
+    const ids = new Set<string>();
+    for (const entry of parsed) {
+      if (ids.has(entry.id)) {
+        throw new Error("channels ids must be unique");
+      }
+      ids.add(entry.id);
+    }
+    return parsed;
+  }
+
+  const legacyType = channel.type ?? "weixin";
+  return [
+    {
+      id: legacyType,
+      type: legacyType,
+      enabled: true,
+      ...(channel.options ? { options: channel.options } : {}),
+    },
+  ];
 }
 
 function parseOrchestrationConfig(raw: unknown): OrchestrationConfig {

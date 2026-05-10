@@ -150,7 +150,7 @@ test("updates transport permissions while preserving unrelated transport config"
   await rm(dir, { recursive: true, force: true });
 });
 
-test("updates wechat reply mode while preserving unrelated config", async () => {
+test("updates channel reply mode while preserving unrelated config", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-config-store-"));
   const path = join(dir, "config.json");
 
@@ -163,7 +163,8 @@ test("updates wechat reply mode while preserving unrelated config", async () => 
         permissionMode: "approve-all",
         nonInteractivePermissions: "deny",
       },
-      wechat: {
+      channel: {
+        type: "weixin",
         replyMode: "stream",
       },
       agents: { codex: { driver: "codex" } },
@@ -172,20 +173,51 @@ test("updates wechat reply mode while preserving unrelated config", async () => 
   );
 
   const store = new ConfigStore(path);
-  const config = await store.updateWechat({
+  const config = await store.updateChannel({
     replyMode: "final",
   });
 
-  expect(config.wechat).toEqual({
+  expect(config.channel).toEqual({
+    type: "weixin",
     replyMode: "final",
   });
 
   const saved = JSON.parse(await readFile(path, "utf8")) as {
-    wechat: Record<string, unknown>;
+    channel: Record<string, unknown>;
   };
-  expect(saved.wechat).toEqual({
+  expect(saved.channel).toEqual({
+    type: "weixin",
     replyMode: "final",
   });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("saves canonical channel config without legacy wechat", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-store-"));
+  const path = join(dir, "config.json");
+  const store = new ConfigStore(path);
+
+  await store.save({
+    transport: { type: "acpx-bridge", permissionMode: "approve-all", nonInteractivePermissions: "deny" },
+    logging: { level: "info", maxSizeBytes: 2097152, maxFiles: 5, retentionDays: 7 },
+    channel: { type: "weixin", replyMode: "stream" },
+    channels: [{ id: "weixin", type: "weixin", enabled: true }],
+    agents: { codex: { driver: "codex" } },
+    workspaces: {},
+    orchestration: {
+      maxPendingAgentRequestsPerCoordinator: 3,
+      allowWorkerChainedRequests: false,
+      allowedAgentRequestTargets: [],
+      allowedAgentRequestRoles: [],
+      progressHeartbeatSeconds: 300,
+    },
+  });
+
+  const saved = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+
+  expect(saved.channel).toEqual({ type: "weixin", replyMode: "stream" });
+  expect(saved.wechat).toBeUndefined();
 
   await rm(dir, { recursive: true, force: true });
 });
@@ -198,8 +230,18 @@ test("saves config with owner-only file permissions", async () => {
 
   await store.save({
     transport: { type: "acpx-bridge", command: "acpx", permissionMode: "approve-all", nonInteractivePermissions: "deny" },
+    channel: { type: "weixin", replyMode: "verbose" },
+    channels: [{ id: "weixin", type: "weixin", enabled: true }],
     agents: { codex: { driver: "codex" } },
     workspaces: { backend: { cwd: "/tmp/backend" } },
+    logging: { level: "info", maxSizeBytes: 2097152, maxFiles: 5, retentionDays: 7 },
+    orchestration: {
+      maxPendingAgentRequestsPerCoordinator: 3,
+      allowWorkerChainedRequests: false,
+      allowedAgentRequestTargets: [],
+      allowedAgentRequestRoles: [],
+      progressHeartbeatSeconds: 300,
+    },
   });
 
   if (process.platform !== "win32") {

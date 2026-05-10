@@ -57,11 +57,11 @@ export class ConfigStore {
     return config;
   }
 
-  async updateWechat(wechat: Partial<AppConfig["wechat"]>): Promise<AppConfig> {
+  async updateChannel(channel: Partial<AppConfig["channel"]>): Promise<AppConfig> {
     const config = await this.load();
-    config.wechat = {
-      ...config.wechat,
-      ...wechat,
+    config.channel = {
+      ...config.channel,
+      ...channel,
     };
     await this.save(config);
     return config;

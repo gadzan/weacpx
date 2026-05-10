@@ -1,30 +1,100 @@
-import { randomBytes } from "node:crypto";
-import { chmod, mkdir, rename, unlink, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+
+import * as lockfile from "proper-lockfile";
+import writeFileAtomic from "write-file-atomic";
 
 const PRIVATE_FILE_MODE = 0o600;
+const WRITE_RETRY_MAX_ATTEMPTS = 20;
+const WRITE_RETRY_BASE_DELAY_MS = 50;
+const WRITE_RETRY_MAX_DELAY_MS = 500;
+const LOCKFILE_STALE_MS = 10_000;
 
 export async function writePrivateFileAtomic(path: string, content: string): Promise<void> {
-  const dir = dirname(path);
-  await mkdir(dir, { recursive: true });
-  const tmpPath = join(dir, `.${basename(path)}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`);
+  await mkdir(dirname(path), { recursive: true });
+
+  const release = await lockfile.lock(path, {
+    realpath: false,
+    stale: LOCKFILE_STALE_MS,
+    retries: {
+      retries: WRITE_RETRY_MAX_ATTEMPTS,
+      factor: 1.5,
+      minTimeout: WRITE_RETRY_BASE_DELAY_MS,
+      maxTimeout: WRITE_RETRY_MAX_DELAY_MS,
+      randomize: true,
+    },
+  });
 
   try {
-    await writeFile(tmpPath, content, { encoding: "utf8", mode: PRIVATE_FILE_MODE });
-    await chmodPrivate(tmpPath);
-    await rename(tmpPath, path);
-    await chmodPrivate(path);
-  } catch (error) {
-    await unlinkIfExists(tmpPath);
-    throw error;
+    try {
+      await retryTransientWriteErrors(
+        async () =>
+          writeFileAtomic(path, content, {
+            mode: PRIVATE_FILE_MODE,
+            encoding: "utf8",
+            fsync: true,
+          }),
+      );
+    } catch (error) {
+      if (!isTransientWriteError(error, process.platform)) {
+        throw error;
+      }
+      // Last-ditch Windows fallback: rename is exhausted (e.g. AV holds the
+      // target without FILE_SHARE_DELETE). Direct overwrite sacrifices
+      // atomicity but stays within FILE_SHARE_WRITE-friendly territory and
+      // is preferable to losing the write entirely. We still hold the
+      // proper-lockfile, so weacpx-aware processes are excluded.
+      await writeFile(path, content, { encoding: "utf8", mode: PRIVATE_FILE_MODE });
+      await chmod(path, PRIVATE_FILE_MODE).catch(() => {});
+    }
+  } finally {
+    await release();
   }
 }
 
-async function chmodPrivate(path: string): Promise<void> {
-  if (process.platform === "win32") return;
-  await chmod(path, PRIVATE_FILE_MODE).catch(() => {});
+interface RetryTransientWriteOptions {
+  platform?: NodeJS.Platform;
+  maxAttempts?: number;
+  baseDelayMs?: number;
+  maxDelayMs?: number;
+  delay?: (ms: number) => Promise<void>;
 }
 
-async function unlinkIfExists(path: string): Promise<void> {
-  await unlink(path).catch(() => {});
+export async function retryTransientWriteErrors(
+  run: () => Promise<void>,
+  options: RetryTransientWriteOptions = {},
+): Promise<void> {
+  const platform = options.platform ?? process.platform;
+  const maxAttempts = options.maxAttempts ?? WRITE_RETRY_MAX_ATTEMPTS;
+  const baseDelayMs = options.baseDelayMs ?? WRITE_RETRY_BASE_DELAY_MS;
+  const maxDelayMs = options.maxDelayMs ?? WRITE_RETRY_MAX_DELAY_MS;
+  const wait = options.delay ?? defaultDelay;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await run();
+      return;
+    } catch (error) {
+      if (!isTransientWriteError(error, platform) || attempt === maxAttempts) {
+        throw error;
+      }
+      await wait(Math.min(baseDelayMs * attempt, maxDelayMs));
+    }
+  }
 }
+
+function isTransientWriteError(error: unknown, platform: NodeJS.Platform): boolean {
+  if (platform !== "win32") return false;
+  if (!error || typeof error !== "object") return false;
+  const code = (error as { code?: unknown }).code;
+  if (typeof code !== "string") return false;
+  return code === "EPERM" || code === "EBUSY" || code === "EACCES";
+}
+
+async function defaultDelay(ms: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+export const __privateFileForTests = {
+  retryTransientWriteErrors,
+};

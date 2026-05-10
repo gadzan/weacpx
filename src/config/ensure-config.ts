@@ -22,7 +22,8 @@ const BUILTIN_DEFAULT_CONFIG_TEMPLATE = {
     maxFiles: 5,
     retentionDays: 7,
   },
-  wechat: {
+  channel: {
+    type: "weixin",
     replyMode: "stream",
   },
   agents: {
@@ -30,6 +31,7 @@ const BUILTIN_DEFAULT_CONFIG_TEMPLATE = {
     claude: { driver: "claude" },
   },
   workspaces: {},
+  plugins: [],
 } satisfies unknown;
 
 export async function ensureConfigExists(path: string, options: EnsureConfigOptions = {}): Promise<void> {

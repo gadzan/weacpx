@@ -11,9 +11,16 @@
     "maxFiles": 5,
     "retentionDays": 7
   },
-  "wechat": {
+  "channel": {
     "replyMode": "stream"
   },
+  "channels": [
+    {
+      "id": "weixin",
+      "type": "weixin",
+      "enabled": true
+    }
+  ],
   "agents": {
     "codex": {
       "driver": "codex"
