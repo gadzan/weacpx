@@ -1,0 +1,113 @@
+name: Publish @ganglion/weacpx-channel-yuanbao
+
+on:
+  push:
+    tags:
+      - "channel-yuanbao-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to publish (e.g. channel-yuanbao-v0.1.0-beta.0). Must already exist on the repo.'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-channel-yuanbao-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org/
+
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock', 'package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build channel-yuanbao (and plugin-api types)
+        run: bun run build:channel-yuanbao
+
+      - name: Verify publishable artifacts
+        run: bun run verify:publish
+
+      - name: Read version
+        id: meta
+        run: |
+          VERSION="$(node -p "require('./packages/channel-yuanbao/package.json').version")"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$VERSION" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "npm_tag=next" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "npm_tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify tag matches package version
+        run: |
+          if [[ -n "${{ inputs.tag }}" ]]; then
+            TAG_NAME="${{ inputs.tag }}"
+          else
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+          fi
+          EXPECTED="channel-yuanbao-v${{ steps.meta.outputs.version }}"
+          if [[ "$TAG_NAME" != "$EXPECTED" ]]; then
+            echo "::error::tag $TAG_NAME does not match package.json version ($EXPECTED)" >&2
+            exit 1
+          fi
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_ENV"
+
+      - name: Publish to npm
+        working-directory: packages/channel-yuanbao
+        run: npm publish --tag ${{ steps.meta.outputs.npm_tag }} --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$tag_name" >/dev/null 2>&1; then
+            echo "Release $tag_name already exists, skipping create"
+            exit 0
+          fi
+          TITLE="@ganglion/weacpx-channel-yuanbao v${{ steps.meta.outputs.version }}"
+          if [[ "${{ steps.meta.outputs.prerelease }}" == "true" ]]; then
+            gh release create "$tag_name" --title "$TITLE" --prerelease --generate-notes
+          else
+            gh release create "$tag_name" --title "$TITLE" --latest=false --generate-notes
+          fi
