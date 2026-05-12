@@ -577,6 +577,7 @@ test("cardBodyMaxChars also caps the element-content fast-path", async () => {
   await controller.complete();
   const fastPathContents = calls.elementContent.map((e) => e.content);
   for (const c of fastPathContents) {
-    expect(c.length).toBeLessThanOrEqual(60); // 50 + small marker headroom
+    // Strict cap: truncateForCardBody guarantees `result.length <= maxChars`.
+    expect(c.length).toBeLessThanOrEqual(50);
   }
 });
