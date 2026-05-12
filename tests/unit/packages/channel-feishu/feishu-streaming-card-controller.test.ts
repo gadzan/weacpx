@@ -500,3 +500,43 @@ test("sequence numbers are monotonically increasing", async () => {
     expect(sequences[i]).toBeGreaterThan(sequences[i - 1]);
   }
 });
+
+test("cardBodyMaxChars tuning override truncates oversized output", async () => {
+  const { client, calls } = createFakeClient();
+  const controller = new StreamingCardController({
+    client,
+    flushIntervalMs: 5,
+    cardBodyMaxChars: 100,
+  });
+  await controller.seed({ to: "oc_chat" });
+  const longText = "x".repeat(500);
+  await controller.complete(longText);
+
+  const last = calls.cardUpdate[calls.cardUpdate.length - 1];
+  const elements = (last.cardJson as { body?: { elements?: Array<Record<string, unknown>> } }).body?.elements ?? [];
+  const streaming = elements.find((el) => (el as { element_id?: string }).element_id === "streaming_content");
+  const content = (streaming as { content?: string } | undefined)?.content ?? "";
+  // Body was capped to ~100 chars (minus truncation marker).
+  expect(content.length).toBeLessThan(150);
+  expect(content).toContain("(truncated)");
+});
+
+test("failureThreshold override fires onCardDegraded after the configured count", async () => {
+  const degradeCalls: number[] = [];
+  const { client } = createFakeClient({ failUpdate: new Error("net") });
+  const controller = new StreamingCardController({
+    client,
+    flushIntervalMs: 5,
+    failureThreshold: 2,
+    onCardDegraded: ({ consecutiveFailures }) => degradeCalls.push(consecutiveFailures),
+  });
+  await controller.seed({ to: "oc_chat" });
+  controller.appendStream("a");
+  await new Promise((r) => setTimeout(r, 15));
+  controller.appendStream("b");
+  await new Promise((r) => setTimeout(r, 15));
+  await controller.complete("c");
+  // Threshold=2 should fire onCardDegraded once consecutive failures hit 2.
+  expect(degradeCalls.length).toBe(1);
+  expect(degradeCalls[0]).toBeGreaterThanOrEqual(2);
+});

@@ -8,9 +8,9 @@ export type CardState = "thinking" | "streaming" | "complete" | "aborted" | "err
 export const CARD_BODY_MAX_CHARS = 28000;
 const TRUNCATION_MARKER = "\n\n…(truncated)";
 
-export function truncateForCardBody(text: string): string {
-  if (text.length <= CARD_BODY_MAX_CHARS) return text;
-  const room = CARD_BODY_MAX_CHARS - TRUNCATION_MARKER.length;
+export function truncateForCardBody(text: string, maxChars: number = CARD_BODY_MAX_CHARS): string {
+  if (text.length <= maxChars) return text;
+  const room = maxChars - TRUNCATION_MARKER.length;
   return `${text.slice(0, Math.max(0, room))}${TRUNCATION_MARKER}`;
 }
 
@@ -19,10 +19,13 @@ export interface BuildCardInput {
   text: string;
   elapsedMs?: number;
   reasoningText?: string;
+  /** Per-call override of {@link CARD_BODY_MAX_CHARS}. */
+  maxBodyChars?: number;
 }
 
 export function buildCard(input: BuildCardInput): Record<string, unknown> {
-  const safeText = truncateForCardBody(input.text);
+  const maxChars = input.maxBodyChars ?? CARD_BODY_MAX_CHARS;
+  const safeText = truncateForCardBody(input.text, maxChars);
   const isLive = input.state === "thinking" || input.state === "streaming";
   const summary = summaryForState(input.state);
   const config: Record<string, unknown> = {
@@ -37,7 +40,7 @@ export function buildCard(input: BuildCardInput): Record<string, unknown> {
     elements.push({
       tag: "markdown",
       element_id: REASONING_ELEMENT_ID,
-      content: `**🧠 思考过程**\n\n${truncateForCardBody(reasoning)}`,
+      content: `**🧠 思考过程**\n\n${truncateForCardBody(reasoning, maxChars)}`,
       text_align: "left",
       text_size: "notation",
     });

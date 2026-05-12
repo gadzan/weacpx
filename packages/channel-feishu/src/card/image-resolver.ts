@@ -175,10 +175,11 @@ async function defaultFetchUrl(
 ): Promise<Buffer> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`fetch ${url} → ${res.status}`);
-  // Pre-flight size check: avoid allocating a 100 MiB body when the response
-  // advertises that it's that large. If the server doesn't send
-  // Content-Length, we fall through to the post-read check in doUpload.
   const maxBytes = options.maxBytes;
+  // Pre-flight check: if the server advertises an obviously oversized body,
+  // reject before reading any bytes. Servers can lie or omit the header,
+  // so this is just an early-out — the streaming read below is the actual
+  // safety net.
   if (maxBytes !== undefined) {
     const lenHeader = res.headers.get("content-length");
     if (lenHeader) {
@@ -188,8 +189,32 @@ async function defaultFetchUrl(
       }
     }
   }
-  const ab = await res.arrayBuffer();
-  return Buffer.from(ab);
+  if (maxBytes === undefined || res.body === null) {
+    // No cap or no streaming body available — fall back to whole-body read.
+    const ab = await res.arrayBuffer();
+    return Buffer.from(ab);
+  }
+  // Streamed read: accumulate up to maxBytes+1 then abort. Prevents a server
+  // that lies about (or omits) Content-Length from filling memory.
+  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw new Error(`image exceeds maxBytes (streamed > ${maxBytes})`);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock?.();
+  }
+  return Buffer.concat(chunks.map((c) => Buffer.from(c.buffer, c.byteOffset, c.byteLength)), total);
 }
 
 // Re-export the buffer extractor in case callers want to use it for tests.

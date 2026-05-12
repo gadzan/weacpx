@@ -43,6 +43,12 @@ interface ActiveTask {
   accountId: string;
   chatId: string;
   messageId: string;
+  // Open ID of the user who triggered this turn. Used to authorize abort —
+  // only the originator (or, in DMs, the only conversation participant) may
+  // stop a turn, preventing one user in a shared group from cancelling
+  // another's running task.
+  senderOpenId: string | undefined;
+  chatType: string | undefined;
   typingState: TypingIndicatorState;
   abortController: AbortController;
   suppressed: boolean;
@@ -247,7 +253,14 @@ export class FeishuChannel implements MessageChannelRuntime {
     });
     const requestText = appendSkippedAttachmentNotes(decision.text, skipped);
 
-    const { active, abortController } = this.registerActiveTask({ accountId, chatId, messageId, queueKey });
+    const { active, abortController } = this.registerActiveTask({
+      accountId,
+      chatId,
+      messageId,
+      queueKey,
+      senderOpenId: event.sender?.sender_id?.open_id,
+      chatType: event.message.chat_type,
+    });
 
     const run = enqueueFeishuChatTask({
       accountId,
@@ -275,6 +288,13 @@ export class FeishuChannel implements MessageChannelRuntime {
    * Returns true if the message was handled as an abort (caller should
    * stop processing), false if the message should continue down the
    * normal handling path.
+   *
+   * Authorization:
+   * - In a group with `requireMention`, the abort word must be addressed
+   *   to the bot. Without this, anyone in the group can drop "stop" and
+   *   cancel another user's turn.
+   * - The sender must own at least one live task in this chat/thread —
+   *   you can only stop your own work.
    */
   private async tryHandleAbortTrigger(input: {
     event: FeishuMessageEvent;
@@ -287,19 +307,49 @@ export class FeishuChannel implements MessageChannelRuntime {
     const { event, runtime, queueKey, accountId, chatId, messageId } = input;
     const rawText = extractRawTextFromFeishuEvent(event);
     if (!rawText || !isLikelyAbortText(rawText)) return false;
+
+    const isGroup = event.message.chat_type === "group";
+    if (isGroup && runtime.account.requireMention) {
+      const mentioned = event.message.mentions?.some(
+        (m) => runtime.botOpenId !== undefined && m.id.open_id === runtime.botOpenId,
+      );
+      if (!mentioned) return false;
+    }
+
+    const senderOpenId = event.sender?.sender_id?.open_id;
     const stack = this.activeTasks.get(queueKey);
     const liveTasks = stack?.filter((t) => !t.suppressed) ?? [];
-    if (liveTasks.length > 0) {
+    // Only the task's originator may stop it. In DMs there's only one
+    // participant; in groups this prevents cross-user cancellation. If
+    // senderOpenId is missing on either side, refuse rather than allow.
+    const owned = liveTasks.filter(
+      (t) => senderOpenId !== undefined && t.senderOpenId === senderOpenId,
+    );
+    if (owned.length > 0) {
       await this.handleAbortFastPath({
         runtime,
-        activeTasks: liveTasks,
+        activeTasks: owned,
         abortRequestMessageId: messageId,
         chatId,
         accountId,
       });
       return true;
     }
-    await this.logger!.info("feishu.abort.no_active", "abort trigger received but no active task", { accountId, chatId, messageId });
+    if (liveTasks.length > 0) {
+      // Stop arrived from a different user — log and fall through so the
+      // message is handled as a normal turn (agent decides what it means).
+      await this.logger!.info(
+        "feishu.abort.unauthorized",
+        "abort trigger from non-owner; falling through",
+        { accountId, chatId, messageId, senderOpenId, activeCount: liveTasks.length },
+      );
+      return false;
+    }
+    await this.logger!.info(
+      "feishu.abort.no_active",
+      "abort trigger received but no active task",
+      { accountId, chatId, messageId },
+    );
     return false;
   }
 
@@ -313,13 +363,17 @@ export class FeishuChannel implements MessageChannelRuntime {
     chatId: string;
     messageId: string;
     queueKey: string;
+    senderOpenId: string | undefined;
+    chatType: string | undefined;
   }): { active: ActiveTask; abortController: AbortController } {
-    const { accountId, chatId, messageId, queueKey } = input;
+    const { accountId, chatId, messageId, queueKey, senderOpenId, chatType } = input;
     const abortController = new AbortController();
     const active: ActiveTask = {
       accountId,
       chatId,
       messageId,
+      senderOpenId,
+      chatType,
       typingState: { messageId, reactionId: null },
       abortController,
       suppressed: false,
@@ -418,6 +472,7 @@ export class FeishuChannel implements MessageChannelRuntime {
         accountId,
         flushIntervalMs: this.config.tuning.cardFlushIntervalMs,
         failureThreshold: this.config.tuning.cardFailureThreshold,
+        cardBodyMaxChars: this.config.tuning.cardBodyMaxChars,
         imageResolveTimeoutMs: this.config.tuning.imageResolveTimeoutMs,
         imageMaxBytes: this.config.tuning.imageMaxBytes,
         imageCacheCap: this.config.tuning.imageCacheCap,
@@ -571,18 +626,28 @@ export class FeishuChannel implements MessageChannelRuntime {
       state: t.typingState,
       accountId,
     })));
-    if (target.cardController && !target.cardController.isTerminated()) {
+    // Drive every live card to the aborted state. If we only drove the most
+    // recent one, older queued cards that were already seeded would stay
+    // showing "Processing..." forever (suppressed → agent body short-circuits
+    // before reaching complete()).
+    const cardTasks = activeTasks.filter(
+      (t) => t.cardController && !t.cardController.isTerminated(),
+    );
+    let cardAcked = false;
+    for (const t of cardTasks) {
       try {
-        await target.cardController.abort(abortAck());
+        await t.cardController!.abort(abortAck());
+        cardAcked = true;
       } catch (error) {
         await this.logger!.error("feishu.abort.card_update_failed", "failed to render aborted card", {
           accountId,
           chatId,
+          activeMessageId: t.messageId,
           message: error instanceof Error ? error.message : String(error),
         });
       }
-      return;
     }
+    if (cardAcked) return;
     try {
       await this.sendReplyWithGuard({
         runtime,

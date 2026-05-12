@@ -59,3 +59,60 @@ test("CommandRouter.handle without abortSignal does not invoke transport.cancel"
 
   expect(getCancelMock(transport).mock.calls.length).toBe(0);
 });
+
+test("CommandRouter.handle with already-aborted signal short-circuits without calling transport.prompt", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const promptMock = mock(async () => ({ text: "should not reach" }));
+  transport.prompt = promptMock;
+
+  const router = new CommandRouter(sessions, transport);
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
+
+  const controller = new AbortController();
+  controller.abort();
+
+  let caught: unknown;
+  try {
+    await router.handle(
+      "wx:user",
+      "ignored",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      controller.signal,
+    );
+  } catch (error) {
+    caught = error;
+  }
+  expect(promptMock.mock.calls.length).toBe(0);
+  expect(getCancelMock(transport).mock.calls.length).toBe(0);
+  expect((caught as { name?: string } | undefined)?.name).toBe("AbortError");
+});
+
+test("CommandRouter.handle does NOT call transport.cancel when abort fires after prompt resolves", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  transport.prompt = mock(async () => ({ text: "fast done" }));
+
+  const router = new CommandRouter(sessions, transport);
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
+
+  const controller = new AbortController();
+  await router.handle(
+    "wx:user",
+    "fast prompt",
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    controller.signal,
+  );
+  // prompt already resolved; firing abort now must not trigger cancel.
+  controller.abort();
+  await new Promise((r) => setTimeout(r, 10));
+  expect(getCancelMock(transport).mock.calls.length).toBe(0);
+});

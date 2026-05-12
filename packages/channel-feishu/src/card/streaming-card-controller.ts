@@ -84,6 +84,8 @@ export interface StreamingCardControllerOptions {
   onCardDegraded?: (input: { buffer: string; consecutiveFailures: number }) => void;
   /** Default 3. */
   failureThreshold?: number;
+  /** Max chars for the card body before truncation; default 28000. */
+  cardBodyMaxChars?: number;
 }
 
 const DEFAULT_FLUSH_INTERVAL_MS = 800;
@@ -101,6 +103,7 @@ export class StreamingCardController {
   private readonly imageResolver: ImageResolver | null;
   private readonly imageResolveTimeoutMs: number;
   private readonly accountId: string | undefined;
+  private readonly cardBodyMaxChars: number | undefined;
   private cardId: string | null = null;
   private messageId: string | null = null;
   private buffer = "";
@@ -128,6 +131,7 @@ export class StreamingCardController {
     this.now = options.now ?? (() => Date.now());
     this.imageResolveTimeoutMs = options.imageResolveTimeoutMs ?? DEFAULT_IMAGE_RESOLVE_TIMEOUT_MS;
     this.accountId = options.accountId;
+    this.cardBodyMaxChars = options.cardBodyMaxChars;
     this.imageResolver = options.resolveImages === false
       ? null
       : new ImageResolver({
@@ -152,7 +156,11 @@ export class StreamingCardController {
 
   async seed(input: StreamingCardSeedInput): Promise<StreamingCardSeedResult> {
     this.seededAtMs = this.now();
-    const initial = buildCard({ state: "thinking", text: "" });
+    const initial = buildCard({
+      state: "thinking",
+      text: "",
+      ...(this.cardBodyMaxChars !== undefined ? { maxBodyChars: this.cardBodyMaxChars } : {}),
+    });
     const createResp = await this.client.cardkit.v1.card.create({
       data: { type: "card_json", data: JSON.stringify(initial) },
     });
@@ -307,6 +315,7 @@ export class StreamingCardController {
       text: rendered,
       ...(showElapsed && elapsedMs !== undefined ? { elapsedMs } : {}),
       ...(reasoningRendered ? { reasoningText: reasoningRendered } : {}),
+      ...(this.cardBodyMaxChars !== undefined ? { maxBodyChars: this.cardBodyMaxChars } : {}),
     });
     const seq = this.sequence++;
     try {

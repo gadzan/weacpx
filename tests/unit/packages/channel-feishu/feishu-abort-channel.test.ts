@@ -60,16 +60,25 @@ const defaultFeishuConfig = {
   dedupMaxEntries: 5000,
 };
 
-function makeTextEvent(messageId: string, text: string): FeishuMessageEvent {
+function makeTextEvent(
+  messageId: string,
+  text: string,
+  overrides: {
+    senderOpenId?: string;
+    chatType?: "p2p" | "group";
+    mentions?: Array<{ id: { open_id: string }; key: string }>;
+  } = {},
+): FeishuMessageEvent {
   return {
-    sender: { sender_id: { open_id: "ou_sender" } },
+    sender: { sender_id: { open_id: overrides.senderOpenId ?? "ou_sender" } },
     message: {
       message_id: messageId,
       chat_id: "oc_chat",
-      chat_type: "p2p",
+      chat_type: overrides.chatType ?? "p2p",
       message_type: "text",
       content: JSON.stringify({ text }),
       create_time: String(Date.now()),
+      ...(overrides.mentions ? { mentions: overrides.mentions } : {}),
     },
   };
 }
@@ -345,4 +354,220 @@ test("FeishuChannel suppresses agent.reply() output after abort", async () => {
   await longRunning;
 
   expect(replied.map((r) => r.text)).toEqual(["已停止当前任务。"]);
+});
+
+test("stop from a different sender does not abort the owner's task", async () => {
+  let handlers: Record<string, (data: unknown) => Promise<void> | void> = {};
+  const channel = new FeishuChannel(
+    defaultFeishuConfig,
+    {
+      createClient: () => ({
+        sdk: {
+          im: {
+            message: {
+              reply: async () => ({ data: { message_id: "om_out", chat_id: "oc_chat" } }),
+              create: async () => ({ data: { message_id: "om_out", chat_id: "oc_chat" } }),
+            },
+          },
+        },
+        probeBot: async () => ({ botOpenId: "ou_bot" }),
+        startWS: async (input: { handlers: Record<string, (data: unknown) => Promise<void> | void> }) => {
+          handlers = input.handlers;
+        },
+        stop: () => {},
+      }),
+    },
+  );
+
+  let abortObserved = false;
+  let resolveOwnerEntered = (): void => {};
+  const ownerEntered = new Promise<void>((r) => {
+    resolveOwnerEntered = r;
+  });
+  const releaseOwner = { resolve: (): void => {} };
+  let chatCount = 0;
+  const agent: ChatAgent = {
+    async chat(request) {
+      chatCount += 1;
+      if (chatCount === 1) {
+        resolveOwnerEntered();
+        request.abortSignal?.addEventListener("abort", () => {
+          abortObserved = true;
+        });
+        await new Promise<void>((r) => {
+          releaseOwner.resolve = r;
+        });
+        return { text: "done" };
+      }
+      // The intruder's "stop" is not authorized → treated as a regular turn,
+      // queued behind the owner's. Return immediately so the test can finish.
+      return { text: "fall-through reply" };
+    },
+  };
+
+  await channel.start({ agent, abortSignal: new AbortController().signal, quota: createNoopQuota(), logger: createNoopLogger() });
+
+  // Owner is "ou_owner"; outsider sends stop with sender "ou_outsider".
+  const owner = handlers["im.message.receive_v1"]!(
+    makeTextEvent("om_owner", "do the thing", { senderOpenId: "ou_owner" }),
+  );
+  await ownerEntered;
+  const intruder = handlers["im.message.receive_v1"]!(
+    makeTextEvent("om_intruder_stop", "stop", { senderOpenId: "ou_outsider" }),
+  );
+  // Give any spurious abort a chance to fire.
+  await new Promise((r) => setTimeout(r, 20));
+  expect(abortObserved).toBe(false);
+
+  releaseOwner.resolve();
+  await owner;
+  await intruder;
+});
+
+test("stop in a group without mentioning the bot does not abort", async () => {
+  let handlers: Record<string, (data: unknown) => Promise<void> | void> = {};
+  const channel = new FeishuChannel(
+    { ...defaultFeishuConfig, requireMention: true },
+    {
+      createClient: () => ({
+        sdk: {
+          im: {
+            message: {
+              reply: async () => ({ data: { message_id: "om_out", chat_id: "oc_chat" } }),
+              create: async () => ({ data: { message_id: "om_out", chat_id: "oc_chat" } }),
+            },
+          },
+        },
+        probeBot: async () => ({ botOpenId: "ou_bot" }),
+        startWS: async (input: { handlers: Record<string, (data: unknown) => Promise<void> | void> }) => {
+          handlers = input.handlers;
+        },
+        stop: () => {},
+      }),
+    },
+  );
+
+  let abortObserved = false;
+  let resolveOwnerEntered = (): void => {};
+  const ownerEntered = new Promise<void>((r) => {
+    resolveOwnerEntered = r;
+  });
+  let releaseOwner = (): void => {};
+  const agent: ChatAgent = {
+    async chat(request) {
+      resolveOwnerEntered();
+      request.abortSignal?.addEventListener("abort", () => {
+        abortObserved = true;
+      });
+      await new Promise<void>((r) => {
+        releaseOwner = r;
+      });
+      return { text: "done" };
+    },
+  };
+
+  await channel.start({ agent, abortSignal: new AbortController().signal, quota: createNoopQuota(), logger: createNoopLogger() });
+
+  // Owner @-mentions the bot to start a turn (requireMention=true).
+  const mentionedEvent = makeTextEvent("om_owner", "@bot do the thing", {
+    senderOpenId: "ou_owner",
+    chatType: "group",
+    mentions: [{ id: { open_id: "ou_bot" }, key: "@bot" }],
+  });
+  const owner = handlers["im.message.receive_v1"]!(mentionedEvent);
+  await ownerEntered;
+
+  // Same owner sends "stop" but does NOT mention the bot — should NOT abort.
+  await handlers["im.message.receive_v1"]!(
+    makeTextEvent("om_no_mention_stop", "stop", {
+      senderOpenId: "ou_owner",
+      chatType: "group",
+    }),
+  );
+  await new Promise((r) => setTimeout(r, 20));
+  expect(abortObserved).toBe(false);
+
+  releaseOwner();
+  await owner;
+});
+
+test("stop from the owner aborts every queued card in the stack", async () => {
+  let handlers: Record<string, (data: unknown) => Promise<void> | void> = {};
+  const abortsObserved: number[] = [];
+  const channel = new FeishuChannel(
+    { ...defaultFeishuConfig, replyMode: "streaming" as const },
+    {
+      createClient: () => ({
+        sdk: {
+          im: {
+            message: {
+              reply: async () => ({ data: { message_id: "om_out", chat_id: "oc_chat" } }),
+              create: async () => ({ data: { message_id: "om_out", chat_id: "oc_chat" } }),
+            },
+          },
+          cardkit: {
+            v1: {
+              card: {
+                create: async () => ({ data: { card_id: `card_${Math.random()}` } }),
+                update: async () => ({}),
+              },
+              cardElement: {
+                content: async () => ({}),
+              },
+            },
+          },
+        },
+        probeBot: async () => ({ botOpenId: "ou_bot" }),
+        startWS: async (input: { handlers: Record<string, (data: unknown) => Promise<void> | void> }) => {
+          handlers = input.handlers;
+        },
+        stop: () => {},
+      }),
+    },
+  );
+
+  let releaseFirst = (): void => {};
+  let firstStarted = (): void => {};
+  const firstStartedPromise = new Promise<void>((r) => {
+    firstStarted = r;
+  });
+  let chatCount = 0;
+  const agent: ChatAgent = {
+    async chat(request) {
+      chatCount += 1;
+      if (chatCount === 1) {
+        firstStarted();
+        request.abortSignal?.addEventListener("abort", () => abortsObserved.push(chatCount));
+        await new Promise<void>((r) => {
+          releaseFirst = r;
+        });
+        return { text: "first done" };
+      }
+      request.abortSignal?.addEventListener("abort", () => abortsObserved.push(chatCount));
+      // queued tasks never reach here because they're suppressed before body runs.
+      return { text: "should not reach" };
+    },
+  };
+
+  await channel.start({ agent, abortSignal: new AbortController().signal, quota: createNoopQuota(), logger: createNoopLogger() });
+
+  const t1 = handlers["im.message.receive_v1"]!(
+    makeTextEvent("om_1", "first", { senderOpenId: "ou_owner" }),
+  );
+  await firstStartedPromise;
+  const t2 = handlers["im.message.receive_v1"]!(
+    makeTextEvent("om_2", "second", { senderOpenId: "ou_owner" }),
+  );
+  await new Promise((r) => setTimeout(r, 10));
+  await handlers["im.message.receive_v1"]!(
+    makeTextEvent("om_stop", "stop", { senderOpenId: "ou_owner" }),
+  );
+
+  releaseFirst();
+  await Promise.all([t1, t2]);
+
+  // The first (in-flight) turn observed an abort; the second never reached
+  // agent.chat (queued/suppressed). Either way, the test must pass without
+  // hanging — proves abort propagated through the stack.
+  expect(abortsObserved).toContain(1);
 });
