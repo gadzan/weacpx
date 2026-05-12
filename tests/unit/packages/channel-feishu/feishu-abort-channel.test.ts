@@ -571,3 +571,85 @@ test("stop from the owner aborts every queued card in the stack", async () => {
   // hanging — proves abort propagated through the stack.
   expect(abortsObserved).toContain(1);
 });
+
+test("abort during card seed terminates the freshly-seeded card and skips agent.chat", async () => {
+  let handlers: Record<string, (data: unknown) => Promise<void> | void> = {};
+  const cardUpdates: Array<{ summaryZh: string | undefined }> = [];
+  let releaseSeed = (): void => {};
+  let seedStarted = (): void => {};
+  const seedStartedPromise = new Promise<void>((r) => {
+    seedStarted = r;
+  });
+  let chatCount = 0;
+
+  const channel = new FeishuChannel(
+    { ...defaultFeishuConfig, replyMode: "streaming" as const },
+    {
+      createClient: () => ({
+        sdk: {
+          im: {
+            message: {
+              reply: async () => ({ data: { message_id: "om_out", chat_id: "oc_chat" } }),
+              create: async () => ({ data: { message_id: "om_out", chat_id: "oc_chat" } }),
+            },
+          },
+          cardkit: {
+            v1: {
+              card: {
+                // Delay card.create so abort can land mid-seed.
+                create: async () => {
+                  seedStarted();
+                  await new Promise<void>((r) => {
+                    releaseSeed = r;
+                  });
+                  return { data: { card_id: "card_seeded" } };
+                },
+                update: async (input: { data: { card: { data: string } } }) => {
+                  const json = JSON.parse(input.data.card.data) as {
+                    config?: { summary?: { i18n_content?: { zh_cn?: string } } };
+                  };
+                  cardUpdates.push({ summaryZh: json.config?.summary?.i18n_content?.zh_cn });
+                  return {};
+                },
+              },
+              cardElement: { content: async () => ({}) },
+            },
+          },
+        },
+        probeBot: async () => ({ botOpenId: "ou_bot" }),
+        startWS: async (input: { handlers: Record<string, (data: unknown) => Promise<void> | void> }) => {
+          handlers = input.handlers;
+        },
+        stop: () => {},
+      }),
+    },
+  );
+
+  const agent: ChatAgent = {
+    async chat() {
+      chatCount += 1;
+      return { text: "should not run" };
+    },
+  };
+
+  await channel.start({ agent, abortSignal: new AbortController().signal, quota: createNoopQuota(), logger: createNoopLogger() });
+
+  // Owner sends a turn that will be in the middle of card.create when stop arrives.
+  const owner = handlers["im.message.receive_v1"]!(
+    makeTextEvent("om_owner", "do the thing", { senderOpenId: "ou_owner" }),
+  );
+  await seedStartedPromise;
+  // Stop from the same owner — abort fast-path fires while cardController is
+  // still null (seed not complete). The race fix should: (a) suppress, then
+  // (b) once seed resolves, drive the just-created card to aborted, (c)
+  // skip agent.chat entirely.
+  await handlers["im.message.receive_v1"]!(
+    makeTextEvent("om_stop", "stop", { senderOpenId: "ou_owner" }),
+  );
+  releaseSeed();
+  await owner;
+
+  expect(chatCount).toBe(0);
+  // At least one update should mark the card as aborted ("已停止").
+  expect(cardUpdates.some((u) => u.summaryZh === "已停止")).toBe(true);
+});

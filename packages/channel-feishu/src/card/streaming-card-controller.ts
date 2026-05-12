@@ -1,7 +1,14 @@
 import { isMessageUnavailable, markIfUnavailableError } from "../message-unavailable.js";
 import { resolveFeishuReceiveIdType, normalizeFeishuTarget } from "../send.js";
 import { formatErrorFootnote } from "../strings.js";
-import { STREAMING_ELEMENT_ID, buildCard, buildCardMessageContent, type CardState } from "./card-builder.js";
+import {
+  CARD_BODY_MAX_CHARS,
+  STREAMING_ELEMENT_ID,
+  buildCard,
+  buildCardMessageContent,
+  truncateForCardBody,
+  type CardState,
+} from "./card-builder.js";
 import { FlushController } from "./flush-controller.js";
 import { ImageResolver, type ImageUploadClient } from "./image-resolver.js";
 import { optimizeMarkdownStyle } from "./markdown-style.js";
@@ -276,7 +283,14 @@ export class StreamingCardController {
     const resolvedBuffer = this.imageResolver ? this.imageResolver.resolveImages(this.buffer) : this.buffer;
     const split = splitReasoningText(resolvedBuffer);
     const answerSource = split.answerText ?? (split.reasoningText ? "" : resolvedBuffer);
-    const rendered = this.state === "thinking" ? answerSource : optimizeMarkdownStyle(answerSource);
+    const renderedRaw = this.state === "thinking" ? answerSource : optimizeMarkdownStyle(answerSource);
+    // Cap before either delivery path: buildCard re-caps to be safe, but the
+    // element-content fast-path bypasses buildCard so it has to be capped
+    // here too — otherwise long output sneaks past the body limit and
+    // triggers CardKit "content too large" errors that count as flush
+    // failures and eventually degrade the card.
+    const cardBodyMax = this.cardBodyMaxChars ?? CARD_BODY_MAX_CHARS;
+    const rendered = truncateForCardBody(renderedRaw, cardBodyMax);
     // Reasoning text also goes through the optimizer so stray image URLs etc.
     // don't trigger CardKit error 200570 from the reasoning element.
     const reasoningRendered = split.reasoningText

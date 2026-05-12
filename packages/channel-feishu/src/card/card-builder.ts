@@ -10,8 +10,12 @@ const TRUNCATION_MARKER = "\n\n…(truncated)";
 
 export function truncateForCardBody(text: string, maxChars: number = CARD_BODY_MAX_CHARS): string {
   if (text.length <= maxChars) return text;
+  // When maxChars is too small to fit the marker, drop the marker entirely
+  // — the contract is "result <= maxChars". Callers that want the marker
+  // are expected to pass a value > TRUNCATION_MARKER.length.
+  if (maxChars <= TRUNCATION_MARKER.length) return text.slice(0, Math.max(0, maxChars));
   const room = maxChars - TRUNCATION_MARKER.length;
-  return `${text.slice(0, Math.max(0, room))}${TRUNCATION_MARKER}`;
+  return `${text.slice(0, room)}${TRUNCATION_MARKER}`;
 }
 
 export interface BuildCardInput {

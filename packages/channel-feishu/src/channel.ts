@@ -415,6 +415,25 @@ export class FeishuChannel implements MessageChannelRuntime {
       if (effectiveReplyMode === "streaming") {
         await this.trySeedStreamingCard({ runtime, accountId, chatId, messageId, active });
       }
+      // Abort can race the card seed: handleAbortFastPath may have flipped
+      // suppressed while we were awaiting card.create / message.reply. In
+      // that case the fast-path delivered a plain-text ack but had no card
+      // to drive — so we must terminate the freshly-seeded card here, and
+      // skip agent.chat entirely (its signal is already aborted).
+      if (active.suppressed) {
+        if (active.cardController && !active.cardController.isTerminated()) {
+          try {
+            await active.cardController.abort(abortAck());
+          } catch (error) {
+            await this.logger!.error("feishu.abort.card_update_failed", "failed to render aborted card after seed-race", {
+              accountId,
+              chatId,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+        return;
+      }
 
       const safeReply = async (text: string): Promise<void> => {
         if (active.suppressed) return;

@@ -540,3 +540,43 @@ test("failureThreshold override fires onCardDegraded after the configured count"
   expect(degradeCalls.length).toBe(1);
   expect(degradeCalls[0]).toBeGreaterThanOrEqual(2);
 });
+
+test("truncateForCardBody drops marker when maxChars is smaller than the marker", async () => {
+  // Re-using the controller path: with maxChars=3, even an empty buffer +
+  // marker would be longer. Output must be <= 3.
+  const { client, calls } = createFakeClient();
+  const controller = new StreamingCardController({
+    client,
+    flushIntervalMs: 5,
+    cardBodyMaxChars: 3,
+  });
+  await controller.seed({ to: "oc_chat" });
+  await controller.complete("abcdefghij");
+  const last = calls.cardUpdate[calls.cardUpdate.length - 1];
+  const elements = (last.cardJson as { body?: { elements?: Array<Record<string, unknown>> } }).body?.elements ?? [];
+  const streaming = elements.find((el) => (el as { element_id?: string }).element_id === "streaming_content");
+  const content = (streaming as { content?: string } | undefined)?.content ?? "";
+  expect(content.length).toBeLessThanOrEqual(3);
+});
+
+test("cardBodyMaxChars also caps the element-content fast-path", async () => {
+  const { client, calls } = createFakeClient();
+  const controller = new StreamingCardController({
+    client,
+    flushIntervalMs: 5,
+    cardBodyMaxChars: 50,
+  });
+  await controller.seed({ to: "oc_chat" });
+  // First chunk goes through the full card.update path (thinking → streaming).
+  controller.appendStream("a".repeat(20));
+  await new Promise((r) => setTimeout(r, 15));
+  // Second chunk should go through element-content fast-path; with a total
+  // buffer now well over 50 chars, the fast-path payload must be capped too.
+  controller.appendStream("b".repeat(200));
+  await new Promise((r) => setTimeout(r, 15));
+  await controller.complete();
+  const fastPathContents = calls.elementContent.map((e) => e.content);
+  for (const c of fastPathContents) {
+    expect(c.length).toBeLessThanOrEqual(60); // 50 + small marker headroom
+  }
+});
