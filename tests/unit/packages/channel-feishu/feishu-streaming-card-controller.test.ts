@@ -256,6 +256,50 @@ test("card.update errors are swallowed", async () => {
   await expect(controller.complete("final")).resolves.toBeUndefined();
 });
 
+test("repeated card.update failures fire onCardDegraded with the buffered text", async () => {
+  const degradeCalls: Array<{ buffer: string; consecutiveFailures: number }> = [];
+  const { client } = createFakeClient({ failUpdate: new Error("network") });
+  const controller = new StreamingCardController({
+    client,
+    flushIntervalMs: 5,
+    failureThreshold: 3,
+    onCardDegraded: (input) => degradeCalls.push(input),
+  });
+  await controller.seed({ to: "oc_chat" });
+  for (let i = 0; i < 5; i++) {
+    controller.appendStream(`chunk${i}`);
+    await new Promise((r) => setTimeout(r, 15));
+  }
+  await controller.complete("final answer text");
+  expect(controller.isDegraded()).toBe(true);
+  expect(degradeCalls.length).toBe(1);
+  expect(degradeCalls[0].consecutiveFailures).toBeGreaterThanOrEqual(3);
+  expect(degradeCalls[0].buffer.length).toBeGreaterThan(0);
+});
+
+test("recalled (230011) update errors do not count as failures", async () => {
+  const degradeCalls: number[] = [];
+  const recalledError = { code: 230011, msg: "recalled" };
+  const { client } = createFakeClient({ failUpdate: recalledError });
+  const controller = new StreamingCardController({
+    client,
+    flushIntervalMs: 5,
+    failureThreshold: 2,
+    onCardDegraded: () => degradeCalls.push(1),
+  });
+  await controller.seed({ to: "oc_chat" });
+  controller.appendStream("a");
+  await new Promise((r) => setTimeout(r, 15));
+  controller.appendStream("b");
+  await new Promise((r) => setTimeout(r, 15));
+  controller.appendStream("c");
+  await controller.complete("done");
+  // Once marked unavailable, pushUpdate short-circuits and doesn't even try
+  // the update — so neither path counts. Degraded callback must not fire.
+  expect(degradeCalls).toEqual([]);
+  expect(controller.isDegraded()).toBe(false);
+});
+
 test("subsequent streaming pushes use cardElement.content (not full card.update)", async () => {
   const { client, calls } = createFakeClient();
   const controller = new StreamingCardController({ client, flushIntervalMs: 10 });

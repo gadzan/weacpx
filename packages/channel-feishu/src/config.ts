@@ -1,3 +1,5 @@
+import { DEFAULT_FEISHU_TUNING, type FeishuTuning, resolveFeishuTuning } from "./tuning.js";
+
 export type FeishuDmPolicy = "open" | "allowlist" | "disabled";
 export type FeishuGroupPolicy = "open" | "allowlist" | "disabled";
 export type FeishuReplyMode = "static" | "streaming" | "auto";
@@ -36,6 +38,7 @@ export interface FeishuChannelConfig extends FeishuAccountConfig {
   dedupTtlMs: number;
   dedupMaxEntries: number;
   accounts: FeishuResolvedAccountConfig[];
+  tuning: FeishuTuning;
 }
 
 const DEFAULT_FEISHU_DOMAIN = "feishu";
@@ -50,7 +53,23 @@ const BASE_RESERVED_KEYS = new Set([
   "textMessageFormat",
   "dedupTtlMs",
   "dedupMaxEntries",
+  "tuning",
 ]);
+
+function parseTuning(raw: unknown): FeishuTuning {
+  if (raw === undefined) return resolveFeishuTuning(undefined);
+  if (!isRecord(raw)) throw new Error("channel.options.tuning must be an object");
+  const partial: Partial<FeishuTuning> = {};
+  for (const key of Object.keys(DEFAULT_FEISHU_TUNING) as Array<keyof FeishuTuning>) {
+    if (!(key in raw)) continue;
+    partial[key] = parsePositiveOptionalNumber(
+      raw[key],
+      `channel.options.tuning.${key}`,
+      DEFAULT_FEISHU_TUNING[key],
+    );
+  }
+  return resolveFeishuTuning(partial);
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -188,5 +207,6 @@ export function parseFeishuChannelConfig(raw: unknown): FeishuChannelConfig {
     dedupTtlMs: parsePositiveOptionalNumber(raw.dedupTtlMs, "channel.options.dedupTtlMs", DEFAULT_FEISHU_DEDUP_TTL_MS),
     dedupMaxEntries: parsePositiveOptionalNumber(raw.dedupMaxEntries, "channel.options.dedupMaxEntries", DEFAULT_FEISHU_DEDUP_MAX_ENTRIES),
     accounts,
+    tuning: parseTuning(raw.tuning),
   };
 }

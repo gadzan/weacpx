@@ -127,3 +127,62 @@ test("FlushController swallows work rejections without breaking the chain", asyn
   await controller.waitIdle();
   expect(calls).toEqual(["boom", "after-boom"]);
 });
+
+test("FlushController fires onFailureThreshold once after N consecutive failures", async () => {
+  let firedWith: number | null = null;
+  const controller = new FlushController({
+    minIntervalMs: 5,
+    failureThreshold: 3,
+    onFailureThreshold: (n) => {
+      firedWith = n;
+    },
+  });
+  for (let i = 0; i < 5; i++) {
+    controller.requestFlush(async () => {
+      throw new Error(`fail ${i}`);
+    });
+    await sleep(15);
+  }
+  await controller.waitIdle();
+  // Wait one extra microtask cycle for the deferred onFailureThreshold call.
+  await sleep(5);
+  expect(firedWith).toBe(3);
+  expect(controller.getConsecutiveFailures()).toBeGreaterThanOrEqual(3);
+});
+
+test("FlushController resets failure counter on a successful flush", async () => {
+  const fired: number[] = [];
+  const controller = new FlushController({
+    minIntervalMs: 5,
+    failureThreshold: 2,
+    onFailureThreshold: (n) => {
+      fired.push(n);
+    },
+  });
+  controller.requestFlush(async () => {
+    throw new Error("a");
+  });
+  await sleep(15);
+  controller.requestFlush(async () => {
+    /* success */
+  });
+  await sleep(15);
+  controller.requestFlush(async () => {
+    throw new Error("b");
+  });
+  await sleep(15);
+  await controller.waitIdle();
+  await sleep(5);
+  // Two failures interspersed with a success — never hit 2 in a row.
+  expect(fired).toEqual([]);
+  expect(controller.getConsecutiveFailures()).toBe(1);
+});
+
+test("FlushController surfaces caller-visible promises as resolved even on failure", async () => {
+  const controller = new FlushController({ minIntervalMs: 5 });
+  await expect(
+    controller.forceFlush(async () => {
+      throw new Error("nope");
+    }),
+  ).resolves.toBeUndefined();
+});

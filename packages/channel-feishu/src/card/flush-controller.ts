@@ -3,9 +3,20 @@ export interface FlushControllerOptions {
   now?: () => number;
   setTimer?: (cb: () => void, delayMs: number) => unknown;
   clearTimer?: (handle: unknown) => void;
+  /**
+   * Called when {@link consecutiveFailures} reaches `failureThreshold`. The
+   * controller continues to accept flushes (so a recovery still works), but
+   * the owner can use this signal to fall back to a non-card delivery path.
+   * Fires once per crossing of the threshold; resets after any successful
+   * flush.
+   */
+  onFailureThreshold?: (consecutiveFailures: number) => void;
+  /** Default 3. */
+  failureThreshold?: number;
 }
 
 const DEFAULT_MIN_INTERVAL_MS = 500;
+const DEFAULT_FAILURE_THRESHOLD = 3;
 
 /**
  * Throttled flush primitive.
@@ -27,12 +38,23 @@ export class FlushController {
   private timer: unknown = null;
   private lastFlushAtMs = 0;
   private timerWaiters: Array<() => void> = [];
+  private consecutiveFailures = 0;
+  private failureCallbackFired = false;
+  private readonly onFailureThreshold: ((n: number) => void) | undefined;
+  private readonly failureThreshold: number;
 
   constructor(options: Partial<FlushControllerOptions> = {}) {
     this.minIntervalMs = options.minIntervalMs ?? DEFAULT_MIN_INTERVAL_MS;
     this.now = options.now ?? (() => Date.now());
     this.setTimer = options.setTimer ?? ((cb, delay) => setTimeout(cb, delay));
     this.clearTimer = options.clearTimer ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
+    this.onFailureThreshold = options.onFailureThreshold;
+    this.failureThreshold = options.failureThreshold ?? DEFAULT_FAILURE_THRESHOLD;
+  }
+
+  /** Snapshot of the current consecutive-failure counter (for diagnostics). */
+  getConsecutiveFailures(): number {
+    return this.consecutiveFailures;
   }
 
   requestFlush(work: () => Promise<void>): void {
@@ -95,9 +117,29 @@ export class FlushController {
     // rapid synchronous requestFlush() calls all see the same stale timestamp
     // and bypass the throttle.
     this.lastFlushAtMs = this.now();
-    const next = this.chain.then(() => work());
-    // Don't let a rejection break the chain for future flushes.
-    this.chain = next.catch(() => {});
-    return next;
+    // Run work and observe its outcome to update the failure counter, but
+    // always resolve to caller so a card-update failure does not bubble into
+    // the agent turn. FlushController is responsible for the streak;
+    // owners react via {@link onFailureThreshold}.
+    const observed = this.chain.then(() => work()).then(
+      () => {
+        this.consecutiveFailures = 0;
+        this.failureCallbackFired = false;
+      },
+      () => {
+        this.consecutiveFailures += 1;
+        if (
+          !this.failureCallbackFired &&
+          this.consecutiveFailures >= this.failureThreshold &&
+          this.onFailureThreshold
+        ) {
+          this.failureCallbackFired = true;
+          // Fire on a microtask so we don't reenter the chain synchronously.
+          Promise.resolve().then(() => this.onFailureThreshold?.(this.consecutiveFailures));
+        }
+      },
+    );
+    this.chain = observed;
+    return observed;
   }
 }

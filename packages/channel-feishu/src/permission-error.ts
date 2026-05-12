@@ -1,9 +1,7 @@
-import { extractFeishuApiCode } from "./message-unavailable.js";
+import { FeishuErrorCode, extractFeishuApiCode, extractFeishuMessage } from "./errors.js";
 import { permissionPromptToGrant, permissionScopeMissing } from "./strings.js";
 
-// Feishu's "missing app scope" error code.
-// Source: https://open.feishu.cn/document/server-docs/getting-started/api-error-code
-const APP_SCOPE_MISSING_CODE = 99991672;
+const APP_SCOPE_MISSING_CODE = FeishuErrorCode.AppScopeMissing;
 
 export interface PermissionError {
   code: number;
@@ -74,16 +72,6 @@ export function extractPermissionError(error: unknown): PermissionError | null {
   const grantUrl = extractPermissionGrantUrl(message);
   if (!grantUrl) return null;
   return { code, message, grantUrl };
-}
-
-function extractFeishuMessage(error: unknown): string {
-  if (!error || typeof error !== "object") return "";
-  const rec = error as { msg?: unknown; message?: unknown; response?: { data?: { msg?: unknown } } };
-  if (typeof rec.msg === "string") return rec.msg;
-  const nested = rec.response?.data?.msg;
-  if (typeof nested === "string") return nested;
-  if (typeof rec.message === "string") return rec.message;
-  return "";
 }
 
 export const PERMISSION_NOTIFY_COOLDOWN_MS = 5 * 60 * 1000;

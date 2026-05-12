@@ -11,9 +11,12 @@ export interface StreamingCardClient {
   cardkit: {
     v1: {
       card: {
+        // The SDK (pinned to ~1.60) wraps responses in `{ data: ... }`. If a
+        // future minor changes this, breakage surfaces as a type error rather
+        // than a silent runtime `undefined` from a tolerant `??` fallback.
         create(input: {
           data: { type: "card_json"; data: string };
-        }): Promise<{ data?: { card_id?: string }; card_id?: string }>;
+        }): Promise<{ data?: { card_id?: string } }>;
         update(input: {
           path: { card_id: string };
           data: { card: { type: "card_json"; data: string }; sequence: number };
@@ -63,9 +66,24 @@ export interface StreamingCardControllerOptions {
   /** Max ms to wait for in-flight image uploads at terminal states. */
   imageResolveTimeoutMs?: number;
   /** Override HTTP fetch (used by the image resolver). Defaults to global fetch. */
-  fetchUrl?: (url: string) => Promise<Buffer>;
+  fetchUrl?: (url: string, options?: { maxBytes?: number }) => Promise<Buffer>;
+  /** Max bytes per uploaded image (forwarded to {@link ImageResolver}). */
+  imageMaxBytes?: number;
+  /** LRU cap for the image resolver's resolved/failed cache. */
+  imageCacheCap?: number;
   /** Account scope for the message-unavailable cache. */
   accountId?: string;
+  /**
+   * Called once when card updates have failed N consecutive times (default 3).
+   * Receives the latest text buffer so the channel can deliver the answer via
+   * a non-card path (plain reply) without losing the user's response.
+   * After firing, the controller still attempts further updates so a
+   * recovering Feishu can resume the card — but the channel should treat the
+   * answer as delivered out-of-band.
+   */
+  onCardDegraded?: (input: { buffer: string; consecutiveFailures: number }) => void;
+  /** Default 3. */
+  failureThreshold?: number;
 }
 
 const DEFAULT_FLUSH_INTERVAL_MS = 800;
@@ -92,10 +110,21 @@ export class StreamingCardController {
   private lastPushedHadReasoning = false;
   private terminated = false;
   private seededAtMs = 0;
+  private degraded = false;
+  private readonly onCardDegraded: StreamingCardControllerOptions["onCardDegraded"];
 
   constructor(options: StreamingCardControllerOptions) {
     this.client = options.client;
-    this.flush = new FlushController({ minIntervalMs: options.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS });
+    this.onCardDegraded = options.onCardDegraded;
+    this.flush = new FlushController({
+      minIntervalMs: options.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS,
+      ...(options.failureThreshold !== undefined ? { failureThreshold: options.failureThreshold } : {}),
+      onFailureThreshold: (n) => {
+        if (this.degraded) return;
+        this.degraded = true;
+        this.onCardDegraded?.({ buffer: this.buffer, consecutiveFailures: n });
+      },
+    });
     this.now = options.now ?? (() => Date.now());
     this.imageResolveTimeoutMs = options.imageResolveTimeoutMs ?? DEFAULT_IMAGE_RESOLVE_TIMEOUT_MS;
     this.accountId = options.accountId;
@@ -108,11 +137,17 @@ export class StreamingCardController {
             this.flush.requestFlush(() => this.pushUpdate());
           },
           ...(options.fetchUrl ? { fetchUrl: options.fetchUrl } : {}),
+          ...(options.imageMaxBytes !== undefined ? { maxBytes: options.imageMaxBytes } : {}),
+          ...(options.imageCacheCap !== undefined ? { cacheCap: options.imageCacheCap } : {}),
         });
   }
 
   isTerminated(): boolean {
     return this.terminated;
+  }
+
+  isDegraded(): boolean {
+    return this.degraded;
   }
 
   async seed(input: StreamingCardSeedInput): Promise<StreamingCardSeedResult> {
@@ -121,7 +156,7 @@ export class StreamingCardController {
     const createResp = await this.client.cardkit.v1.card.create({
       data: { type: "card_json", data: JSON.stringify(initial) },
     });
-    const cardId = createResp.data?.card_id ?? createResp.card_id;
+    const cardId = createResp.data?.card_id;
     if (!cardId) {
       throw new Error("Feishu card.create returned no card_id");
     }
@@ -282,8 +317,13 @@ export class StreamingCardController {
       this.lastPushedState = this.state;
       this.lastPushedHadReasoning = hasReasoning;
     } catch (error) {
-      markIfUnavailableError(this.messageId, error, this.accountId);
-      // Swallow — a card update failure must not break the agent turn.
+      // 230011/231003 mean the message is gone — that's a terminal "success"
+      // for our purposes; don't count it as a failure (the user couldn't see
+      // updates anyway). Other errors get surfaced so FlushController can
+      // track the streak and potentially trigger onCardDegraded.
+      const recognizedTerminal = markIfUnavailableError(this.messageId, error, this.accountId);
+      if (recognizedTerminal) return;
+      throw error;
     }
   }
 }

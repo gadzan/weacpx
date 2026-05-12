@@ -1,8 +1,12 @@
-// Feishu IM API error codes returned for recalled / deleted messages.
-// Source: https://open.feishu.cn/document/server-docs/im-v1/message/error-code
-const RECALLED_CODE = 230011;
-const DELETED_CODE = 231003;
-const TERMINAL_CODES: ReadonlySet<number> = new Set([RECALLED_CODE, DELETED_CODE]);
+import {
+  FeishuErrorCode,
+  extractFeishuApiCode,
+  isTerminalMessageApiCode,
+} from "./errors.js";
+
+// Re-export so existing importers keep working; new code should import from
+// `./errors.js` directly.
+export { extractFeishuApiCode, isTerminalMessageApiCode };
 
 const TTL_MS = 30 * 60 * 1000;
 const MAX_BEFORE_PRUNE = 512;
@@ -23,10 +27,6 @@ function prune(nowMs: number): void {
   for (const [id, state] of cache) {
     if (nowMs - state.markedAtMs > TTL_MS) cache.delete(id);
   }
-}
-
-export function isTerminalMessageApiCode(code: unknown): code is number {
-  return typeof code === "number" && TERMINAL_CODES.has(code);
 }
 
 export function isMessageUnavailable(
@@ -55,15 +55,6 @@ export function markMessageUnavailable(
   if (cache.size > MAX_BEFORE_PRUNE) prune(now);
 }
 
-export function extractFeishuApiCode(error: unknown): number | undefined {
-  if (!error || typeof error !== "object") return undefined;
-  const rec = error as { code?: unknown; response?: { data?: { code?: unknown } } };
-  if (typeof rec.code === "number") return rec.code;
-  const nested = rec.response?.data?.code;
-  if (typeof nested === "number") return nested;
-  return undefined;
-}
-
 export function markIfUnavailableError(
   messageId: string,
   error: unknown,
@@ -87,3 +78,7 @@ export function clearMessageUnavailableForAccount(accountId: string | undefined)
 export function resetMessageUnavailableCacheForTests(): void {
   cache.clear();
 }
+
+// Re-export so call sites can reference the code by name without a separate
+// import. Old direct numeric usages still compile.
+export { FeishuErrorCode };

@@ -31,6 +31,6 @@
     "access": "public"
   },
   "dependencies": {
-    "@larksuiteoapi/node-sdk": "^1.60.0"
+    "@larksuiteoapi/node-sdk": "~1.60.0"
   }
 }

@@ -58,8 +58,11 @@ export class FeishuChannel implements MessageChannelRuntime {
   private agent: ChannelStartInput["agent"] | null = null;
   private quota: ChannelStartInput["quota"] | null = null;
   private logger: ChannelStartInput["logger"] | null = null;
-  private readonly activeTasks: Map<string, ActiveTask> = new Map();
-  private readonly permissionNotifier = new PermissionNotifier();
+  // Stack per chat: when a second turn races into the queue before the first
+  // body runs, both are tracked so an inbound stop message can suppress all
+  // pending entries. Push on registration, splice on cleanup.
+  private readonly activeTasks: Map<string, ActiveTask[]> = new Map();
+  private readonly permissionNotifier: PermissionNotifier;
 
   private readonly config: FeishuChannelConfig;
 
@@ -69,6 +72,7 @@ export class FeishuChannel implements MessageChannelRuntime {
   ) {
     this.config = parseFeishuChannelConfig(options);
     this.dedup = new MessageDedup({ ttlMs: this.config.dedupTtlMs, maxEntries: this.config.dedupMaxEntries });
+    this.permissionNotifier = new PermissionNotifier(this.config.tuning.permissionNotifyCooldownMs);
   }
 
   isLoggedIn(): boolean {
@@ -212,11 +216,12 @@ export class FeishuChannel implements MessageChannelRuntime {
 
     const rawText = extractRawTextFromFeishuEvent(event);
     if (rawText && isLikelyAbortText(rawText)) {
-      const active = this.activeTasks.get(queueKey);
-      if (active) {
+      const stack = this.activeTasks.get(queueKey);
+      const liveTasks = stack?.filter((t) => !t.suppressed) ?? [];
+      if (liveTasks.length > 0) {
         await this.handleAbortFastPath({
           runtime,
-          active,
+          activeTasks: liveTasks,
           abortRequestMessageId: messageId,
           chatId,
           accountId,
@@ -289,7 +294,11 @@ export class FeishuChannel implements MessageChannelRuntime {
       suppressed: false,
       cardController: null,
     };
-    this.activeTasks.set(queueKey, active);
+    {
+      const stack = this.activeTasks.get(queueKey) ?? [];
+      stack.push(active);
+      this.activeTasks.set(queueKey, stack);
+    }
 
     const run = enqueueFeishuChatTask({
       accountId,
@@ -314,6 +323,18 @@ export class FeishuChannel implements MessageChannelRuntime {
               const controller = new StreamingCardController({
                 client: runtime.client.sdk as unknown as StreamingCardClient,
                 accountId,
+                flushIntervalMs: this.config.tuning.cardFlushIntervalMs,
+                failureThreshold: this.config.tuning.cardFailureThreshold,
+                imageResolveTimeoutMs: this.config.tuning.imageResolveTimeoutMs,
+                imageMaxBytes: this.config.tuning.imageMaxBytes,
+                imageCacheCap: this.config.tuning.imageCacheCap,
+                onCardDegraded: ({ buffer, consecutiveFailures }) => {
+                  void this.logger?.error(
+                    "feishu.card.degraded",
+                    "streaming card updates failing; will deliver answer via plain reply",
+                    { accountId, chatId, consecutiveFailures, bufferChars: buffer.length },
+                  );
+                },
               });
               await controller.seed({ to: chatId, replyToMessageId: messageId });
               active.cardController = controller;
@@ -357,6 +378,11 @@ export class FeishuChannel implements MessageChannelRuntime {
               // Always terminate the card — even if the agent returned no text,
               // otherwise the user sees "Processing..." forever (#2).
               await active.cardController.complete(responseText.length > 0 ? response.text : "");
+              // If the card subsystem gave up (N consecutive update failures),
+              // deliver the answer as a plain reply so the user still sees it.
+              if (active.cardController.isDegraded() && responseText.length > 0) {
+                await this.sendReplyWithGuard({ runtime, chatId, replyToMessageId: messageId, text: response.text! });
+              }
             } else if (responseText.length > 0) {
               await this.sendReplyWithGuard({ runtime, chatId, replyToMessageId: messageId, text: response.text! });
             }
@@ -383,8 +409,11 @@ export class FeishuChannel implements MessageChannelRuntime {
             throw error;
           }
         } finally {
-          if (this.activeTasks.get(queueKey) === active) {
-            this.activeTasks.delete(queueKey);
+          const stack = this.activeTasks.get(queueKey);
+          if (stack) {
+            const i = stack.indexOf(active);
+            if (i >= 0) stack.splice(i, 1);
+            if (stack.length === 0) this.activeTasks.delete(queueKey);
           }
           await removeTypingIndicator({
             client: runtime.client.sdk as unknown as FeishuReactionClient,
@@ -399,33 +428,41 @@ export class FeishuChannel implements MessageChannelRuntime {
 
   private async handleAbortFastPath(input: {
     runtime: AccountRuntime;
-    active: ActiveTask;
+    activeTasks: ActiveTask[];
     abortRequestMessageId: string;
     chatId: string;
     accountId: string;
   }): Promise<void> {
-    const { runtime, active, abortRequestMessageId, chatId, accountId } = input;
-    active.suppressed = true;
-    try {
-      active.abortController.abort();
-    } catch {
-      // AbortController.abort() never throws in practice; defensive
+    const { runtime, activeTasks, abortRequestMessageId, chatId, accountId } = input;
+    // Suppress and signal every pending entry — user said "stop", they mean
+    // everything pending for them. The most-recent entry decides whether the
+    // ack lands as a card update vs plain reply.
+    for (const t of activeTasks) {
+      t.suppressed = true;
+      try {
+        t.abortController.abort();
+      } catch {
+        // AbortController.abort() never throws in practice; defensive
+      }
     }
+    const target = activeTasks[activeTasks.length - 1]!;
     await this.logger!.info("feishu.abort.triggered", "abort fast-path triggered for active task", {
       accountId,
       chatId,
-      activeMessageId: active.messageId,
+      activeMessageId: target.messageId,
       abortRequestMessageId,
-      mode: active.cardController ? "streaming" : "static",
+      suppressedCount: activeTasks.length,
+      mode: target.cardController ? "streaming" : "static",
     });
-    await removeTypingIndicator({
+    // Clear typing indicators for all suppressed turns.
+    await Promise.all(activeTasks.map((t) => removeTypingIndicator({
       client: runtime.client.sdk as unknown as FeishuReactionClient,
-      state: active.typingState,
+      state: t.typingState,
       accountId,
-    });
-    if (active.cardController && !active.cardController.isTerminated()) {
+    })));
+    if (target.cardController && !target.cardController.isTerminated()) {
       try {
-        await active.cardController.abort(abortAck());
+        await target.cardController.abort(abortAck());
       } catch (error) {
         await this.logger!.error("feishu.abort.card_update_failed", "failed to render aborted card", {
           accountId,

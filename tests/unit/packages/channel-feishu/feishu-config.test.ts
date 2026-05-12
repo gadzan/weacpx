@@ -240,3 +240,34 @@ test("parseFeishuChannelConfig rejects malformed inputs", () => {
   expect(() => parseFeishuChannelConfig({ accounts: "nope" })).toThrow("channel.options.accounts must be an object");
   expect(() => parseFeishuChannelConfig({ accounts: { main: "nope" } })).toThrow("channel.options.accounts.main must be an object");
 });
+
+test("parseFeishuChannelConfig populates default tuning when not provided", () => {
+  const config = parseFeishuChannelConfig({ appId: "x", appSecret: "y" });
+  expect(config.tuning.cardFlushIntervalMs).toBe(800);
+  expect(config.tuning.cardFailureThreshold).toBe(3);
+  expect(config.tuning.imageMaxBytes).toBe(5 * 1024 * 1024);
+  expect(config.tuning.permissionNotifyCooldownMs).toBe(5 * 60 * 1000);
+});
+
+test("parseFeishuChannelConfig respects user-supplied tuning overrides", () => {
+  const config = parseFeishuChannelConfig({
+    appId: "x",
+    appSecret: "y",
+    tuning: {
+      cardFlushIntervalMs: 1500,
+      imageMaxBytes: 1_000_000,
+    },
+  });
+  expect(config.tuning.cardFlushIntervalMs).toBe(1500);
+  expect(config.tuning.imageMaxBytes).toBe(1_000_000);
+  // unspecified knobs fall back to defaults
+  expect(config.tuning.cardFailureThreshold).toBe(3);
+});
+
+test("parseFeishuChannelConfig rejects non-positive tuning values", () => {
+  expect(() => parseFeishuChannelConfig({
+    appId: "x",
+    appSecret: "y",
+    tuning: { cardFlushIntervalMs: 0 },
+  })).toThrow("channel.options.tuning.cardFlushIntervalMs must be a positive number");
+});

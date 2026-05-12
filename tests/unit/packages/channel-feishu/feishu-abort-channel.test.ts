@@ -224,6 +224,75 @@ test("FeishuChannel suppresses queued task when abort arrives before it starts",
   expect(sentTexts.some((t) => t.includes("已停止"))).toBe(true);
 });
 
+test("FeishuChannel stop suppresses ALL queued turns when multiple are pending", async () => {
+  let handlers: Record<string, (data: unknown) => Promise<void> | void> = {};
+  const agentCalls: string[] = [];
+
+  const channel = new FeishuChannel(
+    defaultFeishuConfig,
+    {
+      createClient: () => ({
+        sdk: {
+          im: {
+            message: {
+              reply: async () => ({ data: { message_id: "om_out", chat_id: "oc_chat" } }),
+              create: async () => ({ data: { message_id: "om_out", chat_id: "oc_chat" } }),
+            },
+          },
+        },
+        probeBot: async () => ({ botOpenId: "ou_bot" }),
+        startWS: async (input: { handlers: Record<string, (data: unknown) => Promise<void> | void> }) => {
+          handlers = input.handlers;
+        },
+        stop: () => {},
+      }),
+    },
+  );
+
+  // First turn blocks; turns 2 and 3 queue up behind it; stop arrives. All
+  // three should be suppressed — agent must see only turn 1.
+  let releaseFirst = (): void => {};
+  let firstStarted = (): void => {};
+  const firstStartedPromise = new Promise<void>((r) => {
+    firstStarted = r;
+  });
+  let chatCount = 0;
+  const agent: ChatAgent = {
+    async chat(request) {
+      chatCount += 1;
+      agentCalls.push(request.text);
+      if (chatCount === 1) {
+        firstStarted();
+        await new Promise<void>((r) => {
+          releaseFirst = r;
+        });
+        return { text: "first done" };
+      }
+      return { text: "leaked" };
+    },
+  };
+
+  await channel.start({
+    agent,
+    abortSignal: new AbortController().signal,
+    quota: createNoopQuota(),
+    logger: createNoopLogger(),
+  });
+
+  const t1 = handlers["im.message.receive_v1"]!(makeTextEvent("om_1", "first"));
+  await firstStartedPromise;
+  const t2 = handlers["im.message.receive_v1"]!(makeTextEvent("om_2", "second"));
+  const t3 = handlers["im.message.receive_v1"]!(makeTextEvent("om_3", "third"));
+  await new Promise((r) => setTimeout(r, 10));
+  await handlers["im.message.receive_v1"]!(makeTextEvent("om_stop", "stop"));
+
+  releaseFirst();
+  await Promise.all([t1, t2, t3]);
+
+  // Turn 1 ran; turns 2 and 3 were suppressed before reaching the agent.
+  expect(agentCalls).toEqual(["first"]);
+});
+
 test("FeishuChannel suppresses agent.reply() output after abort", async () => {
   let handlers: Record<string, (data: unknown) => Promise<void> | void> = {};
   const replied: Array<{ replyTo: string; text: string }> = [];

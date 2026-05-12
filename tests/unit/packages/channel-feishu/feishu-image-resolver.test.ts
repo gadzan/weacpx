@@ -105,3 +105,63 @@ test("oversized image is rejected", async () => {
   await new Promise((r) => setTimeout(r, 10));
   expect(uploads).toHaveLength(0);
 });
+
+test("resolved cache evicts oldest entries past cacheCap", async () => {
+  const { client } = createUploadClient();
+  const resolver = new ImageResolver({
+    client,
+    onImageResolved: () => {},
+    fetchUrl: async () => Buffer.from([1]),
+    cacheCap: 3,
+  });
+  for (let i = 0; i < 5; i++) {
+    resolver.resolveImages(`![x](https://example.com/${i}.png)`);
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  // After 5 uploads with cap 3, the oldest two URLs should be evicted:
+  // re-asking for url 0 should not return a cached img_ — it should be
+  // treated as a new URL (re-stripped and re-uploaded).
+  const re = resolver.resolveImages("![x](https://example.com/0.png)");
+  expect(re).toBe("");
+  // url 4 should still be cached.
+  const last = resolver.resolveImages("![x](https://example.com/4.png)");
+  expect(last).toMatch(/img_\d+/);
+});
+
+test("failed cache evicts oldest entries past cacheCap", async () => {
+  const { client } = createUploadClient({ failUpload: true });
+  const resolver = new ImageResolver({
+    client,
+    onImageResolved: () => {},
+    fetchUrl: async () => Buffer.from([1]),
+    cacheCap: 2,
+  });
+  for (let i = 0; i < 5; i++) {
+    resolver.resolveImages(`![x](https://example.com/${i}.png)`);
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  // The earliest URL (#0) should have been evicted from failed set; trying
+  // it again starts a new (still-failing) upload. The fact it queues is
+  // sufficient — pending size goes up by 1 transiently.
+  const before = resolver.hasPending();
+  resolver.resolveImages("![x](https://example.com/0.png)");
+  // synchronous startUpload puts it in pending immediately.
+  expect(resolver.hasPending() && !before).toBe(true);
+});
+
+test("fetchUrl receives maxBytes so it can pre-check Content-Length", async () => {
+  const { client } = createUploadClient();
+  let receivedMaxBytes: number | undefined = undefined;
+  const resolver = new ImageResolver({
+    client,
+    onImageResolved: () => {},
+    fetchUrl: async (_url, opts) => {
+      receivedMaxBytes = opts?.maxBytes;
+      return Buffer.from([1]);
+    },
+    maxBytes: 1234,
+  });
+  resolver.resolveImages("![x](https://example.com/x.png)");
+  await new Promise((r) => setTimeout(r, 10));
+  expect(receivedMaxBytes).toBe(1234);
+});
