@@ -14,6 +14,7 @@ interface RouterLike {
     accountId?: string,
     media?: unknown,
     metadata?: ChatRequestMetadata,
+    abortSignal?: AbortSignal,
   ): Promise<ChatResponse>;
   clearSession?: (chatKey: string) => Promise<void>;
 }
@@ -53,6 +54,7 @@ export class ConsoleAgent implements WechatAgent {
       request.accountId,
       promptMedia,
       request.metadata,
+      request.abortSignal,
     );
   }
 

@@ -37,6 +37,14 @@ export interface ChatRequest {
   replyContextToken?: string;
   /** Channel-provided facts for command authorization and routing policy. */
   metadata?: ChatRequestMetadata;
+  /**
+   * Signals that the channel has received an abort/stop request for this turn.
+   * Agents that can interrupt long-running work (e.g. cancel an in-flight acpx
+   * prompt) should observe this and bail out early. Optional; agents that don't
+   * support cancellation may ignore it — the channel will still suppress any
+   * output produced after abort.
+   */
+  abortSignal?: AbortSignal;
 }
 
 export interface ChatRequestMetadata {

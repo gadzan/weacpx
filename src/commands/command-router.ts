@@ -113,6 +113,7 @@ export class CommandRouter {
     accountId?: string,
     media?: PromptMediaInput,
     metadata?: ChatRequestMetadata,
+    abortSignal?: AbortSignal,
   ): Promise<RouterResponse> {
     const startedAt = Date.now();
     const command = parseCommand(input);
@@ -267,6 +268,7 @@ export class CommandRouter {
             replyContextToken,
             accountId,
             media,
+            abortSignal,
           );
       }
     });
@@ -327,8 +329,8 @@ export class CommandRouter {
     return {
       setModeTransportSession: (session, modeId) => this.setModeTransportSession(session, modeId),
       cancelTransportSession: (session) => this.cancelTransportSession(session),
-      promptTransportSession: (session, text, reply, replyContext, media) =>
-        this.promptTransportSession(session, text, reply, replyContext, media),
+      promptTransportSession: (session, text, reply, replyContext, media, abortSignal) =>
+        this.promptTransportSession(session, text, reply, replyContext, media, abortSignal),
     };
   }
 
@@ -534,11 +536,59 @@ export class CommandRouter {
     reply?: (text: string) => Promise<void>,
     replyContext?: ReplyQuotaContext,
     media?: PromptMediaInput,
+    abortSignal?: AbortSignal,
   ) {
     session.mcpCoordinatorSession ??= session.transportSession;
-    return await this.measureTransportCall("prompt", session, () =>
-      this.transport.prompt(session, text, reply, replyContext, media ? { media } : undefined),
-    );
+    // `done` closes the race window between prompt resolving and the abort
+    // listener firing: once we're in finally we suppress any late abort so
+    // it can't cancel a *follow-up* prompt that happens to reuse this session.
+    let done = false;
+    let cancelOnAbort: (() => void) | undefined;
+    const fireCancel = (): void => {
+      if (done) return;
+      try {
+        const result = this.transport.cancel(session);
+        if (result && typeof (result as { catch?: unknown }).catch === "function") {
+          (result as Promise<unknown>).catch(async (error) => {
+            await this.logger.error("transport.cancel_on_abort_failed", "transport cancel triggered by abort signal failed", {
+              agent: session.agent,
+              workspace: session.workspace,
+              alias: session.alias,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          });
+        }
+      } catch (error) {
+        void this.logger.error("transport.cancel_on_abort_failed", "transport cancel triggered by abort signal threw synchronously", {
+          agent: session.agent,
+          workspace: session.workspace,
+          alias: session.alias,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    };
+    if (abortSignal) {
+      if (abortSignal.aborted) {
+        // Already aborted before we even started — don't pre-emptively call
+        // cancel (the transport hasn't seen a prompt yet on this session
+        // necessarily, and some transports throw on cancel-without-active).
+        // Instead, throw immediately so caller can render an aborted reply.
+        done = true;
+        throw new DOMException("Aborted before prompt started", "AbortError");
+      }
+      cancelOnAbort = fireCancel;
+      abortSignal.addEventListener("abort", cancelOnAbort, { once: true });
+    }
+    try {
+      return await this.measureTransportCall("prompt", session, () =>
+        this.transport.prompt(session, text, reply, replyContext, media ? { media } : undefined),
+      );
+    } finally {
+      done = true;
+      if (cancelOnAbort && abortSignal) {
+        abortSignal.removeEventListener("abort", cancelOnAbort);
+      }
+    }
   }
 
   private async setModeTransportSession(session: ResolvedSession, modeId: string) {

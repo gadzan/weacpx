@@ -90,6 +90,7 @@ test("parseFeishuChannelConfig promotes legacy single-bot config to default acco
       dmPolicy: "open",
       groupPolicy: "open",
       allowFrom: [],
+      replyMode: "static",
     },
   ]);
 });
@@ -126,6 +127,7 @@ test("parseFeishuChannelConfig parses multi-bot accounts with per-account overri
     dmPolicy: "open",
     groupPolicy: "open",
     allowFrom: [],
+    replyMode: "static",
   });
   expect(byId.get("review")).toEqual({
     accountId: "review",
@@ -139,7 +141,32 @@ test("parseFeishuChannelConfig parses multi-bot accounts with per-account overri
     dmPolicy: "open",
     groupPolicy: "open",
     allowFrom: [],
+    replyMode: "static",
   });
+});
+
+test("parseFeishuChannelConfig accepts replyMode 'streaming' and per-account override", () => {
+  const config = parseFeishuChannelConfig({
+    defaultAccount: "main",
+    replyMode: "streaming",
+    accounts: {
+      main: { appId: "a", appSecret: "b" },
+      legacy: { appId: "c", appSecret: "d", replyMode: "static" },
+    },
+  });
+  const byId = new Map(config.accounts.map((account) => [account.accountId, account]));
+  expect(byId.get("main")?.replyMode).toBe("streaming");
+  expect(byId.get("legacy")?.replyMode).toBe("static");
+});
+
+test("parseFeishuChannelConfig rejects unknown replyMode", () => {
+  expect(() => parseFeishuChannelConfig({ appId: "x", appSecret: "y", replyMode: "verbose" }))
+    .toThrow("replyMode must be one of");
+});
+
+test("parseFeishuChannelConfig accepts replyMode 'auto'", () => {
+  const config = parseFeishuChannelConfig({ appId: "x", appSecret: "y", replyMode: "auto" });
+  expect(config.accounts[0]!.replyMode).toBe("auto");
 });
 
 test("parseFeishuChannelConfig rejects when defaultAccount is not in accounts", () => {

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 import { buildFeishuConversationId, evaluateFeishuAccessPolicy, parseFeishuText, shouldHandleFeishuMessage } from "../../../../packages/channel-feishu/src/inbound";
 import { MessageDedup, isMessageExpired } from "../../../../packages/channel-feishu/src/message-dedup";
-import { enqueueFeishuChatTask, resetFeishuChatQueueForTests } from "../../../../packages/channel-feishu/src/chat-queue";
+import { clearFeishuQueueForAccount, enqueueFeishuChatTask, resetFeishuChatQueueForTests } from "../../../../packages/channel-feishu/src/chat-queue";
 import type { FeishuMessageEvent } from "../../../../packages/channel-feishu/src/types";
 
 function event(overrides: Partial<FeishuMessageEvent["message"]> = {}): FeishuMessageEvent {
@@ -256,4 +256,47 @@ test("enqueueFeishuChatTask serializes same chat", async () => {
 
   await Promise.all([first.promise, second.promise]);
   expect(order).toEqual(["first-start", "first-end", "second"]);
+});
+
+test("clearFeishuQueueForAccount drops only that account's chains so new tasks run immediately", async () => {
+  resetFeishuChatQueueForTests();
+
+  // Park a long-running task on account A and a short one on account B.
+  let releaseA = (): void => {};
+  const aChain = enqueueFeishuChatTask({
+    accountId: "account-a",
+    chatId: "oc_chat",
+    task: () => new Promise<void>((resolve) => {
+      releaseA = resolve;
+    }),
+  });
+  const bChain = enqueueFeishuChatTask({
+    accountId: "account-b",
+    chatId: "oc_chat",
+    task: async () => {},
+  });
+  await bChain.promise;
+
+  // Without clearing, a second account-a task would be "queued" behind aChain.
+  clearFeishuQueueForAccount("account-a");
+  const aChain2 = enqueueFeishuChatTask({
+    accountId: "account-a",
+    chatId: "oc_chat",
+    task: async () => {},
+  });
+  expect(aChain2.status).toBe("immediate");
+
+  // account-b key was also cleared by its natural completion above, so it is
+  // also immediate — sanity check that we didn't accidentally clobber it.
+  const bChain2 = enqueueFeishuChatTask({
+    accountId: "account-b",
+    chatId: "oc_chat",
+    task: async () => {},
+  });
+  expect(bChain2.status).toBe("immediate");
+
+  releaseA();
+  await aChain.promise;
+  await aChain2.promise;
+  await bChain2.promise;
 });

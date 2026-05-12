@@ -22,6 +22,13 @@ export function enqueueFeishuChatTask(input: {
   return { status, promise };
 }
 
+export function clearFeishuQueueForAccount(accountId: string): void {
+  const prefix = `${accountId}:`;
+  for (const key of queues.keys()) {
+    if (key.startsWith(prefix)) queues.delete(key);
+  }
+}
+
 export function resetFeishuChatQueueForTests(): void {
   queues.clear();
 }

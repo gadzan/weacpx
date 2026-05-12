@@ -1,5 +1,6 @@
 export type FeishuDmPolicy = "open" | "allowlist" | "disabled";
 export type FeishuGroupPolicy = "open" | "allowlist" | "disabled";
+export type FeishuReplyMode = "static" | "streaming" | "auto";
 
 export interface FeishuAccountConfig {
   name?: string;
@@ -11,6 +12,7 @@ export interface FeishuAccountConfig {
   dmPolicy?: FeishuDmPolicy;
   groupPolicy?: FeishuGroupPolicy;
   allowFrom?: string[];
+  replyMode?: FeishuReplyMode;
 }
 
 export interface FeishuResolvedAccountConfig {
@@ -25,6 +27,7 @@ export interface FeishuResolvedAccountConfig {
   dmPolicy: FeishuDmPolicy;
   groupPolicy: FeishuGroupPolicy;
   allowFrom: string[];
+  replyMode: FeishuReplyMode;
 }
 
 export interface FeishuChannelConfig extends FeishuAccountConfig {
@@ -107,6 +110,7 @@ function resolveAccount(
   if ((dmPolicy === "allowlist" || groupPolicy === "allowlist") && allowFrom.length === 0) {
     throw new Error(`${path}.allowFrom must list at least one open_id (or "*") when dmPolicy/groupPolicy is "allowlist"`);
   }
+  const replyMode = enumValue<FeishuReplyMode>(merged.replyMode, `${path}.replyMode`, ["static", "streaming", "auto"], "static");
   return {
     accountId,
     ...(stringOptional(merged.name, `${path}.name`) ? { name: stringOptional(merged.name, `${path}.name`)! } : {}),
@@ -119,6 +123,7 @@ function resolveAccount(
     dmPolicy,
     groupPolicy,
     allowFrom,
+    replyMode,
   };
 }
 

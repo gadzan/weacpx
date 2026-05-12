@@ -125,6 +125,7 @@ export interface SessionInteractionOps {
     reply?: (text: string) => Promise<void>,
     replyContext?: ReplyQuotaContext,
     media?: PromptMediaInput,
+    abortSignal?: AbortSignal,
   ) => Promise<{ text: string }>;
 }
 

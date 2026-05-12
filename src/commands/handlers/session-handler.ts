@@ -427,6 +427,7 @@ async function promptWithSession(
   replyContextToken?: string,
   accountId?: string,
   media?: PromptMediaInput,
+  abortSignal?: AbortSignal,
 ): Promise<RouterResponse> {
   const effectiveReplyMode = session.replyMode ?? context.config?.channel.replyMode ?? "verbose";
   const transportReply = effectiveReplyMode !== "final" ? reply : undefined;
@@ -470,6 +471,7 @@ async function promptWithSession(
       transportReply,
       replyContext,
       media,
+      abortSignal,
     );
     if (claimHumanReply) {
       try {
@@ -508,6 +510,7 @@ export async function handlePrompt(
   replyContextToken?: string,
   accountId?: string,
   media?: PromptMediaInput,
+  abortSignal?: AbortSignal,
 ): Promise<RouterResponse> {
   const session = await context.sessions.getCurrentSession(chatKey);
   if (!session) {
@@ -515,11 +518,11 @@ export async function handlePrompt(
   }
 
   try {
-    return await promptWithSession(context, session, chatKey, text, reply, replyContextToken, accountId, media);
+    return await promptWithSession(context, session, chatKey, text, reply, replyContextToken, accountId, media, abortSignal);
   } catch (error) {
     const recovered = await context.recovery.tryRecoverMissingSession(session, error);
     if (recovered) {
-      return await promptWithSession(context, recovered, chatKey, text, reply, replyContextToken, accountId, media);
+      return await promptWithSession(context, recovered, chatKey, text, reply, replyContextToken, accountId, media, abortSignal);
     }
     return context.recovery.renderTransportError(session, error);
   }
