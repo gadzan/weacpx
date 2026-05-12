@@ -214,22 +214,8 @@ export class FeishuChannel implements MessageChannelRuntime {
     const chatKey = buildFeishuConversationId(accountId, chatId, threadId);
     const queueKey = buildFeishuQueueKey(accountId, chatId, threadId);
 
-    const rawText = extractRawTextFromFeishuEvent(event);
-    if (rawText && isLikelyAbortText(rawText)) {
-      const stack = this.activeTasks.get(queueKey);
-      const liveTasks = stack?.filter((t) => !t.suppressed) ?? [];
-      if (liveTasks.length > 0) {
-        await this.handleAbortFastPath({
-          runtime,
-          activeTasks: liveTasks,
-          abortRequestMessageId: messageId,
-          chatId,
-          accountId,
-        });
-        return;
-      }
-      await this.logger.info("feishu.abort.no_active", "abort trigger received but no active task", { accountId, chatId, messageId });
-      // fall through — let it be handled as a regular message (agent decides)
+    if (await this.tryHandleAbortTrigger({ event, runtime, queueKey, accountId, chatId, messageId })) {
+      return;
     }
 
     const converted = await convertFeishuMessageContent({
@@ -251,39 +237,84 @@ export class FeishuChannel implements MessageChannelRuntime {
 
     this.quota.onInbound(chatKey);
 
-    const mediaStore = this.deps.mediaStore ?? new RuntimeMediaStore({ rootDir: path.join(process.cwd(), ".weacpx-media") });
-    const media: ChannelMediaAttachment[] = [];
-    const skipped = [...converted.skippedNotes];
-    for (const resource of converted.resources.slice(0, DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE)) {
-      try {
-        const downloaded = await downloadFeishuMessageResource({
-          client: runtime.client.sdk as never,
-          messageId,
-          fileKey: resource.fileKey,
-          resourceType: resource.kind === "image" ? "image" : "file",
-          maxBytes: resource.kind === "image" ? DEFAULT_IMAGE_MAX_BYTES : DEFAULT_ATTACHMENT_MAX_BYTES,
-        });
-        media.push(await mediaStore.saveMediaBuffer({
-          channelId: "feishu",
-          accountId,
-          chatKey,
-          messageId,
-          fileName: downloaded.fileName ?? resource.fileName,
-          mimeType: downloaded.contentType ?? defaultMimeForKind(resource.kind),
-          kind: resource.kind,
-          buffer: downloaded.buffer,
-          sourceResourceId: resource.fileKey,
-          maxBytes: resource.kind === "image" ? DEFAULT_IMAGE_MAX_BYTES : DEFAULT_ATTACHMENT_MAX_BYTES,
-        }));
-      } catch (error) {
-        skipped.push(`Skipped ${resource.kind} ${resource.fileKey}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
+    const { media, skipped } = await this.downloadInboundAttachments({
+      runtime,
+      accountId,
+      chatKey,
+      messageId,
+      resources: converted.resources,
+      initialSkipped: converted.skippedNotes,
+    });
     const requestText = appendSkippedAttachmentNotes(decision.text, skipped);
 
-    // Pre-register the active task BEFORE enqueue so an abort message that
-    // arrives while we're still queued (waiting for the prior task in the
-    // chat-queue) can still find us and mark us suppressed.
+    const { active, abortController } = this.registerActiveTask({ accountId, chatId, messageId, queueKey });
+
+    const run = enqueueFeishuChatTask({
+      accountId,
+      chatId,
+      ...(threadId ? { threadId } : {}),
+      task: () => this.runTurn({
+        runtime,
+        accountId,
+        chatId,
+        chatType: event.message.chat_type,
+        chatKey,
+        queueKey,
+        messageId,
+        requestText,
+        media,
+        active,
+        abortController,
+      }),
+    });
+    await run.promise;
+  }
+
+  /**
+   * Detect a stop-word inbound and short-circuit to the abort fast-path.
+   * Returns true if the message was handled as an abort (caller should
+   * stop processing), false if the message should continue down the
+   * normal handling path.
+   */
+  private async tryHandleAbortTrigger(input: {
+    event: FeishuMessageEvent;
+    runtime: AccountRuntime;
+    queueKey: string;
+    accountId: string;
+    chatId: string;
+    messageId: string;
+  }): Promise<boolean> {
+    const { event, runtime, queueKey, accountId, chatId, messageId } = input;
+    const rawText = extractRawTextFromFeishuEvent(event);
+    if (!rawText || !isLikelyAbortText(rawText)) return false;
+    const stack = this.activeTasks.get(queueKey);
+    const liveTasks = stack?.filter((t) => !t.suppressed) ?? [];
+    if (liveTasks.length > 0) {
+      await this.handleAbortFastPath({
+        runtime,
+        activeTasks: liveTasks,
+        abortRequestMessageId: messageId,
+        chatId,
+        accountId,
+      });
+      return true;
+    }
+    await this.logger!.info("feishu.abort.no_active", "abort trigger received but no active task", { accountId, chatId, messageId });
+    return false;
+  }
+
+  /**
+   * Pre-register the active task BEFORE the chat-queue body runs so an
+   * abort message arriving while the turn is queued can still find it and
+   * mark it suppressed.
+   */
+  private registerActiveTask(input: {
+    accountId: string;
+    chatId: string;
+    messageId: string;
+    queueKey: string;
+  }): { active: ActiveTask; abortController: AbortController } {
+    const { accountId, chatId, messageId, queueKey } = input;
     const abortController = new AbortController();
     const active: ActiveTask = {
       accountId,
@@ -294,136 +325,216 @@ export class FeishuChannel implements MessageChannelRuntime {
       suppressed: false,
       cardController: null,
     };
-    {
-      const stack = this.activeTasks.get(queueKey) ?? [];
-      stack.push(active);
-      this.activeTasks.set(queueKey, stack);
-    }
+    const stack = this.activeTasks.get(queueKey) ?? [];
+    stack.push(active);
+    this.activeTasks.set(queueKey, stack);
+    return { active, abortController };
+  }
 
-    const run = enqueueFeishuChatTask({
-      accountId,
-      chatId,
-      ...(threadId ? { threadId } : {}),
-      task: async () => {
-        try {
-          if (!this.agent) return;
-          if (active.suppressed) return;
-          active.typingState = await addTypingIndicator({
-            client: runtime.client.sdk as unknown as FeishuReactionClient,
-            messageId,
-            accountId,
-          });
-          if (active.suppressed) return;
+  private async runTurn(input: {
+    runtime: AccountRuntime;
+    accountId: string;
+    chatId: string;
+    chatType: string | undefined;
+    chatKey: string;
+    queueKey: string;
+    messageId: string;
+    requestText: string;
+    media: ChannelMediaAttachment[];
+    active: ActiveTask;
+    abortController: AbortController;
+  }): Promise<void> {
+    const { runtime, accountId, chatId, chatType, chatKey, queueKey, messageId, requestText, media, active, abortController } = input;
+    try {
+      if (!this.agent) return;
+      if (active.suppressed) return;
+      active.typingState = await addTypingIndicator({
+        client: runtime.client.sdk as unknown as FeishuReactionClient,
+        messageId,
+        accountId,
+      });
+      if (active.suppressed) return;
 
-          // Try to set up streaming card if the account opted in. Any failure
-          // (permission, SDK missing CardKit, network) falls back to static.
-          const effectiveReplyMode = resolveEffectiveReplyMode(runtime.account.replyMode, event.message.chat_type);
-          if (effectiveReplyMode === "streaming") {
-            try {
-              const controller = new StreamingCardController({
-                client: runtime.client.sdk as unknown as StreamingCardClient,
-                accountId,
-                flushIntervalMs: this.config.tuning.cardFlushIntervalMs,
-                failureThreshold: this.config.tuning.cardFailureThreshold,
-                imageResolveTimeoutMs: this.config.tuning.imageResolveTimeoutMs,
-                imageMaxBytes: this.config.tuning.imageMaxBytes,
-                imageCacheCap: this.config.tuning.imageCacheCap,
-                onCardDegraded: ({ buffer, consecutiveFailures }) => {
-                  void this.logger?.error(
-                    "feishu.card.degraded",
-                    "streaming card updates failing; will deliver answer via plain reply",
-                    { accountId, chatId, consecutiveFailures, bufferChars: buffer.length },
-                  );
-                },
-              });
-              await controller.seed({ to: chatId, replyToMessageId: messageId });
-              active.cardController = controller;
-            } catch (error) {
-              const permErr = extractPermissionError(error);
-              await this.logger!.info("feishu.streaming.fallback", "streaming card seed failed; falling back to static", {
-                accountId,
-                chatId,
-                reason: permErr ? "permission" : "seed_error",
-                message: error instanceof Error ? error.message : String(error),
-              });
-              if (permErr) {
-                await this.maybeNotifyPermissionError({ runtime, chatId, error });
-              }
-              active.cardController = null;
-            }
-          }
+      // Try to set up streaming card if the account opted in. Any failure
+      // (permission, SDK missing CardKit, network) falls back to static.
+      const effectiveReplyMode = resolveEffectiveReplyMode(runtime.account.replyMode, chatType);
+      if (effectiveReplyMode === "streaming") {
+        await this.trySeedStreamingCard({ runtime, accountId, chatId, messageId, active });
+      }
 
-          const safeReply = async (text: string): Promise<void> => {
-            if (active.suppressed) return;
-            if (active.cardController) {
-              active.cardController.appendStream(text);
-              return;
-            }
-            await this.sendReplyWithGuard({ runtime, chatId, replyToMessageId: messageId, text });
-          };
-
-          try {
-            const response = await this.agent.chat({
-              accountId,
-              conversationId: chatKey,
-              text: requestText,
-              ...(media.length > 0 ? { media } : {}),
-              replyContextToken: messageId,
-              reply: safeReply,
-              abortSignal: abortController.signal,
-            });
-            if (active.suppressed) return;
-            const responseText = response.text?.trim() ?? "";
-            if (active.cardController) {
-              // Always terminate the card — even if the agent returned no text,
-              // otherwise the user sees "Processing..." forever (#2).
-              await active.cardController.complete(responseText.length > 0 ? response.text : "");
-              // If the card subsystem gave up (N consecutive update failures),
-              // deliver the answer as a plain reply so the user still sees it.
-              if (active.cardController.isDegraded() && responseText.length > 0) {
-                await this.sendReplyWithGuard({ runtime, chatId, replyToMessageId: messageId, text: response.text! });
-              }
-            } else if (responseText.length > 0) {
-              await this.sendReplyWithGuard({ runtime, chatId, replyToMessageId: messageId, text: response.text! });
-            }
-            for (const item of normalizeMediaArray(response.media)) {
-              if (active.suppressed) return;
-              const safePath = await resolveSafeOutboundMediaPath(item.filePath, [this.deps.mediaStore?.rootDir, ...(this.deps.allowedMediaRoots ?? [])].filter((x): x is string => typeof x === "string"));
-              if (!safePath) {
-                await this.logger!.error("feishu.media.rejected", "outbound media path rejected", { filePath: item.filePath, accountId });
-                continue;
-              }
-              try {
-                const mediaReplyTarget = isMessageUnavailable(messageId, accountId) ? undefined : messageId;
-                await sendMediaFeishu({ client: runtime.client.sdk as never, to: chatId, media: { ...item, filePath: safePath }, ...(mediaReplyTarget ? { replyToMessageId: mediaReplyTarget } : {}) });
-              } catch (error) {
-                markIfUnavailableError(messageId, error, accountId);
-                if (await this.maybeNotifyPermissionError({ runtime, chatId, error })) continue;
-                await this.logger!.error("feishu.media.send_failed", "failed to send feishu media", { message: error instanceof Error ? error.message : String(error), accountId });
-              }
-            }
-          } catch (error) {
-            if (active.cardController && !active.cardController.isTerminated()) {
-              await active.cardController.fail(error instanceof Error ? error.message : String(error));
-            }
-            throw error;
-          }
-        } finally {
-          const stack = this.activeTasks.get(queueKey);
-          if (stack) {
-            const i = stack.indexOf(active);
-            if (i >= 0) stack.splice(i, 1);
-            if (stack.length === 0) this.activeTasks.delete(queueKey);
-          }
-          await removeTypingIndicator({
-            client: runtime.client.sdk as unknown as FeishuReactionClient,
-            state: active.typingState,
-            accountId,
-          });
+      const safeReply = async (text: string): Promise<void> => {
+        if (active.suppressed) return;
+        if (active.cardController) {
+          active.cardController.appendStream(text);
+          return;
         }
-      },
-    });
-    await run.promise;
+        await this.sendReplyWithGuard({ runtime, chatId, replyToMessageId: messageId, text });
+      };
+
+      try {
+        const response = await this.agent.chat({
+          accountId,
+          conversationId: chatKey,
+          text: requestText,
+          ...(media.length > 0 ? { media } : {}),
+          replyContextToken: messageId,
+          reply: safeReply,
+          abortSignal: abortController.signal,
+        });
+        if (active.suppressed) return;
+        await this.deliverResponse({ runtime, accountId, chatId, messageId, active, response });
+      } catch (error) {
+        if (active.cardController && !active.cardController.isTerminated()) {
+          await active.cardController.fail(error instanceof Error ? error.message : String(error));
+        }
+        throw error;
+      }
+    } finally {
+      const stack = this.activeTasks.get(queueKey);
+      if (stack) {
+        const i = stack.indexOf(active);
+        if (i >= 0) stack.splice(i, 1);
+        if (stack.length === 0) this.activeTasks.delete(queueKey);
+      }
+      await removeTypingIndicator({
+        client: runtime.client.sdk as unknown as FeishuReactionClient,
+        state: active.typingState,
+        accountId,
+      });
+    }
+  }
+
+  private async trySeedStreamingCard(input: {
+    runtime: AccountRuntime;
+    accountId: string;
+    chatId: string;
+    messageId: string;
+    active: ActiveTask;
+  }): Promise<void> {
+    const { runtime, accountId, chatId, messageId, active } = input;
+    try {
+      const controller = new StreamingCardController({
+        client: runtime.client.sdk as unknown as StreamingCardClient,
+        accountId,
+        flushIntervalMs: this.config.tuning.cardFlushIntervalMs,
+        failureThreshold: this.config.tuning.cardFailureThreshold,
+        imageResolveTimeoutMs: this.config.tuning.imageResolveTimeoutMs,
+        imageMaxBytes: this.config.tuning.imageMaxBytes,
+        imageCacheCap: this.config.tuning.imageCacheCap,
+        onCardDegraded: ({ buffer, consecutiveFailures }) => {
+          void this.logger?.error(
+            "feishu.card.degraded",
+            "streaming card updates failing; will deliver answer via plain reply",
+            { accountId, chatId, consecutiveFailures, bufferChars: buffer.length },
+          );
+        },
+      });
+      await controller.seed({ to: chatId, replyToMessageId: messageId });
+      active.cardController = controller;
+    } catch (error) {
+      const permErr = extractPermissionError(error);
+      await this.logger!.info("feishu.streaming.fallback", "streaming card seed failed; falling back to static", {
+        accountId,
+        chatId,
+        reason: permErr ? "permission" : "seed_error",
+        message: error instanceof Error ? error.message : String(error),
+      });
+      if (permErr) await this.maybeNotifyPermissionError({ runtime, chatId, error });
+      active.cardController = null;
+    }
+  }
+
+  private async deliverResponse(input: {
+    runtime: AccountRuntime;
+    accountId: string;
+    chatId: string;
+    messageId: string;
+    active: ActiveTask;
+    response: Awaited<ReturnType<NonNullable<FeishuChannel["agent"]>["chat"]>>;
+  }): Promise<void> {
+    const { runtime, accountId, chatId, messageId, active, response } = input;
+    const responseText = response.text?.trim() ?? "";
+    if (active.cardController) {
+      // Always terminate the card — even if the agent returned no text,
+      // otherwise the user sees "Processing..." forever.
+      await active.cardController.complete(responseText.length > 0 ? response.text : "");
+      // If the card subsystem gave up (N consecutive update failures),
+      // deliver the answer as a plain reply so the user still sees it.
+      if (active.cardController.isDegraded() && responseText.length > 0) {
+        await this.sendReplyWithGuard({ runtime, chatId, replyToMessageId: messageId, text: response.text! });
+      }
+    } else if (responseText.length > 0) {
+      await this.sendReplyWithGuard({ runtime, chatId, replyToMessageId: messageId, text: response.text! });
+    }
+    for (const item of normalizeMediaArray(response.media)) {
+      if (active.suppressed) return;
+      const safePath = await resolveSafeOutboundMediaPath(
+        item.filePath,
+        [this.deps.mediaStore?.rootDir, ...(this.deps.allowedMediaRoots ?? [])].filter((x): x is string => typeof x === "string"),
+      );
+      if (!safePath) {
+        await this.logger!.error("feishu.media.rejected", "outbound media path rejected", { filePath: item.filePath, accountId });
+        continue;
+      }
+      try {
+        const mediaReplyTarget = isMessageUnavailable(messageId, accountId) ? undefined : messageId;
+        await sendMediaFeishu({
+          client: runtime.client.sdk as never,
+          to: chatId,
+          media: { ...item, filePath: safePath },
+          ...(mediaReplyTarget ? { replyToMessageId: mediaReplyTarget } : {}),
+        });
+      } catch (error) {
+        markIfUnavailableError(messageId, error, accountId);
+        if (await this.maybeNotifyPermissionError({ runtime, chatId, error })) continue;
+        await this.logger!.error("feishu.media.send_failed", "failed to send feishu media", {
+          message: error instanceof Error ? error.message : String(error),
+          accountId,
+        });
+      }
+    }
+  }
+
+  private async downloadInboundAttachments(input: {
+    runtime: AccountRuntime;
+    accountId: string;
+    chatKey: string;
+    messageId: string;
+    resources: Array<{ kind: "image" | "file"; fileKey: string; fileName?: string }>;
+    initialSkipped: string[];
+  }): Promise<{ media: ChannelMediaAttachment[]; skipped: string[] }> {
+    const { runtime, accountId, chatKey, messageId, resources, initialSkipped } = input;
+    const mediaStore = this.deps.mediaStore ?? new RuntimeMediaStore({ rootDir: path.join(process.cwd(), ".weacpx-media") });
+    const media: ChannelMediaAttachment[] = [];
+    const skipped = [...initialSkipped];
+    for (const resource of resources.slice(0, DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE)) {
+      try {
+        const downloaded = await downloadFeishuMessageResource({
+          client: runtime.client.sdk as never,
+          messageId,
+          fileKey: resource.fileKey,
+          resourceType: resource.kind === "image" ? "image" : "file",
+          maxBytes: resource.kind === "image" ? DEFAULT_IMAGE_MAX_BYTES : DEFAULT_ATTACHMENT_MAX_BYTES,
+        });
+        media.push(
+          await mediaStore.saveMediaBuffer({
+            channelId: "feishu",
+            accountId,
+            chatKey,
+            messageId,
+            fileName: downloaded.fileName ?? resource.fileName,
+            mimeType: downloaded.contentType ?? defaultMimeForKind(resource.kind),
+            kind: resource.kind,
+            buffer: downloaded.buffer,
+            sourceResourceId: resource.fileKey,
+            maxBytes: resource.kind === "image" ? DEFAULT_IMAGE_MAX_BYTES : DEFAULT_ATTACHMENT_MAX_BYTES,
+          }),
+        );
+      } catch (error) {
+        skipped.push(`Skipped ${resource.kind} ${resource.fileKey}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return { media, skipped };
   }
 
   private async handleAbortFastPath(input: {
