@@ -1,3 +1,5 @@
+import type { ToolUseEvent, ToolUseKind, ToolUseStatus } from "../channels/types.js";
+
 export interface StreamingPromptState {
   buffer: string;
   segments: string[];
@@ -5,6 +7,7 @@ export interface StreamingPromptState {
   pendingLine: string;
   formatToolCalls: boolean;
   emittedToolCallIds: Set<string>;
+  onToolEvent?: (event: ToolUseEvent) => void | Promise<void>;
   finalize: () => string;
 }
 
@@ -25,7 +28,10 @@ interface StreamEvent {
   };
 }
 
-export function createStreamingPromptState(formatToolCalls = false): StreamingPromptState {
+export function createStreamingPromptState(
+  formatToolCalls = false,
+  onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
+): StreamingPromptState {
   return {
     buffer: "",
     segments: [],
@@ -33,6 +39,7 @@ export function createStreamingPromptState(formatToolCalls = false): StreamingPr
     pendingLine: "",
     formatToolCalls,
     emittedToolCallIds: new Set(),
+    onToolEvent,
     finalize(): string {
       if (this.pendingLine.trim().length > 0) {
         parseStreamingChunks(this, this.pendingLine);
@@ -73,6 +80,11 @@ export function parseStreamingChunks(state: StreamingPromptState, line: string):
   if (!update) return;
 
   if (state.formatToolCalls && (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update")) {
+    if (state.onToolEvent) {
+      const event = buildToolUseEvent(update);
+      if (event) void state.onToolEvent(event);
+      return;
+    }
     const formatted = formatToolCallEvent(update, update.sessionUpdate);
     if (formatted) {
       const toolCallId = update.toolCallId;
@@ -137,6 +149,36 @@ function formatToolCallEvent(update: NonNullable<StreamEvent["params"]>["update"
   const summaryText = inputSummary && inputSummary !== title ? `: ${truncateToolDisplay(inputSummary)}` : "";
   const statusText = status ? ` (${status})` : "";
   return `${emoji} ${title}${statusText}${summaryText}`;
+}
+
+function buildToolUseEvent(update: NonNullable<StreamEvent["params"]>["update"]): ToolUseEvent | null {
+  if (!update) return null;
+  const toolCallId = update.toolCallId;
+  if (!toolCallId) return null;
+  const kindRaw = update.kind ?? "";
+  const kind: ToolUseKind = ((): ToolUseKind => {
+    switch (kindRaw) {
+      case "read": case "search": case "execute": case "edit": case "think": return kindRaw;
+      default: return "other";
+    }
+  })();
+  const title = (update.title ?? "").trim();
+  const toolName = title || "Tool";
+  // Reuse the existing summarizer (it has the title-vs-summary dedup logic baked in).
+  const summaryRaw = summarizeToolInput(update.rawInput, title);
+  const summary = summaryRaw && summaryRaw !== title ? summaryRaw : undefined;
+  const statusRaw = readString(update, "status");
+  const status: ToolUseStatus =
+    statusRaw === "completed" || statusRaw === "success" ? "success"
+    : statusRaw === "failed" || statusRaw === "error" ? "error"
+    : "running";
+  return {
+    toolCallId,
+    toolName,
+    kind,
+    ...(summary ? { summary } : {}),
+    status,
+  };
 }
 
 function summarizeToolInput(rawInput: unknown, title = ""): string | undefined {
