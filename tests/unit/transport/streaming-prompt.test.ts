@@ -137,6 +137,41 @@ test("formatToolCalls formats read tool_call with emoji", () => {
   expect(state.segments).toEqual(["📖 Read SKILL.md: sed -n '1,220p' SKILL.md"]);
 });
 
+test("formatToolCalls waits for read file path when initial pending event is generic", () => {
+  const state = createStreamingPromptState(true);
+  const toolCallId = "toolu_read_file_1";
+
+  parseStreamingChunks(state, JSON.stringify({
+    method: "session/update",
+    params: {
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId,
+        title: "Read File",
+        kind: "read",
+        status: "pending",
+        rawInput: {},
+      },
+    },
+  }));
+  parseStreamingChunks(state, JSON.stringify({
+    method: "session/update",
+    params: {
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId,
+        title: "Read src\\mcp\\weacpx-mcp-server.ts",
+        kind: "read",
+        rawInput: { file_path: "E:\\projects\\weacpx-github\\src\\mcp\\weacpx-mcp-server.ts" },
+      },
+    },
+  }));
+
+  expect(state.segments).toEqual([
+    "📖 Read src\\mcp\\weacpx-mcp-server.ts: E:\\projects\\weacpx-github\\src\\mcp\\weacpx-mcp-server.ts",
+  ]);
+});
+
 test("formatToolCalls formats search tool_call", () => {
   const state = createStreamingPromptState(true);
 
@@ -147,6 +182,43 @@ test("formatToolCalls formats search tool_call", () => {
   }));
 
   expect(state.segments).toEqual(["🔍 Search session in src: rg -n 'session' src"]);
+});
+
+test("formatToolCalls waits for task details and formats Agent task calls", () => {
+  const state = createStreamingPromptState(true);
+  const toolCallId = "toolu_task_1";
+
+  parseStreamingChunks(state, JSON.stringify({
+    method: "session/update",
+    params: {
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId,
+        title: "Task",
+        kind: "think",
+        status: "pending",
+        rawInput: {},
+      },
+    },
+  }));
+  parseStreamingChunks(state, JSON.stringify({
+    method: "session/update",
+    params: {
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId,
+        title: "Explore MCP service code",
+        kind: "think",
+        rawInput: {
+          description: "Explore MCP service code",
+          prompt: "Very long task prompt that should not be shown in verbose progress",
+          subagent_type: "Explore",
+        },
+      },
+    },
+  }));
+
+  expect(state.segments).toEqual(["🧠 Explore MCP service code: Explore"]);
 });
 
 test("formatToolCalls formats execute tool_call", () => {

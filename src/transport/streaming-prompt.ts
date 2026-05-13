@@ -114,6 +114,7 @@ const KIND_EMOJI: Record<string, string> = {
   search: "\u{1F50D}",
   execute: "\u{1F4BB}",
   edit: "\u{270F}\u{FE0F}",
+  think: "\u{1F9E0}",
 };
 
 function formatToolCallEvent(update: NonNullable<StreamEvent["params"]>["update"], sessionUpdate: string): string | null {
@@ -123,22 +124,30 @@ function formatToolCallEvent(update: NonNullable<StreamEvent["params"]>["update"
   if (title.length === 0) return null;
 
   const emoji = KIND_EMOJI[kind] ?? "\u{1F527}";
-  const inputSummary = summarizeToolInput(update.rawInput);
+  const inputSummary = summarizeToolInput(update.rawInput, title);
   const status = readString(update, "status");
 
+  // Some agents first emit a placeholder pending tool_call (for example
+  // "Read File" with empty rawInput), then follow up with tool_call_update
+  // carrying the useful file path/command. Do not mark the toolCallId as
+  // emitted until we have something actionable to show.
+  if (!inputSummary && status === "pending") return null;
   if (!inputSummary && isGenericToolTitle(kind, title)) return null;
 
-  const summaryText = inputSummary ? `: ${truncateToolDisplay(inputSummary)}` : "";
+  const summaryText = inputSummary && inputSummary !== title ? `: ${truncateToolDisplay(inputSummary)}` : "";
   const statusText = status ? ` (${status})` : "";
   return `${emoji} ${title}${statusText}${summaryText}`;
 }
 
-function summarizeToolInput(rawInput: unknown): string | undefined {
+function summarizeToolInput(rawInput: unknown, title = ""): string | undefined {
   if (rawInput == null) return undefined;
   if (typeof rawInput === "string" || typeof rawInput === "number" || typeof rawInput === "boolean") {
     return String(rawInput);
   }
   if (!isRecord(rawInput)) return undefined;
+
+  const taskSummary = summarizeTaskInput(rawInput, title);
+  if (taskSummary) return taskSummary;
 
   const command = readFirstString(rawInput, ["command", "cmd", "program"]);
   const args = readFirstStringArray(rawInput, ["args", "arguments"]);
@@ -164,6 +173,7 @@ function summarizeToolInput(rawInput: unknown): string | undefined {
     "file",
     "filePath",
     "filepath",
+    "file_path",
     "target",
     "uri",
     "url",
@@ -174,6 +184,16 @@ function summarizeToolInput(rawInput: unknown): string | undefined {
     "name",
     "description",
   ]);
+}
+
+function summarizeTaskInput(rawInput: Record<string, unknown>, title: string): string | undefined {
+  const subagentType = readFirstString(rawInput, ["subagent_type", "subagentType", "agent", "agentType"]);
+  const description = readFirstString(rawInput, ["description", "task", "summary"]);
+  if (subagentType && description) {
+    return description === title ? subagentType : `${subagentType}: ${description}`;
+  }
+  if (subagentType) return subagentType;
+  return undefined;
 }
 
 function readFirstString(record: Record<string, unknown>, keys: readonly string[]): string | undefined {
