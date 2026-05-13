@@ -83,13 +83,15 @@ export interface MessageChannelRuntime {
 // events sharing the same toolCallId into a single render step.
 
 export type ToolUseStatus = "running" | "success" | "error";
-export type ToolUseKind = "read" | "search" | "execute" | "edit" | "other";
+// Matches the kinds emitted by acpx via streaming-prompt.ts KIND_EMOJI.
+// Any kind the transport doesn't recognize maps to "other".
+export type ToolUseKind = "read" | "search" | "execute" | "edit" | "think" | "other";
 
 export interface ToolUseEvent {
   toolCallId: string;
   /** Free-form tool name from the agent (e.g. "Read File", "Bash"). */
   toolName: string;
-  /** Coarse classifier used to pick an icon. */
+  /** Coarse classifier produced by the transport from the agent's tool kind; channels use it to pick an icon. */
   kind: ToolUseKind;
   /** Best-effort one-line summary derived from `rawInput`. */
   summary?: string;
