@@ -19,6 +19,8 @@ import {
   type OutboundQueueStrategy,
 } from "./outbound-queue.js";
 import { chunkMarkdownAware } from "./markdown-chunker.js";
+import { formatQuoteContext, isQuoteRepliedToBot, parseQuoteFromCloudCustomData } from "./quote.js";
+import { GroupHistoryStore, formatGroupHistoryContext } from "./group-history.js";
 
 type OrchestrationTaskRecord = Parameters<MessageChannelRuntime["notifyTaskCompletion"]>[0];
 
@@ -42,11 +44,14 @@ export class YuanbaoChannel implements MessageChannelRuntime {
   private abortSignal: AbortSignal | null = null;
   private readonly dedup = new MessageDedup();
   private readonly replyQuoteSent = new ReplyQuoteCache();
+  private readonly groupHistory: GroupHistoryStore;
   private markDelivered: OrchestrationDeliveryCallbacks["markTaskNoticeDelivered"] | null = null;
   private markFailed: OrchestrationDeliveryCallbacks["markTaskNoticeFailed"] | null = null;
 
   constructor(options: Record<string, unknown> | undefined, private readonly deps: YuanbaoChannelDeps = {}) {
     this.config = parseYuanbaoChannelConfig(options);
+    const maxHistory = this.config.accounts.reduce((m, a) => Math.max(m, a.historyLimit), 0);
+    this.groupHistory = new GroupHistoryStore({ perGroupLimit: maxHistory });
   }
 
   isLoggedIn(): boolean {
@@ -64,6 +69,7 @@ export class YuanbaoChannel implements MessageChannelRuntime {
     this.abortSignal = null;
     this.dedup.dispose();
     this.replyQuoteSent.clear();
+    this.groupHistory.clear();
   }
 
   private isAborted(): boolean {
@@ -261,19 +267,49 @@ export class YuanbaoChannel implements MessageChannelRuntime {
     if (!target) return;
 
     const extracted = extractYuanbaoContent(raw.msg_body, account.botId);
-    const isAtBot = input.isAtBot ?? extracted.isAtBot;
+    const quote = parseQuoteFromCloudCustomData(raw.cloud_custom_data);
+    const replyToBot = isQuoteRepliedToBot(quote, account.botId);
+    const isAtBot = (input.isAtBot ?? extracted.isAtBot) || replyToBot;
     if (!extracted.text.trim()) return;
     const knownCommand = this.agent.isKnownCommand?.(extracted.text) ?? false;
-    if (input.chatType === "group" && account.requireMention && !isAtBot && !knownCommand) return;
+    const addressed = isAtBot || knownCommand || input.chatType === "direct" || !account.requireMention;
 
     const chatKey = buildYuanbaoChatKey(account.accountId, input.chatType, target);
     const messageId = raw.msg_id || raw.msg_key || (raw.msg_seq !== undefined ? String(raw.msg_seq) : undefined);
+
+    if (input.chatType === "group" && !addressed) {
+      if (account.historyLimit > 0) {
+        const ts = typeof raw.msg_time === "number" && raw.msg_time > 0
+          ? raw.msg_time * 1000
+          : Date.now();
+        const entry: import("./group-history.js").GroupHistoryEntry = {
+          senderId: fromAccount,
+          text: extracted.text,
+          timestamp: ts,
+          ...(raw.sender_nickname ? { senderName: raw.sender_nickname } : {}),
+          ...(messageId ? { messageId } : {}),
+        };
+        this.groupHistory.record(account.accountId, target, entry);
+      }
+      return;
+    }
+
     if (messageId && !this.dedup.tryRecord(messageId, chatKey)) {
       await this.logger.info("yuanbao.message.duplicate", "skipping duplicate yuanbao message", { messageId, chatKey });
       return;
     }
 
     if (this.isAborted()) return;
+
+    const history = input.chatType === "group" && account.historyLimit > 0
+      ? this.groupHistory.consume(account.accountId, target)
+      : [];
+    const promptText = buildPromptText({
+      history,
+      quote,
+      replyToBot,
+      message: extracted.text,
+    });
 
     const run = enqueueYuanbaoChatTask({
       chatKey,
@@ -298,7 +334,7 @@ export class YuanbaoChannel implements MessageChannelRuntime {
           const response = await this.agent.chat({
             accountId: account.accountId,
             conversationId: chatKey,
-            text: extracted.text,
+            text: promptText,
             replyContextToken: messageId,
             ...(this.abortSignal ? { abortSignal: this.abortSignal } : {}),
             metadata: {
@@ -402,4 +438,23 @@ export class YuanbaoChannel implements MessageChannelRuntime {
       },
     });
   }
+}
+
+interface BuildPromptInput {
+  history: import("./group-history.js").GroupHistoryEntry[];
+  quote: import("./quote.js").YuanbaoQuoteInfo | undefined;
+  replyToBot: boolean;
+  message: string;
+}
+
+function buildPromptText(input: BuildPromptInput): string {
+  const parts: string[] = [];
+  const history = formatGroupHistoryContext(input.history);
+  if (history) parts.push(history);
+  // Suppress the quote block when the quoted message is the bot's own reply
+  // (chat-key conversation history already carries that turn), but keep it
+  // when someone quotes a user message — that's new context for the agent.
+  if (input.quote && !input.replyToBot) parts.push(formatQuoteContext(input.quote));
+  parts.push(input.message);
+  return parts.join("\n\n");
 }
