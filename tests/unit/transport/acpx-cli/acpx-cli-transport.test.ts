@@ -396,7 +396,7 @@ process.stdout.write(lines.join("\\n") + "\\n");
         },
       });
 
-      expect(observed).toEqual(["progress update", "Final answer"]);
+      expect(observed).toEqual(["progress update", "🔧 Read file", "Final answer"]);
       expect(result).toEqual({ text: "Final answer" });
     },
   );

@@ -21,6 +21,7 @@ import { parseCoordinatorWorkspace } from "./mcp/parse-coordinator-workspace";
 import { parseCoordinatorSession } from "./mcp/parse-coordinator-session";
 import { parseSourceHandle } from "./mcp/parse-source-handle";
 import { resolveDefaultOrchestrationEndpoint } from "./mcp/resolve-endpoint";
+import { createOrchestrationTransport } from "./mcp/weacpx-mcp-transport";
 import { OrchestrationClient } from "./orchestration/orchestration-client";
 import { basenameForWorkspacePath, normalizeWorkspacePath, sameWorkspacePath } from "./commands/workspace-path";
 import { StateStore } from "./state/state-store";
@@ -587,6 +588,7 @@ async function defaultMcpStdio(
   let coordinatorSession: string;
   let sourceHandle: string | null;
   let endpoint: ReturnType<typeof resolveDefaultOrchestrationEndpoint>;
+  let transport!: ReturnType<typeof createOrchestrationTransport>;
   let identityResolver: Parameters<typeof runWeacpxMcpServer>[0]["resolveIdentity"] | undefined;
   let availableAgents: string[] | undefined;
   try {
@@ -595,6 +597,7 @@ async function defaultMcpStdio(
     const workspace = parseCoordinatorWorkspace(args, process.env);
     endpoint = resolveDefaultOrchestrationEndpoint(process.env, process.platform);
     const client = new OrchestrationClient(endpoint);
+    transport = createOrchestrationTransport(endpoint, { client });
     const runtimePaths = (await import("./main")).resolveRuntimePaths();
     await ensureConfigExists(runtimePaths.configPath);
     const config = await loadConfig(runtimePaths.configPath);
@@ -608,7 +611,7 @@ async function defaultMcpStdio(
       state,
       client,
     });
-    const eagerIdentity = parsedCoordinatorSession && workspace
+    const eagerIdentity = parsedCoordinatorSession
       ? await resolveIdentity({ clientName: undefined, listRoots: async () => [] })
       : null;
     coordinatorSession = eagerIdentity?.coordinatorSession ?? "";
@@ -621,7 +624,7 @@ async function defaultMcpStdio(
   }
 
   await runWeacpxMcpServer({
-    endpoint,
+    transport,
     ...(coordinatorSession ? { coordinatorSession } : {}),
     ...(sourceHandle ? { sourceHandle } : {}),
     ...(identityResolver ? { resolveIdentity: identityResolver } : {}),

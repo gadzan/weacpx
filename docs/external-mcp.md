@@ -256,6 +256,12 @@ sequenceDiagram
 
 `task_get` / `task_list` / `task_wait` 不需要 `workingDirectory`，因为它们查的是 coordinator 名下的任务，不是新开 worker。
 
+## `sourceHandle` 的复用规则
+
+对 coordinator 侧工具调用来说，如果 MCP host 没有显式绑定 `--source-handle`，weacpx 会把 `coordinatorSession` 复用为 `sourceHandle`。这是有意设计：对于 coordinator 发起的请求，这两个标识本来就指向同一个 session 身份。
+
+只有 worker 侧的 `worker_raise_question` 需要一个单独绑定的 `sourceHandle`；如果 host 没有提供绑定，它会直接失败，而不会静默回退。
+
 ## 故障排查
 
 ### `cannot infer workspace from MCP roots`

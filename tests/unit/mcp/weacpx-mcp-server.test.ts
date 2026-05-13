@@ -263,7 +263,7 @@ test("worker_raise_question uses host-bound sourceHandle and still rejects spoof
       },
     ]);
     expect(result).toMatchObject({
-      content: [{ type: "text", text: "任务「task-1」已提交 blocker 问题。\n- questionId：question-1" }],
+      content: [{ type: "text", text: "Blocker question submitted for task \"task-1\".\n- questionId: question-1" }],
       structuredContent: { taskId: "task-1", questionId: "question-1", status: "blocked" },
     });
 
@@ -409,7 +409,7 @@ test("delegates through the MCP server and rejects spoofed sourceHandle params",
       },
     ]);
     expect(result).toMatchObject({
-      content: [{ type: "text", text: "Delegation task task-9 is needs_confirmation." }],
+      content: [{ type: "text", text: "Delegation task \"task-9\" created.\n- Status: needs_confirmation" }],
       structuredContent: { taskId: "task-9", status: "needs_confirmation" },
     });
 

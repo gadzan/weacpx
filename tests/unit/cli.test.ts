@@ -987,6 +987,30 @@ test("mcp-stdio returns a controlled startup error when coordinator session flag
   expect(stderr).toEqual(["--coordinator-session requires a non-empty value\n"]);
 });
 
+test("mcp-stdio eagerly fails when an explicit coordinator session cannot register", async () => {
+  const stderr: string[] = [];
+  const previousSocket = process.env.WEACPX_ORCHESTRATION_SOCKET;
+  process.env.WEACPX_ORCHESTRATION_SOCKET = "/tmp/weacpx-missing-orchestration.sock";
+
+  try {
+    await expect(
+      runCli(["mcp-stdio", "--coordinator-session", "codex:backend"], {
+        stderr: (text) => {
+          stderr.push(text);
+        },
+      }),
+    ).resolves.toBe(2);
+  } finally {
+    if (previousSocket === undefined) {
+      delete process.env.WEACPX_ORCHESTRATION_SOCKET;
+    } else {
+      process.env.WEACPX_ORCHESTRATION_SOCKET = previousSocket;
+    }
+  }
+
+  expect(stderr.join("")).toContain("weacpx daemon orchestration IPC is unavailable");
+});
+
 test("mcp-stdio without coordinator session starts with a process-scoped external identity", async () => {
   const stderr: string[] = [];
 

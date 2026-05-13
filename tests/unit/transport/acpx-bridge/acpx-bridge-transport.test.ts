@@ -41,6 +41,9 @@ test("proxies ensureSession through the bridge client", async () => {
     agentCommand: "./node_modules/.bin/codex-acp",
     cwd: "/tmp/backend",
     name: "backend:api-fix",
+    mcpCoordinatorSession: undefined,
+    mcpSourceHandle: undefined,
+    replyMode: "verbose",
   }, undefined);
 });
 
@@ -198,6 +201,9 @@ test("proxies setMode through the bridge client", async () => {
     cwd: "/tmp/backend",
     name: "backend:api-fix",
     modeId: "plan",
+    mcpCoordinatorSession: undefined,
+    mcpSourceHandle: undefined,
+    replyMode: "verbose",
   });
 });
 

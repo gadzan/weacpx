@@ -158,6 +158,10 @@ export function createOrchestrationTransport(
 
   return {
     delegateRequest: async (input) =>
+      // For coordinator-side tool calls, coordinatorSession is the actual
+      // source identity. The CLI may also pass an explicit sourceHandle, but
+      // falling back to coordinatorSession keeps the transport contract aligned
+      // with the orchestration server's coordinator identity model.
       await client.delegateRequest({
         sourceHandle: input.sourceHandle ?? input.coordinatorSession,
         targetAgent: input.targetAgent,

@@ -62,6 +62,7 @@ test("builds 16 MCP tools and appends blocker-loop actions after the original or
 
   const delegateTool = registry.find((tool) => tool.name === "delegate_request");
   expect(delegateTool).toBeDefined();
+  expect(delegateTool?.description).toContain("workingDirectory");
   expect(
     delegateTool?.inputSchema.safeParse({
       sourceHandle: "spoofed",
@@ -95,6 +96,7 @@ test("builds 16 MCP tools and appends blocker-loop actions after the original or
   expect(taskListTool?.inputSchema.safeParse({ status: "waiting_for_human" }).success).toBe(true);
   const taskWaitTool = registry.find((tool) => tool.name === "task_wait");
   expect(taskWaitTool).toBeDefined();
+  expect(taskWaitTool?.description).toContain("Defaults: timeout 300000 ms");
   expect(taskWaitTool?.inputSchema.safeParse({ taskId: "task-1", timeoutMs: 1000, pollIntervalMs: 50 }).success).toBe(true);
   expect(taskWaitTool?.inputSchema.safeParse({ taskId: "task-1", timeoutMs: 1_200_000 }).success).toBe(true);
   expect(taskWaitTool?.inputSchema.safeParse({ taskId: "task-1", timeoutMs: 1_200_001 }).success).toBe(false);
@@ -141,7 +143,7 @@ test("builds 16 MCP tools and appends blocker-loop actions after the original or
     },
   ]);
   expect(response).toEqual({
-    content: [{ type: "text", text: "Delegation task task-9 is needs_confirmation." }],
+    content: [{ type: "text", text: "Delegation task \"task-9\" created.\n- Status: needs_confirmation" }],
     structuredContent: { taskId: "task-9", status: "needs_confirmation" },
   });
   expect(waitResponse).toEqual({
@@ -149,7 +151,7 @@ test("builds 16 MCP tools and appends blocker-loop actions after the original or
     structuredContent: { status: "timeout", task: null },
   });
   expect(workerResponse).toEqual({
-    content: [{ type: "text", text: "任务「task-1」已提交 blocker 问题。\n- questionId：question-1" }],
+    content: [{ type: "text", text: "Blocker question submitted for task \"task-1\".\n- questionId: question-1" }],
     structuredContent: { taskId: "task-1", questionId: "question-1", status: "blocked" },
   });
 });

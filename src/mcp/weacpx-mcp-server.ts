@@ -20,7 +20,7 @@ import { buildWeacpxMcpToolRegistry } from "./weacpx-mcp-tools";
 import { createOrchestrationTransport, type WeacpxMcpTransport } from "./weacpx-mcp-transport";
 
 export interface WeacpxMcpServerOptions {
-  transport: WeacpxMcpTransport;
+  transport?: WeacpxMcpTransport;
   coordinatorSession?: string;
   sourceHandle?: string;
   resolveIdentity?: (context: WeacpxMcpIdentityResolutionContext) => Promise<WeacpxMcpIdentity>;
@@ -61,6 +61,9 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
     }
     toolStatePromise = resolveMcpIdentity(server, options)
       .then((identity) => {
+        if (!options.transport) {
+          throw new Error("weacpx MCP transport is not configured");
+        }
         toolState = buildToolState({
           transport: options.transport,
           coordinatorSession: identity.coordinatorSession,
@@ -104,7 +107,7 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
   return server;
 }
 
-function buildToolState(options: WeacpxMcpServerOptions & { coordinatorSession: string }) {
+function buildToolState(options: { transport: WeacpxMcpTransport; coordinatorSession: string; sourceHandle?: string; availableAgents?: string[] }) {
   const tools = buildWeacpxMcpToolRegistry(options);
   return {
     tools,
@@ -133,12 +136,13 @@ async function resolveMcpIdentity(server: Server, options: WeacpxMcpServerOption
 
 export async function runWeacpxMcpServer(options: {
   endpoint?: OrchestrationIpcEndpoint;
+  transport?: WeacpxMcpTransport;
   coordinatorSession?: string;
   sourceHandle?: string;
   resolveIdentity?: WeacpxMcpServerOptions["resolveIdentity"];
   availableAgents?: string[];
 }): Promise<void> {
-  const transport = createOrchestrationTransport(
+  const transport = options.transport ?? createOrchestrationTransport(
     options.endpoint ?? resolveDefaultOrchestrationEndpoint(process.env, process.platform),
   );
   const server = createWeacpxMcpServer({
