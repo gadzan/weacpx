@@ -452,10 +452,18 @@ export class FeishuChannel implements MessageChannelRuntime {
           ...(media.length > 0 ? { media } : {}),
           replyContextToken: messageId,
           reply: safeReply,
-          onToolEvent: (event) => {
-            if (active.suppressed) return;
-            active.cardController?.recordToolEvent(event);
-          },
+          // Only consume the structured tool-event side-channel when we actually
+          // have a card to render into. Without this gate, static-mode turns would
+          // silently drop tool events because the transport's parser would route
+          // them to `onToolEvent` instead of folding them into the text reply
+          // stream — and our `cardController?.recordToolEvent` becomes a no-op when
+          // the controller is null.
+          ...(active.cardController ? {
+            onToolEvent: (event) => {
+              if (active.suppressed) return;
+              active.cardController?.recordToolEvent(event);
+            },
+          } : {}),
           abortSignal: abortController.signal,
         });
         if (active.suppressed) return;

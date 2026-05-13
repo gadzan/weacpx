@@ -355,6 +355,61 @@ test("FeishuChannel falls back to static reply when card.create throws permissio
   expect(grantNotice).toBeTruthy();
 });
 
+test("FeishuChannel in static mode still folds tool calls into the text reply stream", async () => {
+  // Static mode: no card controller, so onToolEvent must NOT be set on the
+  // ChatRequest. Otherwise the transport's streaming-prompt parser would
+  // route tool_call events into the structured side-channel and drop them
+  // (cardController?.recordToolEvent no-ops when controller is null).
+  // Instead, the legacy text-segment path must keep firing — tool calls
+  // arrive as plain text replies.
+  let handlers: Record<string, (data: unknown) => Promise<void> | void> = {};
+  const calls: CapturedCalls = { cardCreate: 0, messageReply: [], messageCreate: [], cardUpdate: [] };
+
+  const staticConfig = { ...streamingConfig, replyMode: "static" as const };
+  const channel = new FeishuChannel(staticConfig, {
+    createClient: () => ({
+      sdk: buildSdk(calls),
+      probeBot: async () => ({ botOpenId: "ou_bot" }),
+      startWS: async (input: { handlers: Record<string, (data: unknown) => Promise<void> | void> }) => {
+        handlers = input.handlers;
+      },
+      stop: () => {},
+    }),
+  });
+
+  let receivedOnToolEvent: unknown = "unset";
+  const agent: ChatAgent = {
+    async chat(request) {
+      // Capture whether the channel passed onToolEvent through. In static
+      // mode the channel must NOT pass it, so the field should be undefined.
+      receivedOnToolEvent = request.onToolEvent;
+      await request.reply?.("📖 Read File: foo.ts");
+      await request.reply?.("final answer");
+      return { text: "" };
+    },
+  };
+
+  await channel.start({
+    agent,
+    abortSignal: new AbortController().signal,
+    quota: createNoopQuota(),
+    logger: createNoopLogger(),
+  });
+  await handlers["im.message.receive_v1"]!(makeTextEvent("om_in", "hi"));
+
+  // The channel must NOT have set onToolEvent on the agent's chat request
+  // when there's no card controller — otherwise tool calls would be silently
+  // dropped by the streaming-prompt parser.
+  expect(receivedOnToolEvent).toBeUndefined();
+  // No card was seeded in static mode.
+  expect(calls.cardCreate).toBe(0);
+  // The simulated tool-call line + final answer arrived as text replies.
+  const textContents = calls.messageReply.map((r) => {
+    try { return (JSON.parse(r.content) as { text?: string }).text ?? ""; } catch { return ""; }
+  });
+  expect(textContents.some((t) => t.includes("Read File"))).toBe(true);
+});
+
 test("FeishuChannel forwards tool events into the streaming card panel", async () => {
   let handlers: Record<string, (data: unknown) => Promise<void> | void> = {};
   const calls: CapturedCalls = { cardCreate: 0, messageReply: [], messageCreate: [], cardUpdate: [] };
