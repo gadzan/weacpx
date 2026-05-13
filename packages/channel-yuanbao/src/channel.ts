@@ -12,6 +12,7 @@ import { createBuiltinYuanbaoGateway } from "./builtin-gateway.js";
 import { normalizeMediaArray } from "./media-types.js";
 import { MessageDedup } from "./message-dedup.js";
 import { enqueueYuanbaoChatTask } from "./chat-queue.js";
+import { ReplyQuoteCache } from "./reply-quote-cache.js";
 
 type OrchestrationTaskRecord = Parameters<MessageChannelRuntime["notifyTaskCompletion"]>[0];
 
@@ -30,8 +31,9 @@ export class YuanbaoChannel implements MessageChannelRuntime {
   private agent: ChannelStartInput["agent"] | null = null;
   private quota: ChannelStartInput["quota"] | null = null;
   private logger: ChannelStartInput["logger"] | null = null;
+  private abortSignal: AbortSignal | null = null;
   private readonly dedup = new MessageDedup();
-  private readonly replyQuoteSent = new Set<string>();
+  private readonly replyQuoteSent = new ReplyQuoteCache();
   private markDelivered: OrchestrationDeliveryCallbacks["markTaskNoticeDelivered"] | null = null;
   private markFailed: OrchestrationDeliveryCallbacks["markTaskNoticeFailed"] | null = null;
 
@@ -51,8 +53,13 @@ export class YuanbaoChannel implements MessageChannelRuntime {
   logout(): void {
     this.gateway?.stop?.();
     this.gateway = null;
+    this.abortSignal = null;
     this.dedup.dispose();
     this.replyQuoteSent.clear();
+  }
+
+  private isAborted(): boolean {
+    return Boolean(this.abortSignal?.aborted);
   }
 
   configureOrchestration(callbacks: OrchestrationDeliveryCallbacks): void {
@@ -64,6 +71,7 @@ export class YuanbaoChannel implements MessageChannelRuntime {
     this.agent = input.agent;
     this.quota = input.quota;
     this.logger = input.logger;
+    this.abortSignal = input.abortSignal;
     this.gateway = await this.resolveGateway();
     const accounts = this.config.accounts.filter((account) => account.enabled && account.configured);
     await input.logger.info("yuanbao.start", "starting yuanbao channel", { accounts: accounts.map((account) => account.accountId).join(",") });
@@ -77,6 +85,7 @@ export class YuanbaoChannel implements MessageChannelRuntime {
 
   async notifyTaskCompletion(task: OrchestrationTaskRecord): Promise<void> {
     if (!task.chatKey) return;
+    if (this.isAborted()) return;
     try {
       const delivered = await this.sendRouteText(task.chatKey, task.replyContextToken, task.resultText || task.summary || "任务已完成。");
       if (this.markDelivered) await this.markDelivered(task.taskId, task.accountId || delivered.accountId);
@@ -91,10 +100,12 @@ export class YuanbaoChannel implements MessageChannelRuntime {
 
   async notifyTaskProgress(task: OrchestrationTaskRecord, text: string): Promise<void> {
     if (!task.chatKey) return;
+    if (this.isAborted()) return;
     await this.sendRouteText(task.chatKey, task.replyContextToken, text);
   }
 
   async sendCoordinatorMessage(input: CoordinatorMessageInput): Promise<void> {
+    if (this.isAborted()) return;
     await this.sendRouteText(input.chatKey, input.replyContextToken, input.text);
   }
 
@@ -149,6 +160,11 @@ export class YuanbaoChannel implements MessageChannelRuntime {
     return input.replyContextToken;
   }
 
+  /** Test/diagnostic helper. */
+  getReplyQuoteCacheSizeForTests(): number {
+    return this.replyQuoteSent.size();
+  }
+
   private async sendTextChunks(input: {
     account: YuanbaoResolvedAccountConfig;
     chatType: "direct" | "group";
@@ -160,6 +176,7 @@ export class YuanbaoChannel implements MessageChannelRuntime {
     const routeKey = buildYuanbaoChatKey(input.account.accountId, input.chatType, input.target);
     const chunks = this.splitText(input.account, input.text);
     for (const chunk of chunks) {
+      if (this.isAborted()) return;
       await this.gateway.sendText({
         account: input.account,
         chatType: input.chatType,
@@ -252,10 +269,13 @@ export class YuanbaoChannel implements MessageChannelRuntime {
       return;
     }
 
+    if (this.isAborted()) return;
+
     const run = enqueueYuanbaoChatTask({
       chatKey,
       task: async () => {
         if (!this.agent || !this.quota || !this.gateway || !this.logger) return;
+        if (this.isAborted()) return;
         this.quota.onInbound(chatKey);
         let sentContent = false;
         const heartbeat = this.createReplyHeartbeat({
@@ -271,6 +291,7 @@ export class YuanbaoChannel implements MessageChannelRuntime {
             conversationId: chatKey,
             text: extracted.text,
             replyContextToken: messageId,
+            ...(this.abortSignal ? { abortSignal: this.abortSignal } : {}),
             metadata: {
               channel: "yuanbao",
               chatType: input.chatType,
@@ -280,10 +301,13 @@ export class YuanbaoChannel implements MessageChannelRuntime {
               isOwner: Boolean(raw.bot_owner_id && raw.from_account === raw.bot_owner_id),
             },
             reply: async (text) => {
+              if (this.isAborted()) return;
               await this.sendTextChunks({ account, chatType: input.chatType, target, text, replyContextToken: messageId });
               if (text.trim()) sentContent = true;
             },
           });
+
+          if (this.isAborted()) return;
 
           const finalText = response.text?.trim() ? response.text : sentContent ? "" : account.fallbackReply;
           if (finalText.trim()) {
