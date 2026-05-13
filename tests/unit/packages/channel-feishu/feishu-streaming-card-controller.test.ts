@@ -356,7 +356,11 @@ test("recalled (230011) update errors do not count as failures", async () => {
 
 test("subsequent streaming pushes use cardElement.content (not full card.update)", async () => {
   const { client, calls } = createFakeClient();
-  const controller = new StreamingCardController({ client, flushIntervalMs: 10 });
+  // Pin clock so the streaming footer label ("Xms"/"X.Ys") stays in the same
+  // bucket between pushes — otherwise the footerChanged guard would force a
+  // full card.update each tick and the fast-path would never engage. We're
+  // proving the fast-path works when nothing visible has changed.
+  const controller = new StreamingCardController({ client, flushIntervalMs: 10, now: () => 1_000 });
   await controller.seed({ to: "oc_chat" });
 
   controller.appendStream("first");
@@ -663,4 +667,30 @@ test("firing shutdown on a completed controller is a no-op", async () => {
   await fireShutdownHooksForTests();
   // No additional updates after the hook fires — controller already terminal.
   expect(calls.cardUpdate.length).toBe(updatesBefore);
+});
+
+test("streaming pushUpdate carries elapsed footer that ticks with time", async () => {
+  const { client, calls } = createFakeClient();
+  let t = 0;
+  const controller = new StreamingCardController({ client, flushIntervalMs: 10, now: () => t });
+  t = 1_000;
+  await controller.seed({ to: "oc_chat" });
+
+  t = 3_500; // 2.5s after seed
+  controller.appendStream("first");
+  await new Promise((r) => setTimeout(r, 30));
+
+  // First push (thinking→streaming) goes through card.update; assert footer.
+  const firstFull = calls.cardUpdate[calls.cardUpdate.length - 1];
+  const elements = (firstFull.cardJson.body as { elements: Array<{ content?: string }> }).elements;
+  const footer = elements[elements.length - 1];
+  expect(footer.content).toContain("2.5s");
+
+  // Time jumps; new push should ALSO be a full card.update (footer changed
+  // from "2.5s" to "10.0s"), not a fast-path elementContent call.
+  t = 11_000;
+  const fullBefore = calls.cardUpdate.length;
+  controller.appendStream("second");
+  await new Promise((r) => setTimeout(r, 30));
+  expect(calls.cardUpdate.length).toBeGreaterThan(fullBefore);
 });

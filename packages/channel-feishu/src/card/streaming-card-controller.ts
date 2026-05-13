@@ -6,6 +6,7 @@ import {
   STREAMING_ELEMENT_ID,
   buildCard,
   buildCardMessageContent,
+  formatElapsedMs,
   truncateForCardBody,
   type CardState,
 } from "./card-builder.js";
@@ -129,6 +130,7 @@ export class StreamingCardController {
   private state: CardState = "thinking";
   private lastPushedState: CardState | null = null;
   private lastPushedHadReasoning = false;
+  private lastFooterText: string | null = null;
   private terminated = false;
   private seededAtMs = 0;
   private degraded = false;
@@ -363,11 +365,16 @@ export class StreamingCardController {
     // content fast-path can detect structural changes that require full update.
     const reasoningChanged = hasReasoning !== this.lastPushedHadReasoning;
 
+    const elapsedMs = this.seededAtMs > 0 ? this.now() - this.seededAtMs : undefined;
+    const currentFooterText = computeFooterText(this.state, elapsedMs);
+    const footerChanged = currentFooterText !== this.lastFooterText;
+
     const elementApi = this.client.cardkit.v1.cardElement;
     if (
       this.state === "streaming" &&
       this.lastPushedState === "streaming" &&
       !reasoningChanged &&
+      !footerChanged &&
       elementApi
     ) {
       const seq = this.sequence++;
@@ -384,12 +391,10 @@ export class StreamingCardController {
       }
     }
 
-    const elapsedMs = this.seededAtMs > 0 ? this.now() - this.seededAtMs : undefined;
-    const showElapsed = this.state === "complete" || this.state === "aborted" || this.state === "error";
     const card = buildCard({
       state: this.state,
       text: rendered,
-      ...(showElapsed && elapsedMs !== undefined ? { elapsedMs } : {}),
+      ...(elapsedMs !== undefined ? { elapsedMs } : {}),
       ...(reasoningRendered ? { reasoningText: reasoningRendered } : {}),
       ...(this.cardBodyMaxChars !== undefined ? { maxBodyChars: this.cardBodyMaxChars } : {}),
     });
@@ -401,6 +406,7 @@ export class StreamingCardController {
       });
       this.lastPushedState = this.state;
       this.lastPushedHadReasoning = hasReasoning;
+      this.lastFooterText = currentFooterText;
     } catch (error) {
       // 230011/231003 mean the message is gone — that's a terminal "success"
       // for our purposes; don't count it as a failure (the user couldn't see
@@ -411,4 +417,9 @@ export class StreamingCardController {
       throw error;
     }
   }
+}
+
+function computeFooterText(state: CardState, elapsedMs: number | undefined): string {
+  if (elapsedMs === undefined) return state;
+  return `${state}|${formatElapsedMs(elapsedMs)}`;
 }
