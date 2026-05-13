@@ -462,7 +462,7 @@ async function promptWithSession(
     accountId,
   );
   try {
-    const replyContext = transportReply && context.quota
+    const replyContext = transportReply && context.quota && getChannelIdFromChatKey(chatKey) === "weixin"
       ? { chatKey, quota: context.quota }
       : undefined;
     const result = await context.interaction.promptTransportSession(

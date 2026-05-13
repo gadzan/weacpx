@@ -4,9 +4,11 @@ import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { CommandRouter } from "../../../src/commands/command-router";
 import { registerKnownChannelId } from "../../../src/channels/channel-scope";
+import { QuotaManager } from "../../../src/weixin/messaging/quota-manager";
 
 beforeAll(() => {
   registerKnownChannelId("feishu");
+  registerKnownChannelId("yuanbao");
 });
 import { normalizeWorkspacePath } from "../../../src/commands/workspace-path";
 import { MissingOptionalDepError, AutoInstallFailedError } from "../../../src/recovery/errors";
@@ -18,6 +20,7 @@ import {
   createConfig,
   createEmptyState,
   createTransport,
+  getPromptMock,
   getSetModeMock,
 } from "./command-router-test-support";
 
@@ -673,6 +676,31 @@ test("reply reaches ensureTransportSession via /session reset", async () => {
   });
 
   expect(replies.some((m) => m.includes("正在启动"))).toBe(true);
+});
+
+test("weixin prompts pass reply quota context to the transport", async () => {
+  const { sessions, transport } = buildRouter();
+  const router = new CommandRouter(sessions, transport, undefined, undefined, undefined, undefined, undefined, new QuotaManager());
+
+  await router.handle("weixin:default:wxid_alice", "/session new demo --agent codex --ws backend");
+  await router.handle("weixin:default:wxid_alice", "hello", async () => {});
+
+  expect(getPromptMock(transport).mock.calls.at(-1)?.[3]).toMatchObject({
+    chatKey: "weixin:default:wxid_alice",
+  });
+});
+
+test.each([
+  ["feishu:default:oc_chat", "feishu"],
+  ["yuanbao:default:group:group_001", "yuanbao"],
+])("non-weixin prompts do not pass reply quota context (%s)", async (chatKey) => {
+  const { sessions, transport } = buildRouter();
+  const router = new CommandRouter(sessions, transport, undefined, undefined, undefined, undefined, undefined, new QuotaManager());
+
+  await router.handle(chatKey, "/session new demo --agent codex --ws backend");
+  await router.handle(chatKey, "hello", async () => {});
+
+  expect(getPromptMock(transport).mock.calls.at(-1)?.[3]).toBeUndefined();
 });
 
 test("feishu session shortcut creates scoped internal alias but displays plain alias", async () => {
