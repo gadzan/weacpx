@@ -117,7 +117,12 @@ test("reply callback skips sending after abort fires mid-turn", async () => {
     start: async (input) => { startInput = input; },
     sendText: async (input) => { sent.push(input.text); },
   };
-  const channel = new YuanbaoChannel(defaultYuanbaoConfig, { createGateway: () => gateway });
+  // immediate strategy so each reply() sends right away — lets us assert
+  // that "first" goes out but "second" does not after abort fires.
+  const channel = new YuanbaoChannel(
+    { ...defaultYuanbaoConfig, outboundQueueStrategy: "immediate" },
+    { createGateway: () => gateway },
+  );
   const controller = new AbortController();
   const agent: ChatAgent = {
     async chat(request) {

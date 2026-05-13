@@ -168,7 +168,7 @@ function resolveAccount(accountId: string, base: Record<string, unknown>, overri
     outboundQueueStrategy: enumValue(merged.outboundQueueStrategy, `${path}.outboundQueueStrategy`, ["immediate", "merge-text"], "merge-text"),
     minChars: positiveNumber(merged.minChars, `${path}.minChars`, 2800),
     maxChars: positiveNumber(merged.maxChars, `${path}.maxChars`, 3000),
-    idleMs: positiveNumber(merged.idleMs, `${path}.idleMs`, 5000),
+    idleMs: nonNegativeNumber(merged.idleMs, `${path}.idleMs`, 5000),
     mediaMaxMb: positiveNumber(merged.mediaMaxMb, `${path}.mediaMaxMb`, 20),
     historyLimit: nonNegativeNumber(merged.historyLimit, `${path}.historyLimit`, 100),
     disableBlockStreaming: booleanOptional(merged.disableBlockStreaming, `${path}.disableBlockStreaming`) ?? false,

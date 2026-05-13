@@ -13,6 +13,12 @@ import { normalizeMediaArray } from "./media-types.js";
 import { MessageDedup } from "./message-dedup.js";
 import { enqueueYuanbaoChatTask } from "./chat-queue.js";
 import { ReplyQuoteCache } from "./reply-quote-cache.js";
+import {
+  createOutboundQueueSession,
+  type OutboundQueueScheduler,
+  type OutboundQueueStrategy,
+} from "./outbound-queue.js";
+import { chunkMarkdownAware } from "./markdown-chunker.js";
 
 type OrchestrationTaskRecord = Parameters<MessageChannelRuntime["notifyTaskCompletion"]>[0];
 
@@ -22,6 +28,8 @@ const REPLY_HEARTBEAT_INTERVAL_MS = 2_000;
 
 export interface YuanbaoChannelDeps {
   createGateway?: YuanbaoGatewayFactory;
+  /** Test hook: override the outbound queue's idle-timer scheduler. */
+  outboundSchedule?: OutboundQueueScheduler;
 }
 
 export class YuanbaoChannel implements MessageChannelRuntime {
@@ -140,11 +148,7 @@ export class YuanbaoChannel implements MessageChannelRuntime {
     if (account.overflowPolicy === "stop") {
       throw new Error(`Yuanbao outbound text exceeds channel.options.maxChars (${account.maxChars})`);
     }
-    const chunks: string[] = [];
-    for (let index = 0; index < text.length; index += account.maxChars) {
-      chunks.push(text.slice(index, index + account.maxChars));
-    }
-    return chunks;
+    return chunkMarkdownAware(text, account.maxChars);
   }
 
   private resolveReplyContextToken(input: {
@@ -277,12 +281,17 @@ export class YuanbaoChannel implements MessageChannelRuntime {
         if (!this.agent || !this.quota || !this.gateway || !this.logger) return;
         if (this.isAborted()) return;
         this.quota.onInbound(chatKey);
-        let sentContent = false;
         const heartbeat = this.createReplyHeartbeat({
           account,
           chatType: input.chatType,
           target,
           originalSenderAccount: fromAccount,
+        });
+        const queue = this.createTurnQueue({
+          account,
+          chatType: input.chatType,
+          target,
+          replyContextToken: messageId,
         });
         try {
           heartbeat.start();
@@ -302,28 +311,95 @@ export class YuanbaoChannel implements MessageChannelRuntime {
             },
             reply: async (text) => {
               if (this.isAborted()) return;
-              await this.sendTextChunks({ account, chatType: input.chatType, target, text, replyContextToken: messageId });
-              if (text.trim()) sentContent = true;
+              await queue.push(text);
             },
           });
 
-          if (this.isAborted()) return;
-
-          const finalText = response.text?.trim() ? response.text : sentContent ? "" : account.fallbackReply;
-          if (finalText.trim()) {
-            await this.sendTextChunks({ account, chatType: input.chatType, target, text: finalText, replyContextToken: messageId });
-            sentContent = true;
+          if (this.isAborted()) {
+            queue.abort();
+            return;
           }
+
+          const responseText = response.text ?? "";
+          if (responseText) await queue.push(responseText);
+          const flushed = await queue.flush();
+          let sentContent = flushed.sentContent;
+
+          if (!sentContent && account.fallbackReply.trim() && !this.isAborted()) {
+            const fallbackQueue = this.createTurnQueue({
+              account,
+              chatType: input.chatType,
+              target,
+              replyContextToken: messageId,
+              forceStrategy: "immediate",
+            });
+            try {
+              await fallbackQueue.push(account.fallbackReply);
+              const r = await fallbackQueue.flush();
+              sentContent = r.sentContent;
+            } catch (error) {
+              await this.logger.error("yuanbao.fallback.failed", "failed to send yuanbao fallback reply", {
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
+
           const media = normalizeMediaArray(response.media);
           if (media.length > 0) {
             await this.logger.error("yuanbao.media.unsupported", "yuanbao outbound media is not supported by the current gateway adapter", { count: media.length });
           }
-        } finally {
+
           if (sentContent) heartbeat.finish();
           else heartbeat.stop();
+        } catch (error) {
+          queue.abort();
+          heartbeat.stop();
+          throw error;
         }
       },
     });
     await run.promise;
+  }
+
+  private createTurnQueue(input: {
+    account: YuanbaoResolvedAccountConfig;
+    chatType: "direct" | "group";
+    target: string;
+    replyContextToken?: string;
+    forceStrategy?: OutboundQueueStrategy;
+  }): ReturnType<typeof createOutboundQueueSession> {
+    const account = input.account;
+    const routeKey = buildYuanbaoChatKey(account.accountId, input.chatType, input.target);
+    const strategy: OutboundQueueStrategy =
+      input.forceStrategy
+      ?? (account.disableBlockStreaming ? "merge-on-flush" : account.outboundQueueStrategy);
+    return createOutboundQueueSession({
+      strategy,
+      minChars: account.minChars,
+      maxChars: account.maxChars,
+      idleMs: account.idleMs,
+      isAborted: () => this.isAborted(),
+      ...(this.deps.outboundSchedule ? { schedule: this.deps.outboundSchedule } : {}),
+      chunkText: (text, maxChars) => {
+        if (account.overflowPolicy === "stop" && text.length > maxChars) {
+          throw new Error(`Yuanbao outbound text exceeds channel.options.maxChars (${maxChars})`);
+        }
+        return chunkMarkdownAware(text, maxChars);
+      },
+      sendText: async (text) => {
+        if (!this.gateway) throw new Error("YuanbaoChannel.start() must be called before delivery");
+        await this.gateway.sendText({
+          account,
+          chatType: input.chatType,
+          target: input.target,
+          text,
+          replyContextToken: this.resolveReplyContextToken({
+            account,
+            routeKey,
+            replyContextToken: input.replyContextToken,
+          }),
+        });
+      },
+    });
   }
 }
