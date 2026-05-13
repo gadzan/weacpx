@@ -452,6 +452,10 @@ export class FeishuChannel implements MessageChannelRuntime {
           ...(media.length > 0 ? { media } : {}),
           replyContextToken: messageId,
           reply: safeReply,
+          onToolEvent: (event) => {
+            if (active.suppressed) return;
+            active.cardController?.recordToolEvent(event);
+          },
           abortSignal: abortController.signal,
         });
         if (active.suppressed) return;

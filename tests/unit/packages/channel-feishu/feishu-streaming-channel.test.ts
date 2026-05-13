@@ -354,3 +354,46 @@ test("FeishuChannel falls back to static reply when card.create throws permissio
   const grantNotice = calls.messageCreate.find((c) => c.msgType === "text" && c.content.includes("cardkit:card:write"));
   expect(grantNotice).toBeTruthy();
 });
+
+test("FeishuChannel forwards tool events into the streaming card panel", async () => {
+  let handlers: Record<string, (data: unknown) => Promise<void> | void> = {};
+  const calls: CapturedCalls = { cardCreate: 0, messageReply: [], messageCreate: [], cardUpdate: [] };
+  const channel = new FeishuChannel(streamingConfig, {
+    createClient: () => ({
+      sdk: buildSdk(calls),
+      probeBot: async () => ({ botOpenId: "ou_bot" }),
+      startWS: async (input: { handlers: Record<string, (data: unknown) => Promise<void> | void> }) => {
+        handlers = input.handlers;
+      },
+      stop: () => {},
+    }),
+  });
+
+  const agent: ChatAgent = {
+    async chat(request) {
+      await request.onToolEvent?.({
+        toolCallId: "t1",
+        toolName: "Read File",
+        kind: "read",
+        summary: "foo.ts",
+        status: "success",
+      });
+      await request.reply?.("agent done");
+      return { text: "" };
+    },
+  };
+
+  await channel.start({
+    agent,
+    abortSignal: new AbortController().signal,
+    quota: createNoopQuota(),
+    logger: createNoopLogger(),
+  });
+  await handlers["im.message.receive_v1"]!(makeTextEvent("om_in", "hi"));
+
+  const last = calls.cardUpdate[calls.cardUpdate.length - 1];
+  const elements = (last.cardJson.body as { elements: Array<{ tag: string; content?: string; element_id?: string }> }).elements;
+  expect(elements.find((el) => el.tag === "collapsible_panel")).toBeDefined();
+  const body = elements.find((el) => el.element_id === "streaming_content");
+  expect(body?.content).toBe("agent done");
+});
