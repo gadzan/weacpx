@@ -694,3 +694,43 @@ test("streaming pushUpdate carries elapsed footer that ticks with time", async (
   await new Promise((r) => setTimeout(r, 30));
   expect(calls.cardUpdate.length).toBeGreaterThan(fullBefore);
 });
+
+test("recordToolEvent surfaces a tool-use panel on the next push", async () => {
+  const { client, calls } = createFakeClient();
+  const controller = new StreamingCardController({ client, flushIntervalMs: 10 });
+  await controller.seed({ to: "oc_chat" });
+
+  controller.recordToolEvent({
+    toolCallId: "t1",
+    toolName: "Read File",
+    kind: "read",
+    summary: "foo.ts",
+    status: "running",
+  });
+  controller.appendStream("agent says hi");
+
+  await new Promise((r) => setTimeout(r, 30));
+  await controller.complete();
+
+  const last = calls.cardUpdate[calls.cardUpdate.length - 1];
+  const elements = (last.cardJson.body as { elements: Array<{ tag: string; content?: string; element_id?: string }> }).elements;
+  const panel = elements.find((el) => el.tag === "collapsible_panel");
+  expect(panel).toBeDefined();
+  expect(JSON.stringify(panel)).toContain("Read File");
+  expect(JSON.stringify(panel)).toContain("foo.ts");
+  const body = elements.find((el) => el.element_id === "streaming_content");
+  expect(body?.content).toBe("agent says hi");
+});
+
+test("recordToolEvent forces full update path (not fast-path)", async () => {
+  const { client, calls } = createFakeClient();
+  const controller = new StreamingCardController({ client, flushIntervalMs: 10, now: () => 1_000 });
+  await controller.seed({ to: "oc_chat" });
+  controller.appendStream("first");
+  await new Promise((r) => setTimeout(r, 30));
+  const fullBefore = calls.cardUpdate.length;
+  controller.recordToolEvent({ toolCallId: "t1", toolName: "Bash", kind: "execute", status: "running" });
+  controller.appendStream("second");
+  await new Promise((r) => setTimeout(r, 30));
+  expect(calls.cardUpdate.length).toBeGreaterThan(fullBefore);
+});

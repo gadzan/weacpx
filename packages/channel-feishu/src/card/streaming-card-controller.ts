@@ -15,6 +15,8 @@ import { ImageResolver, type ImageUploadClient } from "./image-resolver.js";
 import { optimizeMarkdownStyle } from "./markdown-style.js";
 import { splitReasoningText } from "./reasoning.js";
 import { registerShutdownHook } from "./shutdown-hooks.js";
+import { ToolUseStore } from "./tool-use-store.js";
+import type { ToolUseEvent } from "./tool-use-types.js";
 
 export interface StreamingCardClient {
   cardkit: {
@@ -131,6 +133,8 @@ export class StreamingCardController {
   private lastPushedState: CardState | null = null;
   private lastPushedHadReasoning = false;
   private lastFooterText: string | null = null;
+  private readonly toolUseStore: ToolUseStore;
+  private lastPushedToolStepCount = -1;
   private terminated = false;
   private seededAtMs = 0;
   private degraded = false;
@@ -150,6 +154,7 @@ export class StreamingCardController {
       },
     });
     this.now = options.now ?? (() => Date.now());
+    this.toolUseStore = new ToolUseStore(this.now);
     this.imageResolveTimeoutMs = options.imageResolveTimeoutMs ?? DEFAULT_IMAGE_RESOLVE_TIMEOUT_MS;
     this.accountId = options.accountId;
     this.cardBodyMaxChars = options.cardBodyMaxChars;
@@ -241,6 +246,16 @@ export class StreamingCardController {
       this.streamedText += this.streamedText.endsWith("\n") ? "\n" : "\n\n";
     }
     this.streamedText += chunk;
+    this.flush.requestFlush(() => this.pushUpdate());
+  }
+
+  recordToolEvent(event: ToolUseEvent): void {
+    if (this.terminated) return;
+    this.toolUseStore.record(event);
+    if (!this.cardId) return;
+    // Ensure the next push goes through the full card.update path so the
+    // tool-use panel actually renders (the fast-path only touches the
+    // streaming_content element).
     this.flush.requestFlush(() => this.pushUpdate());
   }
 
@@ -369,12 +384,16 @@ export class StreamingCardController {
     const currentFooterText = computeFooterText(this.state, elapsedMs);
     const footerChanged = currentFooterText !== this.lastFooterText;
 
+    const toolSteps = this.toolUseStore.steps();
+    const toolStepsChanged = toolSteps.length !== this.lastPushedToolStepCount;
+
     const elementApi = this.client.cardkit.v1.cardElement;
     if (
       this.state === "streaming" &&
       this.lastPushedState === "streaming" &&
       !reasoningChanged &&
       !footerChanged &&
+      !toolStepsChanged &&
       elementApi
     ) {
       const seq = this.sequence++;
@@ -396,6 +415,7 @@ export class StreamingCardController {
       text: rendered,
       ...(elapsedMs !== undefined ? { elapsedMs } : {}),
       ...(reasoningRendered ? { reasoningText: reasoningRendered } : {}),
+      ...(toolSteps.length > 0 ? { toolSteps } : {}),
       ...(this.cardBodyMaxChars !== undefined ? { maxBodyChars: this.cardBodyMaxChars } : {}),
     });
     const seq = this.sequence++;
@@ -407,6 +427,7 @@ export class StreamingCardController {
       this.lastPushedState = this.state;
       this.lastPushedHadReasoning = hasReasoning;
       this.lastFooterText = currentFooterText;
+      this.lastPushedToolStepCount = toolSteps.length;
     } catch (error) {
       // 230011/231003 mean the message is gone — that's a terminal "success"
       // for our purposes; don't count it as a failure (the user couldn't see
