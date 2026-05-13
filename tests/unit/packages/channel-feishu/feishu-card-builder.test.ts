@@ -154,3 +154,29 @@ test("buildCard streaming with no elapsedMs renders no footer (or omits time)", 
     expect(last.content ?? "").not.toMatch(/\d+(?:\.\d+)?(?:ms|s|m)/);
   }
 });
+
+test("buildCard with toolSteps renders a collapsible panel above the body", () => {
+  const card = buildCard({
+    state: "streaming",
+    text: "hello",
+    elapsedMs: 1_000,
+    toolSteps: [
+      { toolCallId: "t1", toolName: "Read File", kind: "read", summary: "foo.ts", status: "success", startedAt: 0, durationMs: 30 },
+      { toolCallId: "t2", toolName: "Bash", kind: "execute", summary: "npm test", status: "running", startedAt: 100 },
+    ],
+  });
+  const elements = (card.body as { elements: Array<Record<string, unknown>> }).elements;
+  expect(elements[0].tag).toBe("collapsible_panel");
+  expect(String(JSON.stringify(elements[0]))).toContain("Read File");
+  expect(String(JSON.stringify(elements[0]))).toContain("foo.ts");
+  expect(String(JSON.stringify(elements[0]))).toContain("Bash");
+  expect(String(JSON.stringify(elements[0]))).toContain("npm test");
+  expect((elements[1] as { tag: string }).tag).toBe("hr");
+  expect((elements[2] as { element_id?: string }).element_id).toBe("streaming_content");
+});
+
+test("buildCard with no toolSteps omits the panel entirely", () => {
+  const card = buildCard({ state: "streaming", text: "hello", elapsedMs: 1_000 });
+  const elements = (card.body as { elements: Array<{ tag: string }> }).elements;
+  expect(elements.find((el) => el.tag === "collapsible_panel")).toBeUndefined();
+});

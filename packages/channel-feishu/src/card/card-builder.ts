@@ -1,3 +1,5 @@
+import type { ToolUseStep } from "./tool-use-types.js";
+
 export const STREAMING_ELEMENT_ID = "streaming_content";
 export const REASONING_ELEMENT_ID = "reasoning_content";
 
@@ -23,6 +25,7 @@ export interface BuildCardInput {
   text: string;
   elapsedMs?: number;
   reasoningText?: string;
+  toolSteps?: ToolUseStep[];
   /** Per-call override of {@link CARD_BODY_MAX_CHARS}. */
   maxBodyChars?: number;
 }
@@ -38,6 +41,12 @@ export function buildCard(input: BuildCardInput): Record<string, unknown> {
   };
 
   const elements: Array<Record<string, unknown>> = [];
+
+  const toolPanel = buildToolUsePanel(input.toolSteps);
+  if (toolPanel) {
+    elements.push(toolPanel);
+    elements.push({ tag: "hr" });
+  }
 
   const reasoning = input.reasoningText?.trim();
   if (reasoning) {
@@ -141,6 +150,51 @@ function footerForState(state: CardState, elapsedMs?: number): Record<string, un
         text_align: "left",
       };
   }
+}
+
+const TOOL_KIND_ICON: Record<string, string> = {
+  read: "\u{1F4D6}",
+  search: "\u{1F50D}",
+  execute: "\u{1F4BB}",
+  edit: "\u{270F}\u{FE0F}",
+  think: "\u{1F9E0}",
+  other: "\u{1F527}",
+};
+
+function buildToolUsePanel(steps: ToolUseStep[] | undefined): Record<string, unknown> | null {
+  if (!steps || steps.length === 0) return null;
+  const lines = steps.map((step) => {
+    const icon = TOOL_KIND_ICON[step.kind] ?? TOOL_KIND_ICON.other;
+    const statusBadge =
+      step.status === "running" ? "⏳"
+      : step.status === "error" ? "❌"
+      : "✅";
+    const summary = step.summary ? `: ${truncateInline(step.summary, 80)}` : "";
+    const dur = step.durationMs !== undefined ? ` _(${formatElapsedMs(step.durationMs)})_` : "";
+    return `${statusBadge} ${icon} **${step.toolName}**${summary}${dur}`;
+  });
+  return {
+    tag: "collapsible_panel",
+    expanded: false,
+    header: {
+      title: {
+        tag: "markdown",
+        content: `🔧 工具调用 (${steps.length})`,
+      },
+    },
+    elements: [
+      {
+        tag: "markdown",
+        content: lines.join("\n\n"),
+        text_align: "left",
+        text_size: "notation",
+      },
+    ],
+  };
+}
+
+function truncateInline(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max - 3)}...` : s;
 }
 
 /**
