@@ -1,10 +1,23 @@
 import type { YuanbaoChatType, YuanbaoInboundMessage, YuanbaoMsgBodyElement } from "./types.js";
 
+export type YuanbaoInboundMediaKind = "image" | "file";
+
+export interface YuanbaoInboundMediaCandidate {
+  kind: YuanbaoInboundMediaKind;
+  url: string;
+  fileName?: string;
+  /** Reported file size, if the IM payload included one. Use as a fast-path cap. */
+  sizeHint?: number;
+  /** Stable id we can use as `RuntimeMediaStore.sourceResourceId`. */
+  sourceId?: string;
+}
+
 export interface YuanbaoExtractedContent {
   text: string;
   isAtBot: boolean;
   mentions: Array<{ text: string; userId?: string }>;
   placeholders: string[];
+  mediaCandidates: YuanbaoInboundMediaCandidate[];
 }
 
 export interface ParsedYuanbaoChatKey {
@@ -42,16 +55,23 @@ function parseCustomMention(elem: YuanbaoMsgBodyElement): { text: string; userId
   }
 }
 
-function bestImageUrl(elem: YuanbaoMsgBodyElement): string | undefined {
+function bestImageEntry(elem: YuanbaoMsgBodyElement): { url: string; size?: number } | undefined {
   const images = elem.msg_content?.image_info_array;
   if (!Array.isArray(images) || images.length === 0) return undefined;
-  return [...images].reverse().find((item) => typeof item.url === "string" && item.url.trim())?.url;
+  const original = [...images].reverse().find((item) => typeof item.url === "string" && item.url.trim());
+  if (!original?.url) return undefined;
+  return { url: original.url, ...(typeof original.size === "number" ? { size: original.size } : {}) };
+}
+
+function bestImageUrl(elem: YuanbaoMsgBodyElement): string | undefined {
+  return bestImageEntry(elem)?.url;
 }
 
 export function extractYuanbaoContent(msgBody: YuanbaoMsgBodyElement[] | undefined, botId?: string): YuanbaoExtractedContent {
   const textParts: string[] = [];
   const mentions: Array<{ text: string; userId?: string }> = [];
   const placeholders: string[] = [];
+  const mediaCandidates: YuanbaoInboundMediaCandidate[] = [];
   let isAtBot = false;
 
   for (const elem of msgBody ?? []) {
@@ -70,14 +90,32 @@ export function extractYuanbaoContent(msgBody: YuanbaoMsgBodyElement[] | undefin
         break;
       }
       case "TIMImageElem": {
-        const url = bestImageUrl(elem);
-        placeholders.push(url ? `[image: ${url}]` : "[image]");
+        const image = bestImageEntry(elem);
+        if (image?.url) {
+          const uuid = elem.msg_content?.uuid;
+          const candidate: YuanbaoInboundMediaCandidate = { kind: "image", url: image.url };
+          if (typeof image.size === "number" && Number.isFinite(image.size) && image.size > 0) candidate.sizeHint = image.size;
+          if (typeof uuid === "string" && uuid.trim()) candidate.sourceId = uuid.trim();
+          mediaCandidates.push(candidate);
+        } else {
+          placeholders.push("[image]");
+        }
         break;
       }
       case "TIMFileElem": {
-        const name = elem.msg_content?.file_name;
         const url = elem.msg_content?.url;
-        placeholders.push(`[file${typeof name === "string" ? `: ${name}` : ""}${typeof url === "string" ? ` ${url}` : ""}]`);
+        const name = elem.msg_content?.file_name;
+        if (typeof url === "string" && url.trim()) {
+          const candidate: YuanbaoInboundMediaCandidate = { kind: "file", url: url.trim() };
+          if (typeof name === "string" && name.trim()) candidate.fileName = name.trim();
+          const size = elem.msg_content?.file_size;
+          if (typeof size === "number" && Number.isFinite(size) && size > 0) candidate.sizeHint = size;
+          const uuid = elem.msg_content?.uuid;
+          if (typeof uuid === "string" && uuid.trim()) candidate.sourceId = uuid.trim();
+          mediaCandidates.push(candidate);
+        } else {
+          placeholders.push(`[file${typeof name === "string" ? `: ${name}` : ""}]`);
+        }
         break;
       }
       case "TIMSoundElem":
@@ -99,6 +137,7 @@ export function extractYuanbaoContent(msgBody: YuanbaoMsgBodyElement[] | undefin
     isAtBot,
     mentions,
     placeholders,
+    mediaCandidates,
   };
 }
 

@@ -67,16 +67,24 @@ test("yuanbao chat keys parse and build", () => {
   expect(parseYuanbaoChatKey("feishu:default:oc_chat")).toBeNull();
 });
 
-test("extractYuanbaoContent extracts text, mention, and media placeholders", () => {
+test("extractYuanbaoContent extracts text, mention, media candidates, and placeholders", () => {
   const content = extractYuanbaoContent([
     { msg_type: "TIMCustomElem", msg_content: { data: JSON.stringify({ elem_type: 1002, text: "@Bot", user_id: "bot_001" }) } },
     { msg_type: "TIMTextElem", msg_content: { text: "hello" } },
-    { msg_type: "TIMImageElem", msg_content: { image_info_array: [{ type: 1, url: "https://example.com/a.png" }] } },
+    { msg_type: "TIMImageElem", msg_content: { image_info_array: [{ type: 1, url: "https://example.com/a.png", size: 1024 }] } },
+    { msg_type: "TIMSoundElem", msg_content: {} },
   ], "bot_001");
 
   expect(content.isAtBot).toBe(true);
   expect(content.text).toContain("hello");
-  expect(content.text).toContain("[image: https://example.com/a.png]");
+  // Image with a URL no longer leaks into text; it becomes a media candidate
+  // for the channel to download and attach via agent.chat({ media }).
+  expect(content.text).not.toContain("https://example.com/a.png");
+  expect(content.mediaCandidates).toEqual([
+    { kind: "image", url: "https://example.com/a.png", sizeHint: 1024 },
+  ]);
+  // Unsupported types still surface as text placeholders (no download path).
+  expect(content.placeholders).toContain("[audio]");
 });
 
 test("YuanbaoChannel.start routes inbound text to agent and replies", async () => {

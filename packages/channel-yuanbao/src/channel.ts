@@ -9,7 +9,7 @@ import type { YuanbaoGateway, YuanbaoGatewayFactory, YuanbaoGatewayInboundMessag
 import { buildYuanbaoChatKey, extractYuanbaoContent, parseYuanbaoChatKey } from "./inbound.js";
 import { loadYuanbaoGatewayFromModule } from "./gateway-loader.js";
 import { createBuiltinYuanbaoGateway } from "./builtin-gateway.js";
-import { normalizeMediaArray } from "./media-types.js";
+import { normalizeMediaArray, type ChannelMediaAttachment } from "./media-types.js";
 import { MessageDedup } from "./message-dedup.js";
 import { enqueueYuanbaoChatTask } from "./chat-queue.js";
 import { ReplyQuoteCache } from "./reply-quote-cache.js";
@@ -21,6 +21,12 @@ import {
 import { chunkMarkdownAware } from "./markdown-chunker.js";
 import { formatQuoteContext, isQuoteRepliedToBot, parseQuoteFromCloudCustomData } from "./quote.js";
 import { GroupHistoryStore, formatGroupHistoryContext } from "./group-history.js";
+import {
+  defaultImageFileName,
+  downloadInboundYuanbaoMedia,
+} from "./inbound-media.js";
+import { RuntimeMediaStore, DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE } from "./media-store.js";
+import path from "node:path";
 
 type OrchestrationTaskRecord = Parameters<MessageChannelRuntime["notifyTaskCompletion"]>[0];
 
@@ -32,6 +38,10 @@ export interface YuanbaoChannelDeps {
   createGateway?: YuanbaoGatewayFactory;
   /** Test hook: override the outbound queue's idle-timer scheduler. */
   outboundSchedule?: OutboundQueueScheduler;
+  /** Where inbound media payloads are persisted so `agent.chat({ media })` can reach them. */
+  mediaStore?: RuntimeMediaStore;
+  /** Test hook: override the inbound media URL fetcher. */
+  fetchInboundMedia?: typeof fetch;
 }
 
 export class YuanbaoChannel implements MessageChannelRuntime {
@@ -270,7 +280,8 @@ export class YuanbaoChannel implements MessageChannelRuntime {
     const quote = parseQuoteFromCloudCustomData(raw.cloud_custom_data);
     const replyToBot = isQuoteRepliedToBot(quote, account.botId);
     const isAtBot = (input.isAtBot ?? extracted.isAtBot) || replyToBot;
-    if (!extracted.text.trim()) return;
+    const hasMedia = extracted.mediaCandidates.length > 0;
+    if (!extracted.text.trim() && !hasMedia) return;
     const knownCommand = this.agent.isKnownCommand?.(extracted.text) ?? false;
     const addressed = isAtBot || knownCommand || input.chatType === "direct" || !account.requireMention;
 
@@ -304,11 +315,19 @@ export class YuanbaoChannel implements MessageChannelRuntime {
     const history = input.chatType === "group" && account.historyLimit > 0
       ? this.groupHistory.consume(account.accountId, target)
       : [];
+
+    const downloaded = await this.downloadInboundCandidates({
+      account,
+      chatKey,
+      messageId: messageId ?? "",
+      candidates: extracted.mediaCandidates,
+    });
     const promptText = buildPromptText({
       history,
       quote,
       replyToBot,
       message: extracted.text,
+      unavailable: downloaded.failed,
     });
 
     const run = enqueueYuanbaoChatTask({
@@ -337,6 +356,7 @@ export class YuanbaoChannel implements MessageChannelRuntime {
             text: promptText,
             replyContextToken: messageId,
             ...(this.abortSignal ? { abortSignal: this.abortSignal } : {}),
+            ...(downloaded.media.length > 0 ? { media: downloaded.media } : {}),
             metadata: {
               channel: "yuanbao",
               chatType: input.chatType,
@@ -438,6 +458,63 @@ export class YuanbaoChannel implements MessageChannelRuntime {
       },
     });
   }
+
+  private async downloadInboundCandidates(input: {
+    account: YuanbaoResolvedAccountConfig;
+    chatKey: string;
+    messageId: string;
+    candidates: import("./inbound.js").YuanbaoInboundMediaCandidate[];
+  }): Promise<{ media: ChannelMediaAttachment[]; failed: string[] }> {
+    const failed: string[] = [];
+    if (input.candidates.length === 0) return { media: [], failed };
+    const store = this.deps.mediaStore ?? new RuntimeMediaStore({ rootDir: path.join(process.cwd(), ".weacpx-media") });
+    const maxBytes = Math.max(1, Math.floor(input.account.mediaMaxMb * 1024 * 1024));
+    const fetchImpl = this.deps.fetchInboundMedia;
+    const media: ChannelMediaAttachment[] = [];
+
+    const slice = input.candidates.slice(0, DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE);
+    for (const candidate of slice) {
+      if (this.isAborted()) break;
+      if (typeof candidate.sizeHint === "number" && candidate.sizeHint > maxBytes) {
+        failed.push(`[attachment unavailable: ${candidate.kind} too large (${candidate.sizeHint} > ${maxBytes} bytes)]`);
+        continue;
+      }
+      try {
+        const downloaded = await downloadInboundYuanbaoMedia({
+          url: candidate.url,
+          maxBytes,
+          ...(fetchImpl ? { fetch: fetchImpl } : {}),
+          ...(this.abortSignal ? { signal: this.abortSignal } : {}),
+        });
+        const fileName = candidate.fileName
+          ?? (candidate.kind === "image" ? defaultImageFileName(downloaded.contentType, candidate.url) : "attachment.bin");
+        const saved = await store.saveMediaBuffer({
+          channelId: "yuanbao",
+          accountId: input.account.accountId,
+          chatKey: input.chatKey,
+          messageId: input.messageId || "unknown",
+          fileName,
+          mimeType: downloaded.contentType,
+          kind: candidate.kind,
+          buffer: downloaded.buffer,
+          ...(candidate.sourceId ? { sourceResourceId: candidate.sourceId } : {}),
+          maxBytes,
+        });
+        media.push(saved);
+      } catch (error) {
+        await this.logger?.info("yuanbao.inbound.media_failed", "failed to download inbound yuanbao media", {
+          kind: candidate.kind,
+          url: candidate.url,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        failed.push(`[attachment unavailable: ${candidate.kind}]`);
+      }
+    }
+    for (let i = slice.length; i < input.candidates.length; i++) {
+      failed.push(`[attachment unavailable: ${input.candidates[i]!.kind} exceeded per-message attachment cap]`);
+    }
+    return { media, failed };
+  }
 }
 
 interface BuildPromptInput {
@@ -445,6 +522,8 @@ interface BuildPromptInput {
   quote: import("./quote.js").YuanbaoQuoteInfo | undefined;
   replyToBot: boolean;
   message: string;
+  /** Placeholders for media candidates whose download failed. */
+  unavailable: string[];
 }
 
 function buildPromptText(input: BuildPromptInput): string {
@@ -455,6 +534,9 @@ function buildPromptText(input: BuildPromptInput): string {
   // (chat-key conversation history already carries that turn), but keep it
   // when someone quotes a user message — that's new context for the agent.
   if (input.quote && !input.replyToBot) parts.push(formatQuoteContext(input.quote));
-  parts.push(input.message);
+  const message = input.unavailable.length > 0
+    ? [input.message, ...input.unavailable].filter((p) => p.length > 0).join("\n")
+    : input.message;
+  parts.push(message);
   return parts.join("\n\n");
 }

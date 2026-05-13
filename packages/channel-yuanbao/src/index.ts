@@ -13,7 +13,7 @@ const plugin: WeacpxPlugin = {
   channels: [
     {
       type: "yuanbao",
-      factory: (options) => new YuanbaoChannel(options),
+      factory: (options, deps) => new YuanbaoChannel(options, deps ? { mediaStore: deps.mediaStore } : undefined),
       cliProvider: yuanbaoCliProvider,
     },
   ],
