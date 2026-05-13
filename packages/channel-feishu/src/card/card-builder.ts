@@ -97,6 +97,12 @@ function footerForState(state: CardState, elapsedMs?: number): Record<string, un
   const elapsedLabel = typeof elapsedMs === "number" ? formatElapsedMs(elapsedMs) : "";
   const elapsedSuffix = elapsedLabel ? ` · ${elapsedLabel}` : "";
   switch (state) {
+    // Live states (thinking/streaming) embed the elapsed inline as
+    // `处理中... <elapsed>` rather than appending it via ` · <elapsed>`
+    // because the ellipsis already signals "still working" — the elapsed
+    // reads as the current measurement of that work-in-progress. Terminal
+    // states (complete/aborted/error) use the ` · ` separator because the
+    // label is a final outcome and the elapsed is supplementary.
     case "thinking":
       return {
         tag: "markdown",
