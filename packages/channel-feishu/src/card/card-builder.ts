@@ -100,7 +100,7 @@ function footerForState(state: CardState, elapsedMs?: number): Record<string, un
     case "thinking":
       return {
         tag: "markdown",
-        content: "_处理中..._",
+        content: elapsedLabel ? `_处理中... ${elapsedLabel}_` : "_处理中..._",
         text_size: "notation",
         text_align: "left",
       };
@@ -127,7 +127,13 @@ function footerForState(state: CardState, elapsedMs?: number): Record<string, un
         text_align: "left",
       };
     case "streaming":
-      return null;
+      if (!elapsedLabel) return null;
+      return {
+        tag: "markdown",
+        content: `⏳ _处理中... ${elapsedLabel}_`,
+        text_size: "notation",
+        text_align: "left",
+      };
   }
 }
 

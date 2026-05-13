@@ -126,3 +126,31 @@ test("buildCard 'aborted' / 'error' embed elapsed when provided", () => {
   expect(err.body.elements[1].content).toContain("出错");
   expect(err.body.elements[1].content).toContain("800ms");
 });
+
+test("buildCard streaming state with elapsedMs renders a ticking footer", () => {
+  const card = buildCard({ state: "streaming", text: "abc", elapsedMs: 4_000 });
+  const elements = (card.body as { elements: Array<{ content?: string; tag: string }> }).elements;
+  const footer = elements[elements.length - 1];
+  expect(footer.tag).toBe("markdown");
+  expect(footer.content).toContain("处理中");
+  expect(footer.content).toContain("4.0s");
+});
+
+test("buildCard thinking state with elapsedMs renders elapsed too", () => {
+  const card = buildCard({ state: "thinking", text: "", elapsedMs: 1_500 });
+  const elements = (card.body as { elements: Array<{ content?: string; tag: string }> }).elements;
+  const footer = elements[elements.length - 1];
+  expect(footer.content).toContain("1.5s");
+});
+
+test("buildCard streaming with no elapsedMs renders no footer (or omits time)", () => {
+  const card = buildCard({ state: "streaming", text: "abc" });
+  const elements = (card.body as { elements: Array<{ tag: string; element_id?: string; content?: string }> }).elements;
+  // The streaming_content element is always present; footer is the only
+  // optional trailing markdown. Either there is no footer at all, or it has
+  // no time suffix.
+  const last = elements[elements.length - 1];
+  if (last.element_id !== "streaming_content") {
+    expect(last.content ?? "").not.toMatch(/\d+(?:\.\d+)?(?:ms|s|m)/);
+  }
+});
