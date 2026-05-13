@@ -1,3 +1,5 @@
+import type { ToolUseEvent } from "../../channels/types.js";
+
 export type BridgeMethod = "ping" | "shutdown" | "updatePermissionPolicy" | "ensureSession" | "hasSession" | "prompt" | "setMode" | "cancel" | "removeSession";
 
 export interface BridgeRequest {
@@ -45,6 +47,12 @@ export interface BridgePromptSegmentEvent {
   text: string;
 }
 
+export interface BridgePromptToolEvent {
+  id: string;
+  event: "prompt.tool_event";
+  toolEvent: ToolUseEvent;
+}
+
 export interface BridgeSessionProgressEvent {
   id: string;
   event: "session.progress";
@@ -61,6 +69,7 @@ export type BridgeMessage<TResult = unknown> =
   | BridgeSuccessResponse<TResult>
   | BridgeErrorResponse
   | BridgePromptSegmentEvent
+  | BridgePromptToolEvent
   | BridgeSessionProgressEvent
   | BridgeSessionNoteEvent;
 export type BridgeResponse<TResult = unknown> = BridgeSuccessResponse<TResult> | BridgeErrorResponse;
@@ -70,6 +79,10 @@ export function encodeBridgeRequest(request: BridgeRequest): string {
 }
 
 export function encodeBridgePromptSegmentEvent(event: BridgePromptSegmentEvent): string {
+  return `${JSON.stringify(event)}\n`;
+}
+
+export function encodeBridgePromptToolEvent(event: BridgePromptToolEvent): string {
   return `${JSON.stringify(event)}\n`;
 }
 

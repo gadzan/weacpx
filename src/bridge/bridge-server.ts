@@ -1,5 +1,6 @@
 import {
   encodeBridgePromptSegmentEvent,
+  encodeBridgePromptToolEvent,
   encodeBridgeSessionNoteEvent,
   encodeBridgeSessionProgressEvent,
   type BridgeMethod,
@@ -166,6 +167,12 @@ export class BridgeServer {
               id: requestId,
               event: "prompt.segment",
               text: event.text,
+            }));
+          } else if (event.type === "prompt.tool_event") {
+            writeLine?.(encodeBridgePromptToolEvent({
+              id: requestId,
+              event: "prompt.tool_event",
+              toolEvent: event.event,
             }));
           }
         });

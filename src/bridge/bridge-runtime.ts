@@ -17,6 +17,11 @@ import type {
   MissingOptionalDepErrorData,
 } from "../transport/acpx-bridge/acpx-bridge-protocol";
 import type { PromptMediaInput } from "../transport/types";
+import type { ToolUseEvent } from "../channels/types.js";
+
+type BridgePromptStreamEvent =
+  | { type: "prompt.segment"; text: string }
+  | { type: "prompt.tool_event"; event: ToolUseEvent };
 
 export class EnsureSessionFailedError extends Error {
   readonly kind: "missing_optional_dep" | "generic";
@@ -244,7 +249,7 @@ export class BridgeRuntime {
     return null;
   }
 
-  async prompt(input: BridgeSessionInput & { text: string }, onEvent?: (event: { type: "prompt.segment"; text: string }) => void): Promise<{ text: string }> {
+  async prompt(input: BridgeSessionInput & { text: string }, onEvent?: (event: BridgePromptStreamEvent) => void): Promise<{ text: string }> {
     await this.launchMcpQueueOwnerIfNeeded(input);
     const structuredPrompt = await createStructuredPromptFile(input.text, input.media);
     const spawnSpec = resolveSpawnCommand(this.command, this.buildPromptArgs(input, [
@@ -493,7 +498,7 @@ async function defaultRunner(
 export async function runStreamingPrompt(
   command: string,
   args: string[],
-  onEvent?: (event: { type: "prompt.segment"; text: string }) => void,
+  onEvent?: (event: BridgePromptStreamEvent) => void,
   options: StreamingPromptRunnerOptions = {},
 ): Promise<CommandResult> {
   const spawnPrompt = options.spawnPrompt ?? ((spawnCommand, spawnArgs) =>
@@ -508,7 +513,10 @@ export async function runStreamingPrompt(
     const child = spawnPrompt(command, args);
     let stdout = "";
     let stderr = "";
-    const state = createStreamingPromptState(options.formatToolCalls ?? false);
+    const state = createStreamingPromptState(
+      options.formatToolCalls ?? false,
+      onEvent ? (toolEvent) => onEvent({ type: "prompt.tool_event", event: toolEvent }) : undefined,
+    );
     let lastReplyAt = now();
 
     const flushBuffer = () => {
@@ -557,7 +565,7 @@ export async function runStreamingPrompt(
 async function defaultPromptRunner(
   command: string,
   args: string[],
-  onEvent?: (event: { type: "prompt.segment"; text: string }) => void,
+  onEvent?: (event: BridgePromptStreamEvent) => void,
   options?: StreamingPromptRunnerOptions,
 ): Promise<CommandResult> {
   return await runStreamingPrompt(command, args, onEvent, options);

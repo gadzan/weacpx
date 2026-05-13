@@ -4,6 +4,7 @@ import { spawn as spawnPty } from "node-pty";
 
 import { resolveSpawnCommand } from "../../process/spawn-command";
 import type { NonInteractivePermissions, PermissionMode } from "../../config/types";
+import type { ToolUseEvent } from "../../channels/types.js";
 import type {
   EnsureSessionProgress,
   PermissionPolicy,
@@ -187,6 +188,7 @@ export class AcpxCliTransport implements SessionTransport {
           formatToolCalls,
           replyContext,
           options?.onSegment,
+          options?.onToolEvent,
         );
         const baseText = getPromptText(result);
         if (!reply) {
@@ -364,13 +366,14 @@ export class AcpxCliTransport implements SessionTransport {
     formatToolCalls: boolean = false,
     replyContext?: ReplyQuotaContext,
     onSegment?: (text: string) => void | Promise<void>,
+    onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
   ): Promise<{ result: CommandResult; overflowCount: number }> {
     return await new Promise((resolve, reject) => {
       const spawnSpec = resolveSpawnCommand(command, args);
       const child = spawn(spawnSpec.command, spawnSpec.args, { stdio: ["ignore", "pipe", "pipe"] });
       let stdout = "";
       let stderr = "";
-      const state = createStreamingPromptState(formatToolCalls);
+      const state = createStreamingPromptState(formatToolCalls, onToolEvent);
       let lastReplyAt = Date.now();
       let segmentChain = Promise.resolve();
       let segmentError: unknown;

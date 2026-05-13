@@ -65,6 +65,14 @@ export class AcpxBridgeTransport implements SessionTransport {
             });
         }
         sink?.feedSegment(event.text);
+        return;
+      }
+      if (event.type === "prompt.tool_event") {
+        const onToolEvent = options?.onToolEvent;
+        if (onToolEvent) {
+          void onToolEvent(event.event);
+        }
+        return;
       }
     });
     await segmentChain;

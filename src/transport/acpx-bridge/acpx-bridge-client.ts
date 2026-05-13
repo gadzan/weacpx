@@ -12,11 +12,13 @@ import {
 import { PromptCommandError } from "../prompt-output";
 import { MissingOptionalDepError } from "../../recovery/errors";
 import { terminateProcessTree } from "../../process/terminate-process-tree";
+import type { ToolUseEvent } from "../../channels/types.js";
 
 type WriteLine = (line: string) => boolean | void;
 
 export type BridgeEvent =
   | { type: "prompt.segment"; text: string }
+  | { type: "prompt.tool_event"; event: ToolUseEvent }
   | { type: "session.progress"; stage: EnsureSessionProgressStage }
   | { type: "session.note"; text: string };
 
@@ -90,6 +92,11 @@ export class AcpxBridgeClient {
         pending.onEvent?.({
           type: "prompt.segment",
           text: message.text,
+        });
+      } else if (message.event === "prompt.tool_event") {
+        pending.onEvent?.({
+          type: "prompt.tool_event",
+          event: message.toolEvent,
         });
       } else if (message.event === "session.progress") {
         pending.onEvent?.({
