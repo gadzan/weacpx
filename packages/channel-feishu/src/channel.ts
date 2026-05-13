@@ -8,7 +8,7 @@ import type {
 } from "weacpx/plugin-api";
 import type { FeishuChannelConfig, FeishuResolvedAccountConfig } from "./config.js";
 import { parseFeishuChannelConfig } from "./config.js";
-import type { FeishuMessageEvent } from "./types.js";
+import type { FeishuMessageEvent, FeishuResourceDescriptor } from "./types.js";
 import { createFeishuLarkClient, type FeishuLarkClient } from "./lark-client.js";
 import { MessageDedup } from "./message-dedup.js";
 import { buildFeishuQueueKey, clearFeishuQueueForAccount, enqueueFeishuChatTask } from "./chat-queue.js";
@@ -574,7 +574,7 @@ export class FeishuChannel implements MessageChannelRuntime {
     accountId: string;
     chatKey: string;
     messageId: string;
-    resources: Array<{ kind: "image" | "file"; fileKey: string; fileName?: string }>;
+    resources: FeishuResourceDescriptor[];
     initialSkipped: string[];
   }): Promise<{ media: ChannelMediaAttachment[]; skipped: string[] }> {
     const { runtime, accountId, chatKey, messageId, resources, initialSkipped } = input;
@@ -770,7 +770,7 @@ function appendSkippedAttachmentNotes(text: string, notes: string[]): string {
  */
 function resolveEffectiveReplyMode(
   configured: "static" | "streaming" | "auto",
-  chatType: string,
+  chatType: string | undefined,
 ): "static" | "streaming" {
   if (configured !== "auto") return configured;
   return chatType === "group" ? "static" : "streaming";
