@@ -16,6 +16,7 @@ import {
 
 beforeEach(() => {
   resetMessageUnavailableCacheForTests();
+  __resetShutdownHooksForTests();
 });
 
 interface FakeClientCalls {
@@ -636,7 +637,6 @@ test("cardBodyMaxChars also caps the element-content fast-path", async () => {
 });
 
 test("a shutdown signal aborts a still-streaming card", async () => {
-  __resetShutdownHooksForTests();
   const { client, calls } = createFakeClient();
   const controller = new StreamingCardController({ client, flushIntervalMs: 30 });
   await controller.seed({ to: "oc_chat" });
@@ -652,8 +652,7 @@ test("a shutdown signal aborts a still-streaming card", async () => {
   expect(streaming?.content).toBe("mid-flight progress");
 });
 
-test("a terminal transition disposes the shutdown hook before firing", async () => {
-  __resetShutdownHooksForTests();
+test("firing shutdown on a completed controller is a no-op", async () => {
   const { client, calls } = createFakeClient();
   const controller = new StreamingCardController({ client, flushIntervalMs: 30 });
   await controller.seed({ to: "oc_chat" });
