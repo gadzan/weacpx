@@ -134,6 +134,111 @@ async function resolveMcpIdentity(server: Server, options: WeacpxMcpServerOption
   );
 }
 
+interface McpShutdownEventSource {
+  on(event: string | symbol, listener: (...args: unknown[]) => void): unknown;
+  off(event: string | symbol, listener: (...args: unknown[]) => void): unknown;
+}
+
+type McpShutdownSignalSource = Pick<NodeJS.Process, "on" | "off">;
+
+type McpIntervalHandle = ReturnType<typeof setInterval>;
+
+export interface McpStdioShutdownHookOptions {
+  stdin: McpShutdownEventSource;
+  stdout: McpShutdownEventSource;
+  shutdown: () => void | Promise<void>;
+  platform?: NodeJS.Platform;
+  parentPid?: number;
+  parentCheckIntervalMs?: number;
+  signalSource?: McpShutdownSignalSource;
+  isProcessRunning?: (pid: number) => boolean;
+  setIntervalFn?: (callback: () => void, ms: number) => McpIntervalHandle;
+  clearIntervalFn?: (handle: McpIntervalHandle) => void;
+  onDiagnostic?: (event: string, context?: Record<string, unknown>) => void;
+}
+
+export function installMcpStdioShutdownHooks(options: McpStdioShutdownHookOptions): () => void {
+  const platform = options.platform ?? process.platform;
+  const signalSource = options.signalSource ?? process;
+  const isProcessRunning = options.isProcessRunning ?? defaultIsProcessRunning;
+  const setIntervalFn = options.setIntervalFn ?? ((callback, ms) => setInterval(callback, ms));
+  const clearIntervalFn = options.clearIntervalFn ?? ((handle) => clearInterval(handle));
+  const parentPid = options.parentPid ?? process.ppid;
+  const parentCheckIntervalMs = options.parentCheckIntervalMs ?? parseParentCheckIntervalMs(process.env.WEACPX_MCP_PARENT_CHECK_INTERVAL_MS);
+
+  let disposed = false;
+  const triggerShutdown = (reason: string, context?: Record<string, unknown>) => {
+    if (disposed) return;
+    options.onDiagnostic?.("mcp.stdio.shutdown", { reason, ...(context ?? {}) });
+    void options.shutdown();
+  };
+  const onStreamEnd = () => triggerShutdown("stdin.end");
+  const onStreamClose = () => triggerShutdown("stdin.close");
+  const onStdinError = (error: unknown) => triggerShutdown("stdin.error", errorContext(error));
+  const onStdoutError = (error: unknown) => triggerShutdown("stdout.error", errorContext(error));
+  const onSignal = (signal: NodeJS.Signals) => triggerShutdown("signal", { signal });
+
+  options.stdin.on("end", onStreamEnd);
+  options.stdin.on("close", onStreamClose);
+  options.stdin.on("error", onStdinError);
+  options.stdout.on("error", onStdoutError);
+
+  const signals: NodeJS.Signals[] = platform === "win32" ? ["SIGINT", "SIGTERM", "SIGBREAK"] : ["SIGINT", "SIGTERM", "SIGHUP"];
+  const signalListeners = signals.map((signal) => ({ signal, listener: () => onSignal(signal) }));
+  for (const { signal, listener } of signalListeners) {
+    signalSource.on(signal, listener);
+  }
+
+  let parentTimer: McpIntervalHandle | undefined;
+  if (parentPid > 1 && parentCheckIntervalMs > 0) {
+    parentTimer = setIntervalFn(() => {
+      if (!isProcessRunning(parentPid)) {
+        triggerShutdown("parent_dead", { parentPid });
+      }
+    }, parentCheckIntervalMs);
+    parentTimer.unref?.();
+  }
+
+  return () => {
+    if (disposed) return;
+    disposed = true;
+    options.stdin.off("end", onStreamEnd);
+    options.stdin.off("close", onStreamClose);
+    options.stdin.off("error", onStdinError);
+    options.stdout.off("error", onStdoutError);
+    for (const { signal, listener } of signalListeners) {
+      signalSource.off(signal, listener);
+    }
+    if (parentTimer) {
+      clearIntervalFn(parentTimer);
+    }
+  };
+}
+
+function parseParentCheckIntervalMs(raw: string | undefined): number {
+  if (raw === undefined || raw.trim().length === 0) return 5_000;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 5_000;
+}
+
+function errorContext(error: unknown): Record<string, unknown> {
+  const record = error as { code?: unknown; message?: unknown } | undefined;
+  return {
+    ...(typeof record?.code === "string" ? { code: record.code } : {}),
+    ...(typeof record?.message === "string" ? { message: record.message } : {}),
+  };
+}
+
+function defaultIsProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    const code = (error as { code?: unknown } | undefined)?.code;
+    return code !== "ESRCH";
+  }
+}
+
 export async function runWeacpxMcpServer(options: {
   endpoint?: OrchestrationIpcEndpoint;
   transport?: WeacpxMcpTransport;
@@ -141,6 +246,7 @@ export async function runWeacpxMcpServer(options: {
   sourceHandle?: string;
   resolveIdentity?: WeacpxMcpServerOptions["resolveIdentity"];
   availableAgents?: string[];
+  onDiagnostic?: (event: string, context?: Record<string, unknown>) => void;
 }): Promise<void> {
   const transport = options.transport ?? createOrchestrationTransport(
     options.endpoint ?? resolveDefaultOrchestrationEndpoint(process.env, process.platform),
@@ -154,10 +260,13 @@ export async function runWeacpxMcpServer(options: {
   });
   const stdio = new StdioServerTransport(stdin, stdout);
 
+  let cleanupShutdownHooks: (() => void) | undefined;
   let shuttingDown = false;
   const shutdown = async () => {
     if (shuttingDown) return;
     shuttingDown = true;
+    cleanupShutdownHooks?.();
+    options.onDiagnostic?.("mcp.stdio.stopping");
     // Force-exit fallback: if server.close() / stdio.close() hangs (e.g. an
     // orphaned RPC waiting on a wedged daemon), bail after 3s so the parent
     // process never sees a lingering child.
@@ -170,12 +279,17 @@ export async function runWeacpxMcpServer(options: {
       // ignore errors during shutdown
     }
     clearTimeout(forceExit);
+    options.onDiagnostic?.("mcp.stdio.stopped");
     process.exit(0);
   };
 
-  stdin.on("end", () => void shutdown());
-  process.on("SIGTERM", () => void shutdown());
-  process.on("SIGINT", () => void shutdown());
+  options.onDiagnostic?.("mcp.stdio.start", { parentPid: process.ppid, platform: process.platform });
+  cleanupShutdownHooks = installMcpStdioShutdownHooks({
+    stdin,
+    stdout,
+    shutdown,
+    onDiagnostic: options.onDiagnostic,
+  });
 
   await server.connect(stdio);
 }

@@ -1,10 +1,12 @@
+import { EventEmitter } from "node:events";
+
 import { expect, test } from "bun:test";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ListRootsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
-import { createWeacpxMcpServer } from "../../../src/mcp/weacpx-mcp-server";
+import { createWeacpxMcpServer, installMcpStdioShutdownHooks } from "../../../src/mcp/weacpx-mcp-server";
 import { createMemoryTransport } from "../../../src/mcp/weacpx-mcp-transport";
 
 test("lists 16 MCP tools and hides coordinator/source identity from input schemas", async () => {
@@ -487,4 +489,74 @@ test("returns tool-level business errors as isError text results", async () => {
     await client.close();
     await server.close();
   }
+});
+
+test("MCP stdio shutdown hooks react to stream close/error and Windows signals", () => {
+  const stdin = new EventEmitter();
+  const stdout = new EventEmitter();
+  const signals = new EventEmitter();
+  let calls = 0;
+  const diagnostics: unknown[] = [];
+  const cleanup = installMcpStdioShutdownHooks({
+    stdin,
+    stdout,
+    platform: "win32",
+    parentPid: 0,
+    signalSource: signals as never,
+    onDiagnostic: (event, context) => diagnostics.push({ event, context }),
+    shutdown: () => { calls += 1; },
+  });
+
+  stdin.emit("close");
+  stdout.emit("error", new Error("EPIPE"));
+  signals.emit("SIGBREAK");
+
+  expect(calls).toBe(3);
+  expect(diagnostics).toEqual([
+    { event: "mcp.stdio.shutdown", context: { reason: "stdin.close" } },
+    { event: "mcp.stdio.shutdown", context: { reason: "stdout.error", message: "EPIPE" } },
+    { event: "mcp.stdio.shutdown", context: { reason: "signal", signal: "SIGBREAK" } },
+  ]);
+  cleanup();
+  stdin.emit("end");
+  signals.emit("SIGINT");
+  expect(calls).toBe(3);
+});
+
+test("MCP stdio shutdown hooks poll parent process liveness", () => {
+  const stdin = new EventEmitter();
+  const stdout = new EventEmitter();
+  const signals = new EventEmitter();
+  let intervalCallback: (() => void) | undefined;
+  let cleared = false;
+  const intervalHandle = { unref() {} } as ReturnType<typeof setInterval>;
+  let calls = 0;
+  const diagnostics: unknown[] = [];
+
+  const cleanup = installMcpStdioShutdownHooks({
+    stdin,
+    stdout,
+    platform: "win32",
+    parentPid: 1234,
+    parentCheckIntervalMs: 10,
+    signalSource: signals as never,
+    isProcessRunning: () => false,
+    setIntervalFn: (callback) => {
+      intervalCallback = callback;
+      return intervalHandle;
+    },
+    clearIntervalFn: (handle) => {
+      expect(handle).toBe(intervalHandle);
+      cleared = true;
+    },
+    onDiagnostic: (event, context) => diagnostics.push({ event, context }),
+    shutdown: () => { calls += 1; },
+  });
+
+  expect(intervalCallback).toBeDefined();
+  intervalCallback!();
+  expect(calls).toBe(1);
+  expect(diagnostics).toEqual([{ event: "mcp.stdio.shutdown", context: { reason: "parent_dead", parentPid: 1234 } }]);
+  cleanup();
+  expect(cleared).toBe(true);
 });

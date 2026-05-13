@@ -629,6 +629,10 @@ async function defaultMcpStdio(
     ...(sourceHandle ? { sourceHandle } : {}),
     ...(identityResolver ? { resolveIdentity: identityResolver } : {}),
     ...(availableAgents ? { availableAgents } : {}),
+    onDiagnostic: (event, context) => {
+      const suffix = context && Object.keys(context).length > 0 ? ` ${JSON.stringify(context)}` : "";
+      (deps.stderr ?? ((text: string) => process.stderr.write(text)))(`[weacpx:mcp] ${event}${suffix}\n`);
+    },
   });
   return 0;
 }

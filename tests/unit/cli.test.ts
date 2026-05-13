@@ -1022,7 +1022,7 @@ test("mcp-stdio without coordinator session starts with a process-scoped externa
     }),
   ).resolves.toBe(0);
 
-  expect(stderr).toEqual([]);
+  expect(stderr.join("")).toContain("[weacpx:mcp] mcp.stdio.start");
 });
 
 test("mcp-stdio returns a controlled startup error when local state is malformed", async () => {

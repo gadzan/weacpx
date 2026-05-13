@@ -327,3 +327,32 @@ Get-Content C:\Users\you\.weacpx\runtime\app.log -Tail 200
 ```
 
 常见原因：目标 agent 不可用、底层 acpx 启动失败、worker 会话被占用、权限策略阻止执行。
+
+### Windows 上 mcp-stdio 残留进程
+
+`weacpx mcp-stdio` 会监听 stdio 断开、`SIGINT`/`SIGTERM`/`SIGBREAK`，并每 5 秒检查父进程是否仍存活。触发退出时会向 stderr 写一行诊断，例如：
+
+```text
+[weacpx:mcp] mcp.stdio.shutdown {"reason":"parent_dead","parentPid":1234}
+```
+
+可用 `WEACPX_MCP_PARENT_CHECK_INTERVAL_MS` 调整父进程检查间隔（毫秒）；设为 `0` 可关闭父进程轮询，主要用于调试。
+
+手工验证（Windows PowerShell）：启动一个父 Node 进程，让它创建 `weacpx mcp-stdio`，随后强杀父进程，观察子进程应在一个检查周期后退出。
+
+```powershell
+# 替换为你的 node/weacpx 路径；本地开发可用 node .\dist\cli.js
+$script = @'
+const { spawn } = require("node:child_process");
+const child = spawn(process.argv[2], process.argv.slice(3), {
+  stdio: ["pipe", "ignore", "inherit"],
+  env: { ...process.env, WEACPX_MCP_PARENT_CHECK_INTERVAL_MS: "1000" },
+});
+console.log(child.pid);
+setInterval(() => {}, 1000);
+'@
+$parent = Start-Process node -ArgumentList "-e", $script, "weacpx", "mcp-stdio" -PassThru -NoNewWindow
+Stop-Process -Id $parent.Id -Force
+# 等 2-3 秒后确认没有残留 weacpx mcp-stdio 进程。
+Get-CimInstance Win32_Process | ? { $_.CommandLine -like "*weacpx* mcp-stdio*" } | Select-Object ProcessId,CommandLine
+```
