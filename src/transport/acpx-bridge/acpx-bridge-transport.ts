@@ -132,7 +132,7 @@ export class AcpxBridgeTransport implements SessionTransport {
       name: session.transportSession,
       mcpCoordinatorSession: session.mcpCoordinatorSession,
       mcpSourceHandle: session.mcpSourceHandle,
-      ...(session.replyMode ? { replyMode: session.replyMode } : {}),
+      replyMode: session.replyMode ?? "verbose",
     };
   }
 }

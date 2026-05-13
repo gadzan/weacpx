@@ -429,7 +429,10 @@ async function promptWithSession(
   media?: PromptMediaInput,
   abortSignal?: AbortSignal,
 ): Promise<RouterResponse> {
-  const effectiveReplyMode = session.replyMode ?? context.config?.channel.replyMode ?? "verbose";
+const effectiveReplyMode = session.replyMode ?? context.config?.channel.replyMode ?? "verbose";
+  // Ensure the session carries the resolved value so downstream transports
+  // see "verbose" instead of undefined and format tool-call progress correctly.
+  if (!session.replyMode) session.replyMode = effectiveReplyMode;
   const transportReply = effectiveReplyMode !== "final" ? reply : undefined;
   if (context.orchestration) {
     try {

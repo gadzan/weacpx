@@ -178,7 +178,7 @@ export class AcpxCliTransport implements SessionTransport {
     const args = this.buildPromptArgs(session, text, structuredPrompt?.filePath);
     try {
       if (reply || options?.onSegment) {
-        const formatToolCalls = session.replyMode === "verbose";
+        const formatToolCalls = (session.replyMode ?? "verbose") === "verbose";
         const { result, overflowCount } = await this.runStreamingPrompt(
           this.command,
           args,

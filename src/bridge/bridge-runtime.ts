@@ -253,7 +253,7 @@ export class BridgeRuntime {
       input.name,
       ...(structuredPrompt ? ["--file", structuredPrompt.filePath] : [input.text]),
     ]));
-    const formatToolCalls = input.replyMode === "verbose";
+    const formatToolCalls = (input.replyMode ?? "verbose") === "verbose";
     try {
       const result = onEvent
         ? await this.runPromptCommand(spawnSpec.command, spawnSpec.args, onEvent, { formatToolCalls })
