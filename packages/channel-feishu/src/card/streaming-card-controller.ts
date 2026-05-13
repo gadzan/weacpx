@@ -113,7 +113,17 @@ export class StreamingCardController {
   private readonly cardBodyMaxChars: number | undefined;
   private cardId: string | null = null;
   private messageId: string | null = null;
-  private buffer = "";
+  // Text state, split into two roles:
+  //   streamedText  — accumulated from appendStream() calls during the turn.
+  //                   Each call is one aggregator batch (a complete paragraph),
+  //                   so calls are joined with "\n\n".
+  //   appendedFinal — extra tail set by complete(finalText). Used when the
+  //                   transport returns content after streaming ended (e.g. a
+  //                   WeChat overflow summary + final answer that was dropped
+  //                   from the live stream). Rendered below streamedText.
+  // The display body is buildDisplayText().
+  private streamedText = "";
+  private appendedFinal = "";
   private sequence = 1;
   private state: CardState = "thinking";
   private lastPushedState: CardState | null = null;
@@ -132,7 +142,7 @@ export class StreamingCardController {
       onFailureThreshold: (n) => {
         if (this.degraded) return;
         this.degraded = true;
-        this.onCardDegraded?.({ buffer: this.buffer, consecutiveFailures: n });
+        this.onCardDegraded?.({ buffer: this.buildDisplayText(), consecutiveFailures: n });
       },
     });
     this.now = options.now ?? (() => Date.now());
@@ -209,13 +219,31 @@ export class StreamingCardController {
 
   appendStream(chunk: string): void {
     if (!this.transitionTo("streaming") || !this.cardId) return;
-    this.buffer += chunk;
+    // Each appendStream call is one complete aggregator batch (a paragraph),
+    // not a partial token. Insert a paragraph break between calls so markdown
+    // renders them as distinct blocks instead of squashing tool-call lines and
+    // agent text into one wall. Skip when prior content already ends with a
+    // blank line so we don't double-space when chunks already carry trailing
+    // newlines.
+    if (this.streamedText.length > 0 && !this.streamedText.endsWith("\n\n")) {
+      this.streamedText += this.streamedText.endsWith("\n") ? "\n" : "\n\n";
+    }
+    this.streamedText += chunk;
     this.flush.requestFlush(() => this.pushUpdate());
   }
 
   async complete(finalText?: string): Promise<void> {
     if (!this.transitionTo("complete")) return;
-    if (typeof finalText === "string") this.buffer = finalText;
+    // Treat finalText as a *tail* appended below the streamed content, not a
+    // replacement. In streaming mode the transport normally returns "" (every
+    // segment was already pushed via reply()); replacing the buffer with that
+    // empty string would wipe the entire live progress, leaving the user with
+    // only a "已完成" footer. The non-empty case is the overflow scenario
+    // where the transport returns "summary + dropped final answer" — also a
+    // tail, not a replacement.
+    if (typeof finalText === "string" && finalText.length > 0) {
+      this.appendedFinal = finalText;
+    }
     // Drain any in-flight streaming flushes first so they get a chance to kick
     // off image uploads we need to wait for.
     await this.flush.waitIdle();
@@ -228,7 +256,13 @@ export class StreamingCardController {
 
   async abort(message?: string): Promise<void> {
     if (!this.transitionTo("aborted")) return;
-    if (typeof message === "string") this.buffer = message;
+    // Same rationale as complete(): the streamed text is what the user was
+    // watching — don't wipe it. The "已停止" status appears in the summary
+    // and footer; the abort message is only used as a fallback display when
+    // there's nothing streamed yet.
+    if (typeof message === "string" && message.length > 0 && this.streamedText.length === 0) {
+      this.streamedText = message;
+    }
     // No image wait for abort — we want to render the stopped state promptly.
     this.terminated = true;
     await this.flush.forceFlush(() => this.pushUpdate());
@@ -240,12 +274,25 @@ export class StreamingCardController {
     // message as a footnote so partial output isn't lost.
     const tail = errorMessage.trim();
     if (tail) {
-      this.buffer = this.buffer.length > 0
-        ? `${this.buffer.trimEnd()}\n\n${formatErrorFootnote(tail)}`
+      this.streamedText = this.streamedText.length > 0
+        ? `${this.streamedText.trimEnd()}\n\n${formatErrorFootnote(tail)}`
         : tail;
     }
     this.terminated = true;
     await this.flush.forceFlush(() => this.pushUpdate());
+  }
+
+  /**
+   * Compose the card body from the two-state text model. streamedText holds
+   * everything pushed during the turn; appendedFinal is the optional tail from
+   * complete(). When both are present we join with a blank line so the final
+   * tail visually separates from the progress.
+   */
+  private buildDisplayText(): string {
+    if (this.appendedFinal && this.streamedText) {
+      return `${this.streamedText}\n\n${this.appendedFinal}`;
+    }
+    return this.appendedFinal || this.streamedText;
   }
 
   /**
@@ -270,7 +317,7 @@ export class StreamingCardController {
 
   private async awaitImageUploads(): Promise<void> {
     if (!this.imageResolver || !this.imageResolver.hasPending()) return;
-    await this.imageResolver.resolveImagesAwait(this.buffer, this.imageResolveTimeoutMs);
+    await this.imageResolver.resolveImagesAwait(this.buildDisplayText(), this.imageResolveTimeoutMs);
   }
 
   async waitIdle(): Promise<void> {
@@ -280,7 +327,8 @@ export class StreamingCardController {
   private async pushUpdate(): Promise<void> {
     if (!this.cardId || !this.messageId) return;
     if (isMessageUnavailable(this.messageId, this.accountId)) return;
-    const resolvedBuffer = this.imageResolver ? this.imageResolver.resolveImages(this.buffer) : this.buffer;
+    const displayText = this.buildDisplayText();
+    const resolvedBuffer = this.imageResolver ? this.imageResolver.resolveImages(displayText) : displayText;
     const split = splitReasoningText(resolvedBuffer);
     const answerSource = split.answerText ?? (split.reasoningText ? "" : resolvedBuffer);
     const renderedRaw = this.state === "thinking" ? answerSource : optimizeMarkdownStyle(answerSource);

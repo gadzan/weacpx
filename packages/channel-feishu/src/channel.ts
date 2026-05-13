@@ -531,7 +531,7 @@ export class FeishuChannel implements MessageChannelRuntime {
     if (active.cardController) {
       // Always terminate the card — even if the agent returned no text,
       // otherwise the user sees "Processing..." forever.
-      await active.cardController.complete(responseText.length > 0 ? response.text : "");
+      await active.cardController.complete(responseText.length > 0 ? response.text : undefined);
       // If the card subsystem gave up (N consecutive update failures),
       // deliver the answer as a plain reply so the user still sees it.
       if (active.cardController.isDegraded() && responseText.length > 0) {

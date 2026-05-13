@@ -168,10 +168,26 @@ test("first terminal transition wins; subsequent complete/abort/fail are no-ops"
   const summary = (last.cardJson as { config?: { summary?: { i18n_content?: Record<string, string> } } })
     .config?.summary?.i18n_content;
   expect(summary?.zh_cn ?? "").toBe("已停止");
-  // Body should preserve the abort message, not the ignored complete text.
+  // Streamed content is preserved across abort (the abort message is only a
+  // fallback when streamedText is empty). The losing complete() must not
+  // append its "ignored final" tail either.
   const bodyElements = (last.cardJson as { body?: { elements?: Array<Record<string, unknown>> } }).body?.elements ?? [];
   const streamingElement = bodyElements.find((el) => (el as { element_id?: string }).element_id === "streaming_content");
-  expect((streamingElement as { content?: string } | undefined)?.content).toBe("stopped");
+  const content = (streamingElement as { content?: string } | undefined)?.content ?? "";
+  expect(content).toBe("partial");
+  expect(content).not.toContain("stopped");
+  expect(content).not.toContain("ignored final");
+});
+
+test("abort with no prior streamed content uses message as fallback display", async () => {
+  const { client, calls } = createFakeClient();
+  const controller = new StreamingCardController({ client, flushIntervalMs: 5 });
+  await controller.seed({ to: "oc_chat" });
+  await controller.abort("stopped");
+  const last = calls.cardUpdate[calls.cardUpdate.length - 1];
+  const elements = (last.cardJson.body as { elements: Array<{ content: string; element_id?: string }> }).elements;
+  const streaming = elements.find((el) => el.element_id === "streaming_content");
+  expect(streaming?.content).toBe("stopped");
 });
 
 test("appendStream after complete is rejected", async () => {
@@ -186,11 +202,13 @@ test("appendStream after complete is rejected", async () => {
   expect(calls.cardUpdate.length).toBe(updatesBefore);
 });
 
-test("appendStream coalesces rapid chunks and complete force-flushes with final state", async () => {
+test("appendStream joins each segment with a paragraph break and complete force-flushes", async () => {
   const { client, calls } = createFakeClient();
   const controller = new StreamingCardController({ client, flushIntervalMs: 30 });
   await controller.seed({ to: "oc_chat" });
 
+  // Each appendStream call is one complete aggregator batch (paragraph), not a
+  // partial token chunk. They must render as visually distinct blocks.
   controller.appendStream("hel");
   controller.appendStream("lo ");
   controller.appendStream("world");
@@ -202,10 +220,10 @@ test("appendStream coalesces rapid chunks and complete force-flushes with final 
   expect((last.cardJson.config as { streaming_mode: boolean }).streaming_mode).toBe(false);
   expect((last.cardJson.config as { summary: { content: string } }).summary.content).toBe("Done");
   const elements = (last.cardJson.body as { elements: Array<{ content: string }> }).elements;
-  expect(elements[0].content).toBe("hello world");
+  expect(elements[0].content).toBe("hel\n\nlo \n\nworld");
 });
 
-test("complete with explicit finalText overwrites buffer", async () => {
+test("complete with explicit finalText appends below streamed content", async () => {
   const { client, calls } = createFakeClient();
   const controller = new StreamingCardController({ client, flushIntervalMs: 30 });
   await controller.seed({ to: "oc_chat" });
@@ -215,7 +233,38 @@ test("complete with explicit finalText overwrites buffer", async () => {
 
   const last = calls.cardUpdate[calls.cardUpdate.length - 1];
   const elements = (last.cardJson.body as { elements: Array<{ content: string }> }).elements;
-  expect(elements[0].content).toBe("final answer");
+  expect(elements[0].content).toBe("intermediate\n\nfinal answer");
+});
+
+test("complete() with empty string preserves streamed content", async () => {
+  // Regression: in streaming mode the transport returns text:"" after pushing
+  // every segment via reply(). The card body must keep the streamed progress
+  // — replacing it with "" would leave the user staring at just a "已完成"
+  // footer.
+  const { client, calls } = createFakeClient();
+  const controller = new StreamingCardController({ client, flushIntervalMs: 30 });
+  await controller.seed({ to: "oc_chat" });
+
+  controller.appendStream("step 1");
+  controller.appendStream("step 2");
+  await controller.complete("");
+
+  const last = calls.cardUpdate[calls.cardUpdate.length - 1];
+  const elements = (last.cardJson.body as { elements: Array<{ content: string }> }).elements;
+  expect(elements[0].content).toBe("step 1\n\nstep 2");
+});
+
+test("complete() with undefined preserves streamed content", async () => {
+  const { client, calls } = createFakeClient();
+  const controller = new StreamingCardController({ client, flushIntervalMs: 30 });
+  await controller.seed({ to: "oc_chat" });
+
+  controller.appendStream("step 1");
+  await controller.complete();
+
+  const last = calls.cardUpdate[calls.cardUpdate.length - 1];
+  const elements = (last.cardJson.body as { elements: Array<{ content: string }> }).elements;
+  expect(elements[0].content).toBe("step 1");
 });
 
 test("abort emits an 'aborted' final-state card", async () => {
@@ -307,7 +356,7 @@ test("subsequent streaming pushes use cardElement.content (not full card.update)
 
   controller.appendStream("first");
   await new Promise((r) => setTimeout(r, 30));
-  controller.appendStream(" second");
+  controller.appendStream("second");
   await new Promise((r) => setTimeout(r, 30));
   await controller.complete();
 
@@ -317,7 +366,7 @@ test("subsequent streaming pushes use cardElement.content (not full card.update)
   expect(calls.elementContent.length).toBeGreaterThanOrEqual(1);
   const lastElement = calls.elementContent[calls.elementContent.length - 1];
   expect(lastElement.elementId).toBe("streaming_content");
-  expect(lastElement.content).toContain("first second");
+  expect(lastElement.content).toContain("first\n\nsecond");
 });
 
 test("falls back to full card.update when cardElement.content is unavailable", async () => {

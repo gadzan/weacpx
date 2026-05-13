@@ -146,9 +146,14 @@ test("FeishuChannel with replyMode=streaming seeds a card and finalises with com
 
   const agent: ChatAgent = {
     async chat(request) {
-      await request.reply?.("partial 1 ");
+      await request.reply?.("partial 1");
       await request.reply?.("partial 2");
-      return { text: "partial 1 partial 2 + tail" };
+      // In streaming mode the transport returns text:"" because every segment
+      // was already pushed via reply(). Returning a tail text simulates the
+      // WeChat-overflow path where the transport surfaces a summary plus the
+      // dropped final answer — both of which must be appended below the
+      // streamed progress, never replace it.
+      return { text: "summary tail" };
     },
   };
 
@@ -163,7 +168,7 @@ test("FeishuChannel with replyMode=streaming seeds a card and finalises with com
   const last = calls.cardUpdate[calls.cardUpdate.length - 1];
   expect(last.cardJson.config.streaming_mode).toBe(false);
   expect(last.cardJson.config.summary.content).toBe("Done");
-  expect(last.cardJson.body.elements[0].content).toBe("partial 1 partial 2 + tail");
+  expect(last.cardJson.body.elements[0].content).toBe("partial 1\n\npartial 2\n\nsummary tail");
 });
 
 test("FeishuChannel streaming abort fast-path renders aborted card instead of separate reply", async () => {
