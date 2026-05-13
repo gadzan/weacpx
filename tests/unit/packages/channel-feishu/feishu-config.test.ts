@@ -90,7 +90,7 @@ test("parseFeishuChannelConfig promotes legacy single-bot config to default acco
       dmPolicy: "open",
       groupPolicy: "open",
       allowFrom: [],
-      replyMode: "static",
+      replyMode: "auto",
     },
   ]);
 });
@@ -127,7 +127,7 @@ test("parseFeishuChannelConfig parses multi-bot accounts with per-account overri
     dmPolicy: "open",
     groupPolicy: "open",
     allowFrom: [],
-    replyMode: "static",
+    replyMode: "auto",
   });
   expect(byId.get("review")).toEqual({
     accountId: "review",
@@ -141,7 +141,7 @@ test("parseFeishuChannelConfig parses multi-bot accounts with per-account overri
     dmPolicy: "open",
     groupPolicy: "open",
     allowFrom: [],
-    replyMode: "static",
+    replyMode: "auto",
   });
 });
 

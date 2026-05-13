@@ -14,9 +14,9 @@ The channel requires a Feishu self-built app `appId` and `appSecret`.
 
 | Mode | Behaviour |
 |------|-----------|
-| `"static"` (default) | Every `reply()` chunk + the final agent response are sent as separate text messages, replying to the user's incoming message. |
+| `"auto"` (default) | Streaming for direct (p2p) chats, static for groups. Groups already serialize visually around a thread, so the multi-message static path stays simpler there. |
 | `"streaming"` | The channel creates one CardKit v2 interactive card per turn and updates it in place — thinking → streaming → complete (or aborted/error). User sees output appear progressively in one message slot. |
-| `"auto"` | Streaming for direct (p2p) chats, static for groups. Groups already serialize visually around a thread, so the multi-message static path stays simpler there. |
+| `"static"` | Every `reply()` chunk + the final agent response are sent as separate text messages, replying to the user's incoming message. |
 
 While streaming, the card uses two CardKit endpoints intelligently:
 - `cardElement.content` for pure-text deltas — smaller payload, native typewriter animation.

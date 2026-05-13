@@ -165,7 +165,7 @@ weacpx restart
 | `options.dmPolicy` | `"open"` \| `"allowlist"` \| `"disabled"` | 否 | 私聊准入策略，默认 `"open"`（保持旧行为，任何人发起私聊都接收）。`"allowlist"` 时只接受 `allowFrom` 列表中的发送者；`"disabled"` 时全部丢弃 |
 | `options.groupPolicy` | `"open"` \| `"allowlist"` \| `"disabled"` | 否 | 群聊准入策略，默认 `"open"`。语义同 `dmPolicy`，`requireMention` 仍然独立生效 |
 | `options.allowFrom` | `string[]` | 否 | 发送者 `open_id` 白名单；只在任一 policy 为 `"allowlist"` 时生效。包含 `"*"` 等价于"任何带 open_id 的发送者"。`allowlist` 模式下不能为空 |
-| `options.replyMode` | `"static"` \| `"streaming"` \| `"auto"` | 否 | 回复呈现方式。默认 `"static"`(多条独立文本消息);`"streaming"` 改为一张 CardKit v2 交互卡片在一条消息里原地更新(thinking → streaming → complete/aborted/error,带耗时 footer、自动 reasoning 折叠、markdown 图片 URL → image_key 解析、字符级流式更新);`"auto"` 时私聊走 streaming、群聊走 static。机器人需具有 `cardkit:card:write` + `im:message:send_as_bot` 权限;首次创建卡片失败时会自动回退到 static 并打印 `feishu.streaming.fallback` 日志(权限缺失还会一次性把授权链接发给用户)。也可在 `options.accounts.<id>.replyMode` 上做账号级覆盖 |
+| `options.replyMode` | `"static"` \| `"streaming"` \| `"auto"` | 否 | 回复呈现方式。默认 `"auto"`(私聊走 streaming、群聊走 static);`"static"` 为多条独立文本消息;`"streaming"` 改为一张 CardKit v2 交互卡片在一条消息里原地更新(thinking → streaming → complete/aborted/error,带耗时 footer、自动 reasoning 折叠、markdown 图片 URL → image_key 解析、字符级流式更新)。机器人需具有 `cardkit:card:write` + `im:message:send_as_bot` 权限;首次创建卡片失败时会自动回退到 static 并打印 `feishu.streaming.fallback` 日志(权限缺失还会一次性把授权链接发给用户)。也可在 `options.accounts.<id>.replyMode` 上做账号级覆盖 |
 
 ### 元宝频道配置（`options`，由 `@ganglion/weacpx-channel-yuanbao` 提供）
 
