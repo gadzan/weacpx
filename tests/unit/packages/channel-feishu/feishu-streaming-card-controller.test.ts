@@ -9,6 +9,10 @@ import {
   markMessageUnavailable,
   resetMessageUnavailableCacheForTests,
 } from "../../../../packages/channel-feishu/src/message-unavailable";
+import {
+  __resetShutdownHooksForTests,
+  fireShutdownHooksForTests,
+} from "../../../../packages/channel-feishu/src/card/shutdown-hooks";
 
 beforeEach(() => {
   resetMessageUnavailableCacheForTests();
@@ -629,4 +633,35 @@ test("cardBodyMaxChars also caps the element-content fast-path", async () => {
     // Strict cap: truncateForCardBody guarantees `result.length <= maxChars`.
     expect(c.length).toBeLessThanOrEqual(50);
   }
+});
+
+test("a shutdown signal aborts a still-streaming card", async () => {
+  __resetShutdownHooksForTests();
+  const { client, calls } = createFakeClient();
+  const controller = new StreamingCardController({ client, flushIntervalMs: 30 });
+  await controller.seed({ to: "oc_chat" });
+  controller.appendStream("mid-flight progress");
+
+  await fireShutdownHooksForTests();
+
+  expect(controller.isTerminated()).toBe(true);
+  const last = calls.cardUpdate[calls.cardUpdate.length - 1];
+  expect((last.cardJson.config as { summary: { content: string } }).summary.content).toBe("Stopped");
+  const elements = (last.cardJson.body as { elements: Array<{ content: string; element_id?: string }> }).elements;
+  const streaming = elements.find((el) => el.element_id === "streaming_content");
+  expect(streaming?.content).toBe("mid-flight progress");
+});
+
+test("a terminal transition disposes the shutdown hook before firing", async () => {
+  __resetShutdownHooksForTests();
+  const { client, calls } = createFakeClient();
+  const controller = new StreamingCardController({ client, flushIntervalMs: 30 });
+  await controller.seed({ to: "oc_chat" });
+  controller.appendStream("done early");
+  await controller.complete();
+
+  const updatesBefore = calls.cardUpdate.length;
+  await fireShutdownHooksForTests();
+  // No additional updates after the hook fires — controller already terminal.
+  expect(calls.cardUpdate.length).toBe(updatesBefore);
 });

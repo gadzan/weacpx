@@ -13,6 +13,7 @@ import { FlushController } from "./flush-controller.js";
 import { ImageResolver, type ImageUploadClient } from "./image-resolver.js";
 import { optimizeMarkdownStyle } from "./markdown-style.js";
 import { splitReasoningText } from "./reasoning.js";
+import { registerShutdownHook } from "./shutdown-hooks.js";
 
 export interface StreamingCardClient {
   cardkit: {
@@ -131,6 +132,7 @@ export class StreamingCardController {
   private terminated = false;
   private seededAtMs = 0;
   private degraded = false;
+  private disposeShutdownHook: (() => void) | null = null;
   private readonly onCardDegraded: StreamingCardControllerOptions["onCardDegraded"];
 
   constructor(options: StreamingCardControllerOptions) {
@@ -214,6 +216,14 @@ export class StreamingCardController {
       throw new Error("Feishu interactive message send returned no message_id");
     }
     this.messageId = messageId;
+    this.disposeShutdownHook = registerShutdownHook(`feishu-card:${cardId}`, async () => {
+      if (this.terminated) return;
+      try {
+        await this.abort();
+      } catch {
+        // swallow — process is going down
+      }
+    });
     return { cardId, messageId };
   }
 
@@ -312,6 +322,10 @@ export class StreamingCardController {
     if (isTerminalState(this.state)) return false;
     if (next === "streaming" && this.state !== "thinking") return false;
     this.state = next;
+    if (isTerminalState(this.state)) {
+      this.disposeShutdownHook?.();
+      this.disposeShutdownHook = null;
+    }
     return true;
   }
 
