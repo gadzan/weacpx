@@ -5,6 +5,7 @@ import type { OrchestrationService } from "../orchestration/orchestration-servic
 import type { SessionService } from "../sessions/session-service";
 import type { PromptMediaInput, ReplyQuotaContext, SessionTransport } from "../transport/types";
 import type { QuotaManager } from "../weixin/messaging/quota-manager.js";
+import type { ToolUseEvent } from "../channels/types.js";
 
 export interface RouterResponse {
   text?: string;
@@ -126,6 +127,7 @@ export interface SessionInteractionOps {
     replyContext?: ReplyQuotaContext,
     media?: PromptMediaInput,
     abortSignal?: AbortSignal,
+    onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
   ) => Promise<{ text: string }>;
 }
 

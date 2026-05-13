@@ -7,6 +7,7 @@ import type {
 } from "../router-types";
 import type { PromptMediaInput, ResolvedSession } from "../../transport/types";
 import type { ReplyMode } from "../../config/types";
+import type { ToolUseEvent } from "../../channels/types.js";
 import type { HelpTopicMetadata } from "../help/help-types";
 import { buildCoordinatorPrompt } from "../../orchestration/build-coordinator-prompt";
 import { toDisplaySessionAlias, getChannelIdFromChatKey, toInternalSessionAlias, resolveSessionAliasForInput } from "../../channels/channel-scope";
@@ -428,6 +429,7 @@ async function promptWithSession(
   accountId?: string,
   media?: PromptMediaInput,
   abortSignal?: AbortSignal,
+  onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
 ): Promise<RouterResponse> {
 const effectiveReplyMode = session.replyMode ?? context.config?.channel.replyMode ?? "verbose";
   // Ensure the session carries the resolved value so downstream transports
@@ -475,6 +477,7 @@ const effectiveReplyMode = session.replyMode ?? context.config?.channel.replyMod
       replyContext,
       media,
       abortSignal,
+      onToolEvent,
     );
     if (claimHumanReply) {
       try {
@@ -514,6 +517,7 @@ export async function handlePrompt(
   accountId?: string,
   media?: PromptMediaInput,
   abortSignal?: AbortSignal,
+  onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
 ): Promise<RouterResponse> {
   const session = await context.sessions.getCurrentSession(chatKey);
   if (!session) {
@@ -521,11 +525,11 @@ export async function handlePrompt(
   }
 
   try {
-    return await promptWithSession(context, session, chatKey, text, reply, replyContextToken, accountId, media, abortSignal);
+    return await promptWithSession(context, session, chatKey, text, reply, replyContextToken, accountId, media, abortSignal, onToolEvent);
   } catch (error) {
     const recovered = await context.recovery.tryRecoverMissingSession(session, error);
     if (recovered) {
-      return await promptWithSession(context, recovered, chatKey, text, reply, replyContextToken, accountId, media, abortSignal);
+      return await promptWithSession(context, recovered, chatKey, text, reply, replyContextToken, accountId, media, abortSignal, onToolEvent);
     }
     return context.recovery.renderTransportError(session, error);
   }

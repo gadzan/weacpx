@@ -4,6 +4,7 @@ import type { AppLogger } from "./logging/app-logger";
 import { createNoopAppLogger } from "./logging/app-logger";
 import { normalizeMediaArray } from "./channels/media-types.js";
 import { isKnownWeacpxCommandText } from "./commands/command-list";
+import type { ToolUseEvent } from "./channels/types.js";
 
 interface RouterLike {
   handle(
@@ -15,6 +16,7 @@ interface RouterLike {
     media?: unknown,
     metadata?: ChatRequestMetadata,
     abortSignal?: AbortSignal,
+    onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
   ): Promise<ChatResponse>;
   clearSession?: (chatKey: string) => Promise<void>;
 }
@@ -55,6 +57,7 @@ export class ConsoleAgent implements WechatAgent {
       promptMedia,
       request.metadata,
       request.abortSignal,
+      request.onToolEvent,
     );
   }
 

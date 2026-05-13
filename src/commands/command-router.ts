@@ -11,6 +11,7 @@ import { PromptCommandError } from "../transport/prompt-output";
 import { parseCommand } from "./parse-command";
 import { authorizeCommandForChat, renderCommandAccessDenied } from "./command-policy";
 import type { ChatRequestMetadata } from "../weixin/agent/interface";
+import type { ToolUseEvent } from "../channels/types.js";
 import { handlePermissionAutoSet, handlePermissionAutoStatus, handlePermissionModeSet, handlePermissionStatus } from "./handlers/permission-handler";
 import { handleConfigSet, handleConfigShow } from "./handlers/config-handler";
 import {
@@ -114,6 +115,7 @@ export class CommandRouter {
     media?: PromptMediaInput,
     metadata?: ChatRequestMetadata,
     abortSignal?: AbortSignal,
+    onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
   ): Promise<RouterResponse> {
     const startedAt = Date.now();
     const command = parseCommand(input);
@@ -269,6 +271,7 @@ export class CommandRouter {
             accountId,
             media,
             abortSignal,
+            onToolEvent,
           );
       }
     });
@@ -329,8 +332,8 @@ export class CommandRouter {
     return {
       setModeTransportSession: (session, modeId) => this.setModeTransportSession(session, modeId),
       cancelTransportSession: (session) => this.cancelTransportSession(session),
-      promptTransportSession: (session, text, reply, replyContext, media, abortSignal) =>
-        this.promptTransportSession(session, text, reply, replyContext, media, abortSignal),
+      promptTransportSession: (session, text, reply, replyContext, media, abortSignal, onToolEvent) =>
+        this.promptTransportSession(session, text, reply, replyContext, media, abortSignal, onToolEvent),
     };
   }
 
@@ -537,6 +540,7 @@ export class CommandRouter {
     replyContext?: ReplyQuotaContext,
     media?: PromptMediaInput,
     abortSignal?: AbortSignal,
+    onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
   ) {
     session.mcpCoordinatorSession ??= session.transportSession;
     // `done` closes the race window between prompt resolving and the abort
@@ -581,7 +585,10 @@ export class CommandRouter {
     }
     try {
       return await this.measureTransportCall("prompt", session, () =>
-        this.transport.prompt(session, text, reply, replyContext, media ? { media } : undefined),
+        this.transport.prompt(session, text, reply, replyContext, {
+          ...(media ? { media } : {}),
+          ...(onToolEvent ? { onToolEvent } : {}),
+        }),
       );
     } finally {
       done = true;
