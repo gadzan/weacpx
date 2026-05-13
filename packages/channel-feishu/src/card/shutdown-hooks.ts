@@ -18,10 +18,21 @@ interface RegisteredHook {
 
 const hooks = new Set<RegisteredHook>();
 let installed = false;
+// Once a real shutdown starts, `firing` stays true — subsequent fire
+// requests (e.g. a redundant beforeExit after SIGTERM) short-circuit
+// because the process is on its way out anyway.
 let firing = false;
 
 const DEFAULT_PER_HANDLER_TIMEOUT_MS = 1000;
 
+/**
+ * Register a shutdown handler. Returns a dispose function.
+ *
+ * Restriction: handlers MUST NOT call `registerShutdownHook` from inside
+ * their own execution during shutdown. New registrations made while
+ * `runAll` is in flight are silently dropped because `firing` blocks
+ * subsequent fire requests.
+ */
 export function registerShutdownHook(name: string, handler: ShutdownHandler): () => void {
   installSignalHandlersOnce();
   const entry: RegisteredHook = { name, handler };
@@ -45,8 +56,9 @@ function installSignalHandlersOnce(): void {
   installed = true;
   const trigger = (signal: NodeJS.Signals): void => {
     void runAll(DEFAULT_PER_HANDLER_TIMEOUT_MS).then(() => {
-      // Re-emit the signal with handlers removed so default behavior runs.
-      process.removeAllListeners(signal);
+      // Only remove our own listener — preserves shutdown handlers
+      // registered by other subsystems (e.g. the daemon controller).
+      process.removeListener(signal, trigger);
       process.kill(process.pid, signal);
     });
   };
