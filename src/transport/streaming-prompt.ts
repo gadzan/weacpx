@@ -20,10 +20,7 @@ interface StreamEvent {
       kind?: string;
       title?: string;
       toolCallId?: string;
-      rawInput?: {
-        parsed_cmd?: Array<{ type: string; cmd: string; name?: string }>;
-        command?: string;
-      };
+      rawInput?: unknown;
     };
   };
 }
@@ -126,30 +123,34 @@ function formatToolCallEvent(update: NonNullable<StreamEvent["params"]>["update"
   if (title.length === 0) return null;
 
   const emoji = KIND_EMOJI[kind] ?? "\u{1F527}";
+  const inputSummary = summarizeToolInput(update.rawInput);
+  const status = readString(update, "status");
 
-  const command = getToolDisplayCommand(update);
-  if (command) {
-    return `${emoji} ${truncateToolDisplay(command)}`;
-  }
+  if (!inputSummary && isGenericToolTitle(kind, title)) return null;
 
-  if (sessionUpdate === "tool_call_update" || isGenericToolTitle(kind, title)) return null;
-
-  return `${emoji} ${title}`;
+  const summaryText = inputSummary ? `: ${truncateToolDisplay(inputSummary)}` : "";
+  const statusText = status ? ` (${status})` : "";
+  return `${emoji} ${title}${statusText}${summaryText}`;
 }
 
-function getToolDisplayCommand(update: NonNullable<StreamEvent["params"]>["update"]): string | null {
-  if (!update) return null;
+function summarizeToolInput(rawInput: unknown): string | undefined {
+  if (rawInput == null) return undefined;
+  if (typeof rawInput === "string" || typeof rawInput === "number" || typeof rawInput === "boolean") {
+    return String(rawInput);
+  }
+  if (!isRecord(rawInput)) return undefined;
 
-  const command = update.rawInput?.command;
-  if (typeof command === "string" && command.length > 0) {
-    return command;
+  const command = readFirstString(rawInput, ["command", "cmd", "program"]);
+  const args = readFirstStringArray(rawInput, ["args", "arguments"]);
+  if (command) {
+    return [command, ...(args ?? [])].join(" ");
   }
 
-  const parsedCmd = update.rawInput?.parsed_cmd;
-  if (parsedCmd && parsedCmd.length > 0) {
+  const parsedCmd = rawInput.parsed_cmd;
+  if (Array.isArray(parsedCmd) && parsedCmd.length > 0) {
     const parts: string[] = [];
     for (const entry of parsedCmd) {
-      if (entry && typeof entry.cmd === "string" && entry.cmd.length > 0) {
+      if (isRecord(entry) && typeof entry.cmd === "string" && entry.cmd.length > 0) {
         parts.push(entry.cmd);
       }
     }
@@ -158,7 +159,55 @@ function getToolDisplayCommand(update: NonNullable<StreamEvent["params"]>["updat
     }
   }
 
-  return null;
+  return readFirstString(rawInput, [
+    "path",
+    "file",
+    "filePath",
+    "filepath",
+    "target",
+    "uri",
+    "url",
+    "query",
+    "pattern",
+    "text",
+    "search",
+    "name",
+    "description",
+  ]);
+}
+
+function readFirstString(record: Record<string, unknown>, keys: readonly string[]): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+function readFirstStringArray(record: Record<string, unknown>, keys: readonly string[]): string[] | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (!Array.isArray(value)) continue;
+    const entries = value
+      .map((entry) => (typeof entry === "string" && entry.trim().length > 0 ? entry.trim() : undefined))
+      .filter((entry): entry is string => entry !== undefined);
+    if (entries.length > 0) {
+      return entries;
+    }
+  }
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readString(rawInput: unknown, key: string): string | undefined {
+  if (!isRecord(rawInput)) return undefined;
+  const value = rawInput[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
 function truncateToolDisplay(text: string): string {
