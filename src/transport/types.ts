@@ -1,5 +1,6 @@
 import type { NonInteractivePermissions, PermissionMode } from "../config/types";
 import type { QuotaManager } from "../weixin/messaging/quota-manager.js";
+import type { ToolUseEvent } from "../channels/types.js";
 
 export interface ReplyQuotaContext {
   chatKey: string;
@@ -40,6 +41,16 @@ export type PromptMediaInput = PromptMedia | PromptMedia[];
 
 export interface PromptOptions {
   onSegment?: (text: string) => void | Promise<void>;
+  /**
+   * Structured side-channel for tool calls. When provided, tool_call /
+   * tool_call_update events are NOT rendered into the text reply stream;
+   * channels receive them here instead. Used by the Feishu streaming card
+   * to render a collapsible tool-use panel.
+   *
+   * When undefined (or for transports that don't support it yet), tool
+   * calls remain folded into the reply text stream as before.
+   */
+  onToolEvent?: (event: ToolUseEvent) => void | Promise<void>;
   media?: PromptMediaInput;
 }
 

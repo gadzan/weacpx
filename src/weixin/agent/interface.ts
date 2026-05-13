@@ -1,4 +1,5 @@
 import type { ChannelMediaAttachment, OutboundChannelMedia } from "../../channels/media-types.js";
+import type { ToolUseEvent } from "../../channels/types.js";
 
 /**
  * Agent interface — any AI backend that can handle a chat message.
@@ -45,6 +46,8 @@ export interface ChatRequest {
    * output produced after abort.
    */
   abortSignal?: AbortSignal;
+  /** Structured tool-use side-channel; see PromptOptions.onToolEvent. */
+  onToolEvent?: (event: ToolUseEvent) => void | Promise<void>;
 }
 
 export interface ChatRequestMetadata {

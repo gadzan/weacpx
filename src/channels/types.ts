@@ -76,3 +76,24 @@ export interface MessageChannelRuntime {
   notifyTaskProgress(task: OrchestrationTaskRecord, text: string): Promise<void>;
   sendCoordinatorMessage(input: CoordinatorMessageInput): Promise<void>;
 }
+
+// Structured tool-use event. The transport emits one of these per acpx
+// `tool_call` / `tool_call_update` session update when the consuming side
+// has registered an `onToolEvent` handler. Channels collapse multiple
+// events sharing the same toolCallId into a single render step.
+
+export type ToolUseStatus = "running" | "success" | "error";
+export type ToolUseKind = "read" | "search" | "execute" | "edit" | "other";
+
+export interface ToolUseEvent {
+  toolCallId: string;
+  /** Free-form tool name from the agent (e.g. "Read File", "Bash"). */
+  toolName: string;
+  /** Coarse classifier used to pick an icon. */
+  kind: ToolUseKind;
+  /** Best-effort one-line summary derived from `rawInput`. */
+  summary?: string;
+  status: ToolUseStatus;
+  /** Set when status transitions out of "running". */
+  durationMs?: number;
+}

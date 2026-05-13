@@ -9,6 +9,9 @@ export type {
   MessageChannelRuntime,
   OrchestrationDeliveryCallbacks,
   OutboundQuota,
+  ToolUseEvent,
+  ToolUseKind,
+  ToolUseStatus,
 } from "./channels/types.js";
 export type {
   ChannelCliInput,
