@@ -167,9 +167,13 @@ async function verifyNoStaleConsoleReferences(repoRoot, scanPaths, failures) {
     if (!isTextFile(file)) continue;
     const text = await readFile(file, "utf8");
     if (text.includes("weacpx-console/plugin-api")) {
-      failures.push(`${relative(repoRoot, file)}: replace stale weacpx-console/plugin-api reference with weacpx/plugin-api`);
+      failures.push(`${toPosixPath(relative(repoRoot, file))}: replace stale weacpx-console/plugin-api reference with weacpx/plugin-api`);
     }
   }
+}
+
+function toPosixPath(path) {
+  return path.replaceAll("\\", "/");
 }
 
 async function collectFiles(path, out) {

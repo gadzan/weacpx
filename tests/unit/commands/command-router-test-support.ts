@@ -58,9 +58,13 @@ export class MemoryStateStore implements Pick<StateStore, "save"> {
 }
 
 export class MemoryConfigStore
-  implements Pick<ConfigStore, "save" | "upsertWorkspace" | "removeWorkspace" | "upsertAgent" | "removeAgent" | "updateTransport" | "updateChannel">
+  implements Pick<ConfigStore, "load" | "save" | "upsertWorkspace" | "removeWorkspace" | "upsertAgent" | "removeAgent" | "updateTransport" | "updateChannel">
 {
   constructor(private readonly config: AppConfig) {}
+
+  async load(): Promise<AppConfig> {
+    return this.config;
+  }
 
   async save(config: AppConfig): Promise<void> {
     this.config.transport = { ...config.transport };

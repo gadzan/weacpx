@@ -136,6 +136,8 @@ export class CommandRouter {
       return { text: renderCommandAccessDenied(command) };
     }
 
+    await this.refreshConfigFromStore();
+
     return await this.executeCommand(chatKey, command.kind, startedAt, async () => {
       switch (command.kind) {
         case "invalid":
@@ -400,8 +402,23 @@ export class CommandRouter {
       ...channel,
       ...(channel.options ? { options: { ...channel.options } } : {}),
     }));
+    this.config.plugins = updated.plugins.map((plugin) => ({ ...plugin }));
     this.config.agents = { ...updated.agents };
     this.config.workspaces = { ...updated.workspaces };
+    this.config.orchestration = {
+      ...updated.orchestration,
+      allowedAgentRequestTargets: [...updated.orchestration.allowedAgentRequestTargets],
+      allowedAgentRequestRoles: [...updated.orchestration.allowedAgentRequestRoles],
+    };
+  }
+
+  private async refreshConfigFromStore(): Promise<void> {
+    if (!this.config || !this.configStore) {
+      return;
+    }
+
+    const updated = await this.configStore.load();
+    this.replaceConfig(updated);
   }
 
 

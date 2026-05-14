@@ -248,6 +248,25 @@ test("reuses an existing workspace and session from the workspace shortcut comma
   });
 });
 
+test("workspace shortcut refreshes config saved by another process", async () => {
+  const runtimeConfig = createConfig();
+  const persistedConfig = createConfig();
+  persistedConfig.workspaces.agent = { cwd: "E:/agent" };
+  const configStore = new MemoryConfigStore(persistedConfig);
+  const sessions = new SessionService(runtimeConfig, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, runtimeConfig, configStore);
+
+  const reply = await router.handle("wx:user", "/ss codex --ws agent");
+
+  expect(reply.text).toContain("已创建并切换到会话「agent:codex」");
+  expect(await sessions.getCurrentSession("wx:user")).toMatchObject({
+    alias: "agent:codex",
+    workspace: "agent",
+    cwd: "E:/agent",
+  });
+});
+
 test("rejects the workspace shortcut command when the workspace is missing", async () => {
   const config = createConfig();
   const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
