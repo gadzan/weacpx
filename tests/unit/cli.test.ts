@@ -186,7 +186,42 @@ test("start surfaces stderr log hint when daemon dies before ready (missing plug
   ).resolves.toBe(1);
 
   expect(lines.some((line) => line.startsWith("weacpx 启动失败：weacpx daemon exited before reporting ready state"))).toBe(true);
+  expect(lines.some((line) => line.startsWith("请查看 App Log: ") && line.includes("app.log"))).toBe(true);
   expect(lines.some((line) => line.startsWith("请查看 Stderr: ") && line.includes("stderr.log"))).toBe(true);
+});
+
+test("start surfaces app log hint next to custom WEACPX_CONFIG", async () => {
+  const lines: string[] = [];
+  await withTempHome(async () => {
+    const configRoot = await mkdtemp(join(tmpdir(), "weacpx-cli-config-"));
+    const previousConfig = process.env.WEACPX_CONFIG;
+    process.env.WEACPX_CONFIG = join(configRoot, "config.json");
+    try {
+      await expect(
+        runCli(["start"], {
+          controller: {
+            getStatus: async () => ({ state: "stopped" }),
+            start: async () => {
+              throw new Error("startup polling timed out");
+            },
+            stop: async () => ({ state: "stopped", detail: "stopped" }),
+          },
+          print: (line) => {
+            lines.push(line);
+          },
+          isInteractive: () => false,
+        }),
+      ).resolves.toBe(1);
+      expect(lines).toContain(`请查看 App Log: ${join(configRoot, "runtime", "app.log")}`);
+    } finally {
+      if (previousConfig === undefined) {
+        delete process.env.WEACPX_CONFIG;
+      } else {
+        process.env.WEACPX_CONFIG = previousConfig;
+      }
+      await rm(configRoot, { recursive: true, force: true });
+    }
+  });
 });
 
 test("restart prints friendly error and exit code 1 when controller throws", async () => {

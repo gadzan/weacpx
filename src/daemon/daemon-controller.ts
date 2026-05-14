@@ -4,16 +4,29 @@ import { dirname } from "node:path";
 import type { DaemonPaths } from "./daemon-files";
 import { DaemonStatusStore, type DaemonStatus } from "./daemon-status";
 
+export interface DaemonStartupWaitPoll {
+  elapsedMs: number;
+  timeoutMs: number;
+  pid: number;
+}
+
+export interface DaemonStartupWait {
+  onPoll?: (input: DaemonStartupWaitPoll) => void | Promise<void>;
+  shouldStopWaiting?: () => boolean;
+}
+
 interface DaemonControllerDeps {
   isProcessRunning: (pid: number) => boolean;
-  spawnDetached: (options?: { firstRunOnboarding?: string }) => Promise<number>;
+  spawnDetached: (options?: { firstRunOnboarding?: string; startupWait?: DaemonStartupWait }) => Promise<number>;
   terminateProcess: (pid: number) => Promise<void>;
   startupPollIntervalMs?: number;
   startupTimeoutMs?: number;
+  onboardingStartupTimeoutMs?: number;
   onStartupPoll?: () => Promise<void>;
   shutdownPollIntervalMs?: number;
   shutdownTimeoutMs?: number;
   onShutdownPoll?: () => Promise<void>;
+  now?: () => number;
 }
 
 type DaemonState =
@@ -26,10 +39,12 @@ export class DaemonController {
   private readonly statusStore: DaemonStatusStore;
   private readonly startupPollIntervalMs: number;
   private readonly startupTimeoutMs: number;
+  private readonly onboardingStartupTimeoutMs: number;
   private readonly onStartupPoll: () => Promise<void>;
   private readonly shutdownPollIntervalMs: number;
   private readonly shutdownTimeoutMs: number;
   private readonly onShutdownPoll: () => Promise<void>;
+  private readonly now: () => number;
 
   constructor(
     private readonly paths: DaemonPaths,
@@ -38,8 +53,10 @@ export class DaemonController {
     this.statusStore = new DaemonStatusStore(paths.statusFile);
     this.startupPollIntervalMs = deps.startupPollIntervalMs ?? 50;
     this.startupTimeoutMs = deps.startupTimeoutMs ?? 5_000;
+    this.onboardingStartupTimeoutMs = deps.onboardingStartupTimeoutMs ?? 300_000;
     this.shutdownPollIntervalMs = deps.shutdownPollIntervalMs ?? 50;
     this.shutdownTimeoutMs = deps.shutdownTimeoutMs ?? 5_000;
+    this.now = deps.now ?? (() => Date.now());
     this.onStartupPoll = deps.onStartupPoll ?? (async () => {
       await new Promise((resolve) => setTimeout(resolve, this.startupPollIntervalMs));
     });
@@ -72,7 +89,7 @@ export class DaemonController {
     };
   }
 
-  async start(options: { firstRunOnboarding?: string } = {}): Promise<{ state: "already-running"; pid: number } | { state: "started"; pid: number }> {
+  async start(options: { firstRunOnboarding?: string; startupWait?: DaemonStartupWait } = {}): Promise<{ state: "already-running"; pid: number } | { state: "started"; pid: number }> {
     const current = await this.getStatus();
     if (current.state === "running") {
       return { state: "already-running", pid: current.pid };
@@ -89,7 +106,11 @@ export class DaemonController {
     await this.statusStore.clear();
     const pid = await this.deps.spawnDetached(options);
     await this.writePid(pid);
-    await this.waitForStartupMetadata(pid);
+    await this.waitForStartupMetadata(
+      pid,
+      options.firstRunOnboarding ? this.onboardingStartupTimeoutMs : this.startupTimeoutMs,
+      options.startupWait,
+    );
     return { state: "started", pid };
   }
 
@@ -131,9 +152,10 @@ export class DaemonController {
     await this.statusStore.clear();
   }
 
-  private async waitForStartupMetadata(pid: number): Promise<void> {
-    const deadline = Date.now() + this.startupTimeoutMs;
-    while (Date.now() < deadline) {
+  private async waitForStartupMetadata(pid: number, timeoutMs: number, startupWait?: DaemonStartupWait): Promise<void> {
+    const startedAt = this.now();
+    const deadline = startedAt + timeoutMs;
+    while (this.now() < deadline) {
       const status = await this.statusStore.load();
       if (status?.pid === pid) {
         return;
@@ -144,10 +166,19 @@ export class DaemonController {
         throw new Error(`weacpx daemon exited before reporting ready state (pid ${pid})`);
       }
 
+      if (startupWait?.shouldStopWaiting?.()) {
+        return;
+      }
+
+      await startupWait?.onPoll?.({
+        elapsedMs: this.now() - startedAt,
+        timeoutMs,
+        pid,
+      });
       await this.onStartupPoll();
     }
 
-    throw new Error(`weacpx daemon did not report ready state within ${this.startupTimeoutMs}ms (pid ${pid})`);
+    throw new Error(`weacpx daemon did not report ready state within ${timeoutMs}ms (pid ${pid})`);
   }
 
   private async waitForShutdown(pid: number): Promise<void> {

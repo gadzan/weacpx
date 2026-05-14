@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -296,6 +296,89 @@ test("start passes onboarding payload to detached spawn", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test("start uses the onboarding startup timeout when creating the first session", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-daemon-controller-"));
+  let polls = 0;
+  const statusStore = new DaemonStatusStore(join(dir, "status.json"));
+  const controller = createController(dir, {
+    isProcessRunning: (pid) => pid === 77777,
+    spawnDetached: async () => 77777,
+    startupTimeoutMs: 5,
+    onboardingStartupTimeoutMs: 100,
+    onStartupPoll: async () => {
+      polls += 1;
+      if (polls === 3) {
+        await statusStore.save({
+          pid: 77777,
+          started_at: "2026-03-26T00:00:00.000Z",
+          heartbeat_at: "2026-03-26T00:00:00.000Z",
+          config_path: "/cfg",
+          state_path: "/state",
+          app_log: "/app",
+          stdout_log: "/out",
+          stderr_log: "/err",
+        });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 3));
+    },
+  });
+
+  await expect(controller.start({ firstRunOnboarding: "payload" })).resolves.toEqual({
+    state: "started",
+    pid: 77777,
+  });
+  expect(polls).toBe(3);
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("first-run onboarding waits up to five minutes by default", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-daemon-controller-"));
+  let now = 0;
+  const controller = createController(dir, {
+    now: () => now,
+    isProcessRunning: (pid) => pid === 88888,
+    spawnDetached: async () => 88888,
+    startupTimeoutMs: 5_000,
+    onStartupPoll: async () => {
+      now += 60_000;
+    },
+  });
+
+  await expect(controller.start({ firstRunOnboarding: "payload" })).rejects.toThrow(
+    "weacpx daemon did not report ready state within 300000ms (pid 88888)",
+  );
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("start can stop waiting for onboarding while leaving the daemon running", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-daemon-controller-"));
+  let polls = 0;
+  const controller = createController(dir, {
+    isProcessRunning: (pid) => pid === 66666,
+    spawnDetached: async () => 66666,
+    onboardingStartupTimeoutMs: 100,
+    onStartupPoll: async () => {
+      polls += 1;
+    },
+  });
+
+  await expect(controller.start({
+    firstRunOnboarding: "payload",
+    startupWait: {
+      shouldStopWaiting: () => polls >= 2,
+    },
+  })).resolves.toEqual({
+    state: "started",
+    pid: 66666,
+  });
+  expect(polls).toBe(2);
+  await expect(readFile(join(dir, "daemon.pid"), "utf8")).resolves.toBe("66666\n");
+
+  await rm(dir, { recursive: true, force: true });
+});
+
 function createController(
   runtimeDir: string,
   overrides: Partial<ControllerDeps> = {},
@@ -315,10 +398,14 @@ function createController(
     terminateProcess: overrides.terminateProcess ?? (async () => {}),
     startupPollIntervalMs: overrides.startupPollIntervalMs ?? 1,
     startupTimeoutMs: overrides.startupTimeoutMs ?? 50,
+    ...(overrides.onboardingStartupTimeoutMs !== undefined
+      ? { onboardingStartupTimeoutMs: overrides.onboardingStartupTimeoutMs }
+      : {}),
     onStartupPoll: overrides.onStartupPoll ?? (async () => {}),
     shutdownPollIntervalMs: overrides.shutdownPollIntervalMs ?? 1,
     shutdownTimeoutMs: overrides.shutdownTimeoutMs ?? 50,
     onShutdownPoll: overrides.onShutdownPoll ?? (async () => {}),
+    ...(overrides.now ? { now: overrides.now } : {}),
   });
 }
 
@@ -328,8 +415,10 @@ interface ControllerDeps {
   terminateProcess: (pid: number) => Promise<void>;
   startupPollIntervalMs: number;
   startupTimeoutMs: number;
+  onboardingStartupTimeoutMs: number;
   onStartupPoll: () => Promise<void>;
   shutdownPollIntervalMs: number;
   shutdownTimeoutMs: number;
   onShutdownPoll: () => Promise<void>;
+  now: () => number;
 }

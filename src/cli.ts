@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { sep } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ConfigStore } from "./config/config-store";
@@ -32,6 +32,8 @@ import type { AppState } from "./state/types";
 import { readVersion } from "./version.js";
 import { handleChannelCli, type ChannelCliDeps } from "./channels/cli/channel-cli";
 import { handlePluginCli, type PluginCliDeps } from "./plugins/plugin-cli";
+import { createStartupWaitUi } from "./cli/startup-wait-ui";
+import type { DaemonStartupWait } from "./daemon/daemon-controller";
 
 
 export interface PrepareMcpCoordinatorStartupInput {
@@ -207,7 +209,7 @@ interface StopStopped {
 
 interface CliController {
   getStatus: DaemonController["getStatus"];
-  start: (options?: { firstRunOnboarding?: FirstRunOnboardingPlan }) => Promise<StartStarted | StartAlreadyRunning>;
+  start: (options?: { firstRunOnboarding?: FirstRunOnboardingPlan; startupWait?: DaemonStartupWait }) => Promise<StartStarted | StartAlreadyRunning>;
   stop: () => Promise<StopStopped>;
 }
 
@@ -368,6 +370,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
     case "start": {
       const controller = deps.controller ?? createDefaultController();
       try {
+        const isInteractive = deps.isInteractive ?? defaultIsInteractive;
         const status = await controller.getStatus();
         if (status.state === "running") {
           print("weacpx 已在后台运行");
@@ -380,10 +383,21 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
         const onboarding = await runOnboardingBeforeStart({
           print,
           cwd: deps.cwd ?? (() => process.cwd()),
-          isInteractive: deps.isInteractive,
+          isInteractive,
           promptText: deps.promptText,
         });
-        const result = await controller.start({ firstRunOnboarding: onboarding ?? undefined });
+        const startupWaitUi = onboarding
+          ? createStartupWaitUi({ isInteractive })
+          : null;
+        let result: StartStarted | StartAlreadyRunning;
+        try {
+          result = await controller.start({
+            firstRunOnboarding: onboarding ?? undefined,
+            ...(startupWaitUi?.wait ? { startupWait: startupWaitUi.wait } : {}),
+          });
+        } finally {
+          startupWaitUi?.stop();
+        }
         if (result.state === "already-running") {
           print("weacpx 已在后台运行");
           print(`PID: ${result.pid}`);
@@ -395,8 +409,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
         return 0;
       } catch (error) {
         print(`weacpx 启动失败：${describeFriendlyError(error)}`);
-        const stderrPath = safeStderrLogPath();
-        if (stderrPath) print(`请查看 Stderr: ${stderrPath}`);
+        printDaemonLogHints(print);
         return 1;
       }
     }
@@ -441,8 +454,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
         return await restartDaemonCli(controller, print);
       } catch (error) {
         print(`weacpx 重启失败：${describeFriendlyError(error)}`);
-        const stderrPath = safeStderrLogPath();
-        if (stderrPath) print(`请查看 Stderr: ${stderrPath}`);
+        printDaemonLogHints(print);
         return 1;
       }
     }
@@ -470,7 +482,7 @@ async function defaultUpdate(
     saveConfig: async (config) => await store.save(config),
     readCurrentVersion: readVersion,
     print: input.print,
-    isInteractive: input.isInteractive ?? (() => Boolean(process.stdin.isTTY && process.stdout.isTTY)),
+    isInteractive: input.isInteractive ?? defaultIsInteractive,
     promptText: input.promptText ?? defaultPromptText,
     ...input.overrides,
   };
@@ -496,7 +508,7 @@ async function runOnboardingBeforeStart(input: {
     deps: {
       print: input.print,
       cwd: input.cwd,
-      isInteractive: input.isInteractive ?? (() => Boolean(process.stdin.isTTY && process.stdout.isTTY)),
+      isInteractive: input.isInteractive ?? defaultIsInteractive,
       promptText: input.promptText ?? defaultPromptText,
     },
   });
@@ -835,7 +847,7 @@ async function createChannelCliDeps(input: {
     saveConfig: async (config) => await store.save(config),
     print: input.print,
     stderr: input.stderr ?? ((text: string) => process.stderr.write(text)),
-    isInteractive: input.isInteractive ?? (() => Boolean(process.stdin.isTTY && process.stdout.isTTY)),
+    isInteractive: input.isInteractive ?? defaultIsInteractive,
     promptText: input.promptText ?? defaultPromptText,
     promptSecret: input.promptSecret ?? defaultPromptSecret,
     getDaemonStatus: async () => {
@@ -862,7 +874,7 @@ async function createPluginCliDeps(input: {
     loadConfig: async () => await store.load(),
     saveConfig: async (config) => await store.save(config),
     print: input.print,
-    isInteractive: input.isInteractive ?? (() => Boolean(process.stdin.isTTY && process.stdout.isTTY)),
+    isInteractive: input.isInteractive ?? defaultIsInteractive,
     promptText: input.promptText ?? defaultPromptText,
     getDaemonStatus: async () => {
       const status = await controller.getStatus();
@@ -950,6 +962,7 @@ function createDefaultController(): CliController {
     stop: () => controller.stop(),
     start: (options) => controller.start({
       ...(options?.firstRunOnboarding ? { firstRunOnboarding: encodeFirstRunOnboarding(options.firstRunOnboarding) } : {}),
+      ...(options?.startupWait ? { startupWait: options.startupWait } : {}),
     }),
   };
 }
@@ -988,13 +1001,29 @@ function requireHome(): string {
   return home;
 }
 
+function defaultIsInteractive(): boolean {
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
+}
+
 function describeFriendlyError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function safeStderrLogPath(): string | null {
+function printDaemonLogHints(print: (line: string) => void): void {
+  const paths = safeDaemonLogPaths();
+  if (!paths) return;
+  print(`请查看 App Log: ${paths.appLog}`);
+  print(`请查看 Stderr: ${paths.stderrLog}`);
+}
+
+function safeDaemonLogPaths(): { appLog: string; stderrLog: string } | null {
   try {
-    return resolveDaemonPaths({ home: requireHome() }).stderrLog;
+    const configPath = process.env.WEACPX_CONFIG ?? `${requireHome()}/.weacpx/config.json`;
+    const paths = resolveDaemonPaths({ home: requireHome() });
+    return {
+      appLog: join(dirname(configPath), "runtime", "app.log"),
+      stderrLog: paths.stderrLog,
+    };
   } catch {
     return null;
   }
