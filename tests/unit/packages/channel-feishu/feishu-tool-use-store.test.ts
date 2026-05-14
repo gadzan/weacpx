@@ -33,6 +33,26 @@ test("subsequent event for the same toolCallId updates the step in place", () =>
   ]);
 });
 
+test("terminal event computes duration when transport does not provide one", () => {
+  let now = 100;
+  const store = new ToolUseStore(() => now);
+  store.record(event({ toolCallId: "t1", summary: "foo.ts" }));
+  now = 425;
+  store.record(event({ toolCallId: "t1", status: "success", summary: "foo.ts" }));
+  expect(store.steps()[0].durationMs).toBe(325);
+});
+
+test("revision increments for insertions and same-id updates", () => {
+  const store = new ToolUseStore(() => 0);
+  expect(store.getRevision()).toBe(0);
+  store.record(event({ toolCallId: "t1" }));
+  expect(store.getRevision()).toBe(1);
+  store.record(event({ toolCallId: "t1", status: "success" }));
+  expect(store.getRevision()).toBe(2);
+  store.record(event({ toolCallId: "t2" }));
+  expect(store.getRevision()).toBe(3);
+});
+
 test("steps preserve insertion order across multiple toolCallIds", () => {
   const store = new ToolUseStore(() => 0);
   store.record(event({ toolCallId: "a", summary: "a.ts" }));

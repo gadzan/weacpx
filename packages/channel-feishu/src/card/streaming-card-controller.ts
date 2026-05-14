@@ -97,10 +97,15 @@ export interface StreamingCardControllerOptions {
   failureThreshold?: number;
   /** Max chars for the card body before truncation; default 28000. */
   cardBodyMaxChars?: number;
+  /** Interval for live elapsed-footer refresh while the card is non-terminal. Default 1000ms. */
+  liveFooterTickMs?: number;
+  setTimer?: (cb: () => void, delayMs: number) => unknown;
+  clearTimer?: (handle: unknown) => void;
 }
 
 const DEFAULT_FLUSH_INTERVAL_MS = 800;
 const DEFAULT_IMAGE_RESOLVE_TIMEOUT_MS = 3000;
+const DEFAULT_LIVE_FOOTER_TICK_MS = 1000;
 
 const TERMINAL_STATES: ReadonlySet<CardState> = new Set(["complete", "aborted", "error"]);
 function isTerminalState(state: CardState): boolean {
@@ -134,11 +139,16 @@ export class StreamingCardController {
   private lastPushedHadReasoning = false;
   private lastFooterText: string | null = null;
   private readonly toolUseStore: ToolUseStore;
-  private lastPushedToolStepCount = -1;
+  private lastPushedToolRevision = -1;
   private terminated = false;
   private seededAtMs = 0;
   private degraded = false;
   private disposeShutdownHook: (() => void) | null = null;
+  private terminalUpdateDelivered = false;
+  private readonly liveFooterTickMs: number;
+  private readonly setTimer: (cb: () => void, delayMs: number) => unknown;
+  private readonly clearTimer: (handle: unknown) => void;
+  private liveFooterTimer: unknown = null;
   private readonly onCardDegraded: StreamingCardControllerOptions["onCardDegraded"];
 
   constructor(options: StreamingCardControllerOptions) {
@@ -158,6 +168,13 @@ export class StreamingCardController {
     this.imageResolveTimeoutMs = options.imageResolveTimeoutMs ?? DEFAULT_IMAGE_RESOLVE_TIMEOUT_MS;
     this.accountId = options.accountId;
     this.cardBodyMaxChars = options.cardBodyMaxChars;
+    this.liveFooterTickMs = options.liveFooterTickMs ?? DEFAULT_LIVE_FOOTER_TICK_MS;
+    this.setTimer = options.setTimer ?? ((cb, delay) => {
+      const timer = setTimeout(cb, delay);
+      timer.unref?.();
+      return timer;
+    });
+    this.clearTimer = options.clearTimer ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
     this.imageResolver = options.resolveImages === false
       ? null
       : new ImageResolver({
@@ -224,13 +241,14 @@ export class StreamingCardController {
     }
     this.messageId = messageId;
     this.disposeShutdownHook = registerShutdownHook(`feishu-card:${cardId}`, async () => {
-      if (this.terminated) return;
+      if (this.terminalUpdateDelivered) return;
       try {
-        await this.abort();
+        await this.abortForShutdown();
       } catch {
         // swallow — process is going down
       }
     });
+    this.scheduleLiveFooterTick();
     return { cardId, messageId };
   }
 
@@ -279,6 +297,7 @@ export class StreamingCardController {
     await this.flush.waitIdle();
     this.terminated = true;
     await this.flush.forceFlush(() => this.pushUpdate());
+    this.markTerminalUpdateDelivered();
   }
 
   async abort(message?: string): Promise<void> {
@@ -293,6 +312,23 @@ export class StreamingCardController {
     // No image wait for abort — we want to render the stopped state promptly.
     this.terminated = true;
     await this.flush.forceFlush(() => this.pushUpdate());
+    this.markTerminalUpdateDelivered();
+  }
+
+  private async abortForShutdown(): Promise<void> {
+    if (this.terminalUpdateDelivered) return;
+    if (!isTerminalState(this.state)) {
+      await this.abort();
+      return;
+    }
+    // A normal terminal transition (complete/fail/abort) may already be in
+    // progress but not yet delivered to Feishu. During process shutdown, prefer
+    // a best-effort visible stopped state over leaving the seeded card live.
+    this.state = "aborted";
+    this.clearLiveFooterTick();
+    this.terminated = true;
+    await this.flush.forceFlush(() => this.pushUpdate());
+    this.markTerminalUpdateDelivered();
   }
 
   async fail(errorMessage: string): Promise<void> {
@@ -307,6 +343,7 @@ export class StreamingCardController {
     }
     this.terminated = true;
     await this.flush.forceFlush(() => this.pushUpdate());
+    this.markTerminalUpdateDelivered();
   }
 
   /**
@@ -339,11 +376,34 @@ export class StreamingCardController {
     if (isTerminalState(this.state)) return false;
     if (next === "streaming" && this.state !== "thinking") return false;
     this.state = next;
-    if (isTerminalState(this.state)) {
-      this.disposeShutdownHook?.();
-      this.disposeShutdownHook = null;
-    }
+    if (isTerminalState(this.state)) this.clearLiveFooterTick();
     return true;
+  }
+
+  private markTerminalUpdateDelivered(): void {
+    this.terminalUpdateDelivered = true;
+    this.disposeShutdownHook?.();
+    this.disposeShutdownHook = null;
+    this.clearLiveFooterTick();
+  }
+
+  private scheduleLiveFooterTick(): void {
+    if (this.liveFooterTickMs <= 0 || this.liveFooterTimer !== null || this.terminated || isTerminalState(this.state)) {
+      return;
+    }
+    this.liveFooterTimer = this.setTimer(() => {
+      this.liveFooterTimer = null;
+      if (this.terminated || isTerminalState(this.state)) return;
+      if (!this.cardId) return;
+      this.flush.requestFlush(() => this.pushUpdate());
+      this.scheduleLiveFooterTick();
+    }, this.liveFooterTickMs);
+  }
+
+  private clearLiveFooterTick(): void {
+    if (this.liveFooterTimer === null) return;
+    this.clearTimer(this.liveFooterTimer);
+    this.liveFooterTimer = null;
   }
 
   private async awaitImageUploads(): Promise<void> {
@@ -385,7 +445,8 @@ export class StreamingCardController {
     const footerChanged = currentFooterText !== this.lastFooterText;
 
     const toolSteps = this.toolUseStore.steps();
-    const toolStepsChanged = toolSteps.length !== this.lastPushedToolStepCount;
+    const toolRevision = this.toolUseStore.getRevision();
+    const toolStepsChanged = toolRevision !== this.lastPushedToolRevision;
 
     const elementApi = this.client.cardkit.v1.cardElement;
     if (
@@ -427,7 +488,7 @@ export class StreamingCardController {
       this.lastPushedState = this.state;
       this.lastPushedHadReasoning = hasReasoning;
       this.lastFooterText = currentFooterText;
-      this.lastPushedToolStepCount = toolSteps.length;
+      this.lastPushedToolRevision = toolRevision;
     } catch (error) {
       // 230011/231003 mean the message is gone — that's a terminal "success"
       // for our purposes; don't count it as a failure (the user couldn't see

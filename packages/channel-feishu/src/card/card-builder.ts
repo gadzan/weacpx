@@ -9,6 +9,7 @@ export type CardState = "thinking" | "streaming" | "complete" | "aborted" | "err
 // envelope, schema fields, and the truncation marker.
 export const CARD_BODY_MAX_CHARS = 28000;
 const TRUNCATION_MARKER = "\n\n…(truncated)";
+const TOOL_PANEL_MAX_STEPS = 50;
 
 export function truncateForCardBody(text: string, maxChars: number = CARD_BODY_MAX_CHARS): string {
   if (text.length <= maxChars) return text;
@@ -163,7 +164,8 @@ const TOOL_KIND_ICON: Record<string, string> = {
 
 function buildToolUsePanel(steps: ToolUseStep[] | undefined): Record<string, unknown> | null {
   if (!steps || steps.length === 0) return null;
-  const lines = steps.map((step) => {
+  const visibleSteps = steps.slice(0, TOOL_PANEL_MAX_STEPS);
+  const lines = visibleSteps.map((step) => {
     const icon = TOOL_KIND_ICON[step.kind] ?? TOOL_KIND_ICON.other;
     const statusBadge =
       step.status === "running" ? "⏳"
@@ -173,6 +175,10 @@ function buildToolUsePanel(steps: ToolUseStep[] | undefined): Record<string, unk
     const dur = step.durationMs !== undefined ? ` _(${formatElapsedMs(step.durationMs)})_` : "";
     return `${statusBadge} ${icon} **${step.toolName}**${summary}${dur}`;
   });
+  const omitted = steps.length - visibleSteps.length;
+  if (omitted > 0) {
+    lines.push(`… 还有 ${omitted} 个工具调用未显示`);
+  }
   return {
     tag: "collapsible_panel",
     expanded: false,

@@ -11,6 +11,7 @@ export class ToolUseStore {
   private readonly stepsById = new Map<string, ToolUseStep>();
   private readonly order: string[] = [];
   private readonly now: () => number;
+  private revision = 0;
 
   constructor(now: () => number = () => Date.now()) {
     this.now = now;
@@ -21,21 +22,32 @@ export class ToolUseStore {
     if (existing) {
       existing.status = event.status;
       if (event.summary !== undefined) existing.summary = event.summary;
-      if (event.durationMs !== undefined) existing.durationMs = event.durationMs;
+      if (event.durationMs !== undefined) {
+        existing.durationMs = event.durationMs;
+      } else if (event.status !== "running" && existing.durationMs === undefined) {
+        existing.durationMs = Math.max(0, this.now() - existing.startedAt);
+      }
       // Tool name and kind don't change post-start.
+      this.revision += 1;
       return;
     }
+    const startedAt = this.now();
     const step: ToolUseStep = {
       toolCallId: event.toolCallId,
       toolName: event.toolName,
       kind: event.kind,
       ...(event.summary !== undefined ? { summary: event.summary } : {}),
       status: event.status,
-      startedAt: this.now(),
-      ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
+      startedAt,
+      ...(event.durationMs !== undefined
+        ? { durationMs: event.durationMs }
+        : event.status !== "running"
+          ? { durationMs: 0 }
+          : {}),
     };
     this.stepsById.set(event.toolCallId, step);
     this.order.push(event.toolCallId);
+    this.revision += 1;
   }
 
   steps(): ToolUseStep[] {
@@ -44,5 +56,9 @@ export class ToolUseStore {
 
   isEmpty(): boolean {
     return this.order.length === 0;
+  }
+
+  getRevision(): number {
+    return this.revision;
   }
 }

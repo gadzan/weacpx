@@ -695,6 +695,39 @@ test("streaming pushUpdate carries elapsed footer that ticks with time", async (
   expect(calls.cardUpdate.length).toBeGreaterThan(fullBefore);
 });
 
+test("live footer timer refreshes elapsed even when no new text arrives", async () => {
+  const { client, calls } = createFakeClient();
+  let t = 1_000;
+  let timer: (() => void) | null = null;
+  const controller = new StreamingCardController({
+    client,
+    flushIntervalMs: 0,
+    now: () => t,
+    liveFooterTickMs: 1000,
+    setTimer: (cb) => {
+      timer = cb;
+      return 1;
+    },
+    clearTimer: () => {
+      timer = null;
+    },
+  });
+  await controller.seed({ to: "oc_chat" });
+  controller.appendStream("first");
+  await controller.waitIdle();
+  const fullBeforeTick = calls.cardUpdate.length;
+
+  t = 3_000;
+  timer?.();
+  await controller.waitIdle();
+
+  expect(calls.cardUpdate.length).toBeGreaterThan(fullBeforeTick);
+  const last = calls.cardUpdate[calls.cardUpdate.length - 1];
+  const elements = (last.cardJson.body as { elements: Array<{ content?: string }> }).elements;
+  expect(elements[elements.length - 1].content).toContain("2.0s");
+  await controller.complete();
+});
+
 test("recordToolEvent surfaces a tool-use panel on the next push", async () => {
   const { client, calls } = createFakeClient();
   const controller = new StreamingCardController({ client, flushIntervalMs: 10 });
@@ -733,4 +766,57 @@ test("recordToolEvent forces full update path (not fast-path)", async () => {
   controller.appendStream("second");
   await new Promise((r) => setTimeout(r, 30));
   expect(calls.cardUpdate.length).toBeGreaterThan(fullBefore);
+});
+
+test("same toolCallId status update forces full panel refresh", async () => {
+  const { client, calls } = createFakeClient();
+  const controller = new StreamingCardController({
+    client,
+    flushIntervalMs: 10,
+    now: () => 1_000,
+    liveFooterTickMs: 0,
+  });
+  await controller.seed({ to: "oc_chat" });
+  controller.recordToolEvent({ toolCallId: "t1", toolName: "Bash", kind: "execute", status: "running" });
+  controller.appendStream("first");
+  await new Promise((r) => setTimeout(r, 30));
+  const fullBefore = calls.cardUpdate.length;
+  controller.recordToolEvent({ toolCallId: "t1", toolName: "Bash", kind: "execute", status: "success" });
+  controller.appendStream("second");
+  await new Promise((r) => setTimeout(r, 30));
+  expect(calls.cardUpdate.length).toBeGreaterThan(fullBefore);
+  const last = calls.cardUpdate[calls.cardUpdate.length - 1];
+  expect(JSON.stringify(last.cardJson)).toContain("✅");
+  await controller.complete();
+});
+
+test("shutdown during pending terminal update still aborts live-looking card", async () => {
+  const { client, calls } = createFakeClient();
+  let releaseUpdate: (() => void) | null = null;
+  const originalUpdate = client.cardkit.v1.card.update;
+  let blockNextUpdate = false;
+  client.cardkit.v1.card.update = async (input) => {
+    if (blockNextUpdate) {
+      blockNextUpdate = false;
+      await new Promise<void>((resolve) => {
+        releaseUpdate = resolve;
+      });
+    }
+    return originalUpdate(input);
+  };
+  const controller = new StreamingCardController({ client, flushIntervalMs: 0 });
+  await controller.seed({ to: "oc_chat" });
+  controller.appendStream("partial");
+  await controller.waitIdle();
+
+  blockNextUpdate = true;
+  const completing = controller.complete();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await fireShutdownHooksForTests({ perHandlerTimeoutMs: 50 });
+  releaseUpdate?.();
+  await completing;
+  await controller.waitIdle();
+
+  const summaries = calls.cardUpdate.map((u) => (u.cardJson.config as { summary: { content: string } }).summary.content);
+  expect(summaries).toContain("Stopped");
 });

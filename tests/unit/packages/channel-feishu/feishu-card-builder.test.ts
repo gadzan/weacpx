@@ -180,3 +180,24 @@ test("buildCard with no toolSteps omits the panel entirely", () => {
   const elements = (card.body as { elements: Array<{ tag: string }> }).elements;
   expect(elements.find((el) => el.tag === "collapsible_panel")).toBeUndefined();
 });
+
+test("buildCard caps visible tool panel rows while preserving total count", () => {
+  const card = buildCard({
+    state: "streaming",
+    text: "hello",
+    elapsedMs: 1_000,
+    toolSteps: Array.from({ length: 55 }, (_, i) => ({
+      toolCallId: `t${i}`,
+      toolName: `Tool ${i}`,
+      kind: "other" as const,
+      status: "success" as const,
+      startedAt: 0,
+    })),
+  });
+  const panel = ((card.body as { elements: Array<Record<string, unknown>> }).elements[0]);
+  const serialized = JSON.stringify(panel);
+  expect(serialized).toContain("工具调用 (55)");
+  expect(serialized).toContain("Tool 49");
+  expect(serialized).not.toContain("Tool 50");
+  expect(serialized).toContain("还有 5 个工具调用未显示");
+});
