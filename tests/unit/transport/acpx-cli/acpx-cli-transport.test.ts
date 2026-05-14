@@ -1491,3 +1491,64 @@ test("R1: explicit toolEventMode:'both' without onToolEvent → tool call lands 
   // 'both' test, which checks toolEventMode: 'text' is sent.
   expect(segments.some((s) => s.includes("Both demoted tool"))).toBe(true);
 });
+
+// --- R2: streaming parser activates when only onToolEvent is provided ---
+
+test("R2: streaming parser activates when only onToolEvent is provided (no reply, no onSegment)", async () => {
+  const toolEvents: unknown[] = [];
+
+  const transport = new AcpxCliTransport(
+    { command: "acpx" },
+    undefined,
+    undefined,
+    undefined,
+    {
+      spawnPrompt: () => makeFakeSpawn([
+        makeToolCallLine("id-r2", "Search files", "search"),
+        makeAgentChunkLine("done"),
+      ]),
+      setIntervalFn: () => 0,
+      clearIntervalFn: () => {},
+    },
+  );
+
+  await transport.prompt(session, "hello", undefined, undefined, {
+    onToolEvent: (event) => {
+      toolEvents.push(event);
+    },
+  });
+
+  expect(toolEvents).toHaveLength(1);
+  expect((toolEvents[0] as { toolCallId: string }).toolCallId).toBe("id-r2");
+  expect((toolEvents[0] as { toolName: string }).toolName).toBe("Search files");
+  expect((toolEvents[0] as { kind: string }).kind).toBe("search");
+});
+
+test("R2: onToolEvent-only caller still gets the correct final text from the streaming branch", async () => {
+  const toolEvents: unknown[] = [];
+
+  const transport = new AcpxCliTransport(
+    { command: "acpx" },
+    undefined,
+    undefined,
+    undefined,
+    {
+      spawnPrompt: () => makeFakeSpawn([
+        makeToolCallLine("id-r2b", "Read config", "read"),
+        makeAgentChunkLine("Agent reply here"),
+      ]),
+      setIntervalFn: () => 0,
+      clearIntervalFn: () => {},
+    },
+  );
+
+  const result = await transport.prompt(session, "hello", undefined, undefined, {
+    onToolEvent: (event) => {
+      toolEvents.push(event);
+    },
+  });
+
+  expect(toolEvents).toHaveLength(1);
+  expect((toolEvents[0] as { toolName: string }).toolName).toBe("Read config");
+  expect(result).toEqual({ text: "Agent reply here" });
+});

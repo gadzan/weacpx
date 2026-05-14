@@ -205,7 +205,7 @@ export class AcpxCliTransport implements SessionTransport {
     const structuredPrompt = await createStructuredPromptFile(text, options?.media);
     const args = this.buildPromptArgs(session, text, structuredPrompt?.filePath);
     try {
-      if (reply || options?.onSegment) {
+      if (reply || options?.onSegment || options?.onToolEvent) {
         const formatToolCalls = (session.replyMode ?? "verbose") === "verbose";
         let toolEventMode = resolveToolEventMode(options);
         // Safety net: structured/both without an onToolEvent handler would
