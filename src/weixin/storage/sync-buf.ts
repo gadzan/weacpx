@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { deriveRawAccountId } from "../auth/accounts.js";
 
+import { ensureDirSync } from "./ensure-dir.js";
 import { resolveStateDir } from "./state-dir.js";
 
 function resolveAccountsDir(): string {
@@ -76,6 +77,6 @@ export function loadGetUpdatesBuf(filePath: string): string | undefined {
  */
 export function saveGetUpdatesBuf(filePath: string, getUpdatesBuf: string): void {
   const dir = path.dirname(filePath);
-  fs.mkdirSync(dir, { recursive: true });
+  ensureDirSync(dir);
   fs.writeFileSync(filePath, JSON.stringify({ get_updates_buf: getUpdatesBuf }, null, 0), "utf-8");
 }

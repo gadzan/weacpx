@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { ensureDirSync } from "../storage/ensure-dir.js";
 import { resolveStateDir } from "../storage/state-dir.js";
 import { logger } from "../util/logger.js";
 
@@ -62,7 +63,7 @@ export function listIndexedWeixinAccountIds(): string[] {
 /** Register accountId as the sole account in the persistent index. */
 export function registerWeixinAccountId(accountId: string): void {
   const dir = resolveWeixinStateDir();
-  fs.mkdirSync(dir, { recursive: true });
+  ensureDirSync(dir);
 
   fs.writeFileSync(resolveAccountIndexPath(), JSON.stringify([accountId], null, 2), "utf-8");
 }
@@ -146,7 +147,7 @@ export function saveWeixinAccount(
   update: { token?: string; baseUrl?: string; userId?: string },
 ): void {
   const dir = resolveAccountsDir();
-  fs.mkdirSync(dir, { recursive: true });
+  ensureDirSync(dir);
 
   const existing = loadWeixinAccount(accountId) ?? {};
 

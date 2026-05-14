@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { ensureDirSync } from "../storage/ensure-dir.js";
 import { resolveStateDir } from "../storage/state-dir.js";
 import { logger } from "../util/logger.js";
 
@@ -73,7 +74,7 @@ export function registerUserInAllowFromStore(params: {
 
   const filePath = resolveFrameworkAllowFromPath(accountId);
   const dir = path.dirname(filePath);
-  fs.mkdirSync(dir, { recursive: true });
+  ensureDirSync(dir);
 
   let content: AllowFromFileContent = { version: 1, allowFrom: [] };
   try {

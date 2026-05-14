@@ -10,6 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { ensureDirSync } from "../storage/ensure-dir.js";
 import { resolveStateDir } from "../storage/state-dir.js";
 import { logger } from "../util/logger.js";
 
@@ -34,7 +35,7 @@ function loadState(): DebugModeState {
 
 function saveState(state: DebugModeState): void {
   const filePath = resolveDebugModePath();
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  ensureDirSync(path.dirname(filePath));
   fs.writeFileSync(filePath, JSON.stringify(state, null, 2), "utf-8");
 }
 
