@@ -321,10 +321,10 @@ export class StreamingCardController {
       await this.abort();
       return;
     }
-    // A normal terminal transition (complete/fail/abort) may already be in
-    // progress but not yet delivered to Feishu. During process shutdown, prefer
-    // a best-effort visible stopped state over leaving the seeded card live.
-    this.state = "aborted";
+    // State is already terminal (complete/error/aborted) but the update hasn't
+    // been delivered. Don't overwrite the terminal — just flush whatever's
+    // there. The user should see the actual final state, not a shutdown-forced
+    // "aborted" overlay on top of a successful complete.
     this.clearLiveFooterTick();
     this.terminated = true;
     await this.flush.forceFlush(() => this.pushUpdate());

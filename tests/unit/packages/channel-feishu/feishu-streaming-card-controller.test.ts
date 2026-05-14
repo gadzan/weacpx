@@ -791,6 +791,41 @@ test("same toolCallId status update forces full panel refresh", async () => {
 });
 
 test("shutdown during pending terminal update still aborts live-looking card", async () => {
+  // This test validates the NON-terminal scenario: state is still "streaming"
+  // when the shutdown fires, so abortForShutdown() should call abort() and
+  // the card should ultimately show "Stopped".
+  const { client, calls } = createFakeClient();
+  let releaseUpdate: (() => void) | null = null;
+  const originalUpdate = client.cardkit.v1.card.update;
+  let blockNextUpdate = false;
+  client.cardkit.v1.card.update = async (input) => {
+    if (blockNextUpdate) {
+      blockNextUpdate = false;
+      await new Promise<void>((resolve) => {
+        releaseUpdate = resolve;
+      });
+    }
+    return originalUpdate(input);
+  };
+  const controller = new StreamingCardController({ client, flushIntervalMs: 0 });
+  await controller.seed({ to: "oc_chat" });
+  controller.appendStream("partial");
+  // Block the streaming push so state is still "streaming" when shutdown fires.
+  blockNextUpdate = true;
+  const idlePromise = controller.waitIdle();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await fireShutdownHooksForTests({ perHandlerTimeoutMs: 50 });
+  releaseUpdate?.();
+  await idlePromise;
+
+  const summaries = calls.cardUpdate.map((u) => (u.cardJson.config as { summary: { content: string } }).summary.content);
+  expect(summaries).toContain("Stopped");
+});
+
+test("shutdown during pending complete does not overwrite state to aborted", async () => {
+  // Bug R4: abortForShutdown() was overwriting state to "aborted" even when
+  // complete() had already transitioned to "complete". The shutdown hook's job
+  // is to flush the existing terminal state to Feishu, not to force "已停止".
   const { client, calls } = createFakeClient();
   let releaseUpdate: (() => void) | null = null;
   const originalUpdate = client.cardkit.v1.card.update;
@@ -809,6 +844,8 @@ test("shutdown during pending terminal update still aborts live-looking card", a
   controller.appendStream("partial");
   await controller.waitIdle();
 
+  // Block the complete's forceFlush so the shutdown hook fires while state is
+  // already "complete" but terminalUpdateDelivered is still false.
   blockNextUpdate = true;
   const completing = controller.complete();
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -818,5 +855,60 @@ test("shutdown during pending terminal update still aborts live-looking card", a
   await controller.waitIdle();
 
   const summaries = calls.cardUpdate.map((u) => (u.cardJson.config as { summary: { content: string } }).summary.content);
-  expect(summaries).toContain("Stopped");
+  // The card was actually completed successfully; the user must see "Done", not "Stopped".
+  expect(summaries).toContain("Done");
+  expect(summaries).not.toContain("Stopped");
+});
+
+test("shutdown during pending fail does not overwrite state to aborted", async () => {
+  // Same as the complete case but for fail() → state "error".
+  const { client, calls } = createFakeClient();
+  let releaseUpdate: (() => void) | null = null;
+  const originalUpdate = client.cardkit.v1.card.update;
+  let blockNextUpdate = false;
+  client.cardkit.v1.card.update = async (input) => {
+    if (blockNextUpdate) {
+      blockNextUpdate = false;
+      await new Promise<void>((resolve) => {
+        releaseUpdate = resolve;
+      });
+    }
+    return originalUpdate(input);
+  };
+  const controller = new StreamingCardController({ client, flushIntervalMs: 0 });
+  await controller.seed({ to: "oc_chat" });
+  controller.appendStream("partial");
+  await controller.waitIdle();
+
+  // Block the fail's forceFlush so the shutdown hook fires while state is
+  // already "error" but terminalUpdateDelivered is still false.
+  blockNextUpdate = true;
+  const failing = controller.fail("something went wrong");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await fireShutdownHooksForTests({ perHandlerTimeoutMs: 50 });
+  releaseUpdate?.();
+  await failing;
+  await controller.waitIdle();
+
+  const summaries = calls.cardUpdate.map((u) => (u.cardJson.config as { summary: { content: string } }).summary.content);
+  // The actual result was an error; the user must see "Error", not "Stopped".
+  expect(summaries).toContain("Error");
+  expect(summaries).not.toContain("Stopped");
+});
+
+test("shutdown without prior terminal transition aborts a streaming card (regression)", async () => {
+  // Regression guard: the non-terminal path in abortForShutdown() must still
+  // work — a streaming card that gets shut down before complete/fail/abort
+  // must end up in the "aborted" state.
+  const { client, calls } = createFakeClient();
+  const controller = new StreamingCardController({ client, flushIntervalMs: 0 });
+  await controller.seed({ to: "oc_chat" });
+  controller.appendStream("in progress");
+  await controller.waitIdle();
+
+  await fireShutdownHooksForTests({ perHandlerTimeoutMs: 500 });
+
+  expect(controller.isTerminated()).toBe(true);
+  const last = calls.cardUpdate[calls.cardUpdate.length - 1];
+  expect((last.cardJson.config as { summary: { content: string } }).summary.content).toBe("Stopped");
 });
