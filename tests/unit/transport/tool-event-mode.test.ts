@@ -23,6 +23,10 @@ describe("resolveToolEventMode", () => {
       expect(resolveToolEventMode({ toolEventMode: "text" })).toBe("text");
     });
 
+    test("explicit 'structured' wins without onToolEvent", () => {
+      expect(resolveToolEventMode({ toolEventMode: "structured" })).toBe("structured");
+    });
+
     test("explicit 'both' wins without onToolEvent", () => {
       expect(resolveToolEventMode({ toolEventMode: "both" })).toBe("both");
     });
