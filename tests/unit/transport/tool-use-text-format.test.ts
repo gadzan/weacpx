@@ -3,6 +3,10 @@ import {
   createToolUseTextRenderState,
   formatToolUseEventForText,
 } from "../../../src/transport/tool-use-text-format";
+import {
+  createStreamingPromptState,
+  parseStreamingChunks,
+} from "../../../src/transport/streaming-prompt";
 import type { ToolUseEvent } from "../../../src/channels/types";
 
 function makeEvent(overrides: Partial<ToolUseEvent> = {}): ToolUseEvent {
@@ -148,5 +152,72 @@ describe("formatToolUseEventForText", () => {
       state,
     );
     expect(result).toBe(`💻 Bash (success): ${"c".repeat(57)}...`);
+  });
+
+  // --- documented divergence tests ---
+
+  test("documented divergence: helper uses normalized status, parser uses raw acpx status", () => {
+    // Drive the same tool_call through the parser in text mode.
+    const parserState = createStreamingPromptState(true);
+    parseStreamingChunks(parserState, JSON.stringify({
+      method: "session/update",
+      params: { update: {
+        sessionUpdate: "tool_call",
+        title: "Read File",
+        kind: "read",
+        toolCallId: "tc-1",
+        rawInput: { path: "foo.ts" },
+        status: "completed",
+      } },
+    }));
+    expect(parserState.segments).toHaveLength(1);
+    const parserOutput = parserState.segments[0];
+
+    // Drive the equivalent ToolUseEvent through the helper.
+    const helperState = createToolUseTextRenderState();
+    const helperOutput = formatToolUseEventForText({
+      toolCallId: "tc-1",
+      toolName: "Read File",
+      kind: "read",
+      summary: "foo.ts",
+      status: "success", // ToolUseEvent's normalized form of "completed"
+    }, helperState);
+
+    expect(helperOutput).not.toBeNull();
+    // Documented divergence: helper uses normalized status text.
+    expect(helperOutput).toContain("(success)");
+    // The legacy parser keeps raw acpx status text.
+    expect(parserOutput).toContain("(completed)");
+  });
+
+  test("documented divergence: helper does not skip generic-pending placeholders", () => {
+    // The parser skips a pending tool_call with no useful input (placeholder).
+    const parserState = createStreamingPromptState(true);
+    parseStreamingChunks(parserState, JSON.stringify({
+      method: "session/update",
+      params: { update: {
+        sessionUpdate: "tool_call",
+        title: "Read File",
+        kind: "read",
+        toolCallId: "tc-pending",
+        rawInput: {},
+        status: "pending",
+      } },
+    }));
+    // Parser produces no segment — the placeholder-skip heuristic suppressed it.
+    expect(parserState.segments).toHaveLength(0);
+
+    // The helper has no access to update.status === "pending", so it cannot skip.
+    // A caller would need to pre-filter before invoking the helper.
+    const helperState = createToolUseTextRenderState();
+    const helperOutput = formatToolUseEventForText({
+      toolCallId: "tc-pending",
+      toolName: "Read File",
+      kind: "read",
+      status: "running", // normalized form of "pending"
+    }, helperState);
+    // Helper does NOT skip — it renders the event.
+    expect(helperOutput).not.toBeNull();
+    expect(helperOutput).toContain("Read File");
   });
 });

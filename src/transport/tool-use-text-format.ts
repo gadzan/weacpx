@@ -18,33 +18,28 @@ function truncateToolDisplay(text: string): string {
 }
 
 /**
- * Renders a {@link ToolUseEvent} into the legacy emoji-prefixed text segment
- * shape used by Phase 0 channels. Returns null when the event should be
- * suppressed (already-emitted toolCallId or empty toolName).
+ * Best-effort adapter that renders a {@link ToolUseEvent} as a single
+ * emoji-prefixed text segment, for downstream channels that consume the
+ * structured side-channel but want a text fallback.
  *
- * This is a best-effort port of the parser-side text-mode rendering
- * (`formatToolCallEvent` in `streaming-prompt.ts`). Three intentional
- * divergences from the legacy parser formatter:
+ * NOT a drop-in replacement for the parser's text-mode path. The parser
+ * keeps its own raw-update formatter (`formatToolCallEvent` in
+ * `streaming-prompt.ts`) because some heuristics need raw acpx fields
+ * (e.g. `update.status === "pending"`) that are lost on `ToolUseEvent`.
  *
- * 1. **Status strings**: The legacy formatter uses raw acpx status strings
- *    (`"pending"`, `"completed"`, `"failed"`) because it operates on the raw
- *    update. `ToolUseEvent.status` is already normalized to
- *    `"running" | "success" | "error"`, so this formatter always produces
- *    those normalized strings in the status suffix.
+ * Documented divergences from the legacy parser output:
  *
- * 2. **Status always present**: The legacy formatter omits the status suffix
- *    when `update.status` is falsy. `ToolUseEvent` always carries a status,
- *    so this formatter always includes the `(status)` suffix.
+ * 1. Status text is normalized (`"running"` / `"success"` / `"error"`) rather
+ *    than the raw acpx values (`"pending"` / `"completed"` / `"failed"`).
+ * 2. Status is always present in the suffix; the legacy formatter omitted
+ *    status when the raw value was empty.
+ * 3. Generic-pending placeholders are NOT skipped. The placeholder-skip
+ *    heuristic in the parser needs `update.status === "pending"` which is
+ *    not preserved on `ToolUseEvent`. Callers that want this behavior
+ *    must filter before invoking the helper.
  *
- * 3. **Placeholder skipping**: The legacy formatter skips "pending"
- *    placeholders without input because it can inspect `update.status ===
- *    "pending"` directly. That raw field is not preserved on `ToolUseEvent`,
- *    so this helper cannot reproduce that heuristic. Callers that need to
- *    suppress placeholder events should do so before calling this function.
- *
- * This helper is intended for downstream channel adapters (Phase 4) that
- * consume the structured side-channel but want a legacy-compatible text
- * fallback.
+ * Dedup: returns `null` for any `toolCallId` already in `state.emittedToolCallIds`.
+ * Returns `null` for events with an empty/whitespace `toolName`.
  */
 export function formatToolUseEventForText(
   event: ToolUseEvent,
