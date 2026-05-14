@@ -1,4 +1,5 @@
 import type { ToolUseEvent } from "../channels/types.js";
+import { TOOL_KIND_EMOJI, DEFAULT_TOOL_EMOJI } from "./tool-kind-emoji.js";
 
 /**
  * Tracks which toolCallIds have already been rendered, so duplicate events
@@ -12,16 +13,6 @@ export function createToolUseTextRenderState(): ToolUseTextRenderState {
   return { emittedToolCallIds: new Set() };
 }
 
-const KIND_EMOJI: Record<string, string> = {
-  read: "\u{1F4D6}",
-  search: "\u{1F50D}",
-  execute: "\u{1F4BB}",
-  edit: "\u{270F}\u{FE0F}",
-  think: "\u{1F9E0}",
-};
-
-const DEFAULT_EMOJI = "\u{1F527}";
-
 function truncateToolDisplay(text: string): string {
   return text.length > 60 ? `${text.slice(0, 57)}...` : text;
 }
@@ -32,7 +23,7 @@ function truncateToolDisplay(text: string): string {
  * suppressed (already-emitted toolCallId or empty toolName).
  *
  * This is a best-effort port of the parser-side text-mode rendering
- * (`formatToolCallEvent` in `streaming-prompt.ts`). Two intentional
+ * (`formatToolCallEvent` in `streaming-prompt.ts`). Three intentional
  * divergences from the legacy parser formatter:
  *
  * 1. **Status strings**: The legacy formatter uses raw acpx status strings
@@ -65,7 +56,7 @@ export function formatToolUseEventForText(
   if (state.emittedToolCallIds.has(event.toolCallId)) return null;
   state.emittedToolCallIds.add(event.toolCallId);
 
-  const emoji = KIND_EMOJI[event.kind] ?? DEFAULT_EMOJI;
+  const emoji = TOOL_KIND_EMOJI[event.kind] ?? DEFAULT_TOOL_EMOJI;
   const statusText = ` (${event.status})`;
   const summaryText =
     event.summary && event.summary !== toolName

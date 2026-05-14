@@ -25,7 +25,7 @@ describe("formatToolUseEventForText", () => {
     expect(result).toBe("📖 Read File (success): foo.ts");
   });
 
-  test("execute tool with long summary → truncated to 60 chars with ...", () => {
+  test("execute tool with long summary → truncated when over 60 chars", () => {
     const state = createToolUseTextRenderState();
     const longSummary = "a".repeat(65);
     const result = formatToolUseEventForText(

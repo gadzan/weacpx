@@ -1,6 +1,7 @@
 import type { ToolUseEvent, ToolUseKind, ToolUseStatus } from "../channels/types.js";
 import { resolveToolEventMode } from "./tool-event-mode.js";
 import type { ToolEventMode } from "./tool-event-mode.js";
+import { TOOL_KIND_EMOJI, DEFAULT_TOOL_EMOJI } from "./tool-kind-emoji.js";
 
 export interface StreamingPromptState {
   buffer: string;
@@ -159,21 +160,13 @@ export function parseStreamingChunks(state: StreamingPromptState, line: string):
   }
 }
 
-const KIND_EMOJI: Record<string, string> = {
-  read: "\u{1F4D6}",
-  search: "\u{1F50D}",
-  execute: "\u{1F4BB}",
-  edit: "\u{270F}\u{FE0F}",
-  think: "\u{1F9E0}",
-};
-
 function formatToolCallEvent(update: NonNullable<StreamEvent["params"]>["update"], sessionUpdate: string): string | null {
   if (!update) return null;
   const kind = update.kind ?? "";
   const title = update.title ?? "";
   if (title.length === 0) return null;
 
-  const emoji = KIND_EMOJI[kind] ?? "\u{1F527}";
+  const emoji = TOOL_KIND_EMOJI[kind as ToolUseKind] ?? DEFAULT_TOOL_EMOJI;
   const inputSummary = summarizeToolInput(update.rawInput, title);
   const status = readString(update, "status");
 
