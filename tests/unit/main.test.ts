@@ -688,6 +688,12 @@ test("dispatches worker tasks asynchronously, records completion, and notifies t
     replyContextToken: "ctx-123",
     accountId: "acc-1",
   });
+  // The notice dispatch races behind the state.json "completed" write — under
+  // suite-load we may observe the terminal status before the notifier has had
+  // a chance to fire. Mirror the state polling loop so the assertion is stable.
+  for (let attempt = 0; attempt < 20 && sendOrchestrationNotice.mock.calls.length === 0; attempt += 1) {
+    await Bun.sleep(10);
+  }
   expect(sendOrchestrationNotice).toHaveBeenCalledTimes(1);
   expect(sendOrchestrationNotice.mock.calls[0]?.[0]).toMatchObject({
     status: "completed",
