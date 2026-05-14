@@ -1,8 +1,9 @@
 // Process-level shutdown registry. The Feishu streaming card controller
 // registers a handler after a card is seeded so that on SIGINT/SIGTERM/
-// beforeExit, every in-flight card is driven to its terminal "aborted"
-// state — otherwise a killed daemon leaves cards stuck at "处理中..." in
-// the user's Feishu chat forever.
+// beforeExit, every in-flight card's terminal state is flushed to Feishu.
+// Cards already in a terminal state ("completed", "error", etc.) are flushed
+// as-is. Only non-terminal cards are transitioned to "aborted" — otherwise
+// a killed daemon leaves cards stuck at "处理中..." in the user's Feishu chat.
 //
 // Each handler runs with a per-handler timeout (default 1000ms) so a wedged
 // network call cannot block process exit. Errors thrown by handlers are

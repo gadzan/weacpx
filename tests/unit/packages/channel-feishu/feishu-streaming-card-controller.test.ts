@@ -790,7 +790,7 @@ test("same toolCallId status update forces full panel refresh", async () => {
   await controller.complete();
 });
 
-test("shutdown during pending terminal update still aborts live-looking card", async () => {
+test("shutdown while streaming flush is blocked still aborts card", async () => {
   // This test validates the NON-terminal scenario: state is still "streaming"
   // when the shutdown fires, so abortForShutdown() should call abort() and
   // the card should ultimately show "Stopped".
