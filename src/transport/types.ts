@@ -2,6 +2,8 @@ import type { NonInteractivePermissions, PermissionMode } from "../config/types"
 import type { QuotaManager } from "../weixin/messaging/quota-manager.js";
 import type { ToolUseEvent } from "../channels/types.js";
 
+export type { ToolEventMode } from "./tool-event-mode.js";
+
 export interface ReplyQuotaContext {
   chatKey: string;
   quota: QuotaManager;
