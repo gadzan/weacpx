@@ -53,6 +53,7 @@ export class AcpxBridgeTransport implements SessionTransport {
       ...this.toParams(session),
       text,
       ...(options?.media ? { media: options.media } : {}),
+      ...(options?.onToolEvent ? { toolEvents: true } : {}),
     }, (event) => {
       if (event.type === "prompt.segment") {
         const onSegment = options?.onSegment;

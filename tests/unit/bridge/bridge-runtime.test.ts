@@ -82,6 +82,119 @@ test("flushes buffered prompt text after timeout when no paragraph boundary arri
   expect(segments).toEqual(["still thinking"]);
 });
 
+test("runStreamingPrompt folds tool calls into segments when tool event emission is disabled", async () => {
+  const segments: string[] = [];
+  let dataHandler: ((chunk: string | Buffer) => void) | undefined;
+  let closeHandler: ((code: number | null) => void) | undefined;
+
+  const resultPromise = runStreamingPrompt(
+    "acpx",
+    ["prompt"],
+    (event) => {
+      if (event.type === "prompt.segment") segments.push(event.text);
+    },
+    {
+      spawnPrompt: () =>
+        ({
+          stdout: {
+            setEncoding: () => {},
+            on: (event: "data", handler: (chunk: string | Buffer) => void) => {
+              if (event === "data") dataHandler = handler;
+            },
+          },
+          stderr: { on: () => {} },
+          on: (event: "close" | "error", handler: (code: number | null) => void) => {
+            if (event === "close") closeHandler = handler;
+          },
+        }) as never,
+      setIntervalFn: () => 1,
+      clearIntervalFn: () => {},
+      formatToolCalls: true,
+      emitToolEvents: false,
+    },
+  );
+
+  dataHandler?.(`${JSON.stringify({
+    method: "session/update",
+    params: {
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "t1",
+        kind: "read",
+        title: "Read File",
+        rawInput: { path: "foo.ts" },
+        status: "completed",
+      },
+    },
+  })}\n`);
+  closeHandler?.(0);
+
+  await resultPromise;
+  expect(segments).toHaveLength(1);
+  expect(segments[0]).toContain("Read File");
+  expect(segments[0]).toContain("foo.ts");
+});
+
+test("runStreamingPrompt emits structured tool events only when requested", async () => {
+  const events: unknown[] = [];
+  let dataHandler: ((chunk: string | Buffer) => void) | undefined;
+  let closeHandler: ((code: number | null) => void) | undefined;
+
+  const resultPromise = runStreamingPrompt(
+    "acpx",
+    ["prompt"],
+    (event) => events.push(event),
+    {
+      spawnPrompt: () =>
+        ({
+          stdout: {
+            setEncoding: () => {},
+            on: (event: "data", handler: (chunk: string | Buffer) => void) => {
+              if (event === "data") dataHandler = handler;
+            },
+          },
+          stderr: { on: () => {} },
+          on: (event: "close" | "error", handler: (code: number | null) => void) => {
+            if (event === "close") closeHandler = handler;
+          },
+        }) as never,
+      setIntervalFn: () => 1,
+      clearIntervalFn: () => {},
+      formatToolCalls: true,
+      emitToolEvents: true,
+    },
+  );
+
+  dataHandler?.(`${JSON.stringify({
+    method: "session/update",
+    params: {
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "t1",
+        kind: "execute",
+        title: "Bash",
+        rawInput: { command: "npm", args: ["test"] },
+        status: "pending",
+      },
+    },
+  })}\n`);
+  closeHandler?.(0);
+
+  await resultPromise;
+  expect(events).toEqual([
+    {
+      type: "prompt.tool_event",
+      event: {
+        toolCallId: "t1",
+        toolName: "Bash",
+        kind: "execute",
+        summary: "npm test",
+        status: "running",
+      },
+    },
+  ]);
+});
+
 test("selectLatestAcpxSessionIndexTmp ignores malformed files and picks latest timestamp", () => {
   expect(selectLatestAcpxSessionIndexTmp([
     "index.json",

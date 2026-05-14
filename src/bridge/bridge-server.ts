@@ -160,6 +160,7 @@ export class BridgeServer {
           mcpSourceHandle: asOptionalString(params.mcpSourceHandle),
           text: requirePromptText(params, media),
           replyMode: asOptionalReplyMode(params.replyMode),
+          toolEvents: params.toolEvents === true,
           media,
         }, (event) => {
           if (event.type === "prompt.segment") {

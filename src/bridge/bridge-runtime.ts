@@ -61,6 +61,7 @@ interface BridgeSessionInput {
   mcpSourceHandle?: string;
   replyMode?: "stream" | "final" | "verbose";
   media?: PromptMediaInput;
+  toolEvents?: boolean;
 }
 
 interface StreamingPromptRunnerOptions {
@@ -71,6 +72,7 @@ interface StreamingPromptRunnerOptions {
   flushCheckIntervalMs?: number;
   now?: () => number;
   formatToolCalls?: boolean;
+  emitToolEvents?: boolean;
 }
 
 interface PromptStreamProcess {
@@ -261,7 +263,10 @@ export class BridgeRuntime {
     const formatToolCalls = (input.replyMode ?? "verbose") === "verbose";
     try {
       const result = onEvent
-        ? await this.runPromptCommand(spawnSpec.command, spawnSpec.args, onEvent, { formatToolCalls })
+        ? await this.runPromptCommand(spawnSpec.command, spawnSpec.args, onEvent, {
+            formatToolCalls,
+            emitToolEvents: input.toolEvents === true,
+          })
         : await this.run(spawnSpec.command, spawnSpec.args);
       return { text: getPromptText(result) };
     } finally {
@@ -515,7 +520,9 @@ export async function runStreamingPrompt(
     let stderr = "";
     const state = createStreamingPromptState(
       options.formatToolCalls ?? false,
-      onEvent ? (toolEvent) => onEvent({ type: "prompt.tool_event", event: toolEvent }) : undefined,
+      onEvent && options.emitToolEvents
+        ? (toolEvent) => onEvent({ type: "prompt.tool_event", event: toolEvent })
+        : undefined,
     );
     let lastReplyAt = now();
 
