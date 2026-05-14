@@ -308,3 +308,143 @@ test("bridge transport sends toolEventMode:'text' and no toolEvents when explici
   expect(capturedParams.toolEventMode).toBe("text");
   expect(capturedParams).not.toHaveProperty("toolEvents");
 });
+
+// ── onToolEvent chain semantics tests ───────────────────────────────────────
+
+test("tool events are delivered to onToolEvent in event order", async () => {
+  const releaseFirst = createDeferred<void>();
+  const recorded: unknown[] = [];
+  const request = mock(async (_method: string, _params: unknown, onEvent?: (event: { type: string; event?: unknown }) => void) => {
+    onEvent?.({ type: "prompt.tool_event", event: { type: "tool_use", name: "first" } });
+    onEvent?.({ type: "prompt.tool_event", event: { type: "tool_use", name: "second" } });
+    return { text: "done" };
+  });
+  const transport = new AcpxBridgeTransport({ request });
+
+  const promptPromise = transport.prompt(session, "hello", undefined, undefined, {
+    onToolEvent: async (event) => {
+      if ((event as { name?: string }).name === "first") {
+        await releaseFirst.promise;
+      }
+      recorded.push(event);
+    },
+  });
+
+  await Bun.sleep(0);
+  // "first" is blocked; "second" must not have run yet (serialized)
+  expect(recorded).toEqual([]);
+  releaseFirst.resolve();
+  await expect(promptPromise).resolves.toEqual({ text: "done" });
+  expect(recorded).toEqual([
+    { type: "tool_use", name: "first" },
+    { type: "tool_use", name: "second" },
+  ]);
+});
+
+test("prompt waits for onToolEvent handler chain to settle before resolving", async () => {
+  const deferred = createDeferred<void>();
+  const request = mock(async (_method: string, _params: unknown, onEvent?: (event: { type: string; event?: unknown }) => void) => {
+    onEvent?.({ type: "prompt.tool_event", event: { type: "tool_use", name: "slow" } });
+    return { text: "done" };
+  });
+  const transport = new AcpxBridgeTransport({ request });
+
+  let promptResolved = false;
+  const promptPromise = transport.prompt(session, "hello", undefined, undefined, {
+    onToolEvent: async () => {
+      await deferred.promise;
+    },
+  }).then((result) => {
+    promptResolved = true;
+    return result;
+  });
+
+  // Flush microtasks — the bridge request resolved but handler chain is still pending
+  await Bun.sleep(5);
+  expect(promptResolved).toBe(false);
+
+  deferred.resolve();
+  await expect(promptPromise).resolves.toEqual({ text: "done" });
+  expect(promptResolved).toBe(true);
+});
+
+test("onToolEvent handler error rejects prompt", async () => {
+  const request = mock(async (_method: string, _params: unknown, onEvent?: (event: { type: string; event?: unknown }) => void) => {
+    onEvent?.({ type: "prompt.tool_event", event: { type: "tool_use", name: "boom" } });
+    return { text: "done" };
+  });
+  const transport = new AcpxBridgeTransport({ request });
+
+  await expect(
+    transport.prompt(session, "hello", undefined, undefined, {
+      onToolEvent: () => {
+        throw new Error("handler blew up");
+      },
+    }),
+  ).rejects.toThrow("handler blew up");
+});
+
+test("first onToolEvent handler error wins when multiple handlers throw", async () => {
+  let callCount = 0;
+  const request = mock(async (_method: string, _params: unknown, onEvent?: (event: { type: string; event?: unknown }) => void) => {
+    onEvent?.({ type: "prompt.tool_event", event: { type: "tool_use", name: "e1" } });
+    onEvent?.({ type: "prompt.tool_event", event: { type: "tool_use", name: "e2" } });
+    return { text: "done" };
+  });
+  const transport = new AcpxBridgeTransport({ request });
+
+  await expect(
+    transport.prompt(session, "hello", undefined, undefined, {
+      onToolEvent: () => {
+        callCount += 1;
+        throw new Error(`error-${callCount}`);
+      },
+    }),
+  ).rejects.toThrow("error-1");
+});
+
+test("onToolEvent chain continues after a handler error", async () => {
+  const recorded: unknown[] = [];
+  const request = mock(async (_method: string, _params: unknown, onEvent?: (event: { type: string; event?: unknown }) => void) => {
+    onEvent?.({ type: "prompt.tool_event", event: { type: "tool_use", name: "first" } });
+    onEvent?.({ type: "prompt.tool_event", event: { type: "tool_use", name: "second" } });
+    return { text: "done" };
+  });
+  const transport = new AcpxBridgeTransport({ request });
+
+  await expect(
+    transport.prompt(session, "hello", undefined, undefined, {
+      onToolEvent: (event) => {
+        recorded.push(event);
+        if ((event as { name?: string }).name === "first") {
+          throw new Error("first fails");
+        }
+      },
+    }),
+  ).rejects.toThrow("first fails");
+
+  expect(recorded).toEqual([
+    { type: "tool_use", name: "first" },
+    { type: "tool_use", name: "second" },
+  ]);
+});
+
+test("toolEventMode:text with onToolEvent — handler never called when bridge emits no tool events", async () => {
+  const handlerCalls: unknown[] = [];
+  const request = mock(async (_method: string, _params: unknown, _onEvent?: (event: { type: string; event?: unknown }) => void) => {
+    // In text mode the bridge would never emit prompt.tool_event; simulate that.
+    return { text: "ok" };
+  });
+  const transport = new AcpxBridgeTransport({ request });
+
+  await expect(
+    transport.prompt(session, "hello", undefined, undefined, {
+      toolEventMode: "text",
+      onToolEvent: async (event) => {
+        handlerCalls.push(event);
+      },
+    }),
+  ).resolves.toEqual({ text: "ok" });
+
+  expect(handlerCalls).toEqual([]);
+});

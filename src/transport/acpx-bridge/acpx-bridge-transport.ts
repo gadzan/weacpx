@@ -50,6 +50,8 @@ export class AcpxBridgeTransport implements SessionTransport {
       : null;
     let segmentError: unknown;
     let segmentChain = Promise.resolve();
+    let toolEventError: unknown;
+    let toolEventChain = Promise.resolve();
     const toolEventMode = resolveToolEventMode(options);
     const result = await this.client.request<{ text: string }>("prompt", {
       ...this.toParams(session),
@@ -77,12 +79,19 @@ export class AcpxBridgeTransport implements SessionTransport {
       if (event.type === "prompt.tool_event") {
         const onToolEvent = options?.onToolEvent;
         if (onToolEvent) {
-          void onToolEvent(event.event);
+          const toolEvent = event.event;
+          // Serialize handler invocations; first error wins.
+          toolEventChain = toolEventChain
+            .then(() => onToolEvent(toolEvent))
+            .catch((error) => {
+              toolEventError ??= error;
+            });
         }
         return;
       }
     });
     await segmentChain;
+    await toolEventChain;
     if (sink) {
       const { overflowCount } = sink.finalize();
       // Drain in-flight reply() promises and propagate any QuotaDeferredError
@@ -103,10 +112,16 @@ export class AcpxBridgeTransport implements SessionTransport {
       if (segmentError) {
         throw segmentError;
       }
+      if (toolEventError) {
+        throw toolEventError;
+      }
       return { text: summary ? `${summary}\n\n${result.text}` : "" };
     }
     if (segmentError) {
       throw segmentError;
+    }
+    if (toolEventError) {
+      throw toolEventError;
     }
     return result;
   }
