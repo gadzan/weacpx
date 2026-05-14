@@ -236,9 +236,10 @@ test("QuotaDeferredError from coordinator_request_human_input becomes a soft def
   });
 
   expect(requestResult?.isError).toBe(false);
+  // chatKey is an internal weixin routing identifier and intentionally not
+  // surfaced to MCP hosts; only the deferred_quota status is exposed.
   expect(requestResult?.structuredContent).toEqual({
     status: "deferred_quota",
-    chatKey: "wx:user-deferred",
   });
   expect(requestResult?.content[0]).toMatchObject({ type: "text" });
   expect((requestResult?.content[0] as { text: string }).text).toContain("Outbound budget exhausted");
@@ -253,7 +254,6 @@ test("QuotaDeferredError from coordinator_request_human_input becomes a soft def
   expect(followUpResult?.isError).toBe(false);
   expect(followUpResult?.structuredContent).toEqual({
     status: "deferred_quota",
-    chatKey: "wx:user-deferred",
   });
 });
 

@@ -491,7 +491,7 @@ test("returns tool-level business errors as isError text results", async () => {
   }
 });
 
-test("MCP stdio shutdown hooks react to stream close/error and Windows signals", () => {
+test("MCP stdio shutdown hooks react to the first stream/signal event and ignore later events", () => {
   const stdin = new EventEmitter();
   const stdout = new EventEmitter();
   const signals = new EventEmitter();
@@ -508,19 +508,58 @@ test("MCP stdio shutdown hooks react to stream close/error and Windows signals",
   });
 
   stdin.emit("close");
+  // The handler is single-fire: follow-on events on stdout/signals after the
+  // first trigger must not produce additional diagnostics or shutdown calls.
   stdout.emit("error", new Error("EPIPE"));
   signals.emit("SIGBREAK");
 
-  expect(calls).toBe(3);
+  expect(calls).toBe(1);
   expect(diagnostics).toEqual([
     { event: "mcp.stdio.shutdown", context: { reason: "stdin.close" } },
-    { event: "mcp.stdio.shutdown", context: { reason: "stdout.error", message: "EPIPE" } },
-    { event: "mcp.stdio.shutdown", context: { reason: "signal", signal: "SIGBREAK" } },
   ]);
   cleanup();
   stdin.emit("end");
   signals.emit("SIGINT");
-  expect(calls).toBe(3);
+  expect(calls).toBe(1);
+});
+
+test("MCP stdio shutdown hooks fire once per install regardless of which event arrives first", () => {
+  const cases: Array<{ event: string; reason: string; context?: Record<string, unknown>; emit: (stdin: EventEmitter, stdout: EventEmitter, signals: EventEmitter) => void }> = [
+    {
+      event: "stdout.error first",
+      reason: "stdout.error",
+      context: { message: "EPIPE" },
+      emit: (_, stdout) => stdout.emit("error", new Error("EPIPE")),
+    },
+    {
+      event: "signal first",
+      reason: "signal",
+      context: { signal: "SIGBREAK" },
+      emit: (_, __, signals) => signals.emit("SIGBREAK"),
+    },
+  ];
+  for (const testCase of cases) {
+    const stdin = new EventEmitter();
+    const stdout = new EventEmitter();
+    const signals = new EventEmitter();
+    let calls = 0;
+    const diagnostics: unknown[] = [];
+    const cleanup = installMcpStdioShutdownHooks({
+      stdin,
+      stdout,
+      platform: "win32",
+      parentPid: 0,
+      signalSource: signals as never,
+      onDiagnostic: (event, context) => diagnostics.push({ event, context }),
+      shutdown: () => { calls += 1; },
+    });
+    testCase.emit(stdin, stdout, signals);
+    expect(calls).toBe(1);
+    expect(diagnostics).toEqual([
+      { event: "mcp.stdio.shutdown", context: { reason: testCase.reason, ...(testCase.context ?? {}) } },
+    ]);
+    cleanup();
+  }
 });
 
 test("MCP stdio shutdown hooks poll parent process liveness", () => {

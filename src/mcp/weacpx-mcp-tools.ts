@@ -414,6 +414,10 @@ async function asToolResult(
     // active-package invariant. Surface a soft success with a structured
     // status so callers (and prompt templates) can branch on it explicitly.
     if (isQuotaDeferredError(error)) {
+      // chatKey is an internal weixin routing identifier and intentionally
+      // excluded from the MCP response: external coordinators (Codex, Claude
+      // Code, etc.) have no use for it and surfacing it leaks delivery-layer
+      // wiring.
       return {
         content: [
           {
@@ -422,7 +426,7 @@ async function asToolResult(
               "Outbound budget exhausted; the action has been recorded as pending and will retry automatically after the next user inbound resets the quota window. No further action required.",
           },
         ],
-        structuredContent: { status: "deferred_quota", chatKey: error.chatKey },
+        structuredContent: { status: "deferred_quota" },
         isError: false,
       };
     }
@@ -705,7 +709,16 @@ function renderCoordinatorReviewContestedResultSuccess(task: { taskId: string; s
 
 function formatToolError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
-  if (/ECONNREFUSED|ENOENT|server closed without a response|socket hang up|connect /i.test(message)) {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? (error as { code?: unknown }).code
+    : undefined;
+  const isConnectionError =
+    code === "ECONNREFUSED"
+    || code === "ENOENT"
+    || code === "ECONNRESET"
+    || code === "EPIPE"
+    || /server closed without a response|socket hang up/i.test(message);
+  if (isConnectionError) {
     return `Failed to connect to the orchestration daemon: ${message}`;
   }
   return message;

@@ -19,6 +19,12 @@ export interface InferCoordinatorSessionInput {
   instanceId?: string;
 }
 
+/**
+ * @deprecated MCP identity resolution no longer infers workspace from MCP
+ * roots; callers are required to supply `--workspace` or rely on the
+ * external coordinator session prefix instead. Kept for the existing test
+ * coverage of the matching helper; remove once those tests are retired.
+ */
 export function inferWorkspaceFromRoots(input: InferWorkspaceFromRootsInput): string {
   const rootPaths = input.roots
     .map((root) => fileUriToPathOrNull(root.uri))

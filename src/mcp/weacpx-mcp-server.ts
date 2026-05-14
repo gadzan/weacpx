@@ -167,8 +167,16 @@ export function installMcpStdioShutdownHooks(options: McpStdioShutdownHookOption
   const parentCheckIntervalMs = options.parentCheckIntervalMs ?? parseParentCheckIntervalMs(process.env.WEACPX_MCP_PARENT_CHECK_INTERVAL_MS);
 
   let disposed = false;
+  let triggered = false;
   const triggerShutdown = (reason: string, context?: Record<string, unknown>) => {
-    if (disposed) return;
+    if (disposed || triggered) return;
+    // Mark triggered (not disposed) before dispatching so concurrent events
+    // (stdin.close + stdout.error in the same tick, redundant signal handlers)
+    // don't each re-enter and produce duplicate diagnostics. runWeacpxMcpServer
+    // protects shutdown() itself via shuttingDown; this flag owns the
+    // diagnostic stream only and leaves the cleanup function free to release
+    // listeners and the parent timer.
+    triggered = true;
     options.onDiagnostic?.("mcp.stdio.shutdown", { reason, ...(context ?? {}) });
     void options.shutdown();
   };
