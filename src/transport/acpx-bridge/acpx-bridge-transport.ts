@@ -8,6 +8,7 @@ import type {
   SessionTransport,
 } from "../types";
 import { buildOverflowSummary, createQuotaGatedReplySink } from "../quota-gated-reply-sink";
+import { resolveToolEventMode } from "../tool-event-mode.js";
 import type { BridgeMethod } from "./acpx-bridge-protocol";
 import type { BridgeEvent } from "./acpx-bridge-client";
 
@@ -49,11 +50,16 @@ export class AcpxBridgeTransport implements SessionTransport {
       : null;
     let segmentError: unknown;
     let segmentChain = Promise.resolve();
+    const toolEventMode = resolveToolEventMode(options);
     const result = await this.client.request<{ text: string }>("prompt", {
       ...this.toParams(session),
       text,
       ...(options?.media ? { media: options.media } : {}),
-      ...(options?.onToolEvent ? { toolEvents: true } : {}),
+      // Back-compat: older bridge subprocesses key on `toolEvents: true` rather
+      // than `toolEventMode`. Only set it when the mode requires structured events
+      // so an old subprocess still emits them correctly.
+      ...(toolEventMode === "structured" || toolEventMode === "both" ? { toolEvents: true } : {}),
+      toolEventMode,
     }, (event) => {
       if (event.type === "prompt.segment") {
         const onSegment = options?.onSegment;

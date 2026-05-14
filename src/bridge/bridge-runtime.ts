@@ -17,6 +17,7 @@ import type {
   MissingOptionalDepErrorData,
 } from "../transport/acpx-bridge/acpx-bridge-protocol";
 import type { PromptMediaInput } from "../transport/types";
+import type { ToolEventMode } from "../transport/tool-event-mode.js";
 import type { ToolUseEvent } from "../channels/types.js";
 
 type BridgePromptStreamEvent =
@@ -62,6 +63,7 @@ interface BridgeSessionInput {
   replyMode?: "stream" | "final" | "verbose";
   media?: PromptMediaInput;
   toolEvents?: boolean;
+  toolEventMode?: ToolEventMode;
 }
 
 interface StreamingPromptRunnerOptions {
@@ -72,7 +74,7 @@ interface StreamingPromptRunnerOptions {
   flushCheckIntervalMs?: number;
   now?: () => number;
   formatToolCalls?: boolean;
-  emitToolEvents?: boolean;
+  toolEventMode?: ToolEventMode;
 }
 
 interface PromptStreamProcess {
@@ -261,11 +263,14 @@ export class BridgeRuntime {
       ...(structuredPrompt ? ["--file", structuredPrompt.filePath] : [input.text]),
     ]));
     const formatToolCalls = (input.replyMode ?? "verbose") === "verbose";
+    // toolEventMode (Phase 1) wins; toolEvents:true (Phase 0 legacy) maps to "structured".
+    const toolEventMode: ToolEventMode =
+      input.toolEventMode ?? (input.toolEvents === true ? "structured" : "text");
     try {
       const result = onEvent
         ? await this.runPromptCommand(spawnSpec.command, spawnSpec.args, onEvent, {
             formatToolCalls,
-            emitToolEvents: input.toolEvents === true,
+            toolEventMode,
           })
         : await this.run(spawnSpec.command, spawnSpec.args);
       return { text: getPromptText(result) };
@@ -518,12 +523,13 @@ export async function runStreamingPrompt(
     const child = spawnPrompt(command, args);
     let stdout = "";
     let stderr = "";
-    const state = createStreamingPromptState(
-      options.formatToolCalls ?? false,
-      onEvent && options.emitToolEvents
-        ? (toolEvent) => onEvent({ type: "prompt.tool_event", event: toolEvent })
-        : undefined,
-    );
+    const toolEventMode: ToolEventMode = options.toolEventMode ?? "text";
+    const state = createStreamingPromptState(options.formatToolCalls ?? false, {
+      mode: toolEventMode,
+      ...(onEvent && (toolEventMode === "structured" || toolEventMode === "both")
+        ? { onToolEvent: (toolEvent) => onEvent({ type: "prompt.tool_event", event: toolEvent }) }
+        : {}),
+    });
     let lastReplyAt = now();
 
     const flushBuffer = () => {

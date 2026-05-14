@@ -82,7 +82,7 @@ test("flushes buffered prompt text after timeout when no paragraph boundary arri
   expect(segments).toEqual(["still thinking"]);
 });
 
-test("runStreamingPrompt folds tool calls into segments when tool event emission is disabled", async () => {
+test("runStreamingPrompt folds tool calls into segments when toolEventMode is 'text'", async () => {
   const segments: string[] = [];
   let dataHandler: ((chunk: string | Buffer) => void) | undefined;
   let closeHandler: ((code: number | null) => void) | undefined;
@@ -110,7 +110,7 @@ test("runStreamingPrompt folds tool calls into segments when tool event emission
       setIntervalFn: () => 1,
       clearIntervalFn: () => {},
       formatToolCalls: true,
-      emitToolEvents: false,
+      toolEventMode: "text",
     },
   );
 
@@ -135,7 +135,7 @@ test("runStreamingPrompt folds tool calls into segments when tool event emission
   expect(segments[0]).toContain("foo.ts");
 });
 
-test("runStreamingPrompt emits structured tool events only when requested", async () => {
+test("runStreamingPrompt emits structured tool events when toolEventMode is 'structured'", async () => {
   const events: unknown[] = [];
   let dataHandler: ((chunk: string | Buffer) => void) | undefined;
   let closeHandler: ((code: number | null) => void) | undefined;
@@ -161,7 +161,7 @@ test("runStreamingPrompt emits structured tool events only when requested", asyn
       setIntervalFn: () => 1,
       clearIntervalFn: () => {},
       formatToolCalls: true,
-      emitToolEvents: true,
+      toolEventMode: "structured",
     },
   );
 
@@ -359,4 +359,182 @@ test("ensureSession falls back to generic kind when stderr does not match", asyn
     caught = err;
   }
   expect((caught as { kind?: string }).kind).toBe("generic");
+});
+
+// ── toolEventMode wiring tests ───────────────────────────────────────────────
+
+function makeSpawnPrompt(dataHandler: { current?: (chunk: string) => void }, closeHandler: { current?: (code: number | null) => void }) {
+  return () => ({
+    stdout: {
+      setEncoding: () => {},
+      on: (_event: "data", handler: (chunk: string | Buffer) => void) => {
+        dataHandler.current = handler as (chunk: string) => void;
+      },
+    },
+    stderr: { on: () => {} },
+    on: (event: "close" | "error", handler: (code: number | null) => void) => {
+      if (event === "close") closeHandler.current = handler;
+    },
+  }) as never;
+}
+
+const toolCallChunk = JSON.stringify({
+  method: "session/update",
+  params: {
+    update: {
+      sessionUpdate: "tool_call",
+      toolCallId: "tc-1",
+      kind: "read",
+      title: "Read File",
+      rawInput: { path: "src/foo.ts" },
+      status: "completed",
+    },
+  },
+}) + "\n";
+
+test("bridge runtime emits prompt.tool_event when toolEventMode is 'structured'", async () => {
+  const events: unknown[] = [];
+  const dataRef: { current?: (chunk: string) => void } = {};
+  const closeRef: { current?: (code: number | null) => void } = {};
+
+  const resultPromise = runStreamingPrompt(
+    "acpx",
+    ["prompt"],
+    (event) => events.push(event),
+    {
+      spawnPrompt: makeSpawnPrompt(dataRef, closeRef),
+      setIntervalFn: () => 1,
+      clearIntervalFn: () => {},
+      formatToolCalls: true,
+      toolEventMode: "structured",
+    },
+  );
+
+  dataRef.current?.(toolCallChunk);
+  closeRef.current?.(0);
+  await resultPromise;
+
+  // structured: only tool events, no text segment for the tool call
+  expect(events.filter((e) => (e as { type: string }).type === "prompt.tool_event")).toHaveLength(1);
+  expect(events.filter((e) => (e as { type: string }).type === "prompt.segment")).toHaveLength(0);
+});
+
+test("bridge runtime emits only text segments when toolEventMode is undefined (Phase 0 invariant)", async () => {
+  const events: unknown[] = [];
+  const dataRef: { current?: (chunk: string) => void } = {};
+  const closeRef: { current?: (code: number | null) => void } = {};
+
+  const resultPromise = runStreamingPrompt(
+    "acpx",
+    ["prompt"],
+    (event) => events.push(event),
+    {
+      spawnPrompt: makeSpawnPrompt(dataRef, closeRef),
+      setIntervalFn: () => 1,
+      clearIntervalFn: () => {},
+      formatToolCalls: true,
+      // toolEventMode omitted AND toolEvents omitted → defaults to "text"
+    },
+  );
+
+  dataRef.current?.(toolCallChunk);
+  closeRef.current?.(0);
+  await resultPromise;
+
+  // text mode: tool call folded into a text segment, no structured event
+  expect(events.filter((e) => (e as { type: string }).type === "prompt.tool_event")).toHaveLength(0);
+  const segments = events.filter((e) => (e as { type: string }).type === "prompt.segment");
+  expect(segments).toHaveLength(1);
+  expect((segments[0] as { text: string }).text).toContain("Read File");
+});
+
+test("bridge runtime emits both text segment and tool event when toolEventMode is 'both'", async () => {
+  const events: unknown[] = [];
+  const dataRef: { current?: (chunk: string) => void } = {};
+  const closeRef: { current?: (code: number | null) => void } = {};
+
+  const resultPromise = runStreamingPrompt(
+    "acpx",
+    ["prompt"],
+    (event) => events.push(event),
+    {
+      spawnPrompt: makeSpawnPrompt(dataRef, closeRef),
+      setIntervalFn: () => 1,
+      clearIntervalFn: () => {},
+      formatToolCalls: true,
+      toolEventMode: "both",
+    },
+  );
+
+  dataRef.current?.(toolCallChunk);
+  closeRef.current?.(0);
+  await resultPromise;
+
+  expect(events.filter((e) => (e as { type: string }).type === "prompt.tool_event")).toHaveLength(1);
+  expect(events.filter((e) => (e as { type: string }).type === "prompt.segment")).toHaveLength(1);
+});
+
+test("bridge runtime legacy toolEvents:true maps to toolEventMode 'structured'", async () => {
+  // Verify BridgeRuntime.prompt() resolves toolEventMode from the legacy toolEvents flag.
+  let capturedToolEventMode: string | undefined;
+
+  const stubPromptRunner = async (
+    _cmd: string,
+    _args: string[],
+    _onEvent: unknown,
+    opts: { toolEventMode?: string },
+  ) => {
+    capturedToolEventMode = opts.toolEventMode;
+    return { code: 0, stdout: "", stderr: "" };
+  };
+
+  const runtime = new BridgeRuntime(
+    "acpx",
+    async () => ({ code: 0, stdout: "", stderr: "" }),
+    undefined,
+    {},
+    stubPromptRunner as never,
+  );
+
+  await runtime.prompt({
+    agent: "codex",
+    cwd: "/repo",
+    name: "s1",
+    text: "hello",
+    toolEvents: true, // legacy flag — should map to "structured"
+  }, () => {});
+
+  expect(capturedToolEventMode).toBe("structured");
+});
+
+test("bridge runtime omitting toolEvents and toolEventMode defaults to 'text' mode", async () => {
+  let capturedToolEventMode: string | undefined;
+
+  const stubPromptRunner = async (
+    _cmd: string,
+    _args: string[],
+    _onEvent: unknown,
+    opts: { toolEventMode?: string },
+  ) => {
+    capturedToolEventMode = opts.toolEventMode;
+    return { code: 0, stdout: "", stderr: "" };
+  };
+
+  const runtime = new BridgeRuntime(
+    "acpx",
+    async () => ({ code: 0, stdout: "", stderr: "" }),
+    undefined,
+    {},
+    stubPromptRunner as never,
+  );
+
+  await runtime.prompt({
+    agent: "codex",
+    cwd: "/repo",
+    name: "s1",
+    text: "hello",
+    // toolEvents and toolEventMode both absent
+  }, () => {});
+
+  expect(capturedToolEventMode).toBe("text");
 });

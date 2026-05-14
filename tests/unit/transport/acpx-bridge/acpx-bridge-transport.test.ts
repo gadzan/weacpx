@@ -242,3 +242,69 @@ test("ensureSession forwards onProgress invocations", async () => {
   }, (stage) => stages.push(stage));
   expect(stages).toEqual(["spawn", "initializing"]);
 });
+
+// ── toolEventMode wire-format tests ─────────────────────────────────────────
+
+test("bridge transport sends toolEventMode:'text' and no toolEvents when no onToolEvent and no explicit mode", async () => {
+  let capturedParams: Record<string, unknown> = {};
+  const request = mock(async (_method: string, params: Record<string, unknown>) => {
+    capturedParams = params;
+    return { text: "ok" };
+  });
+  const transport = new AcpxBridgeTransport({ request });
+
+  await transport.prompt(session, "hello");
+
+  expect(capturedParams.toolEventMode).toBe("text");
+  expect(capturedParams.toolEvents).toBeUndefined();
+});
+
+test("bridge transport sends toolEventMode:'structured' and toolEvents:true when onToolEvent is provided", async () => {
+  let capturedParams: Record<string, unknown> = {};
+  const request = mock(async (_method: string, params: Record<string, unknown>) => {
+    capturedParams = params;
+    return { text: "ok" };
+  });
+  const transport = new AcpxBridgeTransport({ request });
+
+  await transport.prompt(session, "hello", undefined, undefined, {
+    onToolEvent: async () => {},
+  });
+
+  expect(capturedParams.toolEventMode).toBe("structured");
+  expect(capturedParams.toolEvents).toBe(true);
+});
+
+test("bridge transport sends toolEventMode:'both' and toolEvents:true when explicit 'both'", async () => {
+  let capturedParams: Record<string, unknown> = {};
+  const request = mock(async (_method: string, params: Record<string, unknown>) => {
+    capturedParams = params;
+    return { text: "ok" };
+  });
+  const transport = new AcpxBridgeTransport({ request });
+
+  await transport.prompt(session, "hello", undefined, undefined, {
+    toolEventMode: "both",
+    onToolEvent: async () => {},
+  });
+
+  expect(capturedParams.toolEventMode).toBe("both");
+  expect(capturedParams.toolEvents).toBe(true);
+});
+
+test("bridge transport sends toolEventMode:'text' and no toolEvents when explicit 'text' even with onToolEvent", async () => {
+  let capturedParams: Record<string, unknown> = {};
+  const request = mock(async (_method: string, params: Record<string, unknown>) => {
+    capturedParams = params;
+    return { text: "ok" };
+  });
+  const transport = new AcpxBridgeTransport({ request });
+
+  await transport.prompt(session, "hello", undefined, undefined, {
+    toolEventMode: "text",
+    onToolEvent: async () => {},
+  });
+
+  expect(capturedParams.toolEventMode).toBe("text");
+  expect(capturedParams.toolEvents).toBeUndefined();
+});

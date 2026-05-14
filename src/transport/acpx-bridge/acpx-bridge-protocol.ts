@@ -93,3 +93,5 @@ export function encodeBridgeSessionProgressEvent(event: BridgeSessionProgressEve
 export function encodeBridgeSessionNoteEvent(event: BridgeSessionNoteEvent): string {
   return `${JSON.stringify(event)}\n`;
 }
+
+export type { ToolEventMode } from "../tool-event-mode.js";

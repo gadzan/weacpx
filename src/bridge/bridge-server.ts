@@ -151,6 +151,7 @@ export class BridgeServer {
         });
       case "prompt":
         const media = asOptionalPromptMediaInput(params.media);
+        const resolvedToolEventMode = asOptionalToolEventMode(params.toolEventMode);
         return await this.runtime.prompt({
           agent: requireString(params, "agent"),
           agentCommand: asOptionalString(params.agentCommand),
@@ -160,7 +161,9 @@ export class BridgeServer {
           mcpSourceHandle: asOptionalString(params.mcpSourceHandle),
           text: requirePromptText(params, media),
           replyMode: asOptionalReplyMode(params.replyMode),
+          // Keep toolEvents for back-compat with older bridge clients that don't send toolEventMode.
           toolEvents: params.toolEvents === true,
+          ...(resolvedToolEventMode ? { toolEventMode: resolvedToolEventMode } : {}),
           media,
         }, (event) => {
           if (event.type === "prompt.segment") {
@@ -364,4 +367,12 @@ function asOptionalReplyMode(value: unknown): "stream" | "final" | "verbose" | u
     return undefined;
   }
   return value as "stream" | "final" | "verbose";
+}
+
+const VALID_TOOL_EVENT_MODES = new Set<string>(["text", "structured", "both"]);
+function asOptionalToolEventMode(value: unknown): "text" | "structured" | "both" | undefined {
+  if (typeof value !== "string" || !VALID_TOOL_EVENT_MODES.has(value)) {
+    return undefined;
+  }
+  return value as "text" | "structured" | "both";
 }
