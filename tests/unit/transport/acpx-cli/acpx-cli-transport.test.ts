@@ -1112,17 +1112,12 @@ test("toolEventMode: no onToolEvent + no toolEventMode → resolves to text, too
   );
 
   const sessionWithVerboseMode: typeof session = { ...session, replyMode: "verbose" };
-  const result = await transport.prompt(sessionWithVerboseMode, "hello", async (text) => {
+  await transport.prompt(sessionWithVerboseMode, "hello", async (text) => {
     segments.push(text);
-  }, undefined, {
-    onSegment: (text) => {
-      segments.push(text);
-    },
-  });
+  }, undefined);
 
   expect(toolEvents).toEqual([]);
   expect(segments.some((s) => s.includes("Read file"))).toBe(true);
-  void result;
 });
 
 test("toolEventMode: onToolEvent + no toolEventMode → resolves to structured, callback receives event, no text segment for the tool call", async () => {
