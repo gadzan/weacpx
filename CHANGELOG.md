@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.4.0] - 2026-05-14
+
+> 🎉 **正式发布。** `npm install weacpx` 现在默认获取 0.4.0；channel 插件 `@ganglion/weacpx-channel-feishu` 与 `@ganglion/weacpx-channel-yuanbao` 同步升至 `0.1.0` 正式版。0.4.0-beta.0 引入的 channel/plugin 架构、CLI 与发包工具链请见下方 beta.0 条目，本条目记录 beta 系列以来的增量改动。
+
+### Added
+
+- **Feishu channel 流式卡片体验：** `@ganglion/weacpx-channel-feishu` 新增 streaming card + abort + typing + permission UX，引入 ToolUseStore 与可折叠的 tool-use 面板、实时刷新的 elapsed 页脚、进程级 shutdown 钩子注册表；卡片在关停时优雅终止并保留终态，避免遗留半成品卡片。
+- **Yuanbao channel 群组与媒体能力：** `@ganglion/weacpx-channel-yuanbao` 新增群历史抓取、引用解析、@-bot 自动回复识别，inbound 图片/文件下载到 `mediaStore`；outbound 改为 markdown-aware 队列并支持 merge-text 策略；日志脱敏、引用回执去重与 abortSignal 线程化。
+- **Transport tool-event 结构化侧通道：** 新增 `ToolUseEvent`/`ToolUseKind` 公开类型，acpx-cli 与 acpx-bridge 串行化 `onToolEvent` 回调，prompt 接口新增 `toolEventMode`（`text` / `structured` / `both`）；bridge 协议、router、agent 一路转发结构化事件，channel 实现可按需消费。
+- **`formatToolUseEventForText` 与 `TOOL_KIND_EMOJI`：** 共享文本渲染 helper，避免 channel 间漂移；channel 也可继续仅消费 `onText` 走 best-effort 文本路径。
+
+### Changed
+
+- **MCP stdio 加固：** `runWeacpxMcpServer` 在 Windows 上正确响应 SIGINT/SIGTERM/SIGBREAK、stdin EOF 与父进程消失；shutdown 诊断改为单火（一次事件一次日志），3s force-exit 兜底保留。
+- **MCP 工具响应清理：** `coordinator_request_human_input` / `coordinator_follow_up_human_package` 触发 `QuotaDeferredError` 时不再把内部 `chatKey` 透传到 `structuredContent`；`formatToolError` 优先按 `error.code` 识别连接失败（`ECONNREFUSED`/`ENOENT`/`ECONNRESET`/`EPIPE`），不再依赖错误文本正则。
+- **MCP transport 一致性：** `delegateRequest`、`listTasks` 的 optional 字段统一用 `!== undefined`，避免未来增加 boolean 字段时被 truthy 检查吞掉 `false`。
+- **MCP CLI flag 解析合并：** `--coordinator-session` / `--source-handle` / `--workspace` 三个 100% 重复的解析模板抽成共享 `parseStringFlag`；现有 env/CLI 行为不变。
+- **Reply mode 默认值：** Feishu channel 默认 `replyMode: "auto"`，与微信路径保持一致；reply quota 仅在微信路径生效，其他 channel 不再被 quota 限制。
+- **Verbose tool 输出修复：** transport 在 `session.replyMode` 未定义时也会应用 `formatToolCalls`，避免 verbose 模式下工具调用细节被吞掉。
+
+### Fixed
+
+- **微信 state dir 在 Windows 上的创建：** 修复跨平台路径解析问题，避免初次启动时因目录缺失导致状态文件写入失败。
+- **Feishu streaming card 抢占：** seed-during-abort 竞态、element 快路径正文截断到 `maxChars`、多卡片并发 abort 期间的 authorization 取消；卡片 footer 在终态下保留 elapsed 文本不被覆写。
+- **`inferWorkspaceFromRoots` 弃用标记：** MCP identity resolution 主流程已不再走 MCP roots 推断，函数加 `@deprecated` JSDoc 提示未来移除。
+
+### Tests
+
+- 新增 transport `toolEventMode` / `formatToolUseEventForText` / acpx-bridge tool-event wire-format / acpx-cli onToolEvent-only 等覆盖；扩充 channel-feishu streaming card 的 shutdown reset、ToolUseStore、tool panel、live elapsed 测试；新增 channel-yuanbao 群组历史、媒体、markdown 队列、abort 测试。
+- 更新 `tests/unit/mcp/weacpx-mcp-server.test.ts` 中 shutdown-hooks 测试断言为单火语义；更新 `tests/unit/mcp/weacpx-mcp-tools.test.ts` 的 `deferred_quota` 结构化内容不再包含 `chatKey`。
+
+### Docs
+
+- 更新 `docs/config-reference.md` 与 `packages/channel-feishu/README.md` 反映 Feishu streaming card / tool-use panel / shutdown 钩子配置。
+- `src/transport/types.ts` 与 `src/transport/tool-use-text-format.ts` 的代码注释补充 `toolEventMode` / `onToolEvent` 的异步语义，以及 `formatToolUseEventForText` 作为 best-effort 文本适配器的边界说明。
+
 ## [0.4.0-beta.0] - 2026-05-11
 
 > ⚠️ **预发布版本（prerelease）。** 通过 `npm install weacpx@next` 或 `npm install weacpx@0.4.0-beta.0` 获取；`npm install weacpx`（默认 `latest` 标签）仍指向 0.3.x 稳定版。本次为新插件架构的首个公开预览，欢迎试用反馈，正式版预计随 0.4.0 一同发布。
