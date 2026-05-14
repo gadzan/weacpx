@@ -410,3 +410,92 @@ test("formatToolCalls mixes tool_call and text segments", () => {
 
   expect(state.segments).toEqual(["📖 Read file", "I found the issue.", "✏️ Edit file.ts"]);
 });
+
+// --- toolEventMode routing tests ---
+
+const TOOL_CALL_LINE = JSON.stringify({
+  method: "session/update",
+  params: {
+    update: {
+      sessionUpdate: "tool_call",
+      title: "Read File",
+      kind: "read",
+      toolCallId: "id-1",
+      rawInput: { path: "foo.ts" },
+      status: "completed",
+    },
+  },
+});
+
+test("back-compat: positional callback → structured (callback receives event, no segment)", () => {
+  let received: unknown = null;
+  const cb = (ev: unknown) => { received = ev; };
+  const state = createStreamingPromptState(true, cb);
+
+  parseStreamingChunks(state, TOOL_CALL_LINE);
+
+  expect(received).not.toBeNull();
+  expect(state.segments).toEqual([]);
+});
+
+test("mode 'text' with callback → text segment pushed, callback NOT invoked", () => {
+  let received: unknown = null;
+  const cb = (ev: unknown) => { received = ev; };
+  const state = createStreamingPromptState(true, { mode: "text", onToolEvent: cb });
+
+  parseStreamingChunks(state, TOOL_CALL_LINE);
+
+  expect(received).toBeNull();
+  expect(state.segments.length).toBe(1);
+  expect(state.segments[0]).toContain("Read File");
+});
+
+test("mode 'structured' with callback → callback invoked, no segment", () => {
+  let received: unknown = null;
+  const cb = (ev: unknown) => { received = ev; };
+  const state = createStreamingPromptState(true, { mode: "structured", onToolEvent: cb });
+
+  parseStreamingChunks(state, TOOL_CALL_LINE);
+
+  expect(received).not.toBeNull();
+  expect(state.segments).toEqual([]);
+});
+
+test("mode 'both' with callback → callback invoked AND segment pushed", () => {
+  let received: unknown = null;
+  const cb = (ev: unknown) => { received = ev; };
+  const state = createStreamingPromptState(true, { mode: "both", onToolEvent: cb });
+
+  parseStreamingChunks(state, TOOL_CALL_LINE);
+
+  expect(received).not.toBeNull();
+  expect(state.segments.length).toBe(1);
+  expect(state.segments[0]).toContain("Read File");
+});
+
+test("mode 'structured' without callback → no segment, no throw (silently dropped)", () => {
+  const state = createStreamingPromptState(true, { mode: "structured" });
+
+  expect(() => parseStreamingChunks(state, TOOL_CALL_LINE)).not.toThrow();
+  expect(state.segments).toEqual([]);
+});
+
+test("no second arg → text behavior (default mode 'text')", () => {
+  const state = createStreamingPromptState(true);
+
+  parseStreamingChunks(state, TOOL_CALL_LINE);
+
+  expect(state.segments.length).toBe(1);
+  expect(state.segments[0]).toContain("Read File");
+});
+
+test("options object with callback but no mode → structured (preserves Phase 0)", () => {
+  let received: unknown = null;
+  const cb = (ev: unknown) => { received = ev; };
+  const state = createStreamingPromptState(true, { onToolEvent: cb });
+
+  parseStreamingChunks(state, TOOL_CALL_LINE);
+
+  expect(received).not.toBeNull();
+  expect(state.segments).toEqual([]);
+});

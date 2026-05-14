@@ -1,4 +1,5 @@
 import type { ToolUseEvent, ToolUseKind, ToolUseStatus } from "../channels/types.js";
+import type { ToolEventMode } from "./tool-event-mode.js";
 
 export interface StreamingPromptState {
   buffer: string;
@@ -7,6 +8,7 @@ export interface StreamingPromptState {
   pendingLine: string;
   formatToolCalls: boolean;
   emittedToolCallIds: Set<string>;
+  toolEventMode: ToolEventMode;
   onToolEvent?: (event: ToolUseEvent) => void | Promise<void>;
   finalize: () => string;
 }
@@ -28,10 +30,39 @@ interface StreamEvent {
   };
 }
 
+export type CreateStreamingPromptStateOptions =
+  | ((event: ToolUseEvent) => void | Promise<void>)
+  | {
+      mode?: ToolEventMode;
+      onToolEvent?: (event: ToolUseEvent) => void | Promise<void>;
+    };
+
 export function createStreamingPromptState(
   formatToolCalls = false,
-  onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
+  options?: CreateStreamingPromptStateOptions,
 ): StreamingPromptState {
+  let toolEventMode: ToolEventMode;
+  let onToolEvent: ((event: ToolUseEvent) => void | Promise<void>) | undefined;
+
+  if (options === undefined) {
+    toolEventMode = "text";
+    onToolEvent = undefined;
+  } else if (typeof options === "function") {
+    // Legacy: bare callback → structured (preserves Phase 0 behavior)
+    onToolEvent = options;
+    toolEventMode = "structured";
+  } else {
+    onToolEvent = options.onToolEvent;
+    if (options.mode !== undefined) {
+      toolEventMode = options.mode;
+    } else if (onToolEvent !== undefined) {
+      // callback present but no mode → structured (preserves Phase 0)
+      toolEventMode = "structured";
+    } else {
+      toolEventMode = "text";
+    }
+  }
+
   return {
     buffer: "",
     segments: [],
@@ -39,6 +70,7 @@ export function createStreamingPromptState(
     pendingLine: "",
     formatToolCalls,
     emittedToolCallIds: new Set(),
+    toolEventMode,
     onToolEvent,
     finalize(): string {
       if (this.pendingLine.trim().length > 0) {
@@ -80,19 +112,24 @@ export function parseStreamingChunks(state: StreamingPromptState, line: string):
   if (!update) return;
 
   if (state.formatToolCalls && (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update")) {
-    if (state.onToolEvent) {
-      const event = buildToolUseEvent(update);
-      if (event) void state.onToolEvent(event);
-      return;
+    const wantsStructured = state.toolEventMode === "structured" || state.toolEventMode === "both";
+    const wantsText = state.toolEventMode === "text" || state.toolEventMode === "both";
+
+    if (wantsStructured && state.onToolEvent) {
+      const toolEvent = buildToolUseEvent(update);
+      if (toolEvent) void state.onToolEvent(toolEvent);
     }
-    const formatted = formatToolCallEvent(update, update.sessionUpdate);
-    if (formatted) {
-      const toolCallId = update.toolCallId;
-      if (toolCallId) {
-        if (state.emittedToolCallIds.has(toolCallId)) return;
-        state.emittedToolCallIds.add(toolCallId);
+
+    if (wantsText) {
+      const formatted = formatToolCallEvent(update, update.sessionUpdate);
+      if (formatted) {
+        const toolCallId = update.toolCallId;
+        if (toolCallId) {
+          if (state.emittedToolCallIds.has(toolCallId)) return;
+          state.emittedToolCallIds.add(toolCallId);
+        }
+        state.segments.push(formatted);
       }
-      state.segments.push(formatted);
     }
     return;
   }
