@@ -21,6 +21,7 @@ import { ensureNodePtyHelperExecutable, resolveNodePtyHelperPath } from "./node-
 import { terminateProcessTree } from "../../process/terminate-process-tree";
 import { AcpxQueueOwnerLauncher } from "../acpx-queue-owner-launcher";
 import { permissionModeToFlag } from "../permission-mode-flag";
+import { resolveToolEventMode, type ToolEventMode } from "../tool-event-mode.js";
 
 interface AcpxCliTransportOptions {
   command?: string;
@@ -38,6 +39,29 @@ interface CommandResult {
 interface RunOptions {
   timeoutMs?: number;
   signal?: AbortSignal;
+}
+
+interface PromptStreamProcess {
+  stdout: {
+    setEncoding: (encoding: string) => void;
+    on: (event: "data", handler: (chunk: string | Buffer) => void) => void;
+  };
+  stderr: {
+    on: (event: "data", handler: (chunk: string | Buffer) => void) => void;
+  };
+  on: {
+    (event: "error", handler: (error: Error) => void): void;
+    (event: "close", handler: (code: number | null) => void): void;
+  };
+}
+
+interface StreamingPromptHooks {
+  spawnPrompt?: (command: string, args: string[]) => PromptStreamProcess;
+  setIntervalFn?: (fn: () => void, delay: number) => unknown;
+  clearIntervalFn?: (timer: unknown) => void;
+  maxSegmentWaitMs?: number;
+  flushCheckIntervalMs?: number;
+  now?: () => number;
 }
 
 type CommandRunner = (command: string, args: string[], options?: RunOptions) => Promise<CommandResult>;
@@ -133,12 +157,14 @@ export class AcpxCliTransport implements SessionTransport {
   private readonly runCommand: CommandRunner;
   private readonly runPtyCommand: PtyRunner;
   private readonly queueOwnerLauncher: Pick<AcpxQueueOwnerLauncher, "launch">;
+  private readonly streamingHooks: StreamingPromptHooks;
 
   constructor(
     options: AcpxCliTransportOptions,
     runCommand: CommandRunner = defaultRunner,
     runPtyCommand: PtyRunner = defaultPtyRunner,
     queueOwnerLauncher?: Pick<AcpxQueueOwnerLauncher, "launch">,
+    streamingHooks: StreamingPromptHooks = {},
   ) {
     this.command = options.command ?? "acpx";
     this.sessionInitTimeoutMs = options.sessionInitTimeoutMs ?? 120_000;
@@ -149,6 +175,7 @@ export class AcpxCliTransport implements SessionTransport {
     this.queueOwnerLauncher = queueOwnerLauncher ?? new AcpxQueueOwnerLauncher({
       acpxCommand: this.command,
     });
+    this.streamingHooks = streamingHooks;
   }
 
   // acpx-cli transport does not stream stderr back to the caller, so "note" progress
@@ -180,12 +207,13 @@ export class AcpxCliTransport implements SessionTransport {
     try {
       if (reply || options?.onSegment) {
         const formatToolCalls = (session.replyMode ?? "verbose") === "verbose";
+        const toolEventMode = resolveToolEventMode(options);
         const { result, overflowCount } = await this.runStreamingPrompt(
           this.command,
           args,
           reply,
-          30_000,
           formatToolCalls,
+          toolEventMode,
           replyContext,
           options?.onSegment,
           options?.onToolEvent,
@@ -362,19 +390,31 @@ export class AcpxCliTransport implements SessionTransport {
     command: string,
     args: string[],
     reply: ((text: string) => Promise<void>) | undefined,
-    maxSegmentWaitMs: number = 30_000,
     formatToolCalls: boolean = false,
+    toolEventMode: ToolEventMode = "text",
     replyContext?: ReplyQuotaContext,
     onSegment?: (text: string) => void | Promise<void>,
     onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
   ): Promise<{ result: CommandResult; overflowCount: number }> {
+    const hooks = this.streamingHooks;
+    const doSpawn = hooks.spawnPrompt
+      ?? ((cmd, spawnArgs) => spawn(cmd, spawnArgs, { stdio: ["ignore", "pipe", "pipe"] }) as unknown as PromptStreamProcess);
+    const setIntervalFn = hooks.setIntervalFn ?? ((fn, delay) => setInterval(fn, delay));
+    const clearIntervalFn = hooks.clearIntervalFn ?? ((timer) => clearInterval(timer as NodeJS.Timeout));
+    const maxSegmentWaitMs = hooks.maxSegmentWaitMs ?? 30_000;
+    const flushCheckIntervalMs = hooks.flushCheckIntervalMs ?? 5_000;
+    const now = hooks.now ?? (() => Date.now());
+
     return await new Promise((resolve, reject) => {
       const spawnSpec = resolveSpawnCommand(command, args);
-      const child = spawn(spawnSpec.command, spawnSpec.args, { stdio: ["ignore", "pipe", "pipe"] });
+      const child = doSpawn(spawnSpec.command, spawnSpec.args);
       let stdout = "";
       let stderr = "";
-      const state = createStreamingPromptState(formatToolCalls, onToolEvent);
-      let lastReplyAt = Date.now();
+      const state = createStreamingPromptState(formatToolCalls, {
+        mode: toolEventMode,
+        ...(onToolEvent ? { onToolEvent } : {}),
+      });
+      let lastReplyAt = now();
       let segmentChain = Promise.resolve();
       let segmentError: unknown;
 
@@ -394,7 +434,7 @@ export class AcpxCliTransport implements SessionTransport {
             });
         }
         sink?.feedSegment(segment);
-        lastReplyAt = Date.now();
+        lastReplyAt = now();
       };
 
       const flushBuffer = () => {
@@ -406,14 +446,14 @@ export class AcpxCliTransport implements SessionTransport {
       };
 
       // Periodic timer: flush accumulated text if waiting too long
-      const timer = setInterval(() => {
-        if (state.buffer.trim().length > 0 && Date.now() - lastReplyAt >= maxSegmentWaitMs) {
+      const timer = setIntervalFn(() => {
+        if (state.buffer.trim().length > 0 && now() - lastReplyAt >= maxSegmentWaitMs) {
           flushBuffer();
         }
-      }, 5_000);
+      }, flushCheckIntervalMs);
 
       child.stdout.setEncoding("utf8");
-      child.stdout.on("data", (chunk: Buffer) => {
+      child.stdout.on("data", (chunk: string | Buffer) => {
         stdout += String(chunk);
         parseStreamingDataChunk(state, String(chunk));
         for (const segment of state.segments.splice(0)) {
@@ -421,16 +461,16 @@ export class AcpxCliTransport implements SessionTransport {
         }
       });
 
-      child.stderr.on("data", (chunk: Buffer) => {
+      child.stderr.on("data", (chunk: string | Buffer) => {
         stderr += String(chunk);
       });
 
       child.on("error", (err) => {
-        clearInterval(timer);
+        clearIntervalFn(timer);
         reject(err);
       });
       child.on("close", (code) => {
-        clearInterval(timer);
+        clearIntervalFn(timer);
         const remaining = state.finalize();
         if (remaining.length > 0) {
           feedSegment(remaining);

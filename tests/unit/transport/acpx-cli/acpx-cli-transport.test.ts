@@ -1032,3 +1032,195 @@ test("starts a queue owner with orchestration MCP before prompting an MCP-bound 
     nonInteractivePermissions: "deny",
   }]);
 });
+
+// --- toolEventMode wiring tests ---
+
+function makeToolCallLine(toolCallId: string, title: string, kind = "read"): string {
+  return JSON.stringify({
+    jsonrpc: "2.0",
+    method: "session/update",
+    params: {
+      sessionId: "abc",
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId,
+        title,
+        kind,
+      },
+    },
+  });
+}
+
+function makeAgentChunkLine(text: string): string {
+  return JSON.stringify({
+    jsonrpc: "2.0",
+    method: "session/update",
+    params: {
+      sessionId: "abc",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text },
+      },
+    },
+  });
+}
+
+function makeFakeSpawn(lines: string[]) {
+  let dataHandler: ((chunk: string) => void) | undefined;
+  let closeHandler: ((code: number | null) => void) | undefined;
+
+  const process = {
+    stdout: {
+      setEncoding: () => {},
+      on: (event: string, handler: (chunk: string) => void) => {
+        if (event === "data") dataHandler = handler;
+      },
+    },
+    stderr: {
+      on: () => {},
+    },
+    on: (event: string, handler: (code: number | null) => void) => {
+      if (event === "close") closeHandler = handler;
+    },
+  };
+
+  Promise.resolve().then(() => {
+    dataHandler?.(lines.join("\n") + "\n");
+    closeHandler?.(0);
+  });
+
+  return process as unknown as ReturnType<typeof makeFakeSpawn>;
+}
+
+test("toolEventMode: no onToolEvent + no toolEventMode → resolves to text, tool call appears as segment", async () => {
+  const segments: string[] = [];
+  const toolEvents: unknown[] = [];
+
+  const transport = new AcpxCliTransport(
+    { command: "acpx" },
+    undefined,
+    undefined,
+    undefined,
+    {
+      spawnPrompt: () => makeFakeSpawn([
+        makeToolCallLine("id-1", "Read file", "read"),
+        makeAgentChunkLine("done"),
+      ]),
+      setIntervalFn: () => 0,
+      clearIntervalFn: () => {},
+    },
+  );
+
+  const sessionWithVerboseMode: typeof session = { ...session, replyMode: "verbose" };
+  const result = await transport.prompt(sessionWithVerboseMode, "hello", async (text) => {
+    segments.push(text);
+  }, undefined, {
+    onSegment: (text) => {
+      segments.push(text);
+    },
+  });
+
+  expect(toolEvents).toEqual([]);
+  expect(segments.some((s) => s.includes("Read file"))).toBe(true);
+  void result;
+});
+
+test("toolEventMode: onToolEvent + no toolEventMode → resolves to structured, callback receives event, no text segment for the tool call", async () => {
+  const segments: string[] = [];
+  const toolEvents: unknown[] = [];
+
+  const transport = new AcpxCliTransport(
+    { command: "acpx" },
+    undefined,
+    undefined,
+    undefined,
+    {
+      spawnPrompt: () => makeFakeSpawn([
+        makeToolCallLine("id-2", "Run tests", "execute"),
+        makeAgentChunkLine("final"),
+      ]),
+      setIntervalFn: () => 0,
+      clearIntervalFn: () => {},
+    },
+  );
+
+  const sessionWithVerboseMode: typeof session = { ...session, replyMode: "verbose" };
+  await transport.prompt(sessionWithVerboseMode, "hello", async (text) => {
+    segments.push(text);
+  }, undefined, {
+    onToolEvent: (event) => {
+      toolEvents.push(event);
+    },
+  });
+
+  expect(toolEvents).toHaveLength(1);
+  expect((toolEvents[0] as { toolName: string }).toolName).toBe("Run tests");
+  expect(segments.every((s) => !s.includes("Run tests"))).toBe(true);
+});
+
+test("toolEventMode: explicit 'both' + onToolEvent → callback receives event AND text segment emitted", async () => {
+  const segments: string[] = [];
+  const toolEvents: unknown[] = [];
+
+  const transport = new AcpxCliTransport(
+    { command: "acpx" },
+    undefined,
+    undefined,
+    undefined,
+    {
+      spawnPrompt: () => makeFakeSpawn([
+        makeToolCallLine("id-3", "Grep for pattern", "search"),
+        makeAgentChunkLine("done"),
+      ]),
+      setIntervalFn: () => 0,
+      clearIntervalFn: () => {},
+    },
+  );
+
+  const sessionWithVerboseMode: typeof session = { ...session, replyMode: "verbose" };
+  await transport.prompt(sessionWithVerboseMode, "hello", async (text) => {
+    segments.push(text);
+  }, undefined, {
+    toolEventMode: "both",
+    onToolEvent: (event) => {
+      toolEvents.push(event);
+    },
+  });
+
+  expect(toolEvents).toHaveLength(1);
+  expect((toolEvents[0] as { toolName: string }).toolName).toBe("Grep for pattern");
+  expect(segments.some((s) => s.includes("Grep for pattern"))).toBe(true);
+});
+
+test("toolEventMode: explicit 'text' with onToolEvent → text segment only, callback NOT invoked", async () => {
+  const segments: string[] = [];
+  const toolEvents: unknown[] = [];
+
+  const transport = new AcpxCliTransport(
+    { command: "acpx" },
+    undefined,
+    undefined,
+    undefined,
+    {
+      spawnPrompt: () => makeFakeSpawn([
+        makeToolCallLine("id-4", "Edit file", "edit"),
+        makeAgentChunkLine("done"),
+      ]),
+      setIntervalFn: () => 0,
+      clearIntervalFn: () => {},
+    },
+  );
+
+  const sessionWithVerboseMode: typeof session = { ...session, replyMode: "verbose" };
+  await transport.prompt(sessionWithVerboseMode, "hello", async (text) => {
+    segments.push(text);
+  }, undefined, {
+    toolEventMode: "text",
+    onToolEvent: (event) => {
+      toolEvents.push(event);
+    },
+  });
+
+  expect(toolEvents).toHaveLength(0);
+  expect(segments.some((s) => s.includes("Edit file"))).toBe(true);
+});
