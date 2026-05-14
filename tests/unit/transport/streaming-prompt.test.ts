@@ -499,3 +499,42 @@ test("options object with callback but no mode → structured (preserves Phase 0
   expect(received).not.toBeNull();
   expect(state.segments).toEqual([]);
 });
+
+test("toolEventMode 'both' calls structured per event but dedupes text by toolCallId", () => {
+  const events: unknown[] = [];
+  const state = createStreamingPromptState(true, {
+    mode: "both",
+    onToolEvent: (event) => { events.push(event); },
+  });
+
+  const firstUpdate = JSON.stringify({
+    method: "session/update",
+    params: { update: {
+      sessionUpdate: "tool_call",
+      title: "Read File",
+      kind: "read",
+      toolCallId: "dup-id",
+      rawInput: { path: "foo.ts" },
+      status: "pending",
+    } },
+  });
+  const secondUpdate = JSON.stringify({
+    method: "session/update",
+    params: { update: {
+      sessionUpdate: "tool_call_update",
+      title: "Read File",
+      kind: "read",
+      toolCallId: "dup-id",
+      rawInput: { path: "foo.ts" },
+      status: "completed",
+    } },
+  });
+
+  parseStreamingChunks(state, firstUpdate);
+  parseStreamingChunks(state, secondUpdate);
+
+  // Structured side sees both updates (channel can key by toolCallId for in-place updates).
+  expect(events.length).toBe(2);
+  // Text side dedupes — only one segment for the same toolCallId.
+  expect(state.segments.length).toBe(1);
+});

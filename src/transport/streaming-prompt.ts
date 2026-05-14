@@ -1,4 +1,5 @@
 import type { ToolUseEvent, ToolUseKind, ToolUseStatus } from "../channels/types.js";
+import { resolveToolEventMode } from "./tool-event-mode.js";
 import type { ToolEventMode } from "./tool-event-mode.js";
 
 export interface StreamingPromptState {
@@ -53,14 +54,10 @@ export function createStreamingPromptState(
     toolEventMode = "structured";
   } else {
     onToolEvent = options.onToolEvent;
-    if (options.mode !== undefined) {
-      toolEventMode = options.mode;
-    } else if (onToolEvent !== undefined) {
-      // callback present but no mode → structured (preserves Phase 0)
-      toolEventMode = "structured";
-    } else {
-      toolEventMode = "text";
-    }
+    toolEventMode = resolveToolEventMode({
+      toolEventMode: options.mode,
+      onToolEvent,
+    });
   }
 
   return {
@@ -115,6 +112,10 @@ export function parseStreamingChunks(state: StreamingPromptState, line: string):
     const wantsStructured = state.toolEventMode === "structured" || state.toolEventMode === "both";
     const wantsText = state.toolEventMode === "text" || state.toolEventMode === "both";
 
+    // Defense-in-depth: if a transport set mode='structured' without wiring
+    // onToolEvent, drop the event silently rather than throwing or leaking
+    // it into text. The transport-level resolveToolEventMode normally prevents
+    // this state.
     if (wantsStructured && state.onToolEvent) {
       const toolEvent = buildToolUseEvent(update);
       if (toolEvent) void state.onToolEvent(toolEvent);
