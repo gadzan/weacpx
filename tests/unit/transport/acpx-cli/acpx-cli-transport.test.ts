@@ -1219,3 +1219,209 @@ test("toolEventMode: explicit 'text' with onToolEvent → text segment only, cal
   expect(toolEvents).toHaveLength(0);
   expect(segments.some((s) => s.includes("Edit file"))).toBe(true);
 });
+
+// --- onToolEvent chain serialization tests ---
+
+test("onToolEvent: events delivered in emission order even when first handler is slow", async () => {
+  const recorder: string[] = [];
+
+  const transport = new AcpxCliTransport(
+    { command: "acpx" },
+    undefined,
+    undefined,
+    undefined,
+    {
+      spawnPrompt: () => makeFakeSpawn([
+        makeToolCallLine("id-1", "Tool One", "read"),
+        makeToolCallLine("id-2", "Tool Two", "read"),
+        makeToolCallLine("id-3", "Tool Three", "read"),
+        makeAgentChunkLine("done"),
+      ]),
+      setIntervalFn: () => 0,
+      clearIntervalFn: () => {},
+    },
+  );
+
+  const sessionWithVerboseMode: typeof session = { ...session, replyMode: "verbose" };
+  await transport.prompt(sessionWithVerboseMode, "hello", async () => {}, undefined, {
+    onToolEvent: async (event) => {
+      if (event.toolCallId === "id-1") {
+        await new Promise<void>((r) => setTimeout(r, 10));
+      }
+      recorder.push(event.toolCallId);
+    },
+  });
+
+  expect(recorder).toEqual(["id-1", "id-2", "id-3"]);
+});
+
+test("onToolEvent: prompt does not resolve until the handler chain settles", async () => {
+  let handlerResolve!: () => void;
+  const handlerSettled = new Promise<void>((r) => { handlerResolve = r; });
+  const order: string[] = [];
+
+  const transport = new AcpxCliTransport(
+    { command: "acpx" },
+    undefined,
+    undefined,
+    undefined,
+    {
+      spawnPrompt: () => makeFakeSpawn([
+        makeToolCallLine("id-1", "Tool One", "read"),
+        makeAgentChunkLine("done"),
+      ]),
+      setIntervalFn: () => 0,
+      clearIntervalFn: () => {},
+    },
+  );
+
+  const sessionWithVerboseMode: typeof session = { ...session, replyMode: "verbose" };
+
+  // Kick off the prompt without awaiting it yet.
+  const promptPromise = transport.prompt(sessionWithVerboseMode, "hello", async () => {}, undefined, {
+    onToolEvent: async () => {
+      await handlerSettled;
+      order.push("handler");
+    },
+  });
+
+  // Give the spawn event loop a chance to fire (data + close).
+  await new Promise<void>((r) => setTimeout(r, 20));
+
+  // Prompt must still be pending because the handler hasn't settled.
+  let promptResolved = false;
+  void promptPromise.then(() => { promptResolved = true; });
+  await Promise.resolve(); // flush microtask
+  expect(promptResolved).toBe(false);
+
+  // Now resolve the handler.
+  handlerResolve();
+  order.push("released");
+
+  await promptPromise;
+  order.push("prompt");
+
+  // Handler must have completed before prompt resolved.
+  expect(order[0]).toBe("released");
+  expect(order[1]).toBe("handler");
+  expect(order[2]).toBe("prompt");
+});
+
+test("onToolEvent: handler error rejects the prompt", async () => {
+  const transport = new AcpxCliTransport(
+    { command: "acpx" },
+    undefined,
+    undefined,
+    undefined,
+    {
+      spawnPrompt: () => makeFakeSpawn([
+        makeToolCallLine("id-1", "Tool One", "read"),
+        makeAgentChunkLine("done"),
+      ]),
+      setIntervalFn: () => 0,
+      clearIntervalFn: () => {},
+    },
+  );
+
+  const sessionWithVerboseMode: typeof session = { ...session, replyMode: "verbose" };
+  await expect(
+    transport.prompt(sessionWithVerboseMode, "hello", async () => {}, undefined, {
+      onToolEvent: () => {
+        throw new Error("handler boom");
+      },
+    }),
+  ).rejects.toThrow("handler boom");
+});
+
+test("onToolEvent: only the first handler error is surfaced", async () => {
+  const transport = new AcpxCliTransport(
+    { command: "acpx" },
+    undefined,
+    undefined,
+    undefined,
+    {
+      spawnPrompt: () => makeFakeSpawn([
+        makeToolCallLine("id-1", "Tool One", "read"),
+        makeToolCallLine("id-2", "Tool Two", "read"),
+        makeAgentChunkLine("done"),
+      ]),
+      setIntervalFn: () => 0,
+      clearIntervalFn: () => {},
+    },
+  );
+
+  const sessionWithVerboseMode: typeof session = { ...session, replyMode: "verbose" };
+  await expect(
+    transport.prompt(sessionWithVerboseMode, "hello", async () => {}, undefined, {
+      onToolEvent: (event) => {
+        throw new Error(`error from ${event.toolCallId}`);
+      },
+    }),
+  ).rejects.toThrow("error from id-1");
+});
+
+test("onToolEvent: later handlers still run even when an earlier one errors", async () => {
+  const recorder: string[] = [];
+
+  const transport = new AcpxCliTransport(
+    { command: "acpx" },
+    undefined,
+    undefined,
+    undefined,
+    {
+      spawnPrompt: () => makeFakeSpawn([
+        makeToolCallLine("id-1", "Tool One", "read"),
+        makeToolCallLine("id-2", "Tool Two", "read"),
+        makeAgentChunkLine("done"),
+      ]),
+      setIntervalFn: () => 0,
+      clearIntervalFn: () => {},
+    },
+  );
+
+  const sessionWithVerboseMode: typeof session = { ...session, replyMode: "verbose" };
+  await expect(
+    transport.prompt(sessionWithVerboseMode, "hello", async () => {}, undefined, {
+      onToolEvent: (event) => {
+        recorder.push(event.toolCallId);
+        if (event.toolCallId === "id-1") {
+          throw new Error("first handler error");
+        }
+      },
+    }),
+  ).rejects.toThrow("first handler error");
+
+  // id-2 must have been called despite id-1 throwing.
+  expect(recorder).toEqual(["id-1", "id-2"]);
+});
+
+test("onToolEvent: text mode does not invoke the callback at all", async () => {
+  const called: unknown[] = [];
+
+  const transport = new AcpxCliTransport(
+    { command: "acpx" },
+    undefined,
+    undefined,
+    undefined,
+    {
+      spawnPrompt: () => makeFakeSpawn([
+        makeToolCallLine("id-1", "Tool One", "read"),
+        makeAgentChunkLine("done"),
+      ]),
+      setIntervalFn: () => 0,
+      clearIntervalFn: () => {},
+    },
+  );
+
+  const sessionWithVerboseMode: typeof session = { ...session, replyMode: "verbose" };
+  await expect(
+    transport.prompt(sessionWithVerboseMode, "hello", async () => {}, undefined, {
+      toolEventMode: "text",
+      onToolEvent: (event) => {
+        called.push(event);
+      },
+    }),
+  ).resolves.toBeDefined();
+
+  expect(called).toHaveLength(0);
+});

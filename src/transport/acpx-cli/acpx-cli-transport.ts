@@ -410,13 +410,28 @@ export class AcpxCliTransport implements SessionTransport {
       const child = doSpawn(spawnSpec.command, spawnSpec.args);
       let stdout = "";
       let stderr = "";
-      const state = createStreamingPromptState(formatToolCalls, {
-        mode: toolEventMode,
-        ...(onToolEvent ? { onToolEvent } : {}),
-      });
       let lastReplyAt = now();
       let segmentChain = Promise.resolve();
       let segmentError: unknown;
+      let toolEventChain = Promise.resolve();
+      let toolEventError: unknown;
+      const userOnToolEvent = onToolEvent;
+
+      const state = createStreamingPromptState(formatToolCalls, {
+        mode: toolEventMode,
+        ...(userOnToolEvent
+          ? {
+              onToolEvent: (event) => {
+                // Serialize handler invocations; first error wins.
+                toolEventChain = toolEventChain
+                  .then(() => userOnToolEvent(event))
+                  .catch((error) => {
+                    toolEventError ??= error;
+                  });
+              },
+            }
+          : {}),
+      });
 
       const sink = reply
         ? createQuotaGatedReplySink({
@@ -486,6 +501,7 @@ export class AcpxCliTransport implements SessionTransport {
         void Promise.all([
           sink?.drain({ timeoutMs: 30_000 }) ?? Promise.resolve(),
           segmentChain,
+          toolEventChain,
         ]).then(() => {
           const deferred = sink?.getPendingError();
           if (deferred) {
@@ -494,6 +510,10 @@ export class AcpxCliTransport implements SessionTransport {
           }
           if (segmentError) {
             reject(segmentError);
+            return;
+          }
+          if (toolEventError) {
+            reject(toolEventError);
             return;
           }
           resolve({
