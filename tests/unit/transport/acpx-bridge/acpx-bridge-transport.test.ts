@@ -256,7 +256,7 @@ test("bridge transport sends toolEventMode:'text' and no toolEvents when no onTo
   await transport.prompt(session, "hello");
 
   expect(capturedParams.toolEventMode).toBe("text");
-  expect(capturedParams.toolEvents).toBeUndefined();
+  expect(capturedParams).not.toHaveProperty("toolEvents");
 });
 
 test("bridge transport sends toolEventMode:'structured' and toolEvents:true when onToolEvent is provided", async () => {
@@ -306,5 +306,5 @@ test("bridge transport sends toolEventMode:'text' and no toolEvents when explici
   });
 
   expect(capturedParams.toolEventMode).toBe("text");
-  expect(capturedParams.toolEvents).toBeUndefined();
+  expect(capturedParams).not.toHaveProperty("toolEvents");
 });
