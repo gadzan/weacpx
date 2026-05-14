@@ -26,6 +26,8 @@ Final-state cards include the elapsed turn time in the footer (e.g. `已完成 �
 
 When `channel.replyMode: "verbose"` (the default) is paired with streaming mode, tool calls are rendered as a collapsible **🔧 工具调用 (N)** panel above the answer body instead of inline text segments. Each step shows status (✅/⏳/❌), a kind icon (📖 read · 🔍 search · 💻 execute · ✏️ edit · 🧠 think · 🔧 other), the tool name, a one-line summary derived from the call's input (e.g. file path, command, search pattern), and the duration once finished. Static mode keeps the legacy inline behavior — each tool call lands as its own text bubble.
 
+The streaming card consumes the structured tool-use side-channel by registering an `onToolEvent` callback. The transport defaults to `toolEventMode: "structured"` whenever a handler is provided, so events flow into the collapsible card panel instead of the legacy text bubbles.
+
 The card terminates gracefully on daemon shutdown: SIGINT/SIGTERM/`beforeExit` drives every in-flight card to its "已停止" state before the process exits, so a killed `weacpx` daemon no longer leaves cards stuck at "处理中..." in the user's Feishu chat.
 
 Streaming mode requires the bot to have **`cardkit:card:write`** plus **`im:message:send_as_bot`** scopes. If the initial `cardkit.v1.card.create` call fails (most commonly: missing scope), the channel logs `feishu.streaming.fallback` and falls back to the static path for that turn. When the failure is a Feishu permission error (code `99991672`) the grant URL is also sent to the user once per 5-minute cooldown.

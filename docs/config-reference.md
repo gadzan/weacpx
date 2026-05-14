@@ -99,6 +99,30 @@ WEACPX_CLI_COMMAND="node /path/to/weacpx/dist/cli.js" weacpx run
 
 ---
 
+## Tool-event routing
+
+### Tool-event mode (`toolEventMode`)
+
+`PromptOptions.toolEventMode` controls how `tool_call` / `tool_call_update`
+events are surfaced for a single prompt:
+
+- `"text"` — legacy emoji-prefixed segments folded into the reply text stream.
+- `"structured"` — events go to the `onToolEvent` callback only.
+- `"both"` — events go to `onToolEvent` AND legacy text segments. Useful for
+  migration or debugging.
+
+If omitted, the transport infers the mode at the boundary: `"structured"`
+when an `onToolEvent` handler is provided, `"text"` otherwise. This
+preserves the behavior every existing channel (Weixin, Yuanbao, Feishu
+static, Feishu streaming card) relies on today.
+
+**Async semantics for `onToolEvent`:** transports invoke the callback in
+event order and await each invocation before dispatching the next. Prompt
+completion waits for all in-flight callbacks to settle. A handler error
+rejects the prompt with the first observed error.
+
+---
+
 ## `channel`
 
 全局消息平台默认配置。

@@ -44,7 +44,15 @@ export type PromptMediaInput = PromptMedia | PromptMedia[];
 
 export interface PromptOptions {
   onSegment?: (text: string) => void | Promise<void>;
-  /** Structured side-channel for tool calls. See `toolEventMode` for routing. */
+  /**
+   * Structured side-channel for tool calls. See `toolEventMode` for routing.
+   *
+   * Async semantics: callbacks are invoked in event order and serialized —
+   * each invocation is awaited before the next is dispatched. The transport
+   * waits for all callbacks to settle before resolving the prompt. If any
+   * invocation throws or returns a rejected promise, the prompt rejects
+   * with the first observed error (matching `onSegment` behavior).
+   */
   onToolEvent?: (event: ToolUseEvent) => void | Promise<void>;
   /**
    * How tool_call / tool_call_update events are surfaced for this prompt.
