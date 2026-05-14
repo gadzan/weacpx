@@ -2067,7 +2067,6 @@ test("task_wait returns terminal task states", async () => {
 
 test("task_wait returns attention_required for coordinator action states", async () => {
   const attentionTasks = [
-    { ...makeCompletedTask("task-1"), status: "pending" as const, summary: "", resultText: "" },
     { ...makeCompletedTask("task-1"), status: "needs_confirmation" as const, summary: "", resultText: "" },
     makeBlockedTask("task-1", "question-1"),
     { ...makeBlockedTask("task-1", "question-1"), status: "waiting_for_human" as const },

@@ -39,7 +39,6 @@ function isOptionalBoolean(value: unknown): value is boolean | undefined {
 
 function isTaskStatus(value: unknown): value is OrchestrationTaskStatus {
   return (
-    value === "pending" ||
     value === "needs_confirmation" ||
     value === "running" ||
     value === "blocked" ||

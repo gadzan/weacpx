@@ -143,7 +143,15 @@ test("builds 16 MCP tools and appends blocker-loop actions after the original or
     },
   ]);
   expect(response).toEqual({
-    content: [{ type: "text", text: "Delegation task \"task-9\" created.\n- Status: needs_confirmation" }],
+    content: [
+      {
+        type: "text",
+        text:
+          "Delegation task \"task-9\" created.\n- Status: needs_confirmation\n"
+          + "Next: this delegation requires user approval; do not call task_wait yet. "
+          + "Tell the user, then call task_approve or task_reject based on their response.",
+      },
+    ],
     structuredContent: { taskId: "task-9", status: "needs_confirmation" },
   });
   expect(waitResponse).toEqual({
@@ -319,4 +327,215 @@ test("task_get renders not-found as text plus structured null wrapper", async ()
     content: [{ type: "text", text: "Task not found." }],
     structuredContent: { task: null },
   });
+});
+
+test("delegate_request running result appends a Next: hint pointing at task_wait", async () => {
+  const registry = buildWeacpxMcpToolRegistry({
+    transport: createMemoryTransport(
+      async () => ({ taskId: "task-running", status: "running" }),
+      {
+        getTask: async () => null,
+        listTasks: async () => [],
+        approveTask: async () => {
+          throw new Error("approve not implemented");
+        },
+        rejectTask: async () => {
+          throw new Error("reject not implemented");
+        },
+        cancelTask: async () => {
+          throw new Error("cancel not implemented");
+        },
+      },
+    ),
+    coordinatorSession: "backend:main",
+    sourceHandle: "backend:worker",
+  });
+
+  const delegate = registry.find((tool) => tool.name === "delegate_request");
+  const result = await delegate?.handler({
+    targetAgent: "opencode",
+    task: "introduce yourself",
+    workingDirectory: "/repo",
+  });
+
+  const text = (result?.content[0] as { text: string }).text;
+  expect(text).toContain("Delegation task \"task-running\" created.");
+  expect(text).toContain("- Status: running");
+  expect(text).toContain("Next: call task_wait with taskId=\"task-running\"");
+  expect(text).toContain("task_get to read the result");
+});
+
+test("task_wait terminal / attention / timeout each include the matching Next: hint", async () => {
+  let nextStatus: "terminal" | "attention_required" | "timeout" = "terminal";
+  const registry = buildWeacpxMcpToolRegistry({
+    transport: createMemoryTransport(
+      async () => ({ taskId: "task-1", status: "needs_confirmation" }),
+      {
+        getTask: async () => null,
+        listTasks: async () => [],
+        approveTask: async () => {
+          throw new Error("approve not implemented");
+        },
+        rejectTask: async () => {
+          throw new Error("reject not implemented");
+        },
+        cancelTask: async () => {
+          throw new Error("cancel not implemented");
+        },
+        waitTask: async () => ({
+          status: nextStatus,
+          task: { taskId: "task-1", status: nextStatus === "timeout" ? "running" : nextStatus === "terminal" ? "completed" : "blocked" },
+        }),
+      },
+    ),
+    coordinatorSession: "backend:main",
+  });
+
+  const waitTool = registry.find((tool) => tool.name === "task_wait");
+
+  nextStatus = "terminal";
+  const terminalText = (
+    (await waitTool?.handler({ taskId: "task-1" }))?.content[0] as { text: string }
+  ).text;
+  expect(terminalText).toContain("reached terminal state");
+  expect(terminalText).toContain("Next: call task_get to read the worker's final result");
+
+  nextStatus = "attention_required";
+  const attentionText = (
+    (await waitTool?.handler({ taskId: "task-1" }))?.content[0] as { text: string }
+  ).text;
+  expect(attentionText).toContain("requires attention");
+  // Must mention task_get-then-branch instead of dumping the user into coordinator_answer_question
+  // for every attention_required case (needs_confirmation / reviewPending would throw).
+  expect(attentionText).toContain("call task_get");
+  expect(attentionText).toContain("needs_confirmation -> task_approve");
+  expect(attentionText).toContain("blocked or waiting_for_human -> coordinator_answer_question");
+  expect(attentionText).toContain("reviewPending set -> coordinator_review_contested_result");
+  expect(attentionText).toContain("call task_wait again");
+  // Must NOT advertise coordinator_request_human_input on this path: it throws for external
+  // coordinators (the MCP server's primary use case) per orchestration-service.ts:1564.
+  expect(attentionText).not.toContain("coordinator_request_human_input");
+  // pending is unreachable through task_approve today (assertNeedsConfirmation only accepts
+  // needs_confirmation), so the guidance must not promise it.
+  expect(attentionText).not.toContain("pending or needs_confirmation");
+
+  nextStatus = "timeout";
+  const timeoutText = (
+    (await waitTool?.handler({ taskId: "task-1" }))?.content[0] as { text: string }
+  ).text;
+  expect(timeoutText).toContain("wait timed out");
+  expect(timeoutText).toContain("Next: call task_wait again");
+});
+
+test("tool descriptions reference the next step in the lifecycle", () => {
+  const registry = buildWeacpxMcpToolRegistry({
+    transport: createMemoryTransport(
+      async () => ({ taskId: "task-1", status: "running" }),
+      {
+        getTask: async () => null,
+        listTasks: async () => [],
+        approveTask: async () => {
+          throw new Error("approve not implemented");
+        },
+        rejectTask: async () => {
+          throw new Error("reject not implemented");
+        },
+        cancelTask: async () => {
+          throw new Error("cancel not implemented");
+        },
+      },
+    ),
+    coordinatorSession: "backend:main",
+    sourceHandle: "backend:worker",
+  });
+  const byName = new Map(registry.map((tool) => [tool.name, tool]));
+
+  expect(byName.get("delegate_request")?.description).toContain("call task_wait with the returned taskId");
+  expect(byName.get("task_wait")?.description).toContain("immediately after delegate_request");
+  expect(byName.get("task_wait")?.description).toContain("attention_required");
+  // task_wait description must spell out the attention_required branches so the LLM
+  // does not blindly route every attention_required task into coordinator_answer_question.
+  expect(byName.get("task_wait")?.description).toContain("needs_confirmation -> task_approve");
+  expect(byName.get("task_wait")?.description).toContain("blocked or waiting_for_human -> coordinator_answer_question");
+  expect(byName.get("task_wait")?.description).toContain("reviewPending set -> coordinator_review_contested_result");
+  // External coordinators are the MCP server's main case and cannot use coordinator_request_human_input.
+  expect(byName.get("task_wait")?.description ?? "").not.toContain("coordinator_request_human_input");
+  expect(byName.get("task_get")?.description).toContain("after task_wait returns");
+  expect(byName.get("task_approve")?.description).toContain("needs_confirmation");
+  expect(byName.get("coordinator_answer_question")?.description).toContain("task_wait again");
+  expect(byName.get("worker_raise_question")?.description).toContain("Worker-side only");
+});
+
+test("task_approve result text points the coordinator back to task_wait", async () => {
+  const registry = buildWeacpxMcpToolRegistry({
+    transport: createMemoryTransport(
+      async () => ({ taskId: "task-1", status: "needs_confirmation" }),
+      {
+        getTask: async () => null,
+        listTasks: async () => [],
+        approveTask: async () => ({ taskId: "task-approved", status: "running" }),
+        rejectTask: async () => {
+          throw new Error("reject not implemented");
+        },
+        cancelTask: async () => {
+          throw new Error("cancel not implemented");
+        },
+      },
+    ),
+    coordinatorSession: "backend:main",
+  });
+
+  const approveTool = registry.find((tool) => tool.name === "task_approve");
+  const text = (
+    (await approveTool?.handler({ taskId: "task-approved" }))?.content[0] as { text: string }
+  ).text;
+
+  expect(text).toContain("Task \"task-approved\" approved.");
+  expect(text).toContain("- Current status: running");
+  expect(text).toContain("Next: call task_wait with taskId=\"task-approved\"");
+});
+
+test("registry hides human-input package tools when the coordinator is external", () => {
+  const transport = createMemoryTransport(
+    async () => ({ taskId: "task-1", status: "running" }),
+    {
+      getTask: async () => null,
+      listTasks: async () => [],
+      approveTask: async () => {
+        throw new Error("approve not implemented");
+      },
+      rejectTask: async () => {
+        throw new Error("reject not implemented");
+      },
+      cancelTask: async () => {
+        throw new Error("cancel not implemented");
+      },
+    },
+  );
+
+  const externalRegistry = buildWeacpxMcpToolRegistry({
+    transport,
+    coordinatorSession: "external_claude-code:backend",
+    isExternalCoordinator: true,
+  });
+  const externalNames = externalRegistry.map((tool) => tool.name);
+  // Both human-input package tools hard-throw "human input routing is not configured for
+  // external coordinator" in orchestration-service.ts. Don't advertise dead tools.
+  expect(externalNames).not.toContain("coordinator_request_human_input");
+  expect(externalNames).not.toContain("coordinator_follow_up_human_package");
+  // Other coordinator-side tools must remain available — answering questions, reviewing
+  // contested results, approving / rejecting / cancelling all work for external coordinators.
+  expect(externalNames).toContain("delegate_request");
+  expect(externalNames).toContain("task_wait");
+  expect(externalNames).toContain("coordinator_answer_question");
+  expect(externalNames).toContain("coordinator_review_contested_result");
+  expect(externalRegistry).toHaveLength(14);
+
+  const internalRegistry = buildWeacpxMcpToolRegistry({
+    transport,
+    coordinatorSession: "backend:main",
+  });
+  expect(internalRegistry).toHaveLength(16);
+  expect(internalRegistry.map((tool) => tool.name)).toContain("coordinator_request_human_input");
+  expect(internalRegistry.map((tool) => tool.name)).toContain("coordinator_follow_up_human_package");
 });

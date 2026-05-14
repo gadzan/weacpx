@@ -23,6 +23,7 @@ export interface WeacpxMcpServerOptions {
   transport?: WeacpxMcpTransport;
   coordinatorSession?: string;
   sourceHandle?: string;
+  isExternalCoordinator?: boolean;
   resolveIdentity?: (context: WeacpxMcpIdentityResolutionContext) => Promise<WeacpxMcpIdentity>;
   availableAgents?: string[];
 }
@@ -30,12 +31,41 @@ export interface WeacpxMcpServerOptions {
 export interface WeacpxMcpIdentity {
   coordinatorSession: string;
   sourceHandle?: string;
+  // True when the coordinator session is registered as an external coordinator
+  // (typical for MCP clients like Claude Code / Codex / OpenCode). External
+  // coordinators cannot route through human-input packages, so those tools are
+  // filtered out of the registry to avoid advertising calls that always throw.
+  isExternalCoordinator?: boolean;
 }
 
 export interface WeacpxMcpIdentityResolutionContext {
   clientName?: string;
   listRoots: () => Promise<Root[]>;
 }
+
+export const WEACPX_MCP_SERVER_INSTRUCTIONS = [
+  "Use these tools to orchestrate work across other agents under your coordinator session.",
+  "",
+  "Typical lifecycle for a single delegation:",
+  "1. delegate_request → returns { taskId, status }.",
+  "   - status=running: the worker has started; go to step 2.",
+  "   - status=needs_confirmation: tell the user, then call task_approve or task_reject based on their response. After task_approve, return to step 2 to wait for the worker. Do not call task_wait before approval.",
+  "2. task_wait(taskId) → blocks until the task is done, needs attention, or times out.",
+  "   - status=terminal: go to step 3.",
+  "   - status=attention_required: the task is in needs_confirmation / blocked / waiting_for_human, or has reviewPending set. Call task_get(taskId) to read the actual status and any openQuestion / reviewPending fields, then branch:",
+  "       * needs_confirmation -> task_approve or task_reject (after approval, go back to step 2)",
+  "       * blocked or waiting_for_human -> coordinator_answer_question (the answer can come from you or be relayed from a human you consulted)",
+  "       * reviewPending set -> coordinator_review_contested_result with accept or discard",
+  "     After resolving, call task_wait again to keep waiting.",
+  "   - status=timeout: the task is still running. Call task_wait again to keep waiting, or task_get for a snapshot.",
+  "3. The task is terminal. Call task_get(taskId) to read the worker's final result, then summarize it for the user. Do not invent results that did not come from task_get.",
+  "",
+  "Batching: use group_new before a wave of delegate_request calls and pass groupId on each, then group_get / group_list / group_cancel to manage the batch.",
+  "Cancellation: task_cancel aborts a single running task; group_cancel aborts the whole batch.",
+  "Discovery: task_list / group_list recover taskIds and groupIds from earlier in the session.",
+  "",
+  "worker_raise_question is worker-side only — call it from inside a delegated task when you are blocked, not from the coordinator that is waiting on a delegation.",
+].join("\n");
 
 export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
   const server = new Server(
@@ -47,6 +77,7 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
       capabilities: {
         tools: {},
       },
+      instructions: WEACPX_MCP_SERVER_INSTRUCTIONS,
     },
   );
 
@@ -68,6 +99,7 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
           transport: options.transport,
           coordinatorSession: identity.coordinatorSession,
           ...(identity.sourceHandle ? { sourceHandle: identity.sourceHandle } : {}),
+          ...(identity.isExternalCoordinator ? { isExternalCoordinator: true } : {}),
           ...(options.availableAgents ? { availableAgents: options.availableAgents } : {}),
         });
         return toolState;
@@ -107,7 +139,13 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
   return server;
 }
 
-function buildToolState(options: { transport: WeacpxMcpTransport; coordinatorSession: string; sourceHandle?: string; availableAgents?: string[] }) {
+function buildToolState(options: {
+  transport: WeacpxMcpTransport;
+  coordinatorSession: string;
+  sourceHandle?: string;
+  isExternalCoordinator?: boolean;
+  availableAgents?: string[];
+}) {
   const tools = buildWeacpxMcpToolRegistry(options);
   return {
     tools,
@@ -126,6 +164,7 @@ async function resolveMcpIdentity(server: Server, options: WeacpxMcpServerOption
     return {
       coordinatorSession: options.coordinatorSession,
       ...(options.sourceHandle ? { sourceHandle: options.sourceHandle } : {}),
+      ...(options.isExternalCoordinator ? { isExternalCoordinator: true } : {}),
     };
   }
   throw new McpError(

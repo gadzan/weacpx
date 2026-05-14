@@ -6,7 +6,11 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ListRootsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
-import { createWeacpxMcpServer, installMcpStdioShutdownHooks } from "../../../src/mcp/weacpx-mcp-server";
+import {
+  createWeacpxMcpServer,
+  installMcpStdioShutdownHooks,
+  WEACPX_MCP_SERVER_INSTRUCTIONS,
+} from "../../../src/mcp/weacpx-mcp-server";
 import { createMemoryTransport } from "../../../src/mcp/weacpx-mcp-transport";
 
 test("lists 16 MCP tools and hides coordinator/source identity from input schemas", async () => {
@@ -102,6 +106,34 @@ test("lists 16 MCP tools and hides coordinator/source identity from input schema
   }
 });
 
+test("hides coordinator human-input package tools when resolveIdentity reports an external coordinator", async () => {
+  const server = createWeacpxMcpServer({
+    transport: createMemoryTransport(async () => ({ taskId: "task-1", status: "running" })),
+    resolveIdentity: async () => ({
+      coordinatorSession: "external_claude-code:backend",
+      isExternalCoordinator: true,
+    }),
+  });
+  const client = new Client({ name: "Claude Code", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const list = await client.listTools();
+    const names = list.tools.map((tool) => tool.name);
+    expect(list.tools).toHaveLength(14);
+    expect(names).not.toContain("coordinator_request_human_input");
+    expect(names).not.toContain("coordinator_follow_up_human_package");
+    expect(names).toContain("coordinator_answer_question");
+    expect(names).toContain("coordinator_review_contested_result");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("infers MCP identity from client roots before listing tools", async () => {
   const resolved: unknown[] = [];
   const server = createWeacpxMcpServer({
@@ -162,6 +194,41 @@ test("uses resolveIdentity when both static and lazy MCP identities are configur
     const list = await client.listTools();
     expect(list.tools).toHaveLength(16);
     expect(resolved).toEqual([{ clientName: "Claude Code" }]);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("exposes the orchestration lifecycle as server instructions to the client", async () => {
+  const server = createWeacpxMcpServer({
+    transport: createMemoryTransport(async () => ({ taskId: "task-1", status: "running" })),
+    coordinatorSession: "backend:main",
+  });
+  const client = new Client({ name: "weacpx-test-client", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const instructions = client.getInstructions();
+    expect(instructions).toBe(WEACPX_MCP_SERVER_INSTRUCTIONS);
+    expect(instructions ?? "").toContain("Typical lifecycle");
+    expect(instructions ?? "").toContain("delegate_request");
+    expect(instructions ?? "").toContain("task_wait");
+    expect(instructions ?? "").toContain("status=attention_required");
+    // Each attention_required sub-case must be wired to a different tool so the LLM
+    // does not blindly call coordinator_answer_question on a needs_confirmation task.
+    expect(instructions ?? "").toContain("needs_confirmation -> task_approve");
+    expect(instructions ?? "").toContain("blocked or waiting_for_human -> coordinator_answer_question");
+    expect(instructions ?? "").toContain("reviewPending set -> coordinator_review_contested_result");
+    // External coordinators (the MCP server's main client population) cannot use
+    // coordinator_request_human_input — keep it out of the attention_required guidance.
+    expect(instructions ?? "").not.toContain("blocked -> coordinator_answer_question if you can answer");
+    // Approval must loop back to task_wait, otherwise the coordinator hangs after approving.
+    expect(instructions ?? "").toContain("After task_approve, return to step 2");
+    expect(instructions ?? "").toContain("worker_raise_question is worker-side only");
   } finally {
     await client.close();
     await server.close();
@@ -411,7 +478,15 @@ test("delegates through the MCP server and rejects spoofed sourceHandle params",
       },
     ]);
     expect(result).toMatchObject({
-      content: [{ type: "text", text: "Delegation task \"task-9\" created.\n- Status: needs_confirmation" }],
+      content: [
+        {
+          type: "text",
+          text:
+            "Delegation task \"task-9\" created.\n- Status: needs_confirmation\n"
+            + "Next: this delegation requires user approval; do not call task_wait yet. "
+            + "Tell the user, then call task_approve or task_reject based on their response.",
+        },
+      ],
       structuredContent: { taskId: "task-9", status: "needs_confirmation" },
     });
 

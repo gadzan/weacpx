@@ -11,7 +11,6 @@ import { z } from "zod";
 
 const groupStatusSchema = z.enum(["pending", "running", "terminal"]);
 const taskStatusSchema = z.enum([
-  "pending",
   "needs_confirmation",
   "running",
   "blocked",
@@ -43,14 +42,21 @@ export function buildWeacpxMcpToolRegistry(input: {
   transport: WeacpxMcpTransport;
   coordinatorSession: string;
   sourceHandle?: string;
+  // External coordinators (Claude Code / Codex / OpenCode connecting via mcp-stdio)
+  // cannot route through human-input packages — orchestration-service throws
+  // "human input routing is not configured for external coordinator" for both
+  // coordinator_request_human_input and coordinator_follow_up_human_package.
+  // We filter those tools out of the registry instead of advertising calls that
+  // would always fail.
+  isExternalCoordinator?: boolean;
   availableAgents?: string[];
 }): WeacpxMcpToolDefinition<unknown>[] {
-  const { transport, coordinatorSession, sourceHandle, availableAgents } = input;
+  const { transport, coordinatorSession, sourceHandle, isExternalCoordinator, availableAgents } = input;
 
-  return [
+  const tools: WeacpxMcpToolDefinition<unknown>[] = [
     {
       name: "delegate_request",
-      description: `Delegate a subtask to another agent under the current coordinator. Pass an absolute workingDirectory for the worker.${availableAgents && availableAgents.length > 0 ? ` Available agents: ${availableAgents.join(", ")}.` : ""}`,
+      description: `Delegate a subtask to another agent under the current coordinator. Pass an absolute workingDirectory for the worker. After this returns status=running, call task_wait with the returned taskId to wait for completion before reporting back to the user; if status=needs_confirmation, wait for the user to approve (task_approve / task_reject) and do not call task_wait yet.${availableAgents && availableAgents.length > 0 ? ` Available agents: ${availableAgents.join(", ")}.` : ""}`,
       inputSchema: z
         .object({
           targetAgent: z.string().min(1),
@@ -79,7 +85,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "group_new",
-      description: "Create a new task group under the current coordinator.",
+      description: "Create a new task group under the current coordinator. Use to batch multiple delegate_request calls together; pass the resulting groupId on each delegate so they share lifecycle and cancellation.",
       inputSchema: z
         .object({
           title: z.string().min(1),
@@ -96,7 +102,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "group_get",
-      description: "Fetch a single task-group summary under the current coordinator.",
+      description: "Fetch a single task-group summary under the current coordinator. Use to check aggregate progress when waiting on a batch of delegations.",
       inputSchema: z
         .object({
           groupId: z.string().min(1),
@@ -113,7 +119,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "group_list",
-      description: "List task groups under the current coordinator.",
+      description: "List task groups under the current coordinator. Use to recover groupIds for an earlier batch.",
       inputSchema: z
         .object({
           status: groupStatusSchema.optional(),
@@ -137,7 +143,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "group_cancel",
-      description: "Cancel all unfinished tasks in a task group under the current coordinator.",
+      description: "Cancel all unfinished tasks in a task group under the current coordinator. Use to abort a batch started via group_new + delegate_request.",
       inputSchema: z
         .object({
           groupId: z.string().min(1),
@@ -154,7 +160,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "task_get",
-      description: "Fetch a single task under the current coordinator.",
+      description: "Fetch a single task under the current coordinator, including the worker's final result and any pending question. Use after task_wait returns to read the actual output before summarizing it for the user, or to inspect a task that requires attention.",
       inputSchema: z
         .object({
           taskId: z.string().min(1),
@@ -171,7 +177,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "task_list",
-      description: "List tasks under the current coordinator.",
+      description: "List tasks under the current coordinator. Use to recover taskIds for in-flight delegations or to survey what is still running / blocked.",
       inputSchema: z
         .object({
           status: taskStatusSchema.optional(),
@@ -184,7 +190,6 @@ export function buildWeacpxMcpToolRegistry(input: {
         await asToolResult(async () => {
           const { status, stuck, sort, order } = args as {
             status?:
-              | "pending"
               | "needs_confirmation"
               | "running"
               | "blocked"
@@ -208,7 +213,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "task_approve",
-      description: "Approve a pending task under the current coordinator.",
+      description: "Approve a pending task under the current coordinator. Use when delegate_request returned status=needs_confirmation and the user has authorized it; after approval, call task_wait.",
       inputSchema: z
         .object({
           taskId: z.string().min(1),
@@ -225,7 +230,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "task_reject",
-      description: "Reject a pending task under the current coordinator.",
+      description: "Reject a pending task under the current coordinator. Use when delegate_request returned status=needs_confirmation and the user declined; no task_wait is needed afterwards.",
       inputSchema: z
         .object({
           taskId: z.string().min(1),
@@ -242,7 +247,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "task_cancel",
-      description: "Request cancellation for a task under the current coordinator.",
+      description: "Request cancellation for a task under the current coordinator. Use to abort a running delegation; the task transitions to a terminal state shortly after.",
       inputSchema: z
         .object({
           taskId: z.string().min(1),
@@ -259,7 +264,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "task_wait",
-      description: `Wait for a task to finish or require attention. Defaults: timeout ${DEFAULT_TASK_WAIT_TIMEOUT_MS} ms, poll interval ${DEFAULT_TASK_WAIT_POLL_INTERVAL_MS} ms. Maximums: timeout ${MAX_TASK_WAIT_TIMEOUT_MS} ms, poll interval ${MAX_TASK_WAIT_POLL_INTERVAL_MS} ms.`,
+      description: `Wait for a task to finish or require attention. Call this immediately after delegate_request (when status=running) unless you intend a fire-and-forget. Returns status=terminal (done; call task_get for the result), status=attention_required (call task_get first to read the task's current status, then branch: needs_confirmation -> task_approve or task_reject; blocked or waiting_for_human -> coordinator_answer_question; reviewPending set -> coordinator_review_contested_result; after resolving, call task_wait again), or status=timeout (still running; call task_wait again or task_get for a snapshot). Defaults: timeout ${DEFAULT_TASK_WAIT_TIMEOUT_MS} ms, poll interval ${DEFAULT_TASK_WAIT_POLL_INTERVAL_MS} ms. Maximums: timeout ${MAX_TASK_WAIT_TIMEOUT_MS} ms, poll interval ${MAX_TASK_WAIT_POLL_INTERVAL_MS} ms.`,
       inputSchema: z
         .object({
           taskId: z.string().min(1),
@@ -278,7 +283,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "worker_raise_question",
-      description: "Raise a blocker question for the current bound worker session.",
+      description: "Raise a blocker question for the current bound worker session. Worker-side only: call this from inside a delegated task when you are blocked and need the coordinator's input. Coordinators waiting on a delegation should not call this; use task_wait instead.",
       inputSchema: z
         .object({
           taskId: z.string().min(1),
@@ -308,7 +313,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "coordinator_answer_question",
-      description: "Answer a blocked worker question under the current coordinator.",
+      description: "Answer a blocked worker question under the current coordinator. Use after task_wait returns status=attention_required and task_get shows a pending question; after answering, call task_wait again to keep waiting for the worker to finish.",
       inputSchema: z
         .object({
           taskId: z.string().min(1),
@@ -327,7 +332,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "coordinator_request_human_input",
-      description: "Create or queue a human question package for blocked tasks under the current coordinator.",
+      description: "Create or queue a human question package for blocked tasks under the current coordinator. Use when answering a worker question requires real human input rather than your own judgement.",
       inputSchema: z
         .object({
           taskQuestions: z.array(taskQuestionSchema).min(1),
@@ -350,7 +355,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "coordinator_follow_up_human_package",
-      description: "Append a follow-up message to the active human question package under the current coordinator.",
+      description: "Append a follow-up message to the active human question package under the current coordinator. Use to clarify or add context to an in-flight package created via coordinator_request_human_input.",
       inputSchema: z
         .object({
           packageId: z.string().min(1),
@@ -375,7 +380,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "coordinator_review_contested_result",
-      description: "Review a contested result under the current coordinator.",
+      description: "Review a contested result under the current coordinator. Use when a worker's result has been challenged and the coordinator must decide accept or discard.",
       inputSchema: z
         .object({
           taskId: z.string().min(1),
@@ -399,6 +404,15 @@ export function buildWeacpxMcpToolRegistry(input: {
         }),
     },
   ];
+
+  if (isExternalCoordinator) {
+    const externalCoordinatorIncompatibleTools = new Set([
+      "coordinator_request_human_input",
+      "coordinator_follow_up_human_package",
+    ]);
+    return tools.filter((tool) => !externalCoordinatorIncompatibleTools.has(tool.name));
+  }
+  return tools;
 }
 
 async function asToolResult(
@@ -446,12 +460,25 @@ function renderTaskWaitResult(result: {
     return `Task wait ${result.status.replace("_", " ")}; current state is unavailable.`;
   }
   if (result.status === "timeout") {
-    return `Task ${result.task.taskId} wait timed out; current state is ${result.task.status}.`;
+    return [
+      `Task ${result.task.taskId} wait timed out; current state is ${result.task.status}.`,
+      `Next: call task_wait again with this taskId to keep waiting, or task_get for a snapshot.`,
+    ].join("\n");
   }
   if (result.status === "attention_required") {
-    return `Task ${result.task.taskId} requires attention; current state is ${result.task.status}.`;
+    return [
+      `Task ${result.task.taskId} requires attention; current state is ${result.task.status}.`,
+      `Next: call task_get to read the task's current status and any reviewPending / openQuestion fields, then branch by what you see:`,
+      `  - status=needs_confirmation -> task_approve or task_reject`,
+      `  - status=blocked or waiting_for_human -> coordinator_answer_question`,
+      `  - reviewPending set -> coordinator_review_contested_result`,
+      `After resolving, call task_wait again to keep waiting for the worker to finish.`,
+    ].join("\n");
   }
-  return `Task ${result.task.taskId} reached terminal state ${result.task.status}.`;
+  return [
+    `Task ${result.task.taskId} reached terminal state ${result.task.status}.`,
+    `Next: call task_get to read the worker's final result before reporting back to the user.`,
+  ].join("\n");
 }
 
 function createSuccessResult(
@@ -472,7 +499,10 @@ function createErrorResult(message: string): WeacpxMcpToolResult {
 }
 
 function renderDelegateSuccess(result: { taskId: string; status: string }): string {
-  return [`Delegation task "${result.taskId}" created.`, `- Status: ${result.status}`].join("\n");
+  const next = result.status === "needs_confirmation"
+    ? `Next: this delegation requires user approval; do not call task_wait yet. Tell the user, then call task_approve or task_reject based on their response.`
+    : `Next: call task_wait with taskId="${result.taskId}" to wait for the worker to finish, then task_get to read the result before reporting back.`;
+  return [`Delegation task "${result.taskId}" created.`, `- Status: ${result.status}`, next].join("\n");
 }
 
 function renderGroupCreated(group: { groupId: string; title: string }): string {
@@ -677,7 +707,11 @@ function renderTaskCancelRequest(task: { taskId: string; status: string }): stri
 }
 
 function renderTaskApprovalSuccess(task: { taskId: string; status: string }): string {
-  return [`Task "${task.taskId}" approved.`, `- Current status: ${task.status}`].join("\n");
+  return [
+    `Task "${task.taskId}" approved.`,
+    `- Current status: ${task.status}`,
+    `Next: call task_wait with taskId="${task.taskId}" to wait for the worker to finish, then task_get to read the result before reporting back.`,
+  ].join("\n");
 }
 
 function renderTaskRejectionSuccess(task: { taskId: string; status: string }): string {

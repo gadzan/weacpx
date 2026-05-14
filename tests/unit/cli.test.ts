@@ -964,7 +964,10 @@ test("mcp-stdio workspace-only identity resolution does not require MCP roots", 
         throw new Error("roots unsupported");
       },
     }),
-  ).resolves.toEqual({ coordinatorSession: "external_claude-code:backend" });
+  ).resolves.toEqual({
+    coordinatorSession: "external_claude-code:backend",
+    isExternalCoordinator: true,
+  });
 
   expect(registrations).toEqual([{ coordinatorSession: "external_claude-code:backend", workspace: "backend" }]);
 });
@@ -992,7 +995,45 @@ test("mcp-stdio identity resolution without workspace does not require MCP roots
   });
 
   expect(identity.coordinatorSession).toMatch(/^external_claude-code:[0-9a-f-]+$/);
+  expect(identity.isExternalCoordinator).toBe(true);
   expect(registrations).toEqual([{ coordinatorSession: identity.coordinatorSession }]);
+});
+
+test("mcp-stdio identity resolution omits isExternalCoordinator when the session matches an existing logical session", async () => {
+  const registrations: unknown[] = [];
+  const resolver = createMcpStdioIdentityResolver({
+    parsedCoordinatorSession: "backend:main",
+    sourceHandle: null,
+    workspace: null,
+    config: { workspaces: { backend: { cwd: "/repo/backend" } } },
+    state: {
+      sessions: {
+        "user-a": {
+          alias: "main",
+          transport_session: "backend:main",
+          agent: "codex",
+          workspace: "backend",
+          chatKey: "wx:user-a",
+        },
+      },
+    },
+    client: {
+      registerExternalCoordinator: async (input) => {
+        registrations.push(input);
+      },
+    },
+  });
+
+  const identity = await resolver({
+    clientName: "Claude Code",
+    listRoots: async () => [],
+  });
+
+  expect(identity).toEqual({ coordinatorSession: "backend:main" });
+  // Internal coordinators must NOT carry isExternalCoordinator — the registry would otherwise
+  // hide coordinator_request_human_input from a WeChat coordinator that legitimately needs it.
+  expect(identity).not.toHaveProperty("isExternalCoordinator");
+  expect(registrations).toEqual([]);
 });
 
 test("mcp-stdio returns a controlled startup error when workspace flag is missing a value", async () => {

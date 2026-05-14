@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.4.3] - 2026-05-15
+
+### Changed
+
+- **MCP 工具引导更完整：** 给 weacpx MCP server 加上"完整生命周期"引导，让外部 coordinator agent（Claude Code / Codex / OpenCode 等）不再因为不知道下一步该调用哪个工具而卡住。三层叠加：
+  - **Server-level `instructions`**：新增 `WEACPX_MCP_SERVER_INSTRUCTIONS` 常量，通过 MCP `Server` 第二参数下发完整生命周期说明（delegate → wait → 按 `attention_required` 子状态分支 → 续 wait → task_get 汇报；含 `task_approve` 后回到 wait 的循环；含 batching / cancellation / discovery 等辅助路径）。
+  - **每个工具的 `description` 加 "Use after X / before Y"**：`delegate_request`、`task_wait`、`task_get`、`task_approve` / `task_reject`、`task_cancel`、`coordinator_answer_question`、`coordinator_review_contested_result`、`worker_raise_question`（标注 "Worker-side only"）、group_* 全部加上指向下一步的工作流提示。
+  - **结果文本里加 `Next:` 提示**：`renderDelegateSuccess`（按 `running` / `needs_confirmation` 分支）、`renderTaskWaitResult`（按 `terminal` / `attention_required` / `timeout` 分支；`attention_required` 进一步按 `needs_confirmation` / `blocked or waiting_for_human` / `reviewPending` 路由到对应工具）、`renderTaskApprovalSuccess`（指向 `task_wait`）都会在返回里追加 `Next:` 行。
+- **External coordinator MCP registry 过滤：** `coordinator_request_human_input` 与 `coordinator_follow_up_human_package` 对 external coordinator 会硬抛 `"human input routing is not configured for external coordinator"`。MCP server 现在在 identity 解析时识别 external 会话（通过 `prepareMcpCoordinatorStartup` 的 `kind === "external-coordinator"`），并在 `buildWeacpxMcpToolRegistry` 阶段把这两个工具过滤掉，registry 规模从 16 → 14。Internal coordinator（WeChat 逻辑 session 走 MCP 的少见路径）保持 16 个工具不变。
+
+### Removed
+
+- **`OrchestrationTaskStatus` union 删除 `"pending"`：** 调查确认无任何代码路径会把 `task.status` 写成 `"pending"`（13 处 `task.status =` 赋值全部走其它分支；两个 task 构造点只用 `running` / `needs_confirmation`；`RecordWorkerReplyInput.status` 类型收窄到 `completed | failed | cancelled`；`previousStatus` 恢复路径前已 `assertNeedsConfirmation`）。同步清理 `state-store.ts isTaskStatus` 校验器、`isAttentionRequiredTask` 预判、`pendingApprovalTasks` 计数器、MCP `taskStatusSchema` / cast、`orchestration-server` 的 task list filter enum、以及一个 test fixture / test helper。**保留**所有 `"pending" | "running" | "terminal"` 的 group 过滤器（这是另一个语义层："组里有待审批任务"）。
+
+### Tests
+
+- 新增 MCP 工具引导覆盖：`delegate_request` running-path 的 `Next:` 提示、`task_wait` 三种 status 各自的 `Next:` 文本、`task_wait` 描述里 attention_required 子状态分支、`task_approve` 结果文本的 `task_wait` 链接、server `instructions` 的关键关键字（含 approval loop "After task_approve, return to step 2"）。
+- 新增 external / internal coordinator registry 区分覆盖：external 走 `buildWeacpxMcpToolRegistry` 返回 14 工具且不含两个 human-input 工具；internal 返回 16 工具且都含；`createMcpStdioIdentityResolver` 在 existing-session 路径不带 `isExternalCoordinator` 字段。
+- 负向断言保证回归：attention_required 文本里禁止再出现 `pending or needs_confirmation` 或 `coordinator_request_human_input`；`task_wait` 描述里禁止出现 `coordinator_request_human_input`；server `instructions` 同步约束。
+
 ## [0.4.2] - 2026-05-14
 
 ### Changed

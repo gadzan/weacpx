@@ -2983,7 +2983,7 @@ export class OrchestrationService {
       .map((task) => ({ ...task }));
 
     const pendingApprovalTasks = sortedTasks.filter(
-      (task) => task.status === "pending" || task.status === "needs_confirmation",
+      (task) => task.status === "needs_confirmation",
     ).length;
     const runningTasks = sortedTasks.filter((task) => task.status === "running").length;
     const completedTasks = sortedTasks.filter((task) => task.status === "completed").length;
@@ -4175,7 +4175,6 @@ function isTerminalTaskStatus(status: OrchestrationTaskStatus): boolean {
 function isAttentionRequiredTask(task: OrchestrationTaskRecord): boolean {
   return (
     task.reviewPending !== undefined ||
-    task.status === "pending" ||
     task.status === "needs_confirmation" ||
     task.status === "blocked" ||
     task.status === "waiting_for_human"

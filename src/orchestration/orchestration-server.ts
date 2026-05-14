@@ -312,7 +312,6 @@ export class OrchestrationServer {
     }
     requireOnlyKeys(filter, ["coordinatorSession", "status", "stuck", "sort", "order"], "filter");
     const status = requireOptionalEnum(filter, "status", [
-      "pending",
       "needs_confirmation",
       "running",
       "blocked",

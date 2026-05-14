@@ -1,5 +1,4 @@
 export type OrchestrationTaskStatus =
-  | "pending"
   | "needs_confirmation"
   | "running"
   | "blocked"

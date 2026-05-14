@@ -192,7 +192,7 @@ function buildGroupSummary(group: OrchestrationGroupRecord, tasks: Orchestration
     .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
     .map((task) => cloneTask(task));
   const pendingApprovalTasks = sortedTasks.filter(
-    (task) => task.status === "pending" || task.status === "needs_confirmation",
+    (task) => task.status === "needs_confirmation",
   ).length;
   const runningTasks = sortedTasks.filter((task) => task.status === "running").length;
   const completedTasks = sortedTasks.filter((task) => task.status === "completed").length;

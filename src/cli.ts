@@ -130,7 +130,7 @@ export function createMcpStdioIdentityResolver(input: {
       clientName: context.clientName,
       ...(resolvedWorkspace ? { workspace: resolvedWorkspace } : { instanceId }),
     });
-    await prepareMcpCoordinatorStartup({
+    const startup = await prepareMcpCoordinatorStartup({
       coordinatorSession: resolvedCoordinatorSession,
       ...(resolvedWorkspace ? { workspace: resolvedWorkspace } : {}),
       config: input.config,
@@ -140,6 +140,7 @@ export function createMcpStdioIdentityResolver(input: {
     return {
       coordinatorSession: resolvedCoordinatorSession,
       ...(sourceHandle ? { sourceHandle } : {}),
+      ...(startup.kind === "external-coordinator" ? { isExternalCoordinator: true } : {}),
     };
   };
 }
