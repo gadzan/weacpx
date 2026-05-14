@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.2] - 2026-05-14
+
+### Changed
+
+- **首次启动等待 UI：** `weacpx start` 在 onboarding 后进入“正在创建初始会话”阶段时，TTY 下显示带 spinner 的等待行（`elapsed / timeout`），超过 20s 追加“首次启动可能需要准备依赖和运行环境”提示，并支持按 `Ctrl+B` 跳过等待、`Ctrl+C` 正常中断；非交互环境保持静默回退。
+- **启动失败诊断更完整：** `weacpx start` / `weacpx restart` 失败时除 `Stderr` 路径外，新增打印 `App Log` 路径（`~/.weacpx/runtime/app.log`），方便第一时间定位首次启动失败原因。
+
+### Tests
+
+- 新增 `tests/unit/cli-startup-wait-ui.test.ts` 覆盖等待行渲染、Ctrl+B 跳过、Ctrl+C 中断与非交互回退；扩充 `tests/unit/cli.test.ts` 与 `tests/unit/daemon/daemon-controller.test.ts` 覆盖 `startupWait` 透传以及失败路径下的 App Log 提示。
+
 ## [0.4.0] - 2026-05-14
 
 > 🎉 **正式发布。** `npm install weacpx` 现在默认获取 0.4.0；channel 插件 `@ganglion/weacpx-channel-feishu` 与 `@ganglion/weacpx-channel-yuanbao` 同步升至 `0.1.0` 正式版。0.4.0-beta.0 引入的 channel/plugin 架构、CLI 与发包工具链请见下方 beta.0 条目，本条目记录 beta 系列以来的增量改动。
