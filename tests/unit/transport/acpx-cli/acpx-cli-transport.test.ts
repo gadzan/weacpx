@@ -1484,6 +1484,10 @@ test("R1: explicit toolEventMode:'both' without onToolEvent → tool call lands 
     // no onToolEvent — the transport must demote to 'text'
   });
 
-  // Tool call must surface as text, not be silently dropped.
+  // The 'both' mode already produces text segments at the parser level
+  // (wantsText is true for both). This test is a regression smoke for the
+  // demotion path — primarily that prompt() does not throw or hang. The
+  // wire-format effect of the demotion is asserted in the bridge transport
+  // 'both' test, which checks toolEventMode: 'text' is sent.
   expect(segments.some((s) => s.includes("Both demoted tool"))).toBe(true);
 });

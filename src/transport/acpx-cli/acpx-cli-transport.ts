@@ -208,9 +208,9 @@ export class AcpxCliTransport implements SessionTransport {
       if (reply || options?.onSegment) {
         const formatToolCalls = (session.replyMode ?? "verbose") === "verbose";
         let toolEventMode = resolveToolEventMode(options);
-        // Safety net: if a caller asked for structured/both routing without
-        // supplying onToolEvent, we'd silently drop tool calls. Demote to 'text'
-        // so verbose tool calls still surface in the reply stream.
+        // Safety net: structured/both without an onToolEvent handler would
+        // silently drop tool calls. Demote to 'text' so verbose tool calls
+        // still surface in the reply stream.
         if ((toolEventMode === "structured" || toolEventMode === "both") && !options?.onToolEvent) {
           toolEventMode = "text";
         }

@@ -54,8 +54,8 @@ export class AcpxBridgeTransport implements SessionTransport {
     let toolEventChain = Promise.resolve();
     let toolEventMode = resolveToolEventMode(options);
     // Safety net: structured/both without an onToolEvent handler would
-    // silently drop tool calls in the bridge runtime. Demote to 'text' so the
-    // runtime keeps tool calls in the prompt.segment stream.
+    // silently drop tool calls. Demote to 'text' so verbose tool calls
+    // still surface in the reply stream.
     if ((toolEventMode === "structured" || toolEventMode === "both") && !options?.onToolEvent) {
       toolEventMode = "text";
     }
