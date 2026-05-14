@@ -1425,3 +1425,65 @@ test("onToolEvent: text mode does not invoke the callback at all", async () => {
 
   expect(called).toHaveLength(0);
 });
+
+// --- R1: toolEventMode demotion when onToolEvent is absent ---
+
+test("R1: explicit toolEventMode:'structured' without onToolEvent → tool call lands in reply stream (text fallback)", async () => {
+  const segments: string[] = [];
+
+  const transport = new AcpxCliTransport(
+    { command: "acpx" },
+    undefined,
+    undefined,
+    undefined,
+    {
+      spawnPrompt: () => makeFakeSpawn([
+        makeToolCallLine("id-r1", "Demoted tool", "read"),
+        makeAgentChunkLine("final"),
+      ]),
+      setIntervalFn: () => 0,
+      clearIntervalFn: () => {},
+    },
+  );
+
+  const sessionWithVerboseMode: typeof session = { ...session, replyMode: "verbose" };
+  await transport.prompt(sessionWithVerboseMode, "hello", async (text) => {
+    segments.push(text);
+  }, undefined, {
+    toolEventMode: "structured",
+    // no onToolEvent — the transport must demote to 'text'
+  });
+
+  // Tool call must surface as text, not be silently dropped.
+  expect(segments.some((s) => s.includes("Demoted tool"))).toBe(true);
+});
+
+test("R1: explicit toolEventMode:'both' without onToolEvent → tool call lands in reply stream (text fallback)", async () => {
+  const segments: string[] = [];
+
+  const transport = new AcpxCliTransport(
+    { command: "acpx" },
+    undefined,
+    undefined,
+    undefined,
+    {
+      spawnPrompt: () => makeFakeSpawn([
+        makeToolCallLine("id-r1b", "Both demoted tool", "read"),
+        makeAgentChunkLine("final"),
+      ]),
+      setIntervalFn: () => 0,
+      clearIntervalFn: () => {},
+    },
+  );
+
+  const sessionWithVerboseMode: typeof session = { ...session, replyMode: "verbose" };
+  await transport.prompt(sessionWithVerboseMode, "hello", async (text) => {
+    segments.push(text);
+  }, undefined, {
+    toolEventMode: "both",
+    // no onToolEvent — the transport must demote to 'text'
+  });
+
+  // Tool call must surface as text, not be silently dropped.
+  expect(segments.some((s) => s.includes("Both demoted tool"))).toBe(true);
+});

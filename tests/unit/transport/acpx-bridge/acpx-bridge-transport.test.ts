@@ -448,3 +448,41 @@ test("toolEventMode:text with onToolEvent — handler never called when bridge e
 
   expect(handlerCalls).toEqual([]);
 });
+
+// ── R1: toolEventMode demotion when onToolEvent is absent ───────────────────
+
+test("R1: bridge transport demotes toolEventMode:'structured' to 'text' when no onToolEvent is provided", async () => {
+  let capturedParams: Record<string, unknown> = {};
+  const request = mock(async (_method: string, params: Record<string, unknown>) => {
+    capturedParams = params;
+    return { text: "ok" };
+  });
+  const transport = new AcpxBridgeTransport({ request });
+
+  await transport.prompt(session, "hello", undefined, undefined, {
+    toolEventMode: "structured",
+    // no onToolEvent
+  });
+
+  // Must be demoted: wire format shows 'text' and no toolEvents key.
+  expect(capturedParams.toolEventMode).toBe("text");
+  expect(capturedParams).not.toHaveProperty("toolEvents");
+});
+
+test("R1: bridge transport demotes toolEventMode:'both' to 'text' when no onToolEvent is provided", async () => {
+  let capturedParams: Record<string, unknown> = {};
+  const request = mock(async (_method: string, params: Record<string, unknown>) => {
+    capturedParams = params;
+    return { text: "ok" };
+  });
+  const transport = new AcpxBridgeTransport({ request });
+
+  await transport.prompt(session, "hello", undefined, undefined, {
+    toolEventMode: "both",
+    // no onToolEvent
+  });
+
+  // Must be demoted: wire format shows 'text' and no toolEvents key.
+  expect(capturedParams.toolEventMode).toBe("text");
+  expect(capturedParams).not.toHaveProperty("toolEvents");
+});

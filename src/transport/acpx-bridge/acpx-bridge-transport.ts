@@ -52,7 +52,13 @@ export class AcpxBridgeTransport implements SessionTransport {
     let segmentChain = Promise.resolve();
     let toolEventError: unknown;
     let toolEventChain = Promise.resolve();
-    const toolEventMode = resolveToolEventMode(options);
+    let toolEventMode = resolveToolEventMode(options);
+    // Safety net: structured/both without an onToolEvent handler would
+    // silently drop tool calls in the bridge runtime. Demote to 'text' so the
+    // runtime keeps tool calls in the prompt.segment stream.
+    if ((toolEventMode === "structured" || toolEventMode === "both") && !options?.onToolEvent) {
+      toolEventMode = "text";
+    }
     const result = await this.client.request<{ text: string }>("prompt", {
       ...this.toParams(session),
       text,
