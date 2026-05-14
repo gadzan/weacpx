@@ -264,6 +264,38 @@ test("stop preserves runtime files when the daemon does not exit", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test("start passes onboarding payload to detached spawn", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-daemon-controller-"));
+  let received: unknown = null;
+  let polls = 0;
+  const controller = createController(dir, {
+    isProcessRunning: (pid) => pid === 99999,
+    spawnDetached: async (options) => {
+      received = options;
+      return 99999;
+    },
+    onStartupPoll: async () => {
+      polls += 1;
+      await new DaemonStatusStore(join(dir, "status.json")).save({
+        pid: 99999,
+        started_at: "2026-03-26T00:00:00.000Z",
+        heartbeat_at: "2026-03-26T00:00:00.000Z",
+        config_path: "/cfg",
+        state_path: "/state",
+        app_log: "/app",
+        stdout_log: "/out",
+        stderr_log: "/err",
+      });
+    },
+  });
+
+  await expect(controller.start({ firstRunOnboarding: "payload" })).resolves.toEqual({ state: "started", pid: 99999 });
+  expect(received).toEqual({ firstRunOnboarding: "payload" });
+  expect(polls).toBeGreaterThan(0);
+
+  await rm(dir, { recursive: true, force: true });
+});
+
 function createController(
   runtimeDir: string,
   overrides: Partial<ControllerDeps> = {},
@@ -292,7 +324,7 @@ function createController(
 
 interface ControllerDeps {
   isProcessRunning: (pid: number) => boolean;
-  spawnDetached: () => Promise<number>;
+  spawnDetached: (options?: { firstRunOnboarding?: string }) => Promise<number>;
   terminateProcess: (pid: number) => Promise<void>;
   startupPollIntervalMs: number;
   startupTimeoutMs: number;

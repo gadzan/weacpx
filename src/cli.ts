@@ -25,6 +25,8 @@ import { createOrchestrationTransport } from "./mcp/weacpx-mcp-transport";
 import { OrchestrationClient } from "./orchestration/orchestration-client";
 import { basenameForWorkspacePath, normalizeWorkspacePath, sameWorkspacePath } from "./commands/workspace-path";
 import { StateStore } from "./state/state-store";
+import { maybeRunFirstUseOnboarding, type FirstRunOnboardingPlan } from "./onboarding.js";
+import { handleUpdateCli, type UpdateCliDeps } from "./cli-update.js";
 import type { AppConfig } from "./config/types";
 import type { AppState } from "./state/types";
 import { readVersion } from "./version.js";
@@ -205,14 +207,15 @@ interface StopStopped {
 
 interface CliController {
   getStatus: DaemonController["getStatus"];
-  start: () => Promise<StartStarted | StartAlreadyRunning>;
+  start: (options?: { firstRunOnboarding?: FirstRunOnboardingPlan }) => Promise<StartStarted | StartAlreadyRunning>;
   stop: () => Promise<StopStopped>;
 }
 
 interface CliDeps {
   login?: () => Promise<void>;
   logout?: () => Promise<void>;
-  run?: () => Promise<void>;
+  run?: (options?: { firstRunOnboarding?: FirstRunOnboardingPlan }) => Promise<void>;
+  update?: (args: string[]) => Promise<number | null>;
   readVersion?: () => string;
   doctor?: (options: DoctorRunOptions) => number | Promise<number>;
   mcpStdio?: (args: string[]) => number | Promise<number>;
@@ -222,6 +225,7 @@ interface CliDeps {
   cwd?: () => string;
   channelCliDeps?: Partial<ChannelCliDeps>;
   pluginCliDeps?: Partial<PluginCliDeps>;
+  updateCliDeps?: Partial<UpdateCliDeps>;
   loadConfiguredPluginsForChannelCli?: () => Promise<void>;
   isInteractive?: () => boolean;
   promptText?: (message: string) => Promise<string>;
@@ -237,6 +241,7 @@ const HELP_LINES = [
   "weacpx status - 查看状态",
   "weacpx stop   - 停止服务",
   "weacpx restart - 重启后台服务",
+  "weacpx update [--all|<name>] - 更新 weacpx 和已安装插件",
   "weacpx channel|ch list|show|add|rm|enable|disable [--account <id>] - 管理消息频道（多 bot 用 --account）",
   "weacpx plugin list|add|update|remove|enable|disable|doctor|known - 管理插件",
   "weacpx doctor - 运行诊断",
@@ -276,8 +281,27 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       await (deps.logout ?? defaultLogout)();
       return 0;
     case "run":
-      await (deps.run ?? defaultRun)();
+      const onboarding = await runOnboardingBeforeStart({
+        print,
+        cwd: deps.cwd ?? (() => process.cwd()),
+        isInteractive: deps.isInteractive,
+        promptText: deps.promptText,
+      });
+      await (deps.run ?? defaultRun)({ firstRunOnboarding: onboarding ?? undefined });
       return 0;
+    case "update": {
+      const result = await (deps.update ?? ((subArgs) => defaultUpdate(subArgs, {
+        print,
+        isInteractive: deps.isInteractive,
+        promptText: deps.promptText,
+        overrides: deps.updateCliDeps,
+      })))(args.slice(1));
+      if (result === null) {
+        for (const line of HELP_LINES) print(line);
+        return 1;
+      }
+      return result;
+    }
     case "doctor": {
       const parsed = parseDoctorArgs(args.slice(1));
       if (!parsed.ok) {
@@ -344,7 +368,22 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
     case "start": {
       const controller = deps.controller ?? createDefaultController();
       try {
-        const result = await controller.start();
+        const status = await controller.getStatus();
+        if (status.state === "running") {
+          print("weacpx 已在后台运行");
+          print(`PID: ${status.pid}`);
+          return 0;
+        }
+        if (status.state === "indeterminate") {
+          throw new Error(`weacpx daemon process is already running (pid ${status.pid}) but status metadata is missing`);
+        }
+        const onboarding = await runOnboardingBeforeStart({
+          print,
+          cwd: deps.cwd ?? (() => process.cwd()),
+          isInteractive: deps.isInteractive,
+          promptText: deps.promptText,
+        });
+        const result = await controller.start({ firstRunOnboarding: onboarding ?? undefined });
         if (result.state === "already-running") {
           print("weacpx 已在后台运行");
           print(`PID: ${result.pid}`);
@@ -413,6 +452,62 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       }
       return 1;
   }
+}
+
+
+async function defaultUpdate(
+  args: string[],
+  input: {
+    print: (line: string) => void;
+    isInteractive?: () => boolean;
+    promptText?: (message: string) => Promise<string>;
+    overrides?: Partial<UpdateCliDeps>;
+  },
+): Promise<number | null> {
+  const store = await createCliConfigStore();
+  const deps: UpdateCliDeps = {
+    loadConfig: async () => await store.load(),
+    saveConfig: async (config) => await store.save(config),
+    readCurrentVersion: readVersion,
+    print: input.print,
+    isInteractive: input.isInteractive ?? (() => Boolean(process.stdin.isTTY && process.stdout.isTTY)),
+    promptText: input.promptText ?? defaultPromptText,
+    ...input.overrides,
+  };
+  return await handleUpdateCli(args, deps);
+}
+
+async function runOnboardingBeforeStart(input: {
+  print: (line: string) => void;
+  cwd: () => string;
+  isInteractive?: () => boolean;
+  promptText?: (message: string) => Promise<string>;
+}): Promise<FirstRunOnboardingPlan | null> {
+  const runtimePaths = (await import("./main")).resolveRuntimePaths();
+  await ensureConfigExists(runtimePaths.configPath);
+  const configStore = new ConfigStore(runtimePaths.configPath);
+  const stateStore = new StateStore(runtimePaths.statePath);
+  const config = await configStore.load();
+  const state = await stateStore.load();
+  const result = await maybeRunFirstUseOnboarding({
+    config,
+    state,
+    saveConfig: async (next) => await configStore.save(next),
+    deps: {
+      print: input.print,
+      cwd: input.cwd,
+      isInteractive: input.isInteractive ?? (() => Boolean(process.stdin.isTTY && process.stdout.isTTY)),
+      promptText: input.promptText ?? defaultPromptText,
+    },
+  });
+  return result.created
+    ? {
+        alias: result.alias,
+        agent: result.agent,
+        workspace: result.workspace,
+        rollback: result.rollback,
+      }
+    : null;
 }
 
 async function handleWorkspaceCli(
@@ -535,7 +630,7 @@ async function defaultLoadConfiguredPluginsForChannelCli(): Promise<void> {
   await loadConfiguredPlugins({ plugins: config.plugins });
 }
 
-async function defaultRun(): Promise<void> {
+async function defaultRun(options: { firstRunOnboarding?: FirstRunOnboardingPlan } = {}): Promise<void> {
   const [{ buildApp, resolveRuntimePaths, prepareChannelMedia }, { runConsole }] = await Promise.all([
     import("./main"),
     import("./run-console"),
@@ -554,12 +649,18 @@ async function defaultRun(): Promise<void> {
   const lockCreators = channelRegistry.createConsumerLocks();
   const firstLockCreator = lockCreators[0];
 
+  const firstRunOnboarding = options.firstRunOnboarding ?? decodeFirstRunOnboarding(process.env.WEACPX_FIRST_RUN_ONBOARDING);
   await runConsole(runtimePaths, {
     buildApp: (paths) =>
       buildApp(paths, {
         defaultLoggingLevel: resolveCliEntryPath().includes(`${sep}src${sep}`) ? "debug" : "info",
         channel: channelRegistry,
       }),
+    beforeReady: firstRunOnboarding
+      ? async (runtime) => {
+          await createFirstRunSession(runtime, firstRunOnboarding);
+        }
+      : undefined,
     channels: channelRegistry,
     daemonRuntime,
     ...(firstLockCreator
@@ -574,6 +675,50 @@ async function defaultRun(): Promise<void> {
         }
       : {}),
   });
+}
+
+async function createFirstRunSession(
+  runtime: Awaited<ReturnType<typeof import("./main").buildApp>>,
+  plan: FirstRunOnboardingPlan,
+): Promise<void> {
+  const session = runtime.sessions.resolveSession(plan.alias, plan.agent, plan.workspace, plan.alias);
+  try {
+    await runtime.transport.ensureSession(session);
+    const exists = await runtime.transport.hasSession(session);
+    if (!exists) {
+      throw new Error(`first-run onboarding failed to create transport session: ${plan.alias}`);
+    }
+    await runtime.sessions.attachSession(plan.alias, plan.agent, plan.workspace, session.transportSession);
+  } catch (error) {
+    await rollbackFirstRunConfig(runtime, plan);
+    throw error;
+  }
+  await runtime.logger.info("onboarding.session_created", "created first-run transport session", {
+    alias: plan.alias,
+    agent: plan.agent,
+    workspace: plan.workspace,
+  });
+}
+
+async function rollbackFirstRunConfig(
+  runtime: Awaited<ReturnType<typeof import("./main").buildApp>>,
+  plan: FirstRunOnboardingPlan,
+): Promise<void> {
+  try {
+    const config = await runtime.configStore.load();
+    if (!plan.rollback.workspaceExisted && config.workspaces[plan.workspace]) {
+      delete config.workspaces[plan.workspace];
+    }
+    if (!plan.rollback.agentExisted && config.agents[plan.agent]) {
+      delete config.agents[plan.agent];
+    }
+    await runtime.configStore.save(config);
+  } catch (error) {
+    await runtime.logger.error("onboarding.rollback_failed", "failed to roll back first-run config", {
+      alias: plan.alias,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 async function defaultDoctor(options: DoctorRunOptions): Promise<number> {
@@ -794,12 +939,45 @@ async function defaultPromptSecret(message: string): Promise<string> {
 
 function createDefaultController(): CliController {
   const daemonPaths = resolveDaemonPaths({ home: requireHome() });
-  return createDaemonController(daemonPaths, {
+  const controller = createDaemonController(daemonPaths, {
     processExecPath: process.execPath,
     cliEntryPath: resolveCliEntryPath(),
     cwd: process.cwd(),
     env: process.env,
   });
+  return {
+    getStatus: () => controller.getStatus(),
+    stop: () => controller.stop(),
+    start: (options) => controller.start({
+      ...(options?.firstRunOnboarding ? { firstRunOnboarding: encodeFirstRunOnboarding(options.firstRunOnboarding) } : {}),
+    }),
+  };
+}
+
+function encodeFirstRunOnboarding(plan: FirstRunOnboardingPlan): string {
+  return Buffer.from(JSON.stringify(plan), "utf8").toString("base64url");
+}
+
+function decodeFirstRunOnboarding(raw: string | undefined): FirstRunOnboardingPlan | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, "base64url").toString("utf8")) as Partial<FirstRunOnboardingPlan>;
+    if (typeof parsed.alias === "string" && typeof parsed.agent === "string" && typeof parsed.workspace === "string") {
+      const rollback = typeof parsed.rollback === "object" && parsed.rollback !== null
+        ? parsed.rollback as Partial<FirstRunOnboardingPlan["rollback"]>
+        : {};
+      return {
+        alias: parsed.alias,
+        agent: parsed.agent,
+        workspace: parsed.workspace,
+        rollback: {
+          workspaceExisted: rollback.workspaceExisted === true,
+          agentExisted: rollback.agentExisted === true,
+        },
+      };
+    }
+  } catch {}
+  return null;
 }
 
 function requireHome(): string {

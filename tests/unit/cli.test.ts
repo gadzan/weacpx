@@ -250,6 +250,7 @@ test("prints help for unknown commands", async () => {
     "weacpx status - 查看状态",
     "weacpx stop   - 停止服务",
     "weacpx restart - 重启后台服务",
+    "weacpx update [--all|<name>] - 更新 weacpx 和已安装插件",
     "weacpx channel|ch list|show|add|rm|enable|disable [--account <id>] - 管理消息频道（多 bot 用 --account）",
     "weacpx plugin list|add|update|remove|enable|disable|doctor|known - 管理插件",
     "weacpx doctor - 运行诊断",

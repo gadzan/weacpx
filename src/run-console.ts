@@ -15,6 +15,8 @@ interface ChannelRegistry {
 
 interface RunConsoleDeps {
   buildApp: (paths: RuntimePaths) => Promise<AppRuntime>;
+  afterBuild?: (runtime: AppRuntime) => Promise<void>;
+  beforeReady?: (runtime: AppRuntime) => Promise<void>;
   channels: ChannelRegistry;
   daemonRuntime?: DaemonLifecycle;
   heartbeatIntervalMs?: number;
@@ -36,6 +38,7 @@ interface RunCleanupSequenceInput {
   heartbeatTimer: unknown;
   gcResetTimer: unknown;
   daemonRuntime?: DaemonLifecycle;
+  daemonRuntimeStarted: boolean;
   runtime: AppRuntime | null;
   consumerLock?: ConsumerLock;
   consumerLockAcquired: boolean;
@@ -58,6 +61,7 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
   let heartbeatTimer: unknown = null;
   let gcResetTimer: unknown = null;
   let consumerLockAcquired = false;
+  let daemonRuntimeStarted = false;
   const shutdownController = new AbortController();
   const signalHandler = () => {
     shutdownController.abort();
@@ -67,6 +71,9 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
 
   try {
     runtime = await deps.buildApp(paths);
+    if (deps.afterBuild) {
+      await deps.afterBuild(runtime);
+    }
     try {
       await runtime.orchestration.service.purgeExpiredResetCoordinators({
         cutoffDays: 7,
@@ -74,29 +81,6 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
       });
     } catch {}
     consumerLock = deps.consumerLock ?? deps.consumerLockFactory?.(runtime);
-
-    if (deps.daemonRuntime) {
-      await deps.daemonRuntime.start({
-        configPath: paths.configPath,
-        statePath: paths.statePath,
-      });
-      await runtime.orchestration.server.start();
-      heartbeatTimer = setIntervalFn(
-        () => {
-          void deps.daemonRuntime?.heartbeat().catch(() => {});
-        },
-        deps.heartbeatIntervalMs ?? 30_000,
-      );
-      const runtimeForGc = runtime;
-      gcResetTimer = setIntervalFn(
-        () => {
-          void runtimeForGc.orchestration.service
-            .purgeExpiredResetCoordinators({ cutoffDays: 7, trigger: "interval" })
-            .catch(() => {});
-        },
-        86_400_000,
-      );
-    }
 
     if (consumerLock) {
       const lockMeta: ConsumerLockMetadata = {
@@ -146,6 +130,34 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
       }
     }
 
+    if (deps.beforeReady) {
+      await deps.beforeReady(runtime);
+    }
+
+    if (deps.daemonRuntime) {
+      await deps.daemonRuntime.start({
+        configPath: paths.configPath,
+        statePath: paths.statePath,
+      });
+      daemonRuntimeStarted = true;
+      await runtime.orchestration.server.start();
+      heartbeatTimer = setIntervalFn(
+        () => {
+          void deps.daemonRuntime?.heartbeat().catch(() => {});
+        },
+        deps.heartbeatIntervalMs ?? 30_000,
+      );
+      const runtimeForGc = runtime;
+      gcResetTimer = setIntervalFn(
+        () => {
+          void runtimeForGc.orchestration.service
+            .purgeExpiredResetCoordinators({ cutoffDays: 7, trigger: "interval" })
+            .catch(() => {});
+        },
+        86_400_000,
+      );
+    }
+
     await deps.channels.startAll({
       agent: runtime.agent,
       abortSignal: shutdownController.signal,
@@ -165,6 +177,7 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
       consumerLockAcquired,
       processPid,
       channels: deps.channels,
+      daemonRuntimeStarted,
     });
   }
 }
@@ -204,7 +217,7 @@ async function runCleanupSequence(input: RunCleanupSequenceInput): Promise<void>
     }
   }
 
-  if (input.daemonRuntime) {
+  if (input.daemonRuntime && input.daemonRuntimeStarted) {
     try {
       await input.daemonRuntime.stop();
     } catch (error) {

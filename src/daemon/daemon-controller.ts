@@ -6,7 +6,7 @@ import { DaemonStatusStore, type DaemonStatus } from "./daemon-status";
 
 interface DaemonControllerDeps {
   isProcessRunning: (pid: number) => boolean;
-  spawnDetached: () => Promise<number>;
+  spawnDetached: (options?: { firstRunOnboarding?: string }) => Promise<number>;
   terminateProcess: (pid: number) => Promise<void>;
   startupPollIntervalMs?: number;
   startupTimeoutMs?: number;
@@ -72,7 +72,7 @@ export class DaemonController {
     };
   }
 
-  async start(): Promise<{ state: "already-running"; pid: number } | { state: "started"; pid: number }> {
+  async start(options: { firstRunOnboarding?: string } = {}): Promise<{ state: "already-running"; pid: number } | { state: "started"; pid: number }> {
     const current = await this.getStatus();
     if (current.state === "running") {
       return { state: "already-running", pid: current.pid };
@@ -87,7 +87,7 @@ export class DaemonController {
     // recycled process does not cause a spurious immediate return from
     // waitForStartupMetadata.
     await this.statusStore.clear();
-    const pid = await this.deps.spawnDetached();
+    const pid = await this.deps.spawnDetached(options);
     await this.writePid(pid);
     await this.waitForStartupMetadata(pid);
     return { state: "started", pid };

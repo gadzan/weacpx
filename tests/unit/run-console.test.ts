@@ -3,6 +3,42 @@ import { expect, test } from "bun:test";
 import { createNoopAppLogger } from "../../src/logging/app-logger";
 import { runConsole } from "../../src/run-console";
 
+function createRuntime() {
+  return {
+    agent: {} as never,
+    router: {} as never,
+    sessions: {} as never,
+    stateStore: {} as never,
+    configStore: {} as never,
+    logger: createNoopAppLogger(),
+    quota: {} as never,
+    orchestration: {
+      server: { start: async () => {}, stop: async () => {} },
+      service: { purgeExpiredResetCoordinators: async () => {} },
+      endpoint: {} as never,
+    },
+    dispose: async () => {},
+  };
+}
+
+test("runs afterBuild before beforeReady and channel startup", async () => {
+  const events: string[] = [];
+  const runtime = createRuntime();
+
+  await runConsole({ configPath: "/cfg", statePath: "/state" }, {
+    buildApp: async () => { events.push("build"); return runtime; },
+    afterBuild: async () => { events.push("afterBuild"); },
+    beforeReady: async () => { events.push("beforeReady"); },
+    channels: {
+      startAll: async () => { events.push("startAll"); },
+    },
+    addProcessListener: () => {},
+    removeProcessListener: () => {},
+  });
+
+  expect(events).toEqual(["build", "afterBuild", "beforeReady", "startAll"]);
+});
+
 test("runs the foreground service with daemon lifecycle hooks", async () => {
   const events: string[] = [];
   let heartbeatTick: (() => void | Promise<void>) | null = null;

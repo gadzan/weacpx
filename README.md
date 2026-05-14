@@ -169,6 +169,7 @@ weacpx restart
 | `weacpx status` | 查看后台状态、PID、配置路径、日志路径 |
 | `weacpx stop` | 停止后台实例 |
 | `weacpx restart` | 重启后台实例，让频道配置变更生效 |
+| `weacpx update [--all|<name>]` | 检查并更新 weacpx 与已安装插件；安装了插件时会交互式选择更新项 |
 | `weacpx channel list` | 查看已配置的消息频道 |
 | `weacpx plugin known` | 查看官方插件清单（飞书/元宝包名） |
 | `weacpx plugin add @ganglion/weacpx-channel-feishu && weacpx channel add feishu` | 安装并添加飞书频道，会提示输入飞书应用凭据 |
@@ -178,6 +179,8 @@ weacpx restart
 | `weacpx workspace list` | 查看本机已注册的 workspace |
 | `weacpx workspace add [name]` | 把当前目录注册成 workspace；不传 `name` 时使用当前目录名 |
 | `weacpx workspace rm <name>` | 删除 workspace |
+
+首次运行 `weacpx start` 或 `weacpx run` 时，如果没有会话、workspace 和插件，CLI 会询问是否把当前目录创建为 workspace，并选择一个内置 agent 模板；服务启动后会通过正常会话创建流程创建初始 acpx 会话。
 
 `workspace` 也可以简写为 `ws`：
 

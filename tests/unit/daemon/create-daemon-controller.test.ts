@@ -32,7 +32,7 @@ test("spawns a detached run command and records the child pid", async () => {
     terminateProcess: async () => {},
   });
 
-  await expect(controller.start()).resolves.toEqual({
+  await expect(controller.start({ firstRunOnboarding: "payload" })).resolves.toEqual({
     state: "started",
     pid: 43210,
   });
@@ -44,7 +44,7 @@ test("spawns a detached run command and records the child pid", async () => {
       options: expect.objectContaining({
         cwd: "/app",
         detached: true,
-        env: { HOME: "/home/test", PATH: "/usr/bin" },
+        env: { HOME: "/home/test", PATH: "/usr/bin", WEACPX_FIRST_RUN_ONBOARDING: "payload" },
       }),
     },
   ]);

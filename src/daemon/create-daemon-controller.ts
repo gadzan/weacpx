@@ -35,14 +35,14 @@ export function createDaemonController(
 ): DaemonController {
   return new DaemonController(paths, {
     isProcessRunning: options.isProcessRunning ?? defaultIsProcessRunning,
-    spawnDetached: async () => {
+    spawnDetached: async (spawnOptions) => {
       await mkdir(paths.runtimeDir, { recursive: true });
       const stdoutHandle = await open(paths.stdoutLog, "a");
       const stderrHandle = await open(paths.stderrLog, "a");
 
       try {
         return await (options.spawnProcess ?? defaultSpawnProcess)(
-          buildSpawnRequest(paths, options, stdoutHandle.fd, stderrHandle.fd),
+          buildSpawnRequest(paths, options, stdoutHandle.fd, stderrHandle.fd, spawnOptions),
         );
       } finally {
         await stdoutHandle.close();
@@ -67,6 +67,7 @@ function buildSpawnRequest(
   options: CreateDaemonControllerOptions,
   stdoutFd: number,
   stderrFd: number,
+  spawnOptions: { firstRunOnboarding?: string } = {},
 ): SpawnRequest {
   const platform = options.platform ?? process.platform;
   if (platform === "win32") {
@@ -89,6 +90,7 @@ function buildSpawnRequest(
           WEACPX_DAEMON_CWD: options.cwd,
           WEACPX_DAEMON_STDOUT: paths.stdoutLog,
           WEACPX_DAEMON_STDERR: paths.stderrLog,
+          ...(spawnOptions.firstRunOnboarding ? { WEACPX_FIRST_RUN_ONBOARDING: spawnOptions.firstRunOnboarding } : {}),
         },
         stdio: ["ignore", "pipe", "ignore"],
         windowsHide: true,
@@ -103,7 +105,10 @@ function buildSpawnRequest(
     options: {
       cwd: options.cwd,
       detached: true,
-      env: options.env,
+      env: {
+        ...options.env,
+        ...(spawnOptions.firstRunOnboarding ? { WEACPX_FIRST_RUN_ONBOARDING: spawnOptions.firstRunOnboarding } : {}),
+      },
       stdio: ["ignore", stdoutFd, stderrFd],
     },
   };

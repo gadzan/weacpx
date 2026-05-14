@@ -52,6 +52,7 @@ export interface AppRuntime {
   configStore: ConfigStore;
   logger: AppLogger;
   quota: QuotaManager;
+  transport: SessionTransport;
   orchestration: {
     service: OrchestrationService;
     server: OrchestrationServer;
@@ -600,6 +601,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     configStore,
     logger,
     quota,
+    transport,
     orchestration: {
       service: orchestration,
       server: orchestrationServer,
