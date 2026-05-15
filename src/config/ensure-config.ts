@@ -21,6 +21,12 @@ const BUILTIN_DEFAULT_CONFIG_TEMPLATE = {
     maxSizeBytes: 2 * 1024 * 1024,
     maxFiles: 5,
     retentionDays: 7,
+    perf: {
+      enabled: false,
+      maxSizeBytes: 5_242_880,
+      maxFiles: 3,
+      retentionDays: 7,
+    },
   },
   channel: {
     type: "weixin",

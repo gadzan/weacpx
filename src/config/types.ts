@@ -25,11 +25,19 @@ export interface TransportConfig {
 
 export type LoggingLevel = "error" | "info" | "debug";
 
+export interface PerfLogConfig {
+  enabled: boolean;
+  maxSizeBytes: number;
+  maxFiles: number;
+  retentionDays: number;
+}
+
 export interface LoggingConfig {
   level: LoggingLevel;
   maxSizeBytes: number;
   maxFiles: number;
   retentionDays: number;
+  perf: PerfLogConfig;
 }
 
 export interface AgentConfig {

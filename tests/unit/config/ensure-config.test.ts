@@ -34,6 +34,12 @@ test("normalizes the default config template through the shared config parser", 
     maxSizeBytes: 2 * 1024 * 1024,
     maxFiles: 5,
     retentionDays: 7,
+    perf: {
+      enabled: false,
+      maxSizeBytes: 5 * 1024 * 1024,
+      maxFiles: 3,
+      retentionDays: 7,
+    },
   });
 });
 
