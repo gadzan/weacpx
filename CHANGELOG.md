@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.4.4] - 2026-05-15
+
+### Added
+
+- **Perf debug mode for Weixin turns:** 新增 `logging.perf.enabled` 开关，开启后把一次 Weixin 入站消息的关键耗时写入独立的 `~/.weacpx/runtime/perf.log`，包括 `turn.received`、`agent.dispatched`、router/session/transport checkpoint、reply 文本发送与 `turn.done` 汇总。默认关闭。
+- **出站媒体性能标记：** Weixin outbound media 发送现在记录 `reply.media_sent` / `reply.media_done`，提供安全路径校验 + Weixin CDN 上传 + 媒体消息发送的粗粒度真实耗时与 sent/failed/rejected/dropped 汇总。
+
+### Changed
+
+- **日志滚动复用：** app log 与 perf log 共用抽出的 rotating-file writer helper，但各自保持独立 write chain，避免互相阻塞。
+- **Runtime paths 暴露 perf log 路径：** `resolveRuntimePaths()` 现在包含 `perfLogPath`，`buildApp()` 使用该路径初始化 perf tracer。
+
+### Fixed
+
+- **Perf outcome 语义修正：** prompt abort / 已 abort / turn AbortError 不再误记为 error；transport 层用 `localOutcome` 区分 `ok` / `error` / `aborted`，Weixin turn AbortError 记录为 `outcome="aborted"` 并跳过错误通知。
+- **`/session attach` perf 完整性：** attach 已存在 transport session 成功后也会发出 `session.ready` mark，与新建 session 路径保持一致。
+- **Perf 故障降级：** perf log 连续 IO 失败后 tracer 进入 noop，且 app log breadcrumb 写入失败也不会产生 unhandled rejection 或影响业务。
+
+### Docs
+
+- 更新 `config.example.json`、`docs/config-reference.md`、`docs/commands.md`、`docs/config-command.md`，说明 `logging.perf.*` 配置、重启生效限制，以及 `/config set` 不支持动态修改 perf logging。
+
+### Tests
+
+- 新增 perf tracer / writer / buildApp / ConsoleAgent / CommandRouter / Weixin turn 覆盖，包括正常 prompt lifecycle、error/abort 负路径、outbound media rejected、`/session attach` `session.ready`、permanent failure noop 与 appLogger rejection 防护。
+
 ## [0.4.3] - 2026-05-15
 
 ### Changed
