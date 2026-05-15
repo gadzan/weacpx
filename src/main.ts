@@ -630,7 +630,13 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
       if ("dispose" in transport && typeof transport.dispose === "function") {
         await transport.dispose();
       }
-      await perfTracer.flush();
+      try {
+        await perfTracer.flush();
+      } catch (err) {
+        await logger.error("perf.flush_failed", "perf tracer flush failed during shutdown", {
+          error: err instanceof Error ? err.message : String(err),
+        }).catch(() => {});
+      }
       await logger.flush();
     },
   };
