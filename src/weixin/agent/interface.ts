@@ -1,5 +1,6 @@
 import type { ChannelMediaAttachment, OutboundChannelMedia } from "../../channels/media-types.js";
 import type { ToolUseEvent } from "../../channels/types.js";
+import type { PerfSpan } from "../../perf/perf-tracer.js";
 
 /**
  * Agent interface — any AI backend that can handle a chat message.
@@ -48,6 +49,12 @@ export interface ChatRequest {
   abortSignal?: AbortSignal;
   /** Structured tool-use side-channel; see PromptOptions.onToolEvent. */
   onToolEvent?: (event: ToolUseEvent) => void | Promise<void>;
+  /**
+   * Optional per-turn performance tracing span. When `logging.perf.enabled` is
+   * true, the channel handler attaches a `PerfSpan` so downstream layers can
+   * inline `request.perfSpan?.mark(event, ctx)` without further plumbing.
+   */
+  perfSpan?: PerfSpan;
 }
 
 export interface ChatRequestMetadata {

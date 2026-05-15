@@ -95,6 +95,33 @@ test("attaches and selects an existing session without creating it through trans
   });
 });
 
+test("emits session.ready when attaching an existing session", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport);
+  const marks: string[] = [];
+  const perfSpan = {
+    traceId: "trace-attach",
+    mark: (event: string) => marks.push(event),
+    setOutcome: () => {},
+  };
+
+  await router.handle(
+    "wx:user",
+    "/session attach review --agent codex --ws backend --name existing-review",
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    perfSpan,
+  );
+
+  expect(marks).toContain("session.ready");
+});
+
 test("rejects attaching a session name that does not exist in acpx", async () => {
   const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
   const transport = createTransport();

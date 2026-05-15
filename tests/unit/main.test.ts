@@ -1752,6 +1752,7 @@ test("falls back to the OS home directory when HOME is unset", () => {
 
     expect(paths.configPath.endsWith("/.weacpx/config.json")).toBe(true);
     expect(paths.statePath.endsWith("/.weacpx/state.json")).toBe(true);
+    expect(paths.perfLogPath?.endsWith("/.weacpx/runtime/perf.log")).toBe(true);
     if (process.platform === "win32") {
       expect(paths.orchestrationSocketPath.startsWith("\\\\.\\pipe\\weacpx-orchestration-")).toBe(true);
     } else {

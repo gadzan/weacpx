@@ -33,6 +33,57 @@ import {
   getSetModeMock,
 } from "./command-router-test-support";
 
+test("emits perf marks for prompt transport lifecycle", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const marks: Array<{ event: string; context?: Record<string, unknown> }> = [];
+  const perfSpan = {
+    traceId: "trace-test",
+    mark: (event: string, context?: Record<string, unknown>) => {
+      marks.push({ event, context });
+    },
+    setOutcome: () => {},
+  };
+  transport.prompt = mock(async (_session, _text, _reply, _replyContext, options) => {
+    await options?.onSegment?.("first streamed chunk");
+    await options?.onSegment?.("second streamed chunk");
+    return { text: "agent done" };
+  });
+  const router = new CommandRouter(sessions, transport);
+
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend", undefined, undefined, undefined, undefined, undefined, undefined, undefined, perfSpan);
+  await router.handle("wx:user", "hello", async () => {}, undefined, undefined, undefined, undefined, undefined, undefined, perfSpan);
+
+  expect(marks.map((m) => m.event)).toContain("router.authorized");
+  expect(marks.map((m) => m.event)).toContain("router.config_refreshed");
+  expect(marks.map((m) => m.event)).toContain("session.ready");
+  expect(marks.map((m) => m.event)).toContain("transport.prompt_dispatched");
+  expect(marks.filter((m) => m.event === "transport.first_chunk")).toHaveLength(1);
+  expect(marks.at(-1)).toEqual({ event: "transport.prompt_done", context: { localOutcome: "ok" } });
+});
+
+test("emits transport.prompt_done with error outcome", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const marks: Array<{ event: string; context?: Record<string, unknown> }> = [];
+  const perfSpan = {
+    traceId: "trace-test",
+    mark: (event: string, context?: Record<string, unknown>) => {
+      marks.push({ event, context });
+    },
+    setOutcome: () => {},
+  };
+  transport.prompt = mock(async () => {
+    throw new Error("boom");
+  });
+  const router = new CommandRouter(sessions, transport);
+
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
+  await expect(router.handle("wx:user", "hello", undefined, undefined, undefined, undefined, undefined, undefined, undefined, perfSpan)).rejects.toThrow("boom");
+
+  expect(marks.at(-1)).toEqual({ event: "transport.prompt_done", context: { localOutcome: "error" } });
+});
+
 test("routes plain text to the current session", async () => {
   const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
   const transport = createTransport();

@@ -9,7 +9,13 @@
     "level": "info",
     "maxSizeBytes": 2097152,
     "maxFiles": 5,
-    "retentionDays": 7
+    "retentionDays": 7,
+    "perf": {
+      "enabled": false,
+      "maxSizeBytes": 5242880,
+      "maxFiles": 3,
+      "retentionDays": 7
+    }
   },
   "channel": {
     "replyMode": "stream"

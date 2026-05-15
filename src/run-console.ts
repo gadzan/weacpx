@@ -167,6 +167,7 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
         abortSignal: shutdownController.signal,
         quota: runtime.quota,
         logger: runtime.logger,
+        perfTracer: runtime.perfTracer,
       });
     } catch (error) {
       if (deps.channelStartupPolicy !== "best-effort") {

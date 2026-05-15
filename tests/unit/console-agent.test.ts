@@ -169,3 +169,40 @@ test("reports known weacpx command prefixes", () => {
   expect(agent.isKnownCommand("/ss codex --ws backend")).toBe(true);
   expect(agent.isKnownCommand("/unknown")).toBe(false);
 });
+
+test("emits agent.dispatched mark via request.perfSpan before calling router", async () => {
+  const events: string[] = [];
+  let routerSawPerfSpan = false;
+  const spySpan = {
+    traceId: "t",
+    mark: (event: string) => events.push(event),
+    setOutcome: () => {},
+  };
+  const agent = new ConsoleAgent({
+    handle: async (
+      _chatKey: string,
+      _input: string,
+      _reply?: any,
+      _replyContextToken?: any,
+      _accountId?: any,
+      _media?: any,
+      _metadata?: any,
+      _abortSignal?: any,
+      _onToolEvent?: any,
+      perfSpan?: any,
+    ) => {
+      routerSawPerfSpan = perfSpan === spySpan;
+      return { text: "ok" };
+    },
+  });
+
+  await agent.chat({
+    accountId: "a",
+    conversationId: "k",
+    text: "hello",
+    perfSpan: spySpan as any,
+  });
+
+  expect(events).toContain("agent.dispatched");
+  expect(routerSawPerfSpan).toBe(true);
+});

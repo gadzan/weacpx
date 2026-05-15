@@ -6,6 +6,7 @@ import type { SessionService } from "../sessions/session-service";
 import type { PromptMediaInput, ReplyQuotaContext, SessionTransport } from "../transport/types";
 import type { QuotaManager } from "../weixin/messaging/quota-manager.js";
 import type { ToolUseEvent } from "../channels/types.js";
+import type { PerfSpan } from "../perf/perf-tracer";
 
 export interface RouterResponse {
   text?: string;
@@ -101,8 +102,10 @@ export interface SessionLifecycleOps {
   ensureTransportSession: (
     session: import("../transport/types").ResolvedSession,
     reply?: (text: string) => Promise<void>,
+    perfSpan?: PerfSpan,
   ) => Promise<void>;
   checkTransportSession: (session: import("../transport/types").ResolvedSession) => Promise<boolean>;
+  markSessionReady?: (session: import("../transport/types").ResolvedSession) => void;
   reserveTransportSession: (transportSession: string) => Promise<() => Promise<void>>;
   handleSessionShortcut: (
     chatKey: string,
@@ -128,6 +131,7 @@ export interface SessionInteractionOps {
     media?: PromptMediaInput,
     abortSignal?: AbortSignal,
     onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
+    perfSpan?: PerfSpan,
   ) => Promise<{ text: string }>;
 }
 
@@ -146,6 +150,7 @@ export interface SessionShortcutOps {
   ensureTransportSession: (
     session: import("../transport/types").ResolvedSession,
     reply?: (text: string) => Promise<void>,
+    perfSpan?: PerfSpan,
   ) => Promise<void>;
   checkTransportSession: (session: import("../transport/types").ResolvedSession) => Promise<boolean>;
   reserveTransportSession: (transportSession: string) => Promise<() => Promise<void>>;
@@ -165,6 +170,7 @@ export interface SessionResetOps {
   ensureTransportSession: (
     session: import("../transport/types").ResolvedSession,
     reply?: (text: string) => Promise<void>,
+    perfSpan?: PerfSpan,
   ) => Promise<void>;
   checkTransportSession: (session: import("../transport/types").ResolvedSession) => Promise<boolean>;
   reserveTransportSession: (transportSession: string) => Promise<() => Promise<void>>;

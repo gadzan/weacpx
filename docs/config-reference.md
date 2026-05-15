@@ -13,6 +13,18 @@
     "command": "acpx",
     "sessionInitTimeoutMs": 120000
   },
+  "logging": {
+    "level": "info",
+    "maxSizeBytes": 2097152,
+    "maxFiles": 5,
+    "retentionDays": 7,
+    "perf": {
+      "enabled": false,
+      "maxSizeBytes": 5242880,
+      "maxFiles": 3,
+      "retentionDays": 7
+    }
+  },
   "channel": {
     "replyMode": "verbose"
   },
@@ -120,6 +132,34 @@ static, Feishu streaming card) relies on today.
 event order and await each invocation before dispatching the next. Prompt
 completion waits for all in-flight callbacks to settle. A handler error
 rejects the prompt with the first observed error.
+
+
+---
+
+## `logging`
+
+运行日志配置。普通应用日志写入 `~/.weacpx/runtime/app.log`。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `level` | `"error"` \| `"info"` \| `"debug"` | 否 | 应用日志级别，默认 `"info"` |
+| `maxSizeBytes` | `number` | 否 | 单个 app.log 文件大小上限，默认 `2097152` |
+| `maxFiles` | `number` | 否 | 保留的滚动 app.log 文件数，默认 `5`；`0` 表示超过大小后直接删除当前文件 |
+| `retentionDays` | `number` | 否 | 过期滚动 app.log 清理天数，默认 `7` |
+| `perf` | `object` | 否 | 性能 debug 日志配置，见下方 |
+
+### `logging.perf`
+
+开启后，weacpx 会把 Weixin 入站消息从收到到最终出站完成（文本 final；如有媒体则包含媒体发送完成）的关键耗时写入独立文件 `~/.weacpx/runtime/perf.log`。每个 checkpoint 一行，最后有 `turn.done` 汇总行。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `enabled` | `boolean` | 否 | 是否启用 perf debug 日志，默认 `false` |
+| `maxSizeBytes` | `number` | 否 | 单个 perf.log 文件大小上限，默认 `5242880` |
+| `maxFiles` | `number` | 否 | 保留的滚动 perf.log 文件数，默认 `3`；`0` 表示超过大小后直接删除当前文件 |
+| `retentionDays` | `number` | 否 | 过期滚动 perf.log 清理天数，默认 `7` |
+
+注意：`logging.perf.enabled` 在 `buildApp()` 时绑定，修改该配置后需要重启 daemon 才会生效。当前只有内置 Weixin channel 接入 perf trace；其它插件 channel 即使开启该开关也不会写入自己的 turn。Weixin 出站媒体会记录 `reply.media_sent` / `reply.media_done`，耗时包含本地安全校验、上传到 Weixin CDN 以及发送媒体消息的总耗时；不细分上传与发送阶段。
 
 ---
 

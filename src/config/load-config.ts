@@ -11,17 +11,26 @@ import type {
   LoggingLevel,
   NonInteractivePermissions,
   OrchestrationConfig,
+  PerfLogConfig,
   PermissionMode,
   PluginConfig,
   ReplyMode,
   WorkspaceConfig,
 } from "./types";
 
+const DEFAULT_PERF_LOG_CONFIG: PerfLogConfig = {
+  enabled: false,
+  maxSizeBytes: 5 * 1024 * 1024,
+  maxFiles: 3,
+  retentionDays: 7,
+};
+
 const DEFAULT_LOGGING_CONFIG: LoggingConfig = {
   level: "info",
   maxSizeBytes: 2 * 1024 * 1024,
   maxFiles: 5,
   retentionDays: 7,
+  perf: DEFAULT_PERF_LOG_CONFIG,
 };
 const DEFAULT_PERMISSION_MODE: PermissionMode = "approve-all";
 const DEFAULT_NON_INTERACTIVE_PERMISSIONS: NonInteractivePermissions = "deny";
@@ -187,6 +196,29 @@ export function parseConfig(
     }
   }
 
+  if (isRecord(logging) && "perf" in logging) {
+    if (!isRecord(logging.perf)) {
+      throw new Error("logging.perf must be an object");
+    }
+    if ("enabled" in logging.perf && typeof logging.perf.enabled !== "boolean") {
+      throw new Error("logging.perf.enabled must be boolean");
+    }
+    for (const field of ["maxSizeBytes", "maxFiles", "retentionDays"] as const) {
+      if (field in logging.perf) {
+        const value = logging.perf[field] as unknown;
+        if (typeof value !== "number" || !Number.isFinite(value)) {
+          throw new Error(`logging.perf.${field} must be a finite number`);
+        }
+        if (field === "maxFiles" && value < 0) {
+          throw new Error(`logging.perf.${field} must be non-negative`);
+        }
+        if (field !== "maxFiles" && value <= 0) {
+          throw new Error(`logging.perf.${field} must be a positive number`);
+        }
+      }
+    }
+  }
+
   for (const [name, agent] of Object.entries(raw.agents)) {
     if (!isRecord(agent) || typeof agent.driver !== "string" || agent.driver.length === 0) {
       throw new Error(`agent "${name}" must define a non-empty driver`);
@@ -269,6 +301,24 @@ export function parseConfig(
       maxFiles: typeof logging?.maxFiles === "number" ? logging.maxFiles : DEFAULT_LOGGING_CONFIG.maxFiles,
       retentionDays:
         typeof logging?.retentionDays === "number" ? logging.retentionDays : DEFAULT_LOGGING_CONFIG.retentionDays,
+      perf: (() => {
+        const perfRaw = isRecord(logging?.perf) ? (logging!.perf as Record<string, unknown>) : undefined;
+        return {
+          enabled: typeof perfRaw?.enabled === "boolean" ? perfRaw.enabled : DEFAULT_PERF_LOG_CONFIG.enabled,
+          maxSizeBytes:
+            typeof perfRaw?.maxSizeBytes === "number" && Number.isFinite(perfRaw.maxSizeBytes) && perfRaw.maxSizeBytes > 0
+              ? perfRaw.maxSizeBytes
+              : DEFAULT_PERF_LOG_CONFIG.maxSizeBytes,
+          maxFiles:
+            typeof perfRaw?.maxFiles === "number" && Number.isFinite(perfRaw.maxFiles) && perfRaw.maxFiles >= 0
+              ? perfRaw.maxFiles
+              : DEFAULT_PERF_LOG_CONFIG.maxFiles,
+          retentionDays:
+            typeof perfRaw?.retentionDays === "number" && Number.isFinite(perfRaw.retentionDays) && perfRaw.retentionDays > 0
+              ? perfRaw.retentionDays
+              : DEFAULT_PERF_LOG_CONFIG.retentionDays,
+        };
+      })(),
     },
     channel: channelConfig,
     channels: channelsConfig,

@@ -41,6 +41,7 @@ import { QuotaManager } from "./weixin/messaging/quota-manager";
 export interface RuntimePaths {
   configPath: string;
   statePath: string;
+  perfLogPath?: string;
   orchestrationSocketPath?: string;
 }
 
@@ -51,6 +52,7 @@ export interface AppRuntime {
   stateStore: StateStore;
   configStore: ConfigStore;
   logger: AppLogger;
+  perfTracer: PerfTracer;
   quota: QuotaManager;
   transport: SessionTransport;
   orchestration: {
@@ -116,6 +118,7 @@ function startProgressHeartbeat(
   }, 60_000);
 }
 
+import { createPerfTracer, createNoopPerfTracer, type PerfTracer } from "./perf/perf-tracer";
 import { bootstrapBuiltinChannels } from "./channels/bootstrap.js";
 
 export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Promise<AppRuntime> {
@@ -134,6 +137,17 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     now: deps.loggerNow,
   });
   await logger.cleanup();
+  const perfLogPath = paths.perfLogPath ?? resolvePerfLogPath(paths.configPath);
+  const perfTracer: PerfTracer = config.logging.perf.enabled
+    ? createPerfTracer({
+        filePath: perfLogPath,
+        maxSizeBytes: config.logging.perf.maxSizeBytes,
+        maxFiles: config.logging.perf.maxFiles,
+        retentionDays: config.logging.perf.retentionDays,
+        appLogger: logger,
+      })
+    : createNoopPerfTracer();
+  await perfTracer.cleanup();
   const acpxCommand = resolveAcpxCommand({ configuredCommand: config.transport.command });
   const stateStore = new StateStore(paths.statePath);
   const state = await stateStore.load();
@@ -600,6 +614,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     stateStore,
     configStore,
     logger,
+    perfTracer,
     quota,
     transport,
     orchestration: {
@@ -615,6 +630,13 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
       await debouncedStateStore.dispose();
       if ("dispose" in transport && typeof transport.dispose === "function") {
         await transport.dispose();
+      }
+      try {
+        await perfTracer.flush();
+      } catch (err) {
+        await logger.error("perf.flush_failed", "perf tracer flush failed during shutdown", {
+          error: err instanceof Error ? err.message : String(err),
+        }).catch(() => {});
       }
       await logger.flush();
     },
@@ -687,6 +709,7 @@ export function resolveRuntimePaths(): RuntimePaths {
   return {
     configPath,
     statePath: process.env.WEACPX_STATE ?? `${home}/.weacpx/state.json`,
+    perfLogPath: join(runtimeDir, "perf.log"),
     orchestrationSocketPath:
       process.env.WEACPX_ORCHESTRATION_SOCKET ?? resolveDaemonOrchestrationSocketPath(runtimeDir),
   };
@@ -706,6 +729,12 @@ function resolveAppLogPath(configPath: string): string {
   return join(runtimeDir, "app.log");
 }
 
+function resolvePerfLogPath(configPath: string): string {
+  const rootDir = dirname(configPath);
+  const runtimeDir = join(rootDir, "runtime");
+  return join(runtimeDir, "perf.log");
+}
+
 function resolveOrchestrationSocketPathFromConfigPath(configPath: string): string {
   const runtimeDir = resolveRuntimeDirFromConfigPath(configPath);
   return resolveDaemonOrchestrationSocketPath(runtimeDir);
@@ -715,4 +744,3 @@ function resolveOrchestrationSocketPathFromConfigPath(configPath: string): strin
 function shouldNotifyTaskCompletion(task: OrchestrationTaskRecord): boolean {
   return Boolean(task.chatKey && task.replyContextToken && (task.status === "completed" || task.status === "failed"));
 }
-

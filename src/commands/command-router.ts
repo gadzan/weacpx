@@ -1,10 +1,11 @@
 
-import type { AppConfig } from "../config/types";
+import type { AppConfig, TransportConfig } from "../config/types";
 import type { AppLogger } from "../logging/app-logger";
 import { createNoopAppLogger } from "../logging/app-logger";
 import type { SessionService } from "../sessions/session-service";
 import type { PromptMediaInput, ReplyQuotaContext, SessionTransport } from "../transport/types";
 import type { ResolvedSession } from "../transport/types";
+import type { PerfSpan } from "../perf/perf-tracer";
 import type { QuotaManager } from "../weixin/messaging/quota-manager.js";
 import { resolveSessionAgentCommandFromIndex, type SessionAgentCommandResolver } from "../transport/acpx-session-index";
 import { PromptCommandError } from "../transport/prompt-output";
@@ -116,6 +117,7 @@ export class CommandRouter {
     metadata?: ChatRequestMetadata,
     abortSignal?: AbortSignal,
     onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
+    perfSpan?: PerfSpan,
   ): Promise<RouterResponse> {
     const startedAt = Date.now();
     const command = parseCommand(input);
@@ -125,6 +127,7 @@ export class CommandRouter {
     });
 
     const access = authorizeCommandForChat(command, metadata);
+    perfSpan?.mark("router.authorized", { decision: access.allowed ? "allow" : "deny" });
     if (!access.allowed) {
       await this.logger.info("command.blocked", "blocked command by chat policy", {
         chatKey,
@@ -137,6 +140,7 @@ export class CommandRouter {
     }
 
     await this.refreshConfigFromStore();
+    perfSpan?.mark("router.config_refreshed");
 
     return await this.executeCommand(chatKey, command.kind, startedAt, async () => {
       switch (command.kind) {
@@ -179,22 +183,22 @@ export class CommandRouter {
         case "workspace.rm":
           return await handleWorkspaceRemove(this.createHandlerContext(), command.name);
         case "sessions":
-          return await handleSessions(this.createSessionHandlerContext(), chatKey);
+          return await handleSessions(this.createSessionHandlerContext(undefined, perfSpan), chatKey);
         case "session.new":
           return await handleSessionNew(
-            this.createSessionHandlerContext(reply),
+            this.createSessionHandlerContext(reply, perfSpan),
             chatKey,
             command.alias,
             command.agent,
             command.workspace,
           );
         case "session.shortcut":
-          return await handleSessionShortcut(this.createSessionHandlerContext(reply), chatKey, command.agent, command, false);
+          return await handleSessionShortcut(this.createSessionHandlerContext(reply, perfSpan), chatKey, command.agent, command, false);
         case "session.shortcut.new":
-          return await handleSessionShortcut(this.createSessionHandlerContext(reply), chatKey, command.agent, command, true);
+          return await handleSessionShortcut(this.createSessionHandlerContext(reply, perfSpan), chatKey, command.agent, command, true);
         case "session.attach":
           return await handleSessionAttach(
-            this.createSessionHandlerContext(reply),
+            this.createSessionHandlerContext(reply, perfSpan),
             chatKey,
             command.alias,
             command.agent,
@@ -202,25 +206,25 @@ export class CommandRouter {
             command.transportSession,
           );
         case "session.use":
-          return await handleSessionUse(this.createSessionHandlerContext(), chatKey, command.alias);
+          return await handleSessionUse(this.createSessionHandlerContext(undefined, perfSpan), chatKey, command.alias);
         case "mode.show":
-          return await handleModeShow(this.createSessionHandlerContext(), chatKey);
+          return await handleModeShow(this.createSessionHandlerContext(undefined, perfSpan), chatKey);
         case "mode.set":
-          return await handleModeSet(this.createSessionHandlerContext(), chatKey, command.modeId);
+          return await handleModeSet(this.createSessionHandlerContext(undefined, perfSpan), chatKey, command.modeId);
         case "replymode.show":
-          return await handleReplyModeShow(this.createSessionHandlerContext(), chatKey);
+          return await handleReplyModeShow(this.createSessionHandlerContext(undefined, perfSpan), chatKey);
         case "replymode.set":
-          return await handleReplyModeSet(this.createSessionHandlerContext(), chatKey, command.replyMode);
+          return await handleReplyModeSet(this.createSessionHandlerContext(undefined, perfSpan), chatKey, command.replyMode);
         case "replymode.reset":
-          return await handleReplyModeReset(this.createSessionHandlerContext(), chatKey);
+          return await handleReplyModeReset(this.createSessionHandlerContext(undefined, perfSpan), chatKey);
         case "status":
-          return await handleStatus(this.createSessionHandlerContext(), chatKey);
+          return await handleStatus(this.createSessionHandlerContext(undefined, perfSpan), chatKey);
         case "cancel":
-          return await handleCancel(this.createSessionHandlerContext(), chatKey);
+          return await handleCancel(this.createSessionHandlerContext(undefined, perfSpan), chatKey);
         case "session.reset":
-          return await handleSessionReset(this.createSessionHandlerContext(reply), chatKey);
+          return await handleSessionReset(this.createSessionHandlerContext(reply, perfSpan), chatKey);
         case "session.rm":
-          return await handleSessionRemove(this.createSessionHandlerContext(), chatKey, command.alias);
+          return await handleSessionRemove(this.createSessionHandlerContext(undefined, perfSpan), chatKey, command.alias);
         case "groups":
           return await handleGroupList(this.createHandlerContext(), chatKey, command.filter);
         case "group.new":
@@ -265,7 +269,7 @@ export class CommandRouter {
           return await handleTaskCancel(this.createHandlerContext(), chatKey, command.taskId);
         case "prompt":
           return await handlePrompt(
-            this.createSessionHandlerContext(),
+            this.createSessionHandlerContext(undefined, perfSpan),
             chatKey,
             command.text,
             reply,
@@ -274,6 +278,7 @@ export class CommandRouter {
             media,
             abortSignal,
             onToolEvent,
+            perfSpan,
           );
       }
     });
@@ -296,26 +301,27 @@ export class CommandRouter {
     };
   }
 
-  private createSessionHandlerContext(reply?: (text: string) => Promise<void>): SessionHandlerContext {
+  private createSessionHandlerContext(reply?: (text: string) => Promise<void>, perfSpan?: PerfSpan): SessionHandlerContext {
     return {
       ...this.createHandlerContext(),
-      lifecycle: this.createSessionLifecycleOps(reply),
-      interaction: this.createSessionInteractionOps(),
+      lifecycle: this.createSessionLifecycleOps(reply, perfSpan),
+      interaction: this.createSessionInteractionOps(perfSpan),
       recovery: this.createSessionRenderRecoveryOps(),
     };
   }
 
 
-  private createSessionLifecycleOps(reply?: (text: string) => Promise<void>): SessionLifecycleOps {
+  private createSessionLifecycleOps(reply?: (text: string) => Promise<void>, perfSpan?: PerfSpan): SessionLifecycleOps {
     return {
       resolveSession: (alias, agent, workspace, transportSession) =>
         this.sessions.resolveSession(alias, agent, workspace, transportSession),
-      ensureTransportSession: (session, replyOverride) => this.ensureTransportSession(session, replyOverride ?? reply),
+      ensureTransportSession: (session, replyOverride, perfSpanOverride) => this.ensureTransportSession(session, replyOverride ?? reply, perfSpanOverride ?? perfSpan),
       checkTransportSession: (session) => this.checkTransportSession(session),
+      markSessionReady: () => perfSpan?.mark("session.ready"),
       reserveTransportSession: (transportSession) => this.reserveLogicalTransportSession(transportSession),
       handleSessionShortcut: async (chatKey, agent, target, createNew, replyOverride) => {
         try {
-          return await handleSessionShortcutCommand(this.createHandlerContext(), this.createSessionShortcutOps(replyOverride ?? reply), chatKey, agent, target, createNew);
+          return await handleSessionShortcutCommand(this.createHandlerContext(), this.createSessionShortcutOps(replyOverride ?? reply, perfSpan), chatKey, agent, target, createNew);
         } catch (err) {
           if (err instanceof AutoInstallFailedError) {
             // Find a dummy session for rendering — use agent/workspace as best-effort
@@ -325,17 +331,17 @@ export class CommandRouter {
           throw err;
         }
       },
-      resetCurrentSession: (chatKey, replyOverride) => handleSessionResetCommand(this.createHandlerContext(), this.createSessionResetOps(replyOverride ?? reply), chatKey),
+      resetCurrentSession: (chatKey, replyOverride) => handleSessionResetCommand(this.createHandlerContext(), this.createSessionResetOps(replyOverride ?? reply, perfSpan), chatKey),
       refreshSessionTransportAgentCommand: (alias) => this.refreshSessionTransportAgentCommand(alias),
     };
   }
 
-  private createSessionInteractionOps(): SessionInteractionOps {
+  private createSessionInteractionOps(perfSpan?: PerfSpan): SessionInteractionOps {
     return {
       setModeTransportSession: (session, modeId) => this.setModeTransportSession(session, modeId),
       cancelTransportSession: (session) => this.cancelTransportSession(session),
-      promptTransportSession: (session, text, reply, replyContext, media, abortSignal, onToolEvent) =>
-        this.promptTransportSession(session, text, reply, replyContext, media, abortSignal, onToolEvent),
+      promptTransportSession: (session, text, reply, replyContext, media, abortSignal, onToolEvent, perfSpanOverride) =>
+        this.promptTransportSession(session, text, reply, replyContext, media, abortSignal, onToolEvent, perfSpanOverride ?? perfSpan),
     };
   }
 
@@ -348,9 +354,9 @@ export class CommandRouter {
     };
   }
 
-  private createSessionResetOps(reply?: (text: string) => Promise<void>): SessionResetOps {
+  private createSessionResetOps(reply?: (text: string) => Promise<void>, perfSpan?: PerfSpan): SessionResetOps {
     return {
-      ensureTransportSession: (session, replyOverride) => this.ensureTransportSession(session, replyOverride ?? reply),
+      ensureTransportSession: (session, replyOverride, perfSpanOverride) => this.ensureTransportSession(session, replyOverride ?? reply, perfSpanOverride ?? perfSpan),
       checkTransportSession: (session) => this.checkTransportSession(session),
       reserveTransportSession: (transportSession) => this.reserveLogicalTransportSession(transportSession),
       resolveSession: (alias, agent, workspace, transportSession) =>
@@ -368,11 +374,11 @@ export class CommandRouter {
     };
   }
 
-  private createSessionShortcutOps(reply?: (text: string) => Promise<void>): SessionShortcutOps {
+  private createSessionShortcutOps(reply?: (text: string) => Promise<void>, perfSpan?: PerfSpan): SessionShortcutOps {
     return {
       resolveSession: (alias, agent, workspace, transportSession) =>
         this.sessions.resolveSession(alias, agent, workspace, transportSession),
-      ensureTransportSession: (session, replyOverride) => this.ensureTransportSession(session, replyOverride ?? reply),
+      ensureTransportSession: (session, replyOverride, perfSpanOverride) => this.ensureTransportSession(session, replyOverride ?? reply, perfSpanOverride ?? perfSpan),
       checkTransportSession: (session) => this.checkTransportSession(session),
       reserveTransportSession: (transportSession) => this.reserveLogicalTransportSession(transportSession),
       refreshSessionTransportAgentCommand: (alias) => this.refreshSessionTransportAgentCommand(alias),
@@ -451,6 +457,7 @@ export class CommandRouter {
   private async ensureTransportSession(
     session: ResolvedSession,
     reply?: (text: string) => Promise<void>,
+    perfSpan?: PerfSpan,
   ): Promise<void> {
     const attemptSession = (operation: string): Promise<void> => {
       const { handler, dispose } = this.createProgressHandler(session, reply);
@@ -461,6 +468,7 @@ export class CommandRouter {
 
     try {
       await attemptSession("ensure_session");
+      perfSpan?.mark("session.ready");
     } catch (err) {
       if (!(err instanceof MissingOptionalDepError)) throw err;
       await reply?.(`📦 检测到缺失依赖 \`${err.package}\`，正在自动安装…`);
@@ -473,6 +481,7 @@ export class CommandRouter {
           await reply?.(`🔄 安装完成，正在验证会话启动…`);
           try {
             await attemptSession("ensure_session.verify");
+            perfSpan?.mark("session.ready");
             return true;
           } catch (retryErr) {
             if (retryErr instanceof MissingOptionalDepError) return false;
@@ -558,14 +567,17 @@ export class CommandRouter {
     media?: PromptMediaInput,
     abortSignal?: AbortSignal,
     onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
+    perfSpan?: PerfSpan,
   ) {
     session.mcpCoordinatorSession ??= session.transportSession;
     // `done` closes the race window between prompt resolving and the abort
     // listener firing: once we're in finally we suppress any late abort so
     // it can't cancel a *follow-up* prompt that happens to reuse this session.
     let done = false;
+    let abortRequested = false;
     let cancelOnAbort: (() => void) | undefined;
     const fireCancel = (): void => {
+      abortRequested = true;
       if (done) return;
       try {
         const result = this.transport.cancel(session);
@@ -588,26 +600,49 @@ export class CommandRouter {
         });
       }
     };
+    let localOutcome: "ok" | "error" | "aborted" = "ok";
     if (abortSignal) {
       if (abortSignal.aborted) {
         // Already aborted before we even started — don't pre-emptively call
         // cancel (the transport hasn't seen a prompt yet on this session
         // necessarily, and some transports throw on cancel-without-active).
-        // Instead, throw immediately so caller can render an aborted reply.
-        done = true;
+        // Instead, enter the unified try/finally path so perf records the
+        // aborted prompt lifecycle, then throw before dispatching transport.prompt.
+        abortRequested = true;
+      } else {
+        cancelOnAbort = fireCancel;
+        abortSignal.addEventListener("abort", cancelOnAbort, { once: true });
+      }
+    }
+    let firstChunkFired = false;
+    const onSegment = (_segment: string): void => {
+      if (!firstChunkFired) {
+        firstChunkFired = true;
+        perfSpan?.mark("transport.first_chunk");
+      }
+    };
+    try {
+      if (abortRequested) {
         throw new DOMException("Aborted before prompt started", "AbortError");
       }
-      cancelOnAbort = fireCancel;
-      abortSignal.addEventListener("abort", cancelOnAbort, { once: true });
-    }
-    try {
+      perfSpan?.mark("transport.prompt_dispatched", {
+        transportKind: this.config?.transport.type ?? inferTransportKind(this.transport),
+      });
       return await this.measureTransportCall("prompt", session, () =>
         this.transport.prompt(session, text, reply, replyContext, {
           ...(media ? { media } : {}),
+          ...(reply ? { onSegment } : {}),
           ...(onToolEvent ? { onToolEvent } : {}),
         }),
       );
+    } catch (error) {
+      localOutcome = isAbortError(error) || abortRequested ? "aborted" : "error";
+      throw error;
     } finally {
+      if (abortRequested && localOutcome === "ok") {
+        localOutcome = "aborted";
+      }
+      perfSpan?.mark("transport.prompt_done", { localOutcome });
       done = true;
       if (cancelOnAbort && abortSignal) {
         abortSignal.removeEventListener("abort", cancelOnAbort);
@@ -680,4 +715,12 @@ export class CommandRouter {
       throw error;
     }
   }
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+function inferTransportKind(transport: SessionTransport): TransportConfig["type"] {
+  return transport.constructor.name.includes("Bridge") ? "acpx-bridge" : "acpx-cli";
 }

@@ -2,6 +2,7 @@ import type { Agent as ChatAgent } from "../weixin/agent/interface.js";
 import type { OrchestrationTaskRecord } from "../orchestration/orchestration-types.js";
 import type { AppLogger } from "../logging/app-logger.js";
 import type { PendingFinalChunk } from "../weixin/messaging/quota-manager.js";
+import type { PerfTracer } from "../perf/perf-tracer.js";
 
 export type { ChatAgent };
 
@@ -30,6 +31,7 @@ export interface ChannelStartInput {
   abortSignal: AbortSignal;
   quota: OutboundQuota;
   logger: AppLogger;
+  perfTracer?: PerfTracer;
 }
 
 export interface OrchestrationDeliveryCallbacks {

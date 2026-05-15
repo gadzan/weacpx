@@ -5,6 +5,7 @@ import { createNoopAppLogger } from "./logging/app-logger";
 import { normalizeMediaArray } from "./channels/media-types.js";
 import { isKnownWeacpxCommandText } from "./commands/command-list";
 import type { ToolUseEvent } from "./channels/types.js";
+import type { PerfSpan } from "./perf/perf-tracer";
 
 interface RouterLike {
   handle(
@@ -17,6 +18,7 @@ interface RouterLike {
     metadata?: ChatRequestMetadata,
     abortSignal?: AbortSignal,
     onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
+    perfSpan?: PerfSpan,
   ): Promise<ChatResponse>;
   clearSession?: (chatKey: string) => Promise<void>;
 }
@@ -48,6 +50,7 @@ export class ConsoleAgent implements WechatAgent {
       ...(m.fileName ? { fileName: m.fileName } : {}),
     })) : undefined;
 
+    request.perfSpan?.mark("agent.dispatched");
     return await this.router.handle(
       request.conversationId,
       request.text,
@@ -58,6 +61,7 @@ export class ConsoleAgent implements WechatAgent {
       request.metadata,
       request.abortSignal,
       request.onToolEvent,
+      request.perfSpan,
     );
   }
 
