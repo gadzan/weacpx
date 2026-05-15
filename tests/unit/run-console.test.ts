@@ -126,58 +126,77 @@ test("runs the foreground service with daemon lifecycle hooks", async () => {
   expect(purgeInput).toEqual({ cutoffDays: 7, trigger: "startup" });
 });
 
-test("still stops daemon runtime when startup fails", async () => {
+test("daemon mode keeps running when channel startup fails until shutdown", async () => {
   const events: string[] = [];
+  const signalHandlers = new Map<string, () => void>();
+  let settled = false;
 
-  await expect(
-    runConsole(
-      {
-        configPath: "/cfg",
-        statePath: "/state",
-      },
-      {
-        buildApp: async () => ({
-          agent: {} as never,
-          router: {} as never,
-          sessions: {} as never,
-          stateStore: {} as never,
-          configStore: {} as never,
-          logger: createNoopAppLogger(),
-          orchestration: {
-            server: {
-              start: async () => {
-                events.push("orchestration:start");
-              },
-              stop: async () => {
-                events.push("orchestration:stop");
-              },
+  const runPromise = runConsole(
+    {
+      configPath: "/cfg",
+      statePath: "/state",
+    },
+    {
+      buildApp: async () => ({
+        agent: {} as never,
+        router: {} as never,
+        sessions: {} as never,
+        stateStore: {} as never,
+        configStore: {} as never,
+        logger: createNoopAppLogger(),
+        orchestration: {
+          server: {
+            start: async () => {
+              events.push("orchestration:start");
+            },
+            stop: async () => {
+              events.push("orchestration:stop");
             },
           },
-          dispose: async () => {
-            events.push("dispose");
-          },
-        }),
-        channels: {
-          startAll: async () => {
-            throw new Error("boom");
-          },
         },
-        daemonRuntime: {
-          start: async () => {
-            events.push("daemon:start");
-          },
-          heartbeat: async () => {
-            events.push("daemon:heartbeat");
-          },
-          stop: async () => {
-            events.push("daemon:stop");
-          },
+        dispose: async () => {
+          events.push("dispose");
+        },
+      }),
+      channels: {
+        startAll: async () => {
+          events.push("channel:start");
+          throw new Error("boom");
         },
       },
-    ),
-  ).rejects.toThrow("boom");
+      daemonRuntime: {
+        start: async () => {
+          events.push("daemon:start");
+        },
+        heartbeat: async () => {
+          events.push("daemon:heartbeat");
+        },
+        stop: async () => {
+          events.push("daemon:stop");
+        },
+      },
+      addProcessListener: (signal, handler) => {
+        signalHandlers.set(signal, handler);
+      },
+      removeProcessListener: (signal, handler) => {
+        if (signalHandlers.get(signal) === handler) {
+          signalHandlers.delete(signal);
+        }
+      },
+    },
+  ).finally(() => {
+    settled = true;
+  });
 
-  expect(events).toEqual(["daemon:start", "orchestration:start", "orchestration:stop", "dispose", "daemon:stop"]);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(settled).toBe(false);
+  expect(events).toEqual(["daemon:start", "orchestration:start", "channel:start"]);
+
+  signalHandlers.get("SIGTERM")?.();
+  await runPromise;
+
+  expect(events).toEqual(["daemon:start", "orchestration:start", "channel:start", "orchestration:stop", "dispose", "daemon:stop"]);
+  expect(signalHandlers.size).toBe(0);
 });
 
 test("disposes runtime when loading the sdk fails before startup", async () => {

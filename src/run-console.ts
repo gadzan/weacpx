@@ -158,12 +158,24 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
       );
     }
 
-    await deps.channels.startAll({
-      agent: runtime.agent,
-      abortSignal: shutdownController.signal,
-      quota: runtime.quota,
-      logger: runtime.logger,
-    });
+    try {
+      await deps.channels.startAll({
+        agent: runtime.agent,
+        abortSignal: shutdownController.signal,
+        quota: runtime.quota,
+        logger: runtime.logger,
+      });
+    } catch (error) {
+      if (!deps.daemonRuntime) {
+        throw error;
+      }
+      await runtime.logger.error(
+        "daemon.channels.start_failed",
+        "all channels failed to start; daemon remains alive for orchestration IPC",
+        { error: error instanceof Error ? error.message : String(error) },
+      );
+      await waitForShutdown(shutdownController.signal);
+    }
   } finally {
     await runCleanupSequence({
       removeProcessListener,
@@ -180,6 +192,15 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
       daemonRuntimeStarted,
     });
   }
+}
+
+async function waitForShutdown(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    signal.addEventListener("abort", () => resolve(), { once: true });
+  });
 }
 
 async function runCleanupSequence(input: RunCleanupSequenceInput): Promise<void> {
