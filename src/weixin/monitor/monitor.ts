@@ -6,6 +6,7 @@ import { createConversationExecutor } from "../messaging/conversation-executor.j
 import { getWeixinMessageTurnLane, handleWeixinMessageTurn } from "../messaging/handle-weixin-message-turn.js";
 import type { PendingFinalChunk } from "../messaging/quota-manager.js";
 import type { RuntimeMediaStore } from "../../channels/media-store.js";
+import type { PerfTracer } from "../../perf/perf-tracer.js";
 import { MessageItemType, type MessageItem } from "../api/types.js";
 import { getSyncBufFilePath, loadGetUpdatesBuf, saveGetUpdatesBuf } from "../storage/sync-buf.js";
 import { logger } from "../util/logger.js";
@@ -41,6 +42,7 @@ export type MonitorWeixinOpts = {
   dropPendingFinal?: (chatKey: string) => void;
   mediaStore?: RuntimeMediaStore;
   allowedMediaRoots?: string[];
+  perfTracer?: PerfTracer;
 };
 
 function extractInboundText(itemList?: MessageItem[]): string {
@@ -239,6 +241,7 @@ export async function monitorWeixinProvider(opts: MonitorWeixinOpts): Promise<vo
                 : {}),
               ...(opts.mediaStore ? { mediaStore: opts.mediaStore } : {}),
               ...(opts.allowedMediaRoots ? { allowedMediaRoots: opts.allowedMediaRoots } : {}),
+              ...(opts.perfTracer ? { perfTracer: opts.perfTracer } : {}),
             }),
           )
           .catch((err) => {

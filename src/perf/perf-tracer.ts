@@ -77,6 +77,7 @@ export function createPerfTracer(options: CreatePerfTracerOptions): PerfTracer {
   const randomId = options.randomId ?? defaultRandomId;
   const formatLine = options.formatLine ?? defaultFormatLine;
   const formatSummary = options.formatSummaryLine ?? defaultFormatSummaryLine;
+  let disabled = false;
 
   const writer: PerfLogWriter = createPerfLogWriter({
     filePath: options.filePath,
@@ -84,20 +85,26 @@ export function createPerfTracer(options: CreatePerfTracerOptions): PerfTracer {
     maxFiles: options.maxFiles,
     retentionDays: options.retentionDays,
     onPermanentFailure: (info) => {
-      void options.appLogger.error(
-        "perf.disabled_due_to_io_error",
-        "perf logging disabled after repeated IO failures",
-        {
-          perfLogPath: info.perfLogPath,
-          failureCount: info.failureCount,
-          lastError: info.lastError,
-        },
-      );
+      disabled = true;
+      void options.appLogger
+        .error(
+          "perf.disabled_due_to_io_error",
+          "perf logging disabled after repeated IO failures",
+          {
+            perfLogPath: info.perfLogPath,
+            failureCount: info.failureCount,
+            lastError: info.lastError,
+          },
+        )
+        .catch(() => {});
     },
   });
 
   return {
     async wrapTurn(seed, run) {
+      if (disabled) {
+        return run(NOOP_SPAN);
+      }
       const traceId = randomId();
       let startTime: number | undefined;
       const marks: Array<{ e: string; t: number }> = [];
@@ -108,6 +115,7 @@ export function createPerfTracer(options: CreatePerfTracerOptions): PerfTracer {
       const span: PerfSpan = {
         traceId,
         mark(event, context) {
+          if (disabled) return;
           try {
             const t = now();
             if (startTime === undefined) {
@@ -146,27 +154,29 @@ export function createPerfTracer(options: CreatePerfTracerOptions): PerfTracer {
         throw err;
       } finally {
         try {
-          let outcome: SpanOutcome;
-          if (explicitOutcome !== undefined) {
-            outcome = explicitOutcome;
-          } else if (thrown !== undefined) {
-            outcome = "error";
-          } else {
-            outcome = "ok";
+          if (!disabled) {
+            let outcome: SpanOutcome;
+            if (explicitOutcome !== undefined) {
+              outcome = explicitOutcome;
+            } else if (thrown !== undefined) {
+              outcome = "error";
+            } else {
+              outcome = "ok";
+            }
+            const t = now();
+            const effectiveStart = startTime ?? t;
+            const summary = formatSummary({
+              isoNow: isoNow(),
+              traceId,
+              chatKey: seed.chatKey,
+              kind: seed.kind,
+              outcome,
+              totalMs: Math.round(t - effectiveStart),
+              marks,
+              outcomeContext,
+            });
+            writer.enqueue(summary);
           }
-          const t = now();
-          const effectiveStart = startTime ?? t;
-          const summary = formatSummary({
-            isoNow: isoNow(),
-            traceId,
-            chatKey: seed.chatKey,
-            kind: seed.kind,
-            outcome,
-            totalMs: Math.round(t - effectiveStart),
-            marks,
-            outcomeContext,
-          });
-          writer.enqueue(summary);
         } catch {
           // never let perf-internal errors mask the business exception
         }

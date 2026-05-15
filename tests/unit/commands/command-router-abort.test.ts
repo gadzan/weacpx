@@ -116,3 +116,71 @@ test("CommandRouter.handle does NOT call transport.cancel when abort fires after
   await new Promise((r) => setTimeout(r, 10));
   expect(getCancelMock(transport).mock.calls.length).toBe(0);
 });
+
+test("CommandRouter.handle marks prompt_done aborted when signal is already aborted", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport);
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
+
+  const marks: Array<{ event: string; context?: Record<string, unknown> }> = [];
+  const perfSpan = {
+    traceId: "trace-abort",
+    mark: (event: string, context?: Record<string, unknown>) => marks.push({ event, context }),
+    setOutcome: () => {},
+  };
+  const controller = new AbortController();
+  controller.abort();
+
+  await expect(
+    router.handle("wx:user", "ignored", undefined, undefined, undefined, undefined, undefined, controller.signal, undefined, perfSpan),
+  ).rejects.toThrow();
+
+  expect(marks.at(-1)).toEqual({ event: "transport.prompt_done", context: { localOutcome: "aborted" } });
+});
+
+test("CommandRouter.handle marks prompt_done aborted when abort fires during a prompt that resolves", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+
+  let resolvePrompt = (): void => {};
+  const promptStarted = new Promise<void>((resolve) => {
+    transport.prompt = mock(async () => {
+      resolve();
+      await new Promise<void>((r) => {
+        resolvePrompt = r;
+      });
+      return { text: "agent done" };
+    });
+  });
+
+  const router = new CommandRouter(sessions, transport);
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
+
+  const marks: Array<{ event: string; context?: Record<string, unknown> }> = [];
+  const perfSpan = {
+    traceId: "trace-abort",
+    mark: (event: string, context?: Record<string, unknown>) => marks.push({ event, context }),
+    setOutcome: () => {},
+  };
+  const controller = new AbortController();
+  const inflight = router.handle(
+    "wx:user",
+    "long running prompt",
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    controller.signal,
+    undefined,
+    perfSpan,
+  );
+  await promptStarted;
+  controller.abort();
+  await new Promise((r) => setTimeout(r, 5));
+  resolvePrompt();
+  await inflight;
+
+  expect(marks.at(-1)).toEqual({ event: "transport.prompt_done", context: { localOutcome: "aborted" } });
+});

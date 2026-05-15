@@ -208,6 +208,9 @@ Session 是你在微信里操作的逻辑会话。每个会话绑定一个 agent
 - `logging.maxSizeBytes`
 - `logging.maxFiles`
 - `logging.retentionDays`
+
+说明：性能 debug 日志 `logging.perf.*` 目前不在 `/config set` 白名单内；请直接编辑 `~/.weacpx/config.json`，并重启 daemon 后生效。详见 [config-reference.md](./config-reference.md#loggingperf)。
+
 - `channel.type`
 - `channel.replyMode`
 - `agents.<name>.driver`

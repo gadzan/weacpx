@@ -163,6 +163,7 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
       abortSignal: shutdownController.signal,
       quota: runtime.quota,
       logger: runtime.logger,
+      perfTracer: runtime.perfTracer,
     });
   } finally {
     await runCleanupSequence({

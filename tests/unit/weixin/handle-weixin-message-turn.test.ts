@@ -29,6 +29,300 @@ function makeMessage(text: string, contextToken = "ctx-token-123"): WeixinMessag
   };
 }
 
+test("handleWeixinMessageTurn wraps turns with perf tracer and emits reply marks", async () => {
+  const sentTexts: string[] = [];
+  const marks: Array<{ event: string; context?: Record<string, unknown> }> = [];
+  const wrapSeeds: unknown[] = [];
+
+  mock.module("../../../src/weixin/messaging/send.ts", () => ({
+    markdownToPlainText: (text: string) => text,
+    sendMessageWeixin: async ({ text }: { text: string }) => {
+      sentTexts.push(text);
+      return { messageId: `msg-${sentTexts.length}` };
+    },
+  }));
+
+  try {
+    const { handleWeixinMessageTurn: handleWithMock } = await import(
+      "../../../src/weixin/messaging/handle-weixin-message-turn"
+    );
+
+    const agent: Agent = {
+      async chat(request): Promise<ChatResponse> {
+        expect(request.perfSpan?.traceId).toBe("trace-test");
+        await request.reply?.("mid progress");
+        return { text: "final answer" };
+      },
+    };
+
+    await handleWithMock(makeMessage("hello"), {
+      accountId: "test-account",
+      agent,
+      baseUrl: "https://example.com",
+      cdnBaseUrl: "https://cdn.example.com",
+      token: "test-token",
+      log: () => {},
+      errLog: () => {},
+      perfTracer: {
+        async wrapTurn(seed, run) {
+          wrapSeeds.push(seed);
+          return run({
+            traceId: "trace-test",
+            mark: (event, context) => marks.push({ event, context }),
+            setOutcome: () => {},
+          });
+        },
+        async flush() {},
+        async cleanup() {},
+      },
+    });
+
+    expect(wrapSeeds).toEqual([{ chatKey: "weixin:test-account:test-user", kind: "prompt" }]);
+    expect(sentTexts).toEqual(["mid progress", "final answer"]);
+    expect(marks.map((m) => m.event)).toEqual([
+      "turn.received",
+      "reply.mid_first_sent",
+      "reply.final_first_sent",
+      "reply.final_done",
+    ]);
+    expect(marks[0]!.context).toMatchObject({ textLen: 5, hasMedia: false, mediaCount: 0 });
+    expect(marks.at(-1)!.context).toMatchObject({ chunksSent: 1, chunksPending: 0, dropped: false });
+  } finally {
+    mock.restore();
+  }
+});
+
+test("handled slash commands still produce a perf turn with only turn.received", async () => {
+  const marks: string[] = [];
+  const seeds: unknown[] = [];
+  mock.module("../../../src/weixin/messaging/slash-commands.ts", () => ({
+    handleSlashCommand: async () => ({ handled: true }),
+  }));
+
+  try {
+    const { handleWeixinMessageTurn: handleWithMock } = await import(
+      "../../../src/weixin/messaging/handle-weixin-message-turn"
+    );
+
+    const agent: Agent = {
+      async chat(): Promise<ChatResponse> {
+        throw new Error("should not call agent");
+      },
+    };
+
+    await handleWithMock(makeMessage("/help"), {
+      accountId: "test-account",
+      agent,
+      baseUrl: "https://example.com",
+      cdnBaseUrl: "https://cdn.example.com",
+      token: "test-token",
+      log: () => {},
+      errLog: () => {},
+      perfTracer: {
+        async wrapTurn(seed, run) {
+          seeds.push(seed);
+          return run({ traceId: "t", mark: (event) => marks.push(event), setOutcome: () => {} });
+        },
+        async flush() {},
+        async cleanup() {},
+      },
+    });
+
+    expect(seeds).toEqual([{ chatKey: "weixin:test-account:test-user", kind: "command" }]);
+    expect(marks).toEqual(["turn.received"]);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("handleWeixinMessageTurn sets perf outcome to error when agent turn fails", async () => {
+  const outcomes: Array<{ outcome: string; context?: Record<string, unknown> }> = [];
+  const agent: Agent = {
+    async chat(): Promise<ChatResponse> {
+      throw new Error("agent exploded");
+    },
+  };
+
+  await handleWeixinMessageTurn(makeMessage("hello", undefined), {
+    accountId: "test-account",
+    agent,
+    baseUrl: "https://example.com",
+    cdnBaseUrl: "https://cdn.example.com",
+    token: "test-token",
+    log: () => {},
+    errLog: () => {},
+    perfTracer: {
+      async wrapTurn(_seed, run) {
+        return run({
+          traceId: "trace-error",
+          mark: () => {},
+          setOutcome: (outcome, context) => outcomes.push({ outcome, context }),
+        });
+      },
+      async flush() {},
+      async cleanup() {},
+    },
+  });
+
+  expect(outcomes).toEqual([{ outcome: "error", context: { reason: "turn_error" } }]);
+});
+
+test("handleWeixinMessageTurn sets perf outcome to aborted and skips error notice on AbortError", async () => {
+  const outcomes: Array<{ outcome: string; context?: Record<string, unknown> }> = [];
+  const sentTexts: string[] = [];
+  const logs: string[] = [];
+
+  mock.module("../../../src/weixin/messaging/send.ts", () => ({
+    markdownToPlainText: (text: string) => text,
+    sendMessageWeixin: async ({ text }: { text: string }) => {
+      sentTexts.push(text);
+      return { messageId: `msg-${sentTexts.length}` };
+    },
+  }));
+
+  try {
+    const { handleWeixinMessageTurn: handleWithMock } = await import(
+      "../../../src/weixin/messaging/handle-weixin-message-turn"
+    );
+
+    const agent: Agent = {
+      async chat(): Promise<ChatResponse> {
+        throw new DOMException("user stopped", "AbortError");
+      },
+    };
+
+    await handleWithMock(makeMessage("hello"), {
+      accountId: "test-account",
+      agent,
+      baseUrl: "https://example.com",
+      cdnBaseUrl: "https://cdn.example.com",
+      token: "test-token",
+      log: (line) => logs.push(line),
+      errLog: () => {},
+      perfTracer: {
+        async wrapTurn(_seed, run) {
+          return run({
+            traceId: "trace-abort",
+            mark: () => {},
+            setOutcome: (outcome, context) => outcomes.push({ outcome, context }),
+          });
+        },
+        async flush() {},
+        async cleanup() {},
+      },
+    });
+
+    expect(outcomes).toEqual([{ outcome: "aborted", context: { reason: "user_cancel" } }]);
+    expect(sentTexts).toEqual([]);
+    expect(logs.some((line) => line.includes("turn aborted"))).toBe(true);
+  } finally {
+    mock.restore();
+  }
+});
+
+test("handleWeixinMessageTurn emits media perf marks for outbound media", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-perf-media-"));
+  const imgPath = join(dir, "photo.png");
+  await writeFile(imgPath, Buffer.from("89504e47", "hex"));
+  const marks: Array<{ event: string; context?: Record<string, unknown> }> = [];
+
+  mock.module("../../../src/weixin/messaging/send.ts", () => ({
+    markdownToPlainText: (text: string) => text,
+    sendMessageWeixin: async () => ({ messageId: "text-1" }),
+  }));
+  mock.module("../../../src/weixin/messaging/send-media.ts", () => ({
+    sendWeixinMediaFile: async () => ({ messageId: "media-1" }),
+  }));
+
+  const { handleWeixinMessageTurn: h } = await import(
+    "../../../src/weixin/messaging/handle-weixin-message-turn"
+  );
+  const agent: Agent = {
+    async chat(): Promise<ChatResponse> {
+      return { media: { kind: "image", filePath: imgPath } };
+    },
+  };
+
+  try {
+    await h(makeMessage("send media"), {
+      accountId: "test-account",
+      agent,
+      baseUrl: "https://example.com",
+      cdnBaseUrl: "https://cdn.example.com",
+      token: "test-token",
+      mediaTempDir: dir,
+      log: () => {},
+      errLog: () => {},
+      perfTracer: {
+        async wrapTurn(_seed, run) {
+          return run({
+            traceId: "trace-media",
+            mark: (event, context) => marks.push({ event, context }),
+            setOutcome: () => {},
+          });
+        },
+        async flush() {},
+        async cleanup() {},
+      },
+    });
+
+    expect(marks.find((m) => m.event === "reply.media_sent")?.context).toMatchObject({
+      kind: "image",
+      index: 1,
+      messageId: "media-1",
+    });
+    expect(marks.find((m) => m.event === "reply.media_done")?.context).toMatchObject({
+      mediaCount: 1,
+      sent: 1,
+      failed: 0,
+      rejected: 0,
+      dropped: 0,
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+    mock.restore();
+  }
+});
+
+test("handleWeixinMessageTurn emits media_done with rejected outbound media", async () => {
+  const marks: Array<{ event: string; context?: Record<string, unknown> }> = [];
+  const agent: Agent = {
+    async chat(): Promise<ChatResponse> {
+      return { media: { kind: "image", filePath: "https://evil.example.com/steal.png" } };
+    },
+  };
+
+  await handleWeixinMessageTurn(makeMessage("send media"), {
+    accountId: "test-account",
+    agent,
+    baseUrl: "https://example.com",
+    cdnBaseUrl: "https://cdn.example.com",
+    token: "test-token",
+    log: () => {},
+    errLog: () => {},
+    perfTracer: {
+      async wrapTurn(_seed, run) {
+        return run({
+          traceId: "trace-media",
+          mark: (event, context) => marks.push({ event, context }),
+          setOutcome: () => {},
+        });
+      },
+      async flush() {},
+      async cleanup() {},
+    },
+  });
+
+  expect(marks.some((m) => m.event === "reply.media_sent")).toBe(false);
+  expect(marks.find((m) => m.event === "reply.media_done")?.context).toMatchObject({
+    mediaCount: 1,
+    sent: 0,
+    failed: 0,
+    rejected: 1,
+    dropped: 0,
+  });
+});
+
 test("handleWeixinMessageTurn passes reply callback to agent.chat", async () => {
   let capturedReply: ((text: string) => Promise<void>) | undefined;
   let capturedReplyContextToken: string | undefined;

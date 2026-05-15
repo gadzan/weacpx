@@ -17,6 +17,7 @@ import {
 import { monitorWeixinProvider } from "./monitor/monitor.js";
 import type { PendingFinalChunk } from "./messaging/quota-manager.js";
 import type { RuntimeMediaStore } from "../channels/media-store.js";
+import type { PerfTracer } from "../perf/perf-tracer.js";
 import { logger } from "./util/logger.js";
 
 export type LoginOptions = {
@@ -49,6 +50,7 @@ export type StartOptions = {
   enqueuePendingFinal?: (chatKey: string, chunks: PendingFinalChunk[]) => void;
   dropPendingFinal?: (chatKey: string) => void;
   mediaStore?: RuntimeMediaStore;
+  perfTracer?: PerfTracer;
 };
 
 /**
@@ -181,5 +183,6 @@ export async function start(agent: Agent, opts?: StartOptions): Promise<void> {
     ...(opts?.enqueuePendingFinal ? { enqueuePendingFinal: opts.enqueuePendingFinal } : {}),
     ...(opts?.dropPendingFinal ? { dropPendingFinal: opts.dropPendingFinal } : {}),
     ...(opts?.mediaStore ? { mediaStore: opts.mediaStore } : {}),
+    ...(opts?.perfTracer ? { perfTracer: opts.perfTracer } : {}),
   });
 }

@@ -88,6 +88,7 @@ export class WeixinChannel implements MessageChannelRuntime {
       enqueuePendingFinal: (chatKey, chunks) =>
         input.quota.enqueuePendingFinal(chatKey, chunks),
       dropPendingFinal: (chatKey) => input.quota.clearPendingFinal(chatKey),
+      ...(input.perfTracer ? { perfTracer: input.perfTracer } : {}),
     });
   }
 

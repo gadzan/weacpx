@@ -41,6 +41,7 @@ import { QuotaManager } from "./weixin/messaging/quota-manager";
 export interface RuntimePaths {
   configPath: string;
   statePath: string;
+  perfLogPath?: string;
   orchestrationSocketPath?: string;
 }
 
@@ -136,7 +137,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     now: deps.loggerNow,
   });
   await logger.cleanup();
-  const perfLogPath = resolvePerfLogPath(paths.configPath);
+  const perfLogPath = paths.perfLogPath ?? resolvePerfLogPath(paths.configPath);
   const perfTracer: PerfTracer = config.logging.perf.enabled
     ? createPerfTracer({
         filePath: perfLogPath,
@@ -708,6 +709,7 @@ export function resolveRuntimePaths(): RuntimePaths {
   return {
     configPath,
     statePath: process.env.WEACPX_STATE ?? `${home}/.weacpx/state.json`,
+    perfLogPath: join(runtimeDir, "perf.log"),
     orchestrationSocketPath:
       process.env.WEACPX_ORCHESTRATION_SOCKET ?? resolveDaemonOrchestrationSocketPath(runtimeDir),
   };
@@ -742,4 +744,3 @@ function resolveOrchestrationSocketPathFromConfigPath(configPath: string): strin
 function shouldNotifyTaskCompletion(task: OrchestrationTaskRecord): boolean {
   return Boolean(task.chatKey && task.replyContextToken && (task.status === "completed" || task.status === "failed"));
 }
-

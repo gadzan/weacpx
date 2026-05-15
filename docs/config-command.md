@@ -53,6 +53,9 @@
 - `logging.retentionDays`
 - `channel.replyMode`
 
+
+说明：性能 debug 日志 `logging.perf.*` 不支持通过聊天里的 `/config set` 动态开关。需要手动编辑 `~/.weacpx/config.json` 的 `logging.perf`，然后重启 daemon；该 tracer 在启动时绑定。
+
 兼容旧配置：
 
 - `channel.type`（旧单频道配置；多频道请使用 `weacpx channel ...`）

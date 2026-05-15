@@ -26,6 +26,7 @@ import { markdownToPlainText, sendMessageWeixin } from "./send.js";
 import type { PendingFinalChunk } from "./quota-manager.js";
 import { handleSlashCommand } from "./slash-commands.js";
 import { normalizeMediaArray } from "../../channels/media-types.js";
+import { createNoopPerfTracer, type PerfTracer } from "../../perf/perf-tracer.js";
 
 // Conservative WeChat single-message text upper bound; leaves headroom for
 // `(i/N) ` prefixes and the heads-up tail. WeChat's actual limit varies by
@@ -187,6 +188,7 @@ export type HandleWeixinMessageTurnDeps = {
   mediaStore?: RuntimeMediaStore;
   downloadMediaFromItemFn?: typeof downloadMediaFromItem;
   allowedMediaRoots?: string[];
+  perfTracer?: PerfTracer;
 };
 
 function extractTextBody(itemList?: MessageItem[]): string {
@@ -204,6 +206,10 @@ function isClearSlashCommand(textBody: string): boolean {
   const spaceIdx = trimmed.indexOf(" ");
   const command = spaceIdx === -1 ? trimmed.toLowerCase() : trimmed.slice(0, spaceIdx).toLowerCase();
   return command === "/clear";
+}
+
+function isSlashCommandText(textBody: string): boolean {
+  return textBody.startsWith("/");
 }
 
 export function getWeixinMessageTurnLane(full: WeixinMessage): "normal" | "control" {
@@ -282,17 +288,29 @@ export async function handleWeixinMessageTurn(
   // rather than waiting for this turn to drain off the lane. The deps field
   // remains for direct unit testability of this function.
 
+  const chatKey = buildWeixinChatKey(deps.accountId, fromUserId);
+  const initialMediaCount = extractWeixinMediaDescriptors(full.item_list).length;
+  const isSlashCommand = isSlashCommandText(textBody);
+  const tracer = deps.perfTracer ?? createNoopPerfTracer();
+  return await tracer.wrapTurn(
+    { chatKey, kind: isSlashCommand ? "command" : "prompt" },
+    async (perfSpan) => {
+      perfSpan.mark("turn.received", {
+        textLen: textBody.length,
+        hasMedia: initialMediaCount > 0,
+        mediaCount: initialMediaCount,
+      });
+
   const contextToken = full.context_token;
   if (contextToken) {
     setContextToken(deps.accountId, full.from_user_id ?? "", contextToken);
   }
 
-  if (textBody.startsWith("/")) {
+  if (isSlashCommand) {
     const shouldTypeForSlash = isClearSlashCommand(textBody);
     if (shouldTypeForSlash) {
       startTypingIndicator();
     }
-    const chatKey = buildWeixinChatKey(deps.accountId, full.from_user_id ?? "");
     try {
       const slashResult = await handleSlashCommand(
         textBody,
@@ -366,6 +384,7 @@ export async function handleWeixinMessageTurn(
     }
   }
 
+  let midFirstSent = false;
   const sendReplySegment = async (text: string): Promise<boolean> => {
     const plainText = markdownToPlainText(text).trim();
     if (plainText.length === 0) {
@@ -378,6 +397,10 @@ export async function handleWeixinMessageTurn(
         text: plainText,
         opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
       });
+      if (!midFirstSent) {
+        midFirstSent = true;
+        perfSpan.mark("reply.mid_first_sent", { bytes: utf8ByteLength(plainText) });
+      }
       return true;
     } catch (err) {
       deps.errLog(`intermediate reply failed: ${String(err)}`);
@@ -392,6 +415,7 @@ export async function handleWeixinMessageTurn(
     text: requestText,
     ...(media.length > 0 ? { media } : {}),
     replyContextToken: contextToken,
+    perfSpan,
   };
 
   try {
@@ -403,6 +427,10 @@ export async function handleWeixinMessageTurn(
 
     // Text is sent first, then media items in sequence.
     const outboundMedia = normalizeMediaArray(turn.media);
+    let finalFirstSent = false;
+    let finalChunksSent = 0;
+    let finalChunksPending = 0;
+    let finalDropped = false;
     if (turn.text) {
       const finalText = markdownToPlainText(turn.text).trim();
       if (finalText.length > 0) {
@@ -412,6 +440,7 @@ export async function handleWeixinMessageTurn(
           if (total === 1) {
             const reserved = deps.reserveFinal ? deps.reserveFinal(to) : true;
             if (!reserved) {
+              finalDropped = true;
               deps.errLog(
                 `weixin.final.dropped reason=quota_exhausted kind=text chatKey=${to}`,
               );
@@ -421,6 +450,11 @@ export async function handleWeixinMessageTurn(
                 text: rawChunks[0]!,
                 opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
               });
+              finalChunksSent += 1;
+              if (!finalFirstSent) {
+                finalFirstSent = true;
+                perfSpan.mark("reply.final_first_sent", { bytes: utf8ByteLength(rawChunks[0]!), chunkIndex: 1 });
+              }
             }
           } else {
             // v1.4: pre-format every chunk with its (k/N) prefix, send the first
@@ -443,6 +477,7 @@ export async function handleWeixinMessageTurn(
             for (let i = 0; i < wave.length; i += 1) {
               const reserved = deps.reserveFinal ? deps.reserveFinal(to) : true;
               if (!reserved) {
+                finalDropped = true;
                 deps.errLog(
                   `weixin.final.dropped reason=quota_exhausted kind=text_paginated chatKey=${to} chunk=${i + 1}/${total}`,
                 );
@@ -455,7 +490,13 @@ export async function handleWeixinMessageTurn(
                   opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
                 });
                 sent += 1;
+                finalChunksSent += 1;
+                if (!finalFirstSent) {
+                  finalFirstSent = true;
+                  perfSpan.mark("reply.final_first_sent", { bytes: utf8ByteLength(wave[i]!), chunkIndex: i + 1 });
+                }
               } catch (sendErr) {
+                finalDropped = true;
                 deps.errLog(
                   `weixin.final.dropped reason=send_failed kind=text_paginated chatKey=${to} chunk=${i + 1}/${total} err=${String(sendErr)}`,
                 );
@@ -463,6 +504,7 @@ export async function handleWeixinMessageTurn(
               }
             }
             const restToPark = prefixed.slice(sent);
+            finalChunksPending = restToPark.length;
             if (restToPark.length > 0 && deps.enqueuePendingFinal) {
               const pending: PendingFinalChunk[] = restToPark.map((text, idx) => {
                 const seq = sent + idx + 1;
@@ -476,10 +518,20 @@ export async function handleWeixinMessageTurn(
           }
         }
       }
+      perfSpan.mark("reply.final_done", {
+        chunksSent: finalChunksSent,
+        chunksPending: finalChunksPending,
+        dropped: finalDropped,
+      });
     }
+    let mediaSent = 0;
+    let mediaFailed = 0;
+    let mediaRejected = 0;
+    let mediaDropped = 0;
     for (const mediaItem of outboundMedia) {
       const filePath = await resolveSafeMediaPath(mediaItem.filePath, [mediaStore.rootDir, resolveMediaTempDir(deps.mediaTempDir), ...(deps.allowedMediaRoots ?? [])]);
       if (!filePath) {
+        mediaRejected += 1;
         deps.errLog(`outbound media rejected: path=${mediaItem.filePath}`);
         continue;
       }
@@ -492,13 +544,14 @@ export async function handleWeixinMessageTurn(
       }
       const reservedMedia = deps.reserveFinal ? deps.reserveFinal(to) : true;
       if (!reservedMedia) {
+        mediaDropped += 1;
         deps.errLog(
           `weixin.final.dropped reason=quota_exhausted kind=media chatKey=${to}`,
         );
         continue;
       }
       try {
-        await sendWeixinMediaFile({
+        const sent = await sendWeixinMediaFile({
           media: mediaItem,
           filePath,
           to,
@@ -506,11 +559,33 @@ export async function handleWeixinMessageTurn(
           opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
           cdnBaseUrl: deps.cdnBaseUrl,
         });
+        mediaSent += 1;
+        perfSpan.mark("reply.media_sent", {
+          kind: mediaItem.kind,
+          index: mediaSent + mediaFailed + mediaRejected + mediaDropped,
+          messageId: sent.messageId,
+        });
       } catch (err) {
+        mediaFailed += 1;
         deps.errLog(`outbound media send failed: ${String(err)}`);
       }
     }
+    if (outboundMedia.length > 0) {
+      perfSpan.mark("reply.media_done", {
+        mediaCount: outboundMedia.length,
+        sent: mediaSent,
+        failed: mediaFailed,
+        rejected: mediaRejected,
+        dropped: mediaDropped,
+      });
+    }
   } catch (err) {
+    if (isAbortError(err)) {
+      perfSpan.setOutcome("aborted", { reason: "user_cancel" });
+      deps.log(`handleWeixinMessageTurn: turn aborted: ${err.message}`);
+      return;
+    }
+    perfSpan.setOutcome("error", { reason: "turn_error" });
     const errorText = err instanceof Error ? err.stack ?? err.message : JSON.stringify(err);
     deps.errLog(`handleWeixinMessageTurn: agent or send failed: ${errorText}`);
     const reservedErr = deps.reserveFinal ? deps.reserveFinal(to) : true;
@@ -531,4 +606,10 @@ export async function handleWeixinMessageTurn(
   } finally {
     stopTypingIndicator();
   }
+    },
+  );
+}
+
+function isAbortError(error: unknown): error is Error {
+  return error instanceof Error && error.name === "AbortError";
 }

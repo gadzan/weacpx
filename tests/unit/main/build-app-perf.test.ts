@@ -35,6 +35,7 @@ test("buildApp creates a noop perfTracer when disabled (default)", async () => {
   process.env.WEACPX_STATE = join(dir, "state.json");
   try {
     const paths = resolveRuntimePaths();
+    expect(paths.perfLogPath).toBe(join(dir, "runtime", "perf.log"));
     const runtime = await buildApp(paths);
     expect(runtime.perfTracer).toBeDefined();
     await runtime.perfTracer.wrapTurn({ chatKey: "k", kind: "prompt" }, async (span) => {
@@ -57,6 +58,7 @@ test("buildApp creates a real perfTracer when enabled and flushes on dispose", a
   process.env.WEACPX_STATE = join(dir, "state.json");
   try {
     const paths = resolveRuntimePaths();
+    expect(paths.perfLogPath).toBe(join(dir, "runtime", "perf.log"));
     const runtime = await buildApp(paths);
     await runtime.perfTracer.wrapTurn({ chatKey: "k", kind: "prompt" }, async (span) => {
       span.mark("turn.received");
