@@ -808,3 +808,52 @@ test("rejects non-boolean logging.perf.enabled", async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("accepts logging.perf.maxFiles=0 (no rotation)", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      logging: {
+        level: "info",
+        perf: { enabled: true, maxSizeBytes: 1048576, maxFiles: 0, retentionDays: 3 },
+      },
+      agents: { codex: { driver: "codex" } },
+      workspaces: { backend: { cwd: "/tmp/backend" } },
+    }),
+  );
+
+  try {
+    const config = await loadConfig(path);
+    expect(config.logging.perf.maxFiles).toBe(0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("rejects negative logging.perf.maxFiles", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      logging: {
+        level: "info",
+        perf: { enabled: true, maxSizeBytes: 1048576, maxFiles: -1, retentionDays: 3 },
+      },
+      agents: { codex: { driver: "codex" } },
+      workspaces: { backend: { cwd: "/tmp/backend" } },
+    }),
+  );
+
+  try {
+    await expect(loadConfig(path)).rejects.toThrow("logging.perf.maxFiles must be non-negative");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

@@ -204,11 +204,17 @@ export function parseConfig(
       throw new Error("logging.perf.enabled must be boolean");
     }
     for (const field of ["maxSizeBytes", "maxFiles", "retentionDays"] as const) {
-      if (
-        field in logging.perf &&
-        (typeof logging.perf[field] !== "number" || !Number.isFinite(logging.perf[field]) || logging.perf[field] <= 0)
-      ) {
-        throw new Error(`logging.perf.${field} must be a positive number`);
+      if (field in logging.perf) {
+        const value = logging.perf[field] as unknown;
+        if (typeof value !== "number" || !Number.isFinite(value)) {
+          throw new Error(`logging.perf.${field} must be a finite number`);
+        }
+        if (field === "maxFiles" && value < 0) {
+          throw new Error(`logging.perf.${field} must be non-negative`);
+        }
+        if (field !== "maxFiles" && value <= 0) {
+          throw new Error(`logging.perf.${field} must be a positive number`);
+        }
       }
     }
   }
