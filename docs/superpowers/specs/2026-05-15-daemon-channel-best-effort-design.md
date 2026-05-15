@@ -30,12 +30,14 @@ That behavior is reasonable for the original "WeChat console only" use case, but
 
 ## 4. Proposed behavior
 
-`runConsole()` already knows whether it is running as daemon because `deps.daemonRuntime` is present. Use that as the startup policy boundary:
+`runConsole()` receives an explicit `channelStartupPolicy` so callers do not infer mode from `daemonRuntime` presence. This matters because both background daemon runs and foreground `weacpx run` use daemon metadata/status helpers, but only the background daemon should use best-effort channel startup.
 
-- Foreground mode (`deps.daemonRuntime` absent): unchanged. `deps.channels.startAll(...)` rejection escapes and the process exits after cleanup.
-- Daemon mode (`deps.daemonRuntime` present): if `deps.channels.startAll(...)` rejects, log a daemon-level error and then keep the process alive until the shutdown `AbortSignal` is triggered.
+- Foreground policy (`channelStartupPolicy` omitted or `"require-one"`): unchanged. `deps.channels.startAll(...)` rejection escapes and the process exits after cleanup.
+- Daemon policy (`channelStartupPolicy: "best-effort"`): if `deps.channels.startAll(...)` rejects, log a daemon-level error and then keep the process alive until the shutdown `AbortSignal` is triggered.
 
-This turns daemon channel startup into best-effort without weakening the stricter `MessageChannelRegistry` contract.
+`create-daemon-controller` sets `WEACPX_DAEMON_RUN=1` for the detached `cli run` child. `defaultRun()` maps that environment marker to `channelStartupPolicy: "best-effort"`; direct `weacpx run` remains `"require-one"`.
+
+This turns background daemon channel startup into best-effort without weakening the stricter `MessageChannelRegistry` contract or direct foreground `weacpx run`.
 
 ## 5. Implementation shape
 
@@ -56,7 +58,7 @@ Wrap channel startup in `runConsole()`:
 try {
   await deps.channels.startAll(...);
 } catch (error) {
-  if (!deps.daemonRuntime) throw error;
+  if (deps.channelStartupPolicy !== "best-effort") throw error;
   await runtime.logger.error(
     "daemon.channels.start_failed",
     "all channels failed to start; daemon remains alive for orchestration IPC",

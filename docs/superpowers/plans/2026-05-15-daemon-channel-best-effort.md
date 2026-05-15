@@ -6,23 +6,25 @@
 
 **Spec:** `docs/superpowers/specs/2026-05-15-daemon-channel-best-effort-design.md`.
 
+**Implementation note:** detached daemon children set `WEACPX_DAEMON_RUN=1`, and `defaultRun()` maps that marker to `channelStartupPolicy: "best-effort"`; direct `weacpx run` remains strict (`"require-one"`).
+
 ## Tasks
 
-- [ ] Add a daemon-mode unit test for channel startup failure that remains alive until shutdown.
+- [x] Add a daemon-mode unit test for channel startup failure that remains alive until shutdown.
   - File: `tests/unit/run-console.test.ts`
   - Simulate `channels.startAll` throwing `all channels failed to start`.
   - Capture process signal handlers.
   - Assert the promise is still pending before simulated SIGTERM.
   - Assert cleanup after SIGTERM.
 
-- [ ] Implement best-effort daemon behavior in `src/run-console.ts`.
+- [x] Implement best-effort daemon behavior in `src/run-console.ts`.
   - Foreground behavior remains unchanged.
   - Daemon mode catches `channels.startAll` rejection, logs `daemon.channels.start_failed`, then waits for shutdown.
   - Existing cleanup sequence remains the single cleanup path.
 
-- [ ] Run targeted tests.
+- [x] Run targeted tests.
   - `npm run test:unit -- tests/unit/run-console.test.ts`
 
-- [ ] Run validation.
+- [x] Run validation.
   - `npx tsc --noEmit`
   - Optionally `npm test` if time permits.

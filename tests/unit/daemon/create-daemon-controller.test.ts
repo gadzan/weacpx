@@ -44,7 +44,7 @@ test("spawns a detached run command and records the child pid", async () => {
       options: expect.objectContaining({
         cwd: "/app",
         detached: true,
-        env: { HOME: "/home/test", PATH: "/usr/bin", WEACPX_FIRST_RUN_ONBOARDING: "payload" },
+        env: { HOME: "/home/test", PATH: "/usr/bin", WEACPX_DAEMON_RUN: "1", WEACPX_FIRST_RUN_ONBOARDING: "payload" },
       }),
     },
   ]);
@@ -125,6 +125,7 @@ test("uses a hidden powershell launcher when spawning the daemon on win32", asyn
           WEACPX_DAEMON_COMMAND: "C:\\node\\node.exe",
           WEACPX_DAEMON_ARG0: "C:\\app\\dist\\cli.js",
           WEACPX_DAEMON_ARG1: "run",
+          WEACPX_DAEMON_RUN: "1",
           WEACPX_DAEMON_STDOUT: paths.stdoutLog,
           WEACPX_DAEMON_STDERR: paths.stderrLog,
         }),

@@ -126,8 +126,9 @@ test("runs the foreground service with daemon lifecycle hooks", async () => {
   expect(purgeInput).toEqual({ cutoffDays: 7, trigger: "startup" });
 });
 
-test("daemon mode keeps running when channel startup fails until shutdown", async () => {
+test("best-effort channel startup keeps running when all channels fail until shutdown", async () => {
   const events: string[] = [];
+  const logErrors: Array<{ event: string; message: string; context: unknown }> = [];
   const signalHandlers = new Map<string, () => void>();
   let settled = false;
 
@@ -143,7 +144,12 @@ test("daemon mode keeps running when channel startup fails until shutdown", asyn
         sessions: {} as never,
         stateStore: {} as never,
         configStore: {} as never,
-        logger: createNoopAppLogger(),
+        logger: {
+          ...createNoopAppLogger(),
+          error: async (event, message, context) => {
+            logErrors.push({ event, message, context });
+          },
+        },
         orchestration: {
           server: {
             start: async () => {
@@ -161,9 +167,10 @@ test("daemon mode keeps running when channel startup fails until shutdown", asyn
       channels: {
         startAll: async () => {
           events.push("channel:start");
-          throw new Error("boom");
+          throw new Error("all channels failed to start");
         },
       },
+      channelStartupPolicy: "best-effort",
       daemonRuntime: {
         start: async () => {
           events.push("daemon:start");
@@ -191,12 +198,73 @@ test("daemon mode keeps running when channel startup fails until shutdown", asyn
   await new Promise((resolve) => setTimeout(resolve, 10));
   expect(settled).toBe(false);
   expect(events).toEqual(["daemon:start", "orchestration:start", "channel:start"]);
+  expect(logErrors).toEqual([
+    {
+      event: "daemon.channels.start_failed",
+      message: "all channels failed to start; daemon remains alive for orchestration IPC",
+      context: { error: "all channels failed to start" },
+    },
+  ]);
 
   signalHandlers.get("SIGTERM")?.();
   await runPromise;
 
   expect(events).toEqual(["daemon:start", "orchestration:start", "channel:start", "orchestration:stop", "dispose", "daemon:stop"]);
   expect(signalHandlers.size).toBe(0);
+});
+
+test("require-one channel startup still rejects when all channels fail", async () => {
+  const events: string[] = [];
+
+  await expect(
+    runConsole(
+      {
+        configPath: "/cfg",
+        statePath: "/state",
+      },
+      {
+        buildApp: async () => ({
+          agent: {} as never,
+          router: {} as never,
+          sessions: {} as never,
+          stateStore: {} as never,
+          configStore: {} as never,
+          logger: createNoopAppLogger(),
+          orchestration: {
+            server: {
+              start: async () => {
+                events.push("orchestration:start");
+              },
+              stop: async () => {
+                events.push("orchestration:stop");
+              },
+            },
+          },
+          dispose: async () => {
+            events.push("dispose");
+          },
+        }),
+        channels: {
+          startAll: async () => {
+            events.push("channel:start");
+            throw new Error("all channels failed to start");
+          },
+        },
+        channelStartupPolicy: "require-one",
+        daemonRuntime: {
+          start: async () => {
+            events.push("daemon:start");
+          },
+          heartbeat: async () => {},
+          stop: async () => {
+            events.push("daemon:stop");
+          },
+        },
+      },
+    ),
+  ).rejects.toThrow("all channels failed to start");
+
+  expect(events).toEqual(["daemon:start", "orchestration:start", "channel:start", "orchestration:stop", "dispose", "daemon:stop"]);
 });
 
 test("disposes runtime when loading the sdk fails before startup", async () => {

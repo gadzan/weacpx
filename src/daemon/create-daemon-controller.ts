@@ -88,6 +88,7 @@ function buildSpawnRequest(
           WEACPX_DAEMON_ARG0: options.cliEntryPath,
           WEACPX_DAEMON_ARG1: "run",
           WEACPX_DAEMON_CWD: options.cwd,
+          WEACPX_DAEMON_RUN: "1",
           WEACPX_DAEMON_STDOUT: paths.stdoutLog,
           WEACPX_DAEMON_STDERR: paths.stderrLog,
           ...(spawnOptions.firstRunOnboarding ? { WEACPX_FIRST_RUN_ONBOARDING: spawnOptions.firstRunOnboarding } : {}),
@@ -107,6 +108,7 @@ function buildSpawnRequest(
       detached: true,
       env: {
         ...options.env,
+        WEACPX_DAEMON_RUN: "1",
         ...(spawnOptions.firstRunOnboarding ? { WEACPX_FIRST_RUN_ONBOARDING: spawnOptions.firstRunOnboarding } : {}),
       },
       stdio: ["ignore", stdoutFd, stderrFd],

@@ -643,6 +643,8 @@ async function defaultLoadConfiguredPluginsForChannelCli(): Promise<void> {
   await loadConfiguredPlugins({ plugins: config.plugins });
 }
 
+const DAEMON_RUN_ENV = "WEACPX_DAEMON_RUN";
+
 async function defaultRun(options: { firstRunOnboarding?: FirstRunOnboardingPlan } = {}): Promise<void> {
   const [{ buildApp, resolveRuntimePaths, prepareChannelMedia }, { runConsole }] = await Promise.all([
     import("./main"),
@@ -675,6 +677,7 @@ async function defaultRun(options: { firstRunOnboarding?: FirstRunOnboardingPlan
         }
       : undefined,
     channels: channelRegistry,
+    channelStartupPolicy: process.env[DAEMON_RUN_ENV] === "1" ? "best-effort" : "require-one",
     daemonRuntime,
     ...(firstLockCreator
       ? {

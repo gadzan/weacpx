@@ -13,11 +13,14 @@ interface ChannelRegistry {
   stopAll?(): void | Promise<void>;
 }
 
+type ChannelStartupPolicy = "require-one" | "best-effort";
+
 interface RunConsoleDeps {
   buildApp: (paths: RuntimePaths) => Promise<AppRuntime>;
   afterBuild?: (runtime: AppRuntime) => Promise<void>;
   beforeReady?: (runtime: AppRuntime) => Promise<void>;
   channels: ChannelRegistry;
+  channelStartupPolicy?: ChannelStartupPolicy;
   daemonRuntime?: DaemonLifecycle;
   heartbeatIntervalMs?: number;
   setInterval?: (fn: () => void | Promise<void>, delay: number) => unknown;
@@ -166,7 +169,7 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
         logger: runtime.logger,
       });
     } catch (error) {
-      if (!deps.daemonRuntime) {
+      if (deps.channelStartupPolicy !== "best-effort") {
         throw error;
       }
       await runtime.logger.error(
