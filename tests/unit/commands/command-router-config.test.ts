@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { CommandRouter } from "../../../src/commands/command-router";
+import { listAgentTemplates } from "../../../src/config/agent-templates";
 import { normalizeWorkspacePath } from "../../../src/commands/workspace-path";
 import {
   MemoryConfigStore,
@@ -342,7 +343,7 @@ test("adds a codex agent from the built-in template", async () => {
   });
 });
 
-test("returns a chinese hint for unknown agent templates", async () => {
+test("adds an acpx built-in agent from the built-in template", async () => {
   const config = createConfig();
   const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
   const transport = createTransport();
@@ -350,7 +351,21 @@ test("returns a chinese hint for unknown agent templates", async () => {
 
   const reply = await router.handle("wx:user", "/agent add kimi");
 
-  expect(reply.text).toBe("暂不支持这个 Agent 模板。当前可用：codex、claude、opencode、gemini");
+  expect(reply.text).toBe('Agent「kimi」已保存');
+  expect(config.agents.kimi).toEqual({
+    driver: "kimi",
+  });
+});
+
+test("returns a chinese hint for unknown agent templates", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle("wx:user", "/agent add unknown");
+
+  expect(reply.text).toBe(`暂不支持这个 Agent 模板。当前可用：${listAgentTemplates().join("、")}`);
 });
 
 test("removes an agent and reflects it in /agents", async () => {

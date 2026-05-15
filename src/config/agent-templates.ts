@@ -1,17 +1,59 @@
 import type { AgentConfig } from "./types";
 
 const TEMPLATES: Record<string, AgentConfig> = {
+  pi: {
+    driver: "pi",
+  },
+  openclaw: {
+    driver: "openclaw",
+  },
   codex: {
     driver: "codex",
   },
   claude: {
     driver: "claude",
   },
+  gemini: {
+    driver: "gemini",
+  },
+  cursor: {
+    driver: "cursor",
+  },
+  copilot: {
+    driver: "copilot",
+  },
+  droid: {
+    driver: "droid",
+  },
+  "factory-droid": {
+    driver: "factory-droid",
+  },
+  factorydroid: {
+    driver: "factorydroid",
+  },
+  iflow: {
+    driver: "iflow",
+  },
+  kilocode: {
+    driver: "kilocode",
+  },
+  kimi: {
+    driver: "kimi",
+  },
+  kiro: {
+    driver: "kiro",
+  },
   opencode: {
     driver: "opencode",
   },
-  gemini: {
-    driver: "gemini",
+  qoder: {
+    driver: "qoder",
+  },
+  qwen: {
+    driver: "qwen",
+  },
+  trae: {
+    driver: "trae",
   },
 };
 

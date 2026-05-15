@@ -354,7 +354,7 @@ weacpx channel add <channel-type>
 
 说明：
 
-- 内置 `codex` 和 `claude` 建议只写 `driver`，让 `acpx` 自己解析对应 alias
+- 内置模板建议只写 `driver`，让 `acpx` 自己解析对应 alias
 - `agent.command` 主要用于自定义 agent，不建议给内置 driver 手写原始命令
 - 旧版 `codex` raw command 配置在加载时会被自动忽略，回退为 `acpx codex ...`
 
@@ -364,8 +364,24 @@ weacpx channel add <channel-type>
 
 | 模板名 | driver | command |
 |--------|--------|---------|
+| `pi` | `"pi"` | 无（使用 acpx 默认） |
+| `openclaw` | `"openclaw"` | 无（使用 acpx 默认） |
 | `codex` | `"codex"` | 无（使用 acpx 默认） |
 | `claude` | `"claude"` | 无（使用 acpx 默认） |
+| `gemini` | `"gemini"` | 无（使用 acpx 默认） |
+| `cursor` | `"cursor"` | 无（使用 acpx 默认） |
+| `copilot` | `"copilot"` | 无（使用 acpx 默认） |
+| `droid` | `"droid"` | 无（使用 acpx 默认） |
+| `factory-droid` | `"factory-droid"` | 无（使用 acpx 默认） |
+| `factorydroid` | `"factorydroid"` | 无（使用 acpx 默认） |
+| `iflow` | `"iflow"` | 无（使用 acpx 默认） |
+| `kilocode` | `"kilocode"` | 无（使用 acpx 默认） |
+| `kimi` | `"kimi"` | 无（使用 acpx 默认） |
+| `kiro` | `"kiro"` | 无（使用 acpx 默认） |
+| `opencode` | `"opencode"` | 无（使用 acpx 默认） |
+| `qoder` | `"qoder"` | 无（使用 acpx 默认） |
+| `qwen` | `"qwen"` | 无（使用 acpx 默认） |
+| `trae` | `"trae"` | 无（使用 acpx 默认） |
 
 ### 示例
 
@@ -377,6 +393,9 @@ weacpx channel add <channel-type>
     },
     "claude": {
       "driver": "claude"
+    },
+    "kimi": {
+      "driver": "kimi"
     },
     "my-agent": {
       "driver": "custom",

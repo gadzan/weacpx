@@ -11,7 +11,7 @@
 
 ## 这是什么
 
-`weacpx` 是一个可以通过微信、飞书或元宝直接控制 Codex / Claude Code / Gemini / OpenCode 的工具。它把聊天消息通过 `acpx` 连接到 Agent CLI 会话上，让你直接在手机里：
+`weacpx` 是一个可以通过微信、飞书或元宝直接控制 Codex / Claude Code / Gemini / OpenCode 等 ACP Agent 的工具。它把聊天消息通过 `acpx` 连接到 Agent CLI 会话上，让你直接在手机里：
 
 - 新建和切换会话
 - 让 Agent 继续在指定项目目录里工作
@@ -34,7 +34,7 @@
 开始前，你至少需要：
 
 - Node.js 22+ 或 Bun
-- 已可用的 Codex / Claude Code / Gemini / OpenCode
+- 已可用的 Codex / Claude Code / Gemini / OpenCode 等你要使用的 Agent CLI
 - 一台装了微信、飞书或元宝的手机
 
 > 微信频道基于 `weixin-agent-sdk` 工作，飞书频道使用飞书自建应用凭据，元宝频道使用 `appKey` / `appSecret`；底层 Agent 会话由 `acpx` 驱动。正常情况下，你不需要额外全局安装 `acpx`。
@@ -245,9 +245,7 @@ weacpx doctor --smoke --agent codex --workspace backend
 
 ### Agent 管理
 
-已内置常用的 Codex 与 Claude Code；
-
-可以使用 `/agent add opencode` 添加你所需要的 agents。
+默认配置通常已包含 `codex` 与 `claude`。如果你要使用其它 acpx 支持的 agent，可以先用 `/agent add <name>` 从内置模板添加。
 
 | 命令 | 说明 |
 |------|------|
@@ -255,6 +253,16 @@ weacpx doctor --smoke --agent codex --workspace backend
 | `/agent add gemini` | 添加 `Gemini` Agent |
 | `/agent add opencode` | 添加 `OpenCode` Agent |
 | `/agent rm <name>` | 删除 agent |
+
+当前内置模板与 acpx 的 built-in agents 对齐：
+
+```text
+pi, openclaw, codex, claude, gemini, cursor, copilot, droid,
+factory-droid, factorydroid, iflow, kilocode, kimi, kiro,
+opencode, qoder, qwen, trae
+```
+
+这些模板只写入 `driver`，实际启动命令交给 acpx 解析；例如 `/agent add kimi` 会保存 `{ "driver": "kimi" }`。完整命令说明见 [docs/commands.md](./docs/commands.md)，配置字段见 [docs/config-reference.md](./docs/config-reference.md)。
 
 ### Workspace 管理
 
