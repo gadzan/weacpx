@@ -118,6 +118,7 @@ function buildSpawnRequest(
 
 function buildWindowsLauncherScript(): string {
   const script = [
+    "$env:WEACPX_DAEMON_RUN = '1'",
     "$process = Start-Process -FilePath $env:WEACPX_DAEMON_COMMAND `",
     "  -ArgumentList @($env:WEACPX_DAEMON_ARG0, $env:WEACPX_DAEMON_ARG1) `",
     "  -WorkingDirectory $env:WEACPX_DAEMON_CWD `",

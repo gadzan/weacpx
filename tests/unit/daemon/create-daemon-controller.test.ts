@@ -133,6 +133,11 @@ test("uses a hidden powershell launcher when spawning the daemon on win32", asyn
     },
   ]);
 
+  const encodedIndex = spawnCalls[0]!.args.indexOf("-EncodedCommand") + 1;
+  const launcherScript = Buffer.from(spawnCalls[0]!.args[encodedIndex]!, "base64").toString("utf16le");
+  expect(launcherScript).toContain("$env:WEACPX_DAEMON_RUN = '1'");
+  expect(launcherScript).toContain("Start-Process");
+
   await rm(runtimeDir, { recursive: true, force: true });
 });
 

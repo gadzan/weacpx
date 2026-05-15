@@ -19,7 +19,7 @@
 
 - [x] Implement best-effort daemon behavior in `src/run-console.ts`.
   - Foreground behavior remains unchanged.
-  - Daemon mode catches `channels.startAll` rejection, logs `daemon.channels.start_failed`, then waits for shutdown.
+  - Best-effort policy catches `channels.startAll` rejection, logs `daemon.channels.start_failed`, then waits for shutdown.
   - Existing cleanup sequence remains the single cleanup path.
 
 - [x] Run targeted tests.
