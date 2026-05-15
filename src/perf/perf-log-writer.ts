@@ -39,6 +39,7 @@ export function createPerfLogWriter(options: CreatePerfLogWriterOptions): PerfLo
   let writeChain: Promise<void> = Promise.resolve();
   let consecutiveFailures = 0;
   let disabled = false;
+  let notified = false;
 
   const writer: PerfLogWriter = {
     enqueue(line) {
@@ -86,13 +87,18 @@ export function createPerfLogWriter(options: CreatePerfLogWriterOptions): PerfLo
     } catch (err) {
       consecutiveFailures += 1;
       if (consecutiveFailures >= threshold) {
+        // Permanent: once disabled, this writer stays disabled for the rest of the
+        // process. Restart the daemon to retry.
         disabled = true;
         pending = [];
-        options.onPermanentFailure({
-          perfLogPath: options.filePath,
-          failureCount: consecutiveFailures,
-          lastError: err instanceof Error ? err.message : String(err),
-        });
+        if (!notified) {
+          notified = true;
+          options.onPermanentFailure({
+            perfLogPath: options.filePath,
+            failureCount: consecutiveFailures,
+            lastError: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
     }
   }
