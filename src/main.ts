@@ -51,6 +51,7 @@ export interface AppRuntime {
   stateStore: StateStore;
   configStore: ConfigStore;
   logger: AppLogger;
+  perfTracer: PerfTracer;
   quota: QuotaManager;
   transport: SessionTransport;
   orchestration: {
@@ -116,6 +117,7 @@ function startProgressHeartbeat(
   }, 60_000);
 }
 
+import { createPerfTracer, createNoopPerfTracer, type PerfTracer } from "./perf/perf-tracer";
 import { bootstrapBuiltinChannels } from "./channels/bootstrap.js";
 
 export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Promise<AppRuntime> {
@@ -134,6 +136,17 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     now: deps.loggerNow,
   });
   await logger.cleanup();
+  const perfLogPath = resolvePerfLogPath(paths.configPath);
+  const perfTracer: PerfTracer = config.logging.perf.enabled
+    ? createPerfTracer({
+        filePath: perfLogPath,
+        maxSizeBytes: config.logging.perf.maxSizeBytes,
+        maxFiles: config.logging.perf.maxFiles,
+        retentionDays: config.logging.perf.retentionDays,
+        appLogger: logger,
+      })
+    : createNoopPerfTracer();
+  await perfTracer.cleanup();
   const acpxCommand = resolveAcpxCommand({ configuredCommand: config.transport.command });
   const stateStore = new StateStore(paths.statePath);
   const state = await stateStore.load();
@@ -600,6 +613,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     stateStore,
     configStore,
     logger,
+    perfTracer,
     quota,
     transport,
     orchestration: {
@@ -616,6 +630,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
       if ("dispose" in transport && typeof transport.dispose === "function") {
         await transport.dispose();
       }
+      await perfTracer.flush();
       await logger.flush();
     },
   };
@@ -704,6 +719,12 @@ function resolveAppLogPath(configPath: string): string {
   const rootDir = dirname(configPath);
   const runtimeDir = join(rootDir, "runtime");
   return join(runtimeDir, "app.log");
+}
+
+function resolvePerfLogPath(configPath: string): string {
+  const rootDir = dirname(configPath);
+  const runtimeDir = join(rootDir, "runtime");
+  return join(runtimeDir, "perf.log");
 }
 
 function resolveOrchestrationSocketPathFromConfigPath(configPath: string): string {
