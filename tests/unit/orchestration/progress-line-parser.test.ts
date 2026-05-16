@@ -32,6 +32,11 @@ test("buffers progress lines across chunk boundaries", () => {
   expect(buffer.feed(" segment\n")).toEqual(["second segment"]);
 });
 
+test("extracts progress lines after ordinary output in the same chunk", () => {
+  const buffer = new ProgressLineBuffer();
+  expect(buffer.feed("ordinary output\n[PROGRESS] step after output\n")).toEqual(["step after output"]);
+});
+
 test("drops progress markers with empty summaries", () => {
   const buffer = new ProgressLineBuffer();
   expect(buffer.feed("[PROGRESS]   \n")).toEqual([]);

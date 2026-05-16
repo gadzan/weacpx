@@ -7,12 +7,6 @@ export class ProgressLineBuffer {
 
   feed(segment: string): string[] {
     this.pending += segment;
-    if (!PROGRESS_PREFIX.startsWith(this.pending) && !this.pending.startsWith(PROGRESS_PREFIX)) {
-      const lastNewlineIndex = Math.max(this.pending.lastIndexOf("\n"), this.pending.lastIndexOf("\r"));
-      this.pending = lastNewlineIndex >= 0 ? this.pending.slice(lastNewlineIndex + 1) : "";
-    } else if (this.pending.length > MAX_PENDING_LINE_LENGTH) {
-      this.pending = "";
-    }
     const summaries: string[] = [];
     let newlineIndex = this.pending.indexOf("\n");
     while (newlineIndex !== -1) {
@@ -21,6 +15,7 @@ export class ProgressLineBuffer {
       this.extractLine(line, summaries);
       newlineIndex = this.pending.indexOf("\n");
     }
+    this.trimPendingIfHopeless();
     return summaries;
   }
 
@@ -40,6 +35,17 @@ export class ProgressLineBuffer {
         summaries.push(summary);
       }
     }
+  }
+
+  private trimPendingIfHopeless(): void {
+    if (this.pending.length === 0) return;
+    if (PROGRESS_PREFIX.startsWith(this.pending) || this.pending.startsWith(PROGRESS_PREFIX)) {
+      if (this.pending.length > MAX_PENDING_LINE_LENGTH) {
+        this.pending = "";
+      }
+      return;
+    }
+    this.pending = "";
   }
 }
 
