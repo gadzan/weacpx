@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { expect, test } from "bun:test";
 
 import { createMcpStdioIdentityResolver, prepareMcpCoordinatorStartup, resolveLoginChannelForCli, runCli } from "../../src/cli";
+import { listAgentTemplates } from "../../src/config/agent-templates";
 
 async function withTempHome<T>(fn: (home: string) => Promise<T>): Promise<T> {
   const home = await mkdtemp(join(tmpdir(), "weacpx-cli-"));
@@ -290,6 +291,7 @@ test("prints help for unknown commands", async () => {
     "weacpx plugin list|add|update|remove|enable|disable|doctor|known - 管理插件",
     "weacpx doctor - 运行诊断",
     "weacpx version - 查看版本",
+    "weacpx agent|agents list|add|rm|templates - 管理本机 Agent",
     "weacpx workspace list|add|rm - 管理本机工作区（别名：ws）",
     "weacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务",
   ]);
@@ -516,6 +518,66 @@ test("workspace commands reject invalid arguments", async () => {
   await expect(runCli(["ws", "nope"], { print: (line) => lines.push(line) })).resolves.toBe(1);
 
   expect(lines.filter((line) => line === "weacpx workspace list|add|rm - 管理本机工作区（别名：ws）")).toHaveLength(3);
+});
+
+test("agent templates lists built-in templates", async () => {
+  const lines: string[] = [];
+
+  await expect(runCli(["agent", "templates"], { print: (line) => lines.push(line) })).resolves.toBe(0);
+
+  expect(lines).toEqual(["可用 Agent 模板：", ...listAgentTemplates().map((name) => `- ${name}`)]);
+});
+
+test("adds lists and removes agents from the CLI", async () => {
+  await withTempHome(async (home) => {
+    const lines: string[] = [];
+
+    await expect(runCli(["agent", "add", "kimi"], { print: (line) => lines.push(line) })).resolves.toBe(0);
+    await expect(runCli(["agents", "list"], { print: (line) => lines.push(line) })).resolves.toBe(0);
+    await expect(runCli(["agents", "rm", "kimi"], { print: (line) => lines.push(line) })).resolves.toBe(0);
+
+    expect(lines).toEqual([
+      "Agent「kimi」已保存",
+      "Agent 列表：",
+      "- codex: driver=codex",
+      "- claude: driver=claude",
+      "- kimi: driver=kimi",
+      "Agent「kimi」已删除",
+    ]);
+    const config = await readConfigJson(home);
+    expect(config.agents.kimi).toBeUndefined();
+  });
+});
+
+test("agent add rejects unknown templates", async () => {
+  await withTempHome(async () => {
+    const lines: string[] = [];
+
+    await expect(runCli(["agent", "add", "unknown"], { print: (line) => lines.push(line) })).resolves.toBe(1);
+
+    expect(lines).toEqual([`暂不支持这个 Agent 模板。当前可用：${listAgentTemplates().join("、")}`]);
+  });
+});
+
+test("agent rm trims names and reports missing agents", async () => {
+  await withTempHome(async () => {
+    const lines: string[] = [];
+
+    await expect(runCli(["agent", "rm", " claude "], { print: (line) => lines.push(line) })).resolves.toBe(0);
+    await expect(runCli(["agent", "rm", "missing"], { print: (line) => lines.push(line) })).resolves.toBe(1);
+
+    expect(lines).toEqual(["Agent「claude」已删除", "没有找到 Agent「missing」。"]);
+  });
+});
+
+test("agent commands reject invalid arguments", async () => {
+  const lines: string[] = [];
+
+  await expect(runCli(["agent", "add"], { print: (line) => lines.push(line) })).resolves.toBe(1);
+  await expect(runCli(["agent", "rm"], { print: (line) => lines.push(line) })).resolves.toBe(1);
+  await expect(runCli(["agents", "nope"], { print: (line) => lines.push(line) })).resolves.toBe(1);
+
+  expect(lines.filter((line) => line === "weacpx agent|agents list|add|rm|templates - 管理本机 Agent")).toHaveLength(3);
 });
 
 test("prints doctor in help output", async () => {

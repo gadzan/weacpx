@@ -1,17 +1,17 @@
 import type { AgentConfig } from "./types";
 
 const TEMPLATES: Record<string, AgentConfig> = {
-  pi: {
-    driver: "pi",
-  },
-  openclaw: {
-    driver: "openclaw",
-  },
   codex: {
     driver: "codex",
   },
   claude: {
     driver: "claude",
+  },
+  pi: {
+    driver: "pi",
+  },
+  openclaw: {
+    driver: "openclaw",
   },
   gemini: {
     driver: "gemini",

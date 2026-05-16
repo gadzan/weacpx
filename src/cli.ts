@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { ConfigStore } from "./config/config-store";
 import { loadConfig } from "./config/load-config";
 import { ensureConfigExists } from "./config/ensure-config";
+import { getAgentTemplate, listAgentTemplates } from "./config/agent-templates";
 import { createDaemonController } from "./daemon/create-daemon-controller";
 import { resolveDaemonPaths } from "./daemon/daemon-files";
 import type { DaemonController } from "./daemon/daemon-controller";
@@ -249,6 +250,7 @@ const HELP_LINES = [
   "weacpx plugin list|add|update|remove|enable|disable|doctor|known - 管理插件",
   "weacpx doctor - 运行诊断",
   "weacpx version - 查看版本",
+  "weacpx agent|agents list|add|rm|templates - 管理本机 Agent",
   "weacpx workspace list|add|rm - 管理本机工作区（别名：ws）",
   "weacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务",
 ];
@@ -322,6 +324,17 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
         print,
         cwd: deps.cwd ?? (() => process.cwd()),
       });
+      if (result === null) {
+        for (const line of HELP_LINES) {
+          print(line);
+        }
+        return 1;
+      }
+      return result;
+    }
+    case "agent":
+    case "agents": {
+      const result = await handleAgentCli(args.slice(1), { print });
       if (result === null) {
         for (const line of HELP_LINES) {
           print(line);
@@ -612,6 +625,95 @@ async function workspaceRemove(rawName: string, print: (line: string) => void): 
 
   await store.removeWorkspace(name);
   print(`工作区「${name}」已删除`);
+  return 0;
+}
+
+async function handleAgentCli(
+  args: string[],
+  deps: {
+    print: (line: string) => void;
+  },
+): Promise<number | null> {
+  const subcommand = args[0];
+  switch (subcommand) {
+    case "list":
+      if (args.length !== 1) return null;
+      return await agentList(deps.print);
+    case "templates":
+      if (args.length !== 1) return null;
+      return agentTemplates(deps.print);
+    case "add":
+      if (args.length !== 2 || !args[1]) return null;
+      return await agentAdd(args[1], deps.print);
+    case "rm":
+      if (args.length !== 2 || !args[1]) return null;
+      return await agentRemove(args[1], deps.print);
+    default:
+      return null;
+  }
+}
+
+async function agentList(print: (line: string) => void): Promise<number> {
+  const store = await createCliConfigStore();
+  const config = await store.load();
+  const entries = Object.entries(config.agents);
+
+  if (entries.length === 0) {
+    print("还没有 Agent。");
+    return 0;
+  }
+
+  print("Agent 列表：");
+  for (const [name, agent] of entries) {
+    const command = agent.command ? ` command=${agent.command}` : "";
+    print(`- ${name}: driver=${agent.driver}${command}`);
+  }
+  return 0;
+}
+
+function agentTemplates(print: (line: string) => void): number {
+  print("可用 Agent 模板：");
+  for (const name of listAgentTemplates()) {
+    print(`- ${name}`);
+  }
+  return 0;
+}
+
+async function agentAdd(rawName: string, print: (line: string) => void): Promise<number> {
+  const name = rawName.trim();
+  if (name.length === 0) {
+    print("Agent 名称不能为空。");
+    return 1;
+  }
+
+  const template = getAgentTemplate(name);
+  if (!template) {
+    print(`暂不支持这个 Agent 模板。当前可用：${listAgentTemplates().join("、")}`);
+    return 1;
+  }
+
+  const store = await createCliConfigStore();
+  await store.upsertAgent(name, template);
+  print(`Agent「${name}」已保存`);
+  return 0;
+}
+
+async function agentRemove(rawName: string, print: (line: string) => void): Promise<number> {
+  const name = rawName.trim();
+  if (name.length === 0) {
+    print("Agent 名称不能为空。");
+    return 1;
+  }
+
+  const store = await createCliConfigStore();
+  const config = await store.load();
+  if (!config.agents[name]) {
+    print(`没有找到 Agent「${name}」。`);
+    return 1;
+  }
+
+  await store.removeAgent(name);
+  print(`Agent「${name}」已删除`);
   return 0;
 }
 

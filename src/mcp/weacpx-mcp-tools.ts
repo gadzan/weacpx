@@ -1,4 +1,4 @@
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { CallToolResult, ToolExecution } from "@modelcontextprotocol/sdk/types.js";
 import type { WeacpxMcpTransport } from "./weacpx-mcp-transport";
 import {
   DEFAULT_TASK_WAIT_POLL_INTERVAL_MS,
@@ -33,6 +33,7 @@ export interface WeacpxMcpToolDefinition<Args> {
   name: string;
   description: string;
   inputSchema: z.ZodType<Args>;
+  execution?: ToolExecution;
   handler: (args: Args) => Promise<WeacpxMcpToolResult>;
 }
 
@@ -56,7 +57,8 @@ export function buildWeacpxMcpToolRegistry(input: {
   const tools: WeacpxMcpToolDefinition<unknown>[] = [
     {
       name: "delegate_request",
-      description: `Delegate a subtask to another agent under the current coordinator. Pass an absolute workingDirectory for the worker. After this returns status=running, call task_wait with the returned taskId to wait for completion before reporting back to the user; if status=needs_confirmation, wait for the user to approve (task_approve / task_reject) and do not call task_wait yet.${availableAgents && availableAgents.length > 0 ? ` Available agents: ${availableAgents.join(", ")}.` : ""}`,
+      description: `Delegate a subtask to another agent under the current coordinator. Pass an absolute workingDirectory for the worker. Supports MCP Tasks when the client requests task execution: the tool can return a native task handle immediately, then clients can use tasks/get, tasks/result, tasks/list, and tasks/cancel. For legacy clients, after this returns status=running, call task_wait with the returned taskId to wait for completion before reporting back to the user; if status=needs_confirmation, wait for the user to approve (task_approve / task_reject) and do not call task_wait yet.${availableAgents && availableAgents.length > 0 ? ` Available agents: ${availableAgents.join(", ")}.` : ""}`,
+      execution: { taskSupport: "optional" },
       inputSchema: z
         .object({
           targetAgent: z.string().min(1),

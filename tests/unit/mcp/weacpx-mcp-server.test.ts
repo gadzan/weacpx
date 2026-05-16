@@ -4,7 +4,7 @@ import { expect, test } from "bun:test";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { ListRootsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolResultSchema, ListRootsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
 import {
   createWeacpxMcpServer,
@@ -12,6 +12,7 @@ import {
   WEACPX_MCP_SERVER_INSTRUCTIONS,
 } from "../../../src/mcp/weacpx-mcp-server";
 import { createMemoryTransport } from "../../../src/mcp/weacpx-mcp-transport";
+import type { OrchestrationTaskRecord } from "../../../src/orchestration/orchestration-types";
 
 test("lists 16 MCP tools and hides coordinator/source identity from input schemas", async () => {
   const transport = createMemoryTransport(
@@ -94,12 +95,191 @@ test("lists 16 MCP tools and hides coordinator/source identity from input schema
     const taskWait = list.tools.find((tool) => tool.name === "task_wait");
     expect(delegate?.inputSchema.properties).not.toHaveProperty("sourceHandle");
     expect(delegate?.inputSchema.properties).not.toHaveProperty("coordinatorSession");
+    expect(delegate?.execution?.taskSupport).toBe("optional");
     expect(workerRaiseQuestion?.inputSchema.properties).not.toHaveProperty("sourceHandle");
     expect(workerRaiseQuestion?.inputSchema.properties).not.toHaveProperty("coordinatorSession");
     expect(coordinatorAnswerQuestion?.inputSchema.properties).not.toHaveProperty("coordinatorSession");
     expect(taskList?.inputSchema.properties?.status?.enum).toContain("blocked");
     expect(taskList?.inputSchema.properties?.status?.enum).toContain("waiting_for_human");
     expect(taskWait?.inputSchema.properties).not.toHaveProperty("coordinatorSession");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("delegate_request supports native MCP task execution", async () => {
+  const task: OrchestrationTaskRecord = {
+    taskId: "task-9",
+    sourceHandle: "backend:main",
+    sourceKind: "coordinator",
+    coordinatorSession: "backend:main",
+    workerSession: "backend:worker",
+    workspace: "backend",
+    targetAgent: "claude",
+    task: "review",
+    status: "completed",
+    summary: "review complete",
+    resultText: "No blocking issues.",
+    createdAt: "2026-05-16T00:00:00.000Z",
+    updatedAt: "2026-05-16T00:00:01.000Z",
+  };
+  const calls: unknown[] = [];
+  const server = createWeacpxMcpServer({
+    transport: createMemoryTransport(
+      async (input) => {
+        calls.push(input);
+        return { taskId: "task-9", status: "running" };
+      },
+      {
+        getTask: async ({ taskId }) => taskId === "task-9" ? task : null,
+        listTasks: async () => [task],
+        cancelTask: async () => {
+          throw new Error("unused");
+        },
+      },
+    ),
+    coordinatorSession: "backend:main",
+  });
+  const client = new Client({ name: "weacpx-test-client", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const messages: Array<{ type: string; task?: { taskId: string; status: string }; result?: unknown }> = [];
+    const stream = client.experimental.tasks.callToolStream(
+      {
+        name: "delegate_request",
+        arguments: {
+          targetAgent: "claude",
+          task: "review",
+          workingDirectory: "/repo/backend",
+        },
+      },
+      CallToolResultSchema,
+      { task: { ttl: 60_000, pollInterval: 1 } },
+    );
+
+    for await (const message of stream) {
+      messages.push(message);
+    }
+
+    expect(calls).toEqual([
+      {
+        coordinatorSession: "backend:main",
+        targetAgent: "claude",
+        task: "review",
+        workingDirectory: "/repo/backend",
+      },
+    ]);
+    expect(messages[0]).toMatchObject({
+      type: "taskCreated",
+      task: { taskId: "task-9", status: "completed" },
+    });
+    expect(messages.at(-1)).toMatchObject({
+      type: "result",
+      result: {
+        content: [{ type: "text", text: "Task \"task-9\" finished with status completed.\nNo blocking issues." }],
+      },
+    });
+
+    const listed = await client.experimental.tasks.listTasks();
+    expect(listed.tasks).toEqual([
+      {
+        taskId: "task-9",
+        status: "completed",
+        ttl: 60_000,
+        createdAt: "2026-05-16T00:00:00.000Z",
+        lastUpdatedAt: "2026-05-16T00:00:01.000Z",
+        statusMessage: "review complete",
+      },
+    ]);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("native MCP tasks map input-required states and cancellation", async () => {
+  const task: OrchestrationTaskRecord = {
+    taskId: "task-blocked",
+    sourceHandle: "backend:main",
+    sourceKind: "coordinator",
+    coordinatorSession: "backend:main",
+    workerSession: "backend:worker",
+    workspace: "backend",
+    targetAgent: "claude",
+    task: "review",
+    status: "blocked",
+    summary: "Need clarification",
+    resultText: "",
+    createdAt: "2026-05-16T00:00:00.000Z",
+    updatedAt: "2026-05-16T00:00:02.000Z",
+    openQuestion: {
+      questionId: "q1",
+      question: "Which branch?",
+      whatIsNeeded: "Branch name",
+      whyBlocked: "Cannot review without it",
+      askedAt: "2026-05-16T00:00:01.000Z",
+      status: "open",
+    },
+  };
+  let cancelTaskId: string | undefined;
+  const server = createWeacpxMcpServer({
+    transport: createMemoryTransport(
+      async () => ({ taskId: "task-blocked", status: "running" }),
+      {
+        getTask: async ({ taskId }) => taskId === "task-blocked" ? task : null,
+        listTasks: async () => [task],
+        cancelTask: async ({ taskId }) => {
+          cancelTaskId = taskId;
+          task.status = "cancelled";
+          task.updatedAt = "2026-05-16T00:00:03.000Z";
+        },
+      },
+    ),
+    coordinatorSession: "backend:main",
+  });
+  const client = new Client({ name: "weacpx-test-client", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const stream = client.experimental.tasks.callToolStream(
+      {
+        name: "delegate_request",
+        arguments: {
+          targetAgent: "claude",
+          task: "review",
+          workingDirectory: "/repo/backend",
+        },
+      },
+      CallToolResultSchema,
+      { task: { pollInterval: 10 } },
+    );
+    const first = await stream.next();
+    expect(first.value).toMatchObject({
+      type: "taskCreated",
+      task: { taskId: "task-blocked", status: "input_required" },
+    });
+
+    const status = await client.experimental.tasks.getTask("task-blocked");
+    expect(status).toMatchObject({
+      taskId: "task-blocked",
+      status: "input_required",
+      statusMessage: "Need clarification",
+    });
+
+    const cancelled = await client.experimental.tasks.cancelTask("task-blocked");
+    expect(cancelTaskId).toBe("task-blocked");
+    expect(cancelled).toMatchObject({
+      taskId: "task-blocked",
+      status: "cancelled",
+    });
   } finally {
     await client.close();
     await server.close();

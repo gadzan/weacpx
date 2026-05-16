@@ -8,13 +8,18 @@ import {
   ListToolsRequestSchema,
   McpError,
   type CallToolResult,
+  type CreateTaskResult,
   type Root,
+  type Task,
+  type Result,
 } from "@modelcontextprotocol/sdk/types.js";
+import type { CreateTaskOptions, TaskStore } from "@modelcontextprotocol/sdk/experimental/tasks/interfaces.js";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import type { ZodError } from "zod";
 
 import { readVersion } from "../version.js";
 import type { OrchestrationIpcEndpoint } from "../orchestration/orchestration-ipc";
+import type { OrchestrationTaskRecord } from "../orchestration/orchestration-types";
 import { resolveDefaultOrchestrationEndpoint } from "./resolve-endpoint";
 import { buildWeacpxMcpToolRegistry } from "./weacpx-mcp-tools";
 import { createOrchestrationTransport, type WeacpxMcpTransport } from "./weacpx-mcp-transport";
@@ -47,6 +52,12 @@ export const WEACPX_MCP_SERVER_INSTRUCTIONS = [
   "Use these tools to orchestrate work across other agents under your coordinator session.",
   "",
   "Typical lifecycle for a single delegation:",
+  "Preferred MCP Tasks lifecycle (for clients that support task-augmented tools/call):",
+  "1. Call delegate_request with task execution requested. It returns a native MCP task handle immediately.",
+  "2. Use tasks/get or tasks/list to poll status; use tasks/result only after the task is terminal; use tasks/cancel to cancel.",
+  "3. Status mapping: working = running, input_required = needs_confirmation / blocked / waiting_for_human / contested review, completed / failed / cancelled are terminal.",
+  "",
+  "Legacy tool lifecycle for clients without MCP Tasks support:",
   "1. delegate_request → returns { taskId, status }.",
   "   - status=running: the worker has started; go to step 2.",
   "   - status=needs_confirmation: tell the user, then call task_approve or task_reject based on their response. After task_approve, return to step 2 to wait for the worker. Do not call task_wait before approval.",
@@ -68,6 +79,8 @@ export const WEACPX_MCP_SERVER_INSTRUCTIONS = [
 ].join("\n");
 
 export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
+  let getToolState!: () => Promise<ReturnType<typeof buildToolState>>;
+  const taskOptionsById = new Map<string, CreateTaskOptions>();
   const server = new Server(
     {
       name: "weacpx-orchestration",
@@ -76,14 +89,20 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
     {
       capabilities: {
         tools: {},
+        tasks: {
+          list: {},
+          cancel: {},
+          requests: { tools: { call: {} } },
+        },
       },
       instructions: WEACPX_MCP_SERVER_INSTRUCTIONS,
+      taskStore: createWeacpxTaskStore(async () => await getToolState(), taskOptionsById),
     },
   );
 
   let toolState: ReturnType<typeof buildToolState> | null = null;
   let toolStatePromise: Promise<ReturnType<typeof buildToolState>> | null = null;
-  async function getToolState() {
+  getToolState = async function getToolState() {
     if (toolState) {
       return toolState;
     }
@@ -108,7 +127,7 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
         toolStatePromise = null;
       });
     return await toolStatePromise;
-  }
+  };
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const tools = (await getToolState()).tools;
@@ -117,11 +136,12 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
         name: tool.name,
         description: tool.description,
         inputSchema: normalizeInputSchemaJson(zodToJsonSchema(tool.inputSchema)),
+        ...(tool.execution ? { execution: tool.execution } : {}),
       })),
     };
   });
 
-  server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
+  server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult | CreateTaskResult> => {
     const toolMap = (await getToolState()).toolMap;
     const tool = toolMap.get(request.params.name);
     if (!tool) {
@@ -131,6 +151,21 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
     const parsed = tool.inputSchema.safeParse(request.params.arguments ?? {});
     if (!parsed.success) {
       throw new McpError(ErrorCode.InvalidParams, formatZodError(parsed.error));
+    }
+
+    if (request.params.task) {
+      if (tool.name !== "delegate_request") {
+        throw new McpError(
+          ErrorCode.InvalidParams,
+          `Tool ${tool.name} does not support MCP task execution`,
+        );
+      }
+      return await createDelegationMcpTask({
+        state: await getToolState(),
+        args: parsed.data,
+        taskParams: request.params.task,
+        taskOptionsById,
+      });
     }
 
     return await tool.handler(parsed.data);
@@ -150,6 +185,147 @@ function buildToolState(options: {
   return {
     tools,
     toolMap: new Map(tools.map((tool) => [tool.name, tool])),
+    transport: options.transport,
+    coordinatorSession: options.coordinatorSession,
+    sourceHandle: options.sourceHandle,
+  };
+}
+
+async function createDelegationMcpTask(input: {
+  state: ReturnType<typeof buildToolState>;
+  args: unknown;
+  taskParams: CreateTaskOptions;
+  taskOptionsById: Map<string, CreateTaskOptions>;
+}): Promise<CreateTaskResult> {
+  const delegateTool = input.state.toolMap.get("delegate_request");
+  if (!delegateTool) {
+    throw new McpError(ErrorCode.MethodNotFound, "delegate_request is not registered");
+  }
+
+  const result = await delegateTool.handler(input.args);
+  if (result.isError) {
+    throw new McpError(
+      ErrorCode.InvalidRequest,
+      result.content.map((item) => item.type === "text" ? item.text : "").filter(Boolean).join("\n") || "Delegation failed",
+    );
+  }
+
+  const structured = result.structuredContent as { taskId?: unknown } | undefined;
+  const taskId = typeof structured?.taskId === "string" ? structured.taskId : undefined;
+  if (!taskId) {
+    throw new McpError(ErrorCode.InternalError, "delegate_request did not return a taskId");
+  }
+  input.taskOptionsById.set(taskId, normalizeCreateTaskOptions(input.taskParams));
+
+  const task = await input.state.transport.getTask({
+    coordinatorSession: input.state.coordinatorSession,
+    taskId,
+  });
+
+  return {
+    task: toMcpTask(task ?? {
+      taskId,
+      status: "running",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      summary: "",
+    }, input.taskParams),
+  };
+}
+
+function createWeacpxTaskStore(
+  resolveState: () => Promise<ReturnType<typeof buildToolState>>,
+  taskOptionsById: Map<string, CreateTaskOptions>,
+): TaskStore {
+  return {
+    createTask: async () => {
+      throw new Error("weacpx native MCP tasks are created by delegate_request");
+    },
+    getTask: async (taskId) => {
+      const state = await resolveState();
+      const task = await state.transport.getTask({ coordinatorSession: state.coordinatorSession, taskId });
+      return task ? toMcpTask(task, taskOptionsById.get(taskId)) : null;
+    },
+    storeTaskResult: async () => {
+      throw new Error("weacpx native MCP task results are stored by orchestration");
+    },
+    getTaskResult: async (taskId) => {
+      const state = await resolveState();
+      const task = await state.transport.getTask({ coordinatorSession: state.coordinatorSession, taskId });
+      if (!task) {
+        throw new Error(`Task not found: ${taskId}`);
+      }
+      return renderNativeTaskResult(task);
+    },
+    updateTaskStatus: async (taskId, status, statusMessage) => {
+      const state = await resolveState();
+      if (status === "cancelled") {
+        await state.transport.cancelTask({ coordinatorSession: state.coordinatorSession, taskId });
+        return;
+      }
+      throw new Error(`weacpx MCP task status is read-only (${status}${statusMessage ? `: ${statusMessage}` : ""})`);
+    },
+    listTasks: async () => {
+      const state = await resolveState();
+      const tasks = await state.transport.listTasks({
+        coordinatorSession: state.coordinatorSession,
+        sort: "updatedAt",
+        order: "desc",
+      });
+      return { tasks: tasks.map((task) => toMcpTask(task, taskOptionsById.get(task.taskId))) };
+    },
+  };
+}
+
+function renderNativeTaskResult(task: OrchestrationTaskRecord): Result {
+  const isError = task.status === "failed" || task.status === "cancelled";
+  const text = [
+    `Task "${task.taskId}" finished with status ${task.status}.`,
+    task.resultText.trim().length > 0 ? task.resultText : task.summary,
+  ].filter((line) => line.trim().length > 0).join("\n");
+  return {
+    content: [{ type: "text", text }],
+    structuredContent: { task },
+    ...(isError ? { isError: true } : {}),
+  } as CallToolResult;
+}
+
+function toMcpTask(
+  task: Pick<OrchestrationTaskRecord, "taskId" | "status" | "createdAt" | "updatedAt" | "summary">,
+  options: CreateTaskOptions = {},
+): Task {
+  return {
+    taskId: task.taskId,
+    status: toMcpTaskStatus(task),
+    ttl: options.ttl ?? null,
+    createdAt: task.createdAt,
+    lastUpdatedAt: task.updatedAt,
+    ...(options.pollInterval !== undefined ? { pollInterval: options.pollInterval } : {}),
+    ...(task.summary.trim().length > 0 ? { statusMessage: task.summary } : {}),
+  };
+}
+
+function toMcpTaskStatus(
+  task: Pick<OrchestrationTaskRecord, "status"> & Partial<Pick<OrchestrationTaskRecord, "reviewPending">>,
+): Task["status"] {
+  if (task.status === "completed") return "completed";
+  if (task.status === "failed") return "failed";
+  if (task.status === "cancelled") return "cancelled";
+  if (
+    task.status === "needs_confirmation"
+    || task.status === "blocked"
+    || task.status === "waiting_for_human"
+    || task.reviewPending !== undefined
+  ) {
+    return "input_required";
+  }
+  return "working";
+}
+
+function normalizeCreateTaskOptions(options: CreateTaskOptions): CreateTaskOptions {
+  return {
+    ttl: options.ttl ?? null,
+    ...(options.pollInterval !== undefined ? { pollInterval: options.pollInterval } : {}),
   };
 }
 

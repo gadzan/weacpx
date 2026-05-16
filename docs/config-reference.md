@@ -360,14 +360,14 @@ weacpx channel add <channel-type>
 
 ### 内置模板
 
-通过微信发送 `/agent add <name>` 时使用以下内置模板：
+通过微信发送 `/agent add <name>`，或在终端运行 `weacpx agent add <name>` 时使用以下内置模板；终端也可以用 `weacpx agent templates` 查看模板列表。
 
 | 模板名 | driver | command |
 |--------|--------|---------|
-| `pi` | `"pi"` | 无（使用 acpx 默认） |
-| `openclaw` | `"openclaw"` | 无（使用 acpx 默认） |
 | `codex` | `"codex"` | 无（使用 acpx 默认） |
 | `claude` | `"claude"` | 无（使用 acpx 默认） |
+| `pi` | `"pi"` | 无（使用 acpx 默认） |
+| `openclaw` | `"openclaw"` | 无（使用 acpx 默认） |
 | `gemini` | `"gemini"` | 无（使用 acpx 默认） |
 | `cursor` | `"cursor"` | 无（使用 acpx 默认） |
 | `copilot` | `"copilot"` | 无（使用 acpx 默认） |

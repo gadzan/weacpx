@@ -1,6 +1,6 @@
 # External MCP coordinator
 
-`weacpx mcp-stdio` 是标准 MCP stdio server。Codex、Claude Code 等外部 MCP host 可以通过它调用 weacpx 的编排工具，例如 `delegate_request`、`task_get`、`task_list`、`task_wait`。
+`weacpx mcp-stdio` 是标准 MCP stdio server。Codex、Claude Code 等外部 MCP host 可以通过它调用 weacpx 的编排工具，例如 `delegate_request`、`task_get`、`task_list`、`task_wait`。如果 host 支持 MCP Tasks，`delegate_request` 也支持原生 task execution：call now、fetch later。
 
 核心目标：让“当前正在使用的 coding agent”成为 coordinator，把子任务派给其他 agent，同时让被派出去的 worker 明确知道自己应该在哪个目录工作。
 
@@ -18,7 +18,8 @@ flowchart LR
   Mcp -->|local orchestration IPC| Daemon[weacpx daemon]
   Daemon -->|ensure worker session<br/>cwd = workingDirectory| Worker[worker agent session]
   Worker -->|result / blockers / progress| Daemon
-  Host -->|task_get / task_list / task_wait| Mcp
+  Host -->|MCP Tasks<br/>tasks/get / tasks/list / tasks/result| Mcp
+  Host -->|legacy tools<br/>task_get / task_list / task_wait| Mcp
 ```
 
 ## 最小配置
@@ -236,8 +237,8 @@ sequenceDiagram
   Mcp->>Daemon: delegate.request(cwd)
   Daemon->>Worker: ensure + prompt with cwd
   Daemon-->>Mcp: taskId + running
-  Mcp-->>Host: taskId + running
-  Host->>Mcp: task_wait / task_get
+  Mcp-->>Host: native MCP task or legacy taskId + running
+  Host->>Mcp: tasks/get / tasks/result, or legacy task_wait / task_get
   Mcp->>Daemon: query task
   Daemon-->>Mcp: task status/result
   Mcp-->>Host: status/result
@@ -247,7 +248,7 @@ sequenceDiagram
 
 外部 coordinator 常用工具：
 
-- `delegate_request`：派出一个子任务。推荐传 `workingDirectory`。
+- `delegate_request`：派出一个子任务。推荐传 `workingDirectory`。支持 MCP Tasks 的 host 可以请求 task execution，让该调用立即返回原生 task handle。
 - `task_get`：查看单个任务。
 - `task_list`：列出当前 coordinator 的任务。
 - `task_wait`：等待任务完成或进入需要处理的状态。默认最多等待 5 分钟；可传 `timeoutMs` 调整，最大 20 分钟。
@@ -255,6 +256,29 @@ sequenceDiagram
 - `group_new` / `group_list` / `group_cancel`：管理任务组。
 
 `task_get` / `task_list` / `task_wait` 不需要 `workingDirectory`，因为它们查的是 coordinator 名下的任务，不是新开 worker。
+
+### MCP Tasks 原生状态映射
+
+当 host 使用 MCP Tasks 时，weacpx 会把内部编排任务映射到协议状态：
+
+| weacpx task status | MCP task status |
+|---|---|
+| `running` | `working` |
+| `needs_confirmation` | `input_required` |
+| `blocked` / `waiting_for_human` | `input_required` |
+| 有 `reviewPending` 的任务 | `input_required` |
+| `completed` | `completed` |
+| `failed` | `failed` |
+| `cancelled` | `cancelled` |
+
+对应协议方法：
+
+- `tasks/get`：查看状态。
+- `tasks/list`：列出当前 coordinator 下的任务。
+- `tasks/result`：读取 terminal task 的结果。
+- `tasks/cancel`：取消任务，内部会转成 weacpx 的 `task_cancel`。
+
+不支持 MCP Tasks 的 host 仍然可以继续使用 `task_get` / `task_list` / `task_wait` / `task_cancel` 这些兼容工具。
 
 ## `sourceHandle` 的复用规则
 
