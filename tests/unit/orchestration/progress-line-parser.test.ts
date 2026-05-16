@@ -12,9 +12,16 @@ test("extracts progress summaries from a trimmed paragraph segment", () => {
   expect(result).toEqual(["analyzing types", "found 2 issues"]);
 });
 
-test("extracts standalone progress segments without trailing newline immediately", () => {
+test("extracts complete standalone progress segments without trailing newline immediately", () => {
   const buffer = new ProgressLineBuffer();
-  expect(buffer.feed("[PROGRESS] step 1 done")).toEqual(["step 1 done"]);
+  expect(buffer.feed("[PROGRESS] step 1 done", { segmentComplete: true })).toEqual(["step 1 done"]);
+  expect(buffer.flush()).toEqual([]);
+});
+
+test("buffers raw standalone progress chunks without trailing newline until complete", () => {
+  const buffer = new ProgressLineBuffer();
+  expect(buffer.feed("[PROGRESS] analyzing typ")).toEqual([]);
+  expect(buffer.feed("es\n")).toEqual(["analyzing types"]);
   expect(buffer.flush()).toEqual([]);
 });
 
@@ -39,7 +46,7 @@ test("extracts progress lines after ordinary output in the same chunk", () => {
 
 test("extracts trailing progress segment after ordinary output without trailing newline", () => {
   const buffer = new ProgressLineBuffer();
-  expect(buffer.feed("ordinary output\n[PROGRESS] trailing step")).toEqual(["trailing step"]);
+  expect(buffer.feed("ordinary output\n[PROGRESS] trailing step", { segmentComplete: true })).toEqual(["trailing step"]);
   expect(buffer.feed("ordinary next segment")).toEqual([]);
   expect(buffer.flush()).toEqual([]);
 });
@@ -73,6 +80,16 @@ test("strips ANSI-prefixed progress lines from final text", () => {
 
 test("strips mixed ANSI and carriage-return progress lines from final text", () => {
   const text = "\u001B[2K\r[PROGRESS] redrawing\n\u001B[1m\u001B[2K[PROGRESS] bold\nDone.";
+  expect(stripProgressLines(text)).toBe("Done.");
+});
+
+test("strips bare carriage-return redraw progress lines from final text", () => {
+  const text = "normal\r\u001B[2K[PROGRESS] hidden\r\nDone.";
+  expect(stripProgressLines(text)).toBe("normal\nDone.");
+});
+
+test("strips progress lines after extended ANSI CSI prefixes", () => {
+  const text = "\u001B[?25l[PROGRESS] cursor hidden\nDone.";
   expect(stripProgressLines(text)).toBe("Done.");
 });
 

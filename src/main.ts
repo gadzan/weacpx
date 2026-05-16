@@ -439,7 +439,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
           undefined,
           {
             onSegment: async (chunk) => {
-              const summaries = progressBuffer.feed(chunk);
+              const summaries = progressBuffer.feed(chunk, { segmentComplete: true });
               for (const summary of summaries) {
                 await recordProgress(summary);
               }

@@ -2,10 +2,20 @@ const PROGRESS_PREFIX = "[PROGRESS]";
 export const MAX_PROGRESS_SUMMARY_LENGTH = 500;
 const MAX_PENDING_LINE_LENGTH = 4096;
 
+export interface ProgressLineFeedOptions {
+  /**
+   * True when the caller is passing a complete semantic text segment rather
+   * than arbitrary stream bytes. This lets progress paragraphs without a
+   * trailing newline surface immediately while keeping the default raw-stream
+   * parser conservative about partial chunks.
+   */
+  segmentComplete?: boolean;
+}
+
 export class ProgressLineBuffer {
   private pending = "";
 
-  feed(segment: string): string[] {
+  feed(segment: string, options: ProgressLineFeedOptions = {}): string[] {
     const hadPending = this.pending.length > 0;
     this.pending += segment;
     const summaries: string[] = [];
@@ -16,7 +26,7 @@ export class ProgressLineBuffer {
       this.extractLine(line, summaries);
       newlineIndex = this.pending.indexOf("\n");
     }
-    if (!hadPending && this.pending.startsWith(PROGRESS_PREFIX)) {
+    if (options.segmentComplete === true && !hadPending && this.pending.startsWith(PROGRESS_PREFIX)) {
       this.extractLine(this.pending.replace(/\r$/, ""), summaries);
       this.pending = "";
       return summaries;
@@ -67,12 +77,15 @@ export function sanitizeProgressSummary(summary: string): string {
 
 export function stripProgressLines(text: string): string {
   return text
-    .split("\n")
-    .filter((line) => !normalizeProgressLinePrefix(line).startsWith(PROGRESS_PREFIX))
+    .split(/\r\n|\n|\r/)
+    .filter((line) => {
+      const normalized = normalizeProgressLinePrefix(line);
+      return !normalized.startsWith(PROGRESS_PREFIX) && !(line.length > 0 && normalized.length === 0);
+    })
     .join("\n")
     .trim();
 }
 
 function normalizeProgressLinePrefix(line: string): string {
-  return line.replace(/^(?:\r+|\u001B\[[0-9;]*[A-Za-z])+/, "");
+  return line.replace(/^(?:\r+|\u001B\[[0-?]*[ -/]*[@-~])+/, "");
 }
