@@ -387,7 +387,7 @@ README 里只保留用户视角的最常用命令。
 
 如果你想让 Codex、Claude Code 等外部 MCP host 直接使用 weacpx 的多 Agent 编排能力，可以把 `weacpx mcp-stdio` 配成一个 stdio MCP server。
 
-`delegate_request` 支持 MCP Tasks：支持该能力的 host 可以让委派请求立即返回原生 task handle，之后通过 `tasks/get` / `tasks/result` / `tasks/cancel` 获取状态、结果或取消任务；不支持 MCP Tasks 的 host 仍可使用兼容工具 `task_get` / `task_wait` / `task_cancel`。
+`delegate_request` 支持 MCP Tasks：支持该能力的 host 可以让委派请求立即返回原生 task handle，之后通过 `tasks/get` / `tasks/result` / `tasks/cancel` 获取状态、结果或取消任务；`input_required` 状态下的 `tasks/result` 会返回下一步操作提示而不是长时间阻塞。不支持 MCP Tasks 的 host 仍可使用兼容工具 `task_get` / `task_wait` / `task_cancel`。
 
 先启动 daemon：
 

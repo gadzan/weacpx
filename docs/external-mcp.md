@@ -275,7 +275,7 @@ sequenceDiagram
 
 - `tasks/get`：查看状态。
 - `tasks/list`：列出当前 coordinator 下的任务。
-- `tasks/result`：读取 terminal task 的结果。
+- `tasks/result`：读取 terminal task 的结果；如果任务处于 `input_required`，会立即返回一个可操作的说明包（例如下一步应调用 `task_get` 后再 `task_approve` / `coordinator_answer_question` / `coordinator_review_contested_result`），不会阻塞等待 terminal。
 - `tasks/cancel`：取消任务，内部会转成 weacpx 的 `task_cancel`。
 
 不支持 MCP Tasks 的 host 仍然可以继续使用 `task_get` / `task_list` / `task_wait` / `task_cancel` 这些兼容工具。

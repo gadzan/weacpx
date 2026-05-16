@@ -249,6 +249,7 @@ test("native MCP tasks map input-required states and cancellation", async () => 
     await server.connect(serverTransport);
     await client.connect(clientTransport);
 
+    const messages: Array<{ type: string; task?: { taskId: string; status: string }; result?: { content?: Array<{ type: string; text?: string }>; structuredContent?: unknown } }> = [];
     const stream = client.experimental.tasks.callToolStream(
       {
         name: "delegate_request",
@@ -261,10 +262,35 @@ test("native MCP tasks map input-required states and cancellation", async () => 
       CallToolResultSchema,
       { task: { pollInterval: 10 } },
     );
-    const first = await stream.next();
-    expect(first.value).toMatchObject({
+    for await (const message of stream) {
+      messages.push(message);
+    }
+
+    expect(messages[0]).toMatchObject({
       type: "taskCreated",
       task: { taskId: "task-blocked", status: "input_required" },
+    });
+    expect(messages[1]).toMatchObject({
+      type: "taskStatus",
+      task: { taskId: "task-blocked", status: "input_required" },
+    });
+    expect(messages[2]).toMatchObject({
+      type: "result",
+      result: {
+        content: [
+          {
+            type: "text",
+            text: expect.stringContaining("coordinator_answer_question"),
+          },
+        ],
+      },
+    });
+    expect(messages[2]?.result?.structuredContent).toMatchObject({
+      nextAction: {
+        kind: "input_required",
+        taskId: "task-blocked",
+        recommendedTools: ["coordinator_answer_question"],
+      },
     });
 
     const status = await client.experimental.tasks.getTask("task-blocked");

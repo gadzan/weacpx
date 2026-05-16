@@ -5,6 +5,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   CallToolRequestSchema,
   ErrorCode,
+  GetTaskPayloadRequestSchema,
   ListToolsRequestSchema,
   McpError,
   type CallToolResult,
@@ -54,7 +55,7 @@ export const WEACPX_MCP_SERVER_INSTRUCTIONS = [
   "Typical lifecycle for a single delegation:",
   "Preferred MCP Tasks lifecycle (for clients that support task-augmented tools/call):",
   "1. Call delegate_request with task execution requested. It returns a native MCP task handle immediately.",
-  "2. Use tasks/get or tasks/list to poll status; use tasks/result only after the task is terminal; use tasks/cancel to cancel.",
+  "2. Use tasks/get or tasks/list to poll status; use tasks/result after terminal status, or on input_required to receive an actionable next-step package; use tasks/cancel to cancel.",
   "3. Status mapping: working = running, input_required = needs_confirmation / blocked / waiting_for_human / contested review, completed / failed / cancelled are terminal.",
   "",
   "Legacy tool lifecycle for clients without MCP Tasks support:",
@@ -171,6 +172,23 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
     return await tool.handler(parsed.data);
   });
 
+  // The SDK's default tasks/result handler waits until a task is terminal.
+  // weacpx also uses input_required for external approval/blocker workflows,
+  // where the coordinator must call another tool before the task can continue.
+  // Return an actionable package immediately for input_required so task-aware
+  // clients do not deadlock waiting for a result that depends on their action.
+  server.setRequestHandler(GetTaskPayloadRequestSchema, async (request): Promise<Result> => {
+    const state = await getToolState();
+    const task = await state.transport.getTask({
+      coordinatorSession: state.coordinatorSession,
+      taskId: request.params.taskId,
+    });
+    if (!task) {
+      throw new McpError(ErrorCode.InvalidParams, `Task not found: ${request.params.taskId}`);
+    }
+    return renderNativeTaskPayloadResult(task);
+  });
+
   return server;
 }
 
@@ -255,7 +273,7 @@ function createWeacpxTaskStore(
       if (!task) {
         throw new Error(`Task not found: ${taskId}`);
       }
-      return renderNativeTaskResult(task);
+      return renderNativeTaskPayloadResult(task);
     },
     updateTaskStatus: async (taskId, status, statusMessage) => {
       const state = await resolveState();
@@ -277,6 +295,19 @@ function createWeacpxTaskStore(
   };
 }
 
+function renderNativeTaskPayloadResult(task: OrchestrationTaskRecord): Result {
+  if (toMcpTaskStatus(task) === "input_required") {
+    return renderInputRequiredTaskResult(task);
+  }
+  if (task.status === "completed" || task.status === "failed" || task.status === "cancelled") {
+    return renderNativeTaskResult(task);
+  }
+  throw new McpError(
+    ErrorCode.InvalidRequest,
+    `Task ${task.taskId} is still ${task.status}; use tasks/get until it is terminal or input_required`,
+  );
+}
+
 function renderNativeTaskResult(task: OrchestrationTaskRecord): Result {
   const isError = task.status === "failed" || task.status === "cancelled";
   const text = [
@@ -288,6 +319,41 @@ function renderNativeTaskResult(task: OrchestrationTaskRecord): Result {
     structuredContent: { task },
     ...(isError ? { isError: true } : {}),
   } as CallToolResult;
+}
+
+function renderInputRequiredTaskResult(task: OrchestrationTaskRecord): Result {
+  const actions = inputRequiredActions(task);
+  const text = [
+    `Task "${task.taskId}" requires input before it can continue.`,
+    task.summary.trim().length > 0 ? task.summary : "",
+    task.openQuestion ? `Open question: ${task.openQuestion.question}` : "",
+    `Next: call task_get("${task.taskId}") to inspect details, then ${actions.join(" or ")}.`,
+  ].filter((line) => line.trim().length > 0).join("\n");
+  return {
+    content: [{ type: "text", text }],
+    structuredContent: {
+      task,
+      nextAction: {
+        kind: "input_required",
+        taskId: task.taskId,
+        recommendedTools: actions,
+      },
+    },
+  } as CallToolResult;
+}
+
+function inputRequiredActions(task: OrchestrationTaskRecord): string[] {
+  const actions: string[] = [];
+  if (task.status === "needs_confirmation") {
+    actions.push("task_approve", "task_reject");
+  }
+  if (task.status === "blocked" || task.status === "waiting_for_human" || task.openQuestion) {
+    actions.push("coordinator_answer_question");
+  }
+  if (task.reviewPending) {
+    actions.push("coordinator_review_contested_result");
+  }
+  return actions.length > 0 ? actions : ["task_get"];
 }
 
 function toMcpTask(
