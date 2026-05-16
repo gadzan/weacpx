@@ -18,7 +18,7 @@ import type {
   OrchestrationTaskStatus,
 } from "./orchestration-types";
 import { AsyncMutex } from "./async-mutex";
-import { stripProgressLines } from "./progress-line-parser";
+import { sanitizeProgressSummary, stripProgressLines } from "./progress-line-parser";
 import { isQuotaDeferredError } from "../weixin/messaging/quota-errors";
 import {
   DEFAULT_TASK_WAIT_POLL_INTERVAL_MS,
@@ -2546,9 +2546,9 @@ export class OrchestrationService {
 
       task.lastProgressAt = this.deps.now().toISOString();
       if (summary !== undefined) {
-        const trimmed = summary.trim();
-        if (trimmed.length > 0) {
-          task.lastProgressSummary = trimmed;
+        const cleaned = sanitizeProgressSummary(summary);
+        if (cleaned.length > 0) {
+          task.lastProgressSummary = cleaned;
         }
       }
       task.updatedAt = task.lastProgressAt;

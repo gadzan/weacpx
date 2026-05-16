@@ -1,5 +1,5 @@
 import { renderAgents } from "../../formatting/render-text";
-import { getAgentTemplate, listAgentTemplates } from "../../config/agent-templates";
+import { getAgentTemplate, listAgentTemplates, sameAgentConfig } from "../../config/agent-templates";
 import type { HelpTopicMetadata } from "../help/help-types";
 import type { CommandRouterContext, RouterResponse } from "../router-types";
 
@@ -27,6 +27,14 @@ export async function handleAgentAdd(context: CommandRouterContext, templateName
   const template = getAgentTemplate(templateName);
   if (!template) {
     return { text: `暂不支持这个 Agent 模板。当前可用：${listAgentTemplates().join("、")}` };
+  }
+
+  const existing = context.config.agents[templateName];
+  if (existing) {
+    if (sameAgentConfig(existing, template)) {
+      return { text: `Agent「${templateName}」已存在` };
+    }
+    return { text: `Agent「${templateName}」已存在且配置不同。请先执行 /agent rm ${templateName}` };
   }
 
   const updated = await context.configStore.upsertAgent(templateName, template);

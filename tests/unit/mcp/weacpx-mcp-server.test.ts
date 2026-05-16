@@ -4,7 +4,7 @@ import { expect, test } from "bun:test";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { CallToolResultSchema, ListRootsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolResultSchema, ListRootsRequestSchema, RELATED_TASK_META_KEY } from "@modelcontextprotocol/sdk/types.js";
 
 import {
   createWeacpxMcpServer,
@@ -182,6 +182,9 @@ test("delegate_request supports native MCP task execution", async () => {
       type: "result",
       result: {
         content: [{ type: "text", text: "Task \"task-9\" finished with status completed.\nNo blocking issues." }],
+        _meta: {
+          [RELATED_TASK_META_KEY]: { taskId: "task-9" },
+        },
       },
     });
 
@@ -294,6 +297,9 @@ test("native MCP tasks map input-required states and cancellation", async () => 
         recommendedTools: ["coordinator_answer_question"],
       },
     });
+    expect(messages[2]?.result?._meta).toEqual({
+      [RELATED_TASK_META_KEY]: { taskId: "task-blocked" },
+    });
 
     const status = await client.experimental.tasks.getTask("task-blocked");
     expect(status).toMatchObject({
@@ -308,6 +314,52 @@ test("native MCP tasks map input-required states and cancellation", async () => 
       taskId: "task-blocked",
       status: "cancelled",
     });
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("native MCP tasks list uses cursor pagination", async () => {
+  const tasks: OrchestrationTaskRecord[] = Array.from({ length: 101 }, (_, index) => ({
+    taskId: `task-${index}`,
+    sourceHandle: "backend:main",
+    sourceKind: "coordinator",
+    coordinatorSession: "backend:main",
+    workerSession: `backend:worker-${index}`,
+    workspace: "backend",
+    targetAgent: "claude",
+    task: "review",
+    status: "running",
+    summary: "",
+    resultText: "",
+    createdAt: "2026-05-16T00:00:00.000Z",
+    updatedAt: `2026-05-16T00:00:${String(index).padStart(2, "0")}.000Z`,
+  }));
+  const server = createWeacpxMcpServer({
+    transport: createMemoryTransport(
+      async () => ({ taskId: "task-0", status: "running" }),
+      {
+        getTask: async ({ taskId }) => tasks.find((task) => task.taskId === taskId) ?? null,
+        listTasks: async () => tasks,
+      },
+    ),
+    coordinatorSession: "backend:main",
+  });
+  const client = new Client({ name: "weacpx-test-client", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const first = await client.experimental.tasks.listTasks();
+    const second = await client.experimental.tasks.listTasks(first.nextCursor);
+
+    expect(first.tasks).toHaveLength(100);
+    expect(first.nextCursor).toBe("100");
+    expect(second.tasks).toHaveLength(1);
+    expect(second.nextCursor).toBeUndefined();
   } finally {
     await client.close();
     await server.close();

@@ -1,15 +1,21 @@
 import { expect, test } from "bun:test";
-import { ProgressLineBuffer, stripProgressLines } from "../../../src/orchestration/progress-line-parser";
+import {
+  MAX_PROGRESS_SUMMARY_LENGTH,
+  ProgressLineBuffer,
+  sanitizeProgressSummary,
+  stripProgressLines,
+} from "../../../src/orchestration/progress-line-parser";
 
 test("extracts progress summaries from a trimmed paragraph segment", () => {
   const buffer = new ProgressLineBuffer();
-  const result = buffer.feed("[PROGRESS] analyzing types\nSome other output\n[PROGRESS] found 2 issues");
+  const result = buffer.feed("[PROGRESS] analyzing types\nSome other output\n[PROGRESS] found 2 issues\n");
   expect(result).toEqual(["analyzing types", "found 2 issues"]);
 });
 
-test("extracts progress when the segment is a single standalone line", () => {
+test("flushes progress when the final segment has no trailing newline", () => {
   const buffer = new ProgressLineBuffer();
-  expect(buffer.feed("[PROGRESS] step 1 done")).toEqual(["step 1 done"]);
+  expect(buffer.feed("[PROGRESS] step 1 done")).toEqual([]);
+  expect(buffer.flush()).toEqual(["step 1 done"]);
 });
 
 test("ignores non-progress segments regardless of newline shape", () => {
@@ -18,15 +24,24 @@ test("ignores non-progress segments regardless of newline shape", () => {
   expect(buffer.feed("more\n[NOTPROGRESS] nope\nmore text")).toEqual([]);
 });
 
-test("treats each segment independently without cross-segment stitching", () => {
+test("buffers progress lines across chunk boundaries", () => {
   const buffer = new ProgressLineBuffer();
   expect(buffer.feed("preamble")).toEqual([]);
-  expect(buffer.feed("[PROGRESS] second segment")).toEqual(["second segment"]);
+  expect(buffer.feed("\n[PRO")).toEqual([]);
+  expect(buffer.feed("GRESS] second")).toEqual([]);
+  expect(buffer.feed(" segment\n")).toEqual(["second segment"]);
 });
 
 test("drops progress markers with empty summaries", () => {
   const buffer = new ProgressLineBuffer();
-  expect(buffer.feed("[PROGRESS]   ")).toEqual([]);
+  expect(buffer.feed("[PROGRESS]   \n")).toEqual([]);
+});
+
+test("sanitizes and caps progress summaries", () => {
+  expect(sanitizeProgressSummary(" \u0000reading\u0007 files ")).toBe("reading files");
+  const long = "x".repeat(MAX_PROGRESS_SUMMARY_LENGTH + 10);
+  expect(sanitizeProgressSummary(long)).toHaveLength(MAX_PROGRESS_SUMMARY_LENGTH);
+  expect(sanitizeProgressSummary(long).endsWith("...")).toBe(true);
 });
 
 test("strips progress lines from final text", () => {

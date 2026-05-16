@@ -8,6 +8,7 @@ import {
   GetTaskPayloadRequestSchema,
   ListToolsRequestSchema,
   McpError,
+  RELATED_TASK_META_KEY,
   type CallToolResult,
   type CreateTaskResult,
   type Root,
@@ -24,6 +25,9 @@ import type { OrchestrationTaskRecord } from "../orchestration/orchestration-typ
 import { resolveDefaultOrchestrationEndpoint } from "./resolve-endpoint";
 import { buildWeacpxMcpToolRegistry } from "./weacpx-mcp-tools";
 import { createOrchestrationTransport, type WeacpxMcpTransport } from "./weacpx-mcp-transport";
+
+const TASK_OPTIONS_CACHE_LIMIT = 1_000;
+const TASKS_LIST_PAGE_SIZE = 100;
 
 export interface WeacpxMcpServerOptions {
   transport?: WeacpxMcpTransport;
@@ -56,6 +60,7 @@ export const WEACPX_MCP_SERVER_INSTRUCTIONS = [
   "Preferred MCP Tasks lifecycle (for clients that support task-augmented tools/call):",
   "1. Call delegate_request with task execution requested. It returns a native MCP task handle immediately.",
   "2. Use tasks/get or tasks/list to poll status; use tasks/result after terminal status, or on input_required to receive an actionable next-step package; use tasks/cancel to cancel.",
+  "   - When tasks/result returns input_required, that result stream is complete. Call the recommended tool, then resume polling with tasks/get / tasks/result.",
   "3. Status mapping: working = running, input_required = needs_confirmation / blocked / waiting_for_human / contested review, completed / failed / cancelled are terminal.",
   "",
   "Legacy tool lifecycle for clients without MCP Tasks support:",
@@ -186,7 +191,7 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
     if (!task) {
       throw new McpError(ErrorCode.InvalidParams, `Task not found: ${request.params.taskId}`);
     }
-    return renderNativeTaskPayloadResult(task);
+    return withRelatedTaskMeta(renderNativeTaskPayloadResult(task), task.taskId);
   });
 
   return server;
@@ -233,21 +238,22 @@ async function createDelegationMcpTask(input: {
   if (!taskId) {
     throw new McpError(ErrorCode.InternalError, "delegate_request did not return a taskId");
   }
-  input.taskOptionsById.set(taskId, normalizeCreateTaskOptions(input.taskParams));
+  rememberTaskOptions(input.taskOptionsById, taskId, input.taskParams);
 
   const task = await input.state.transport.getTask({
     coordinatorSession: input.state.coordinatorSession,
     taskId,
   });
 
+  if (!task) {
+    throw new McpError(
+      ErrorCode.InternalError,
+      `delegate_request created task "${taskId}" but it was not readable from orchestration state`,
+    );
+  }
+
   return {
-    task: toMcpTask(task ?? {
-      taskId,
-      status: "running",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      summary: "",
-    }, input.taskParams),
+    task: toMcpTask(task, input.taskParams),
   };
 }
 
@@ -283,16 +289,53 @@ function createWeacpxTaskStore(
       }
       throw new Error(`weacpx MCP task status is read-only (${status}${statusMessage ? `: ${statusMessage}` : ""})`);
     },
-    listTasks: async () => {
+    listTasks: async (cursor) => {
       const state = await resolveState();
       const tasks = await state.transport.listTasks({
         coordinatorSession: state.coordinatorSession,
         sort: "updatedAt",
         order: "desc",
       });
-      return { tasks: tasks.map((task) => toMcpTask(task, taskOptionsById.get(task.taskId))) };
+      pruneTaskOptions(taskOptionsById, new Set(tasks.map((task) => task.taskId)));
+      const offset = parseTaskListCursor(cursor);
+      const page = tasks.slice(offset, offset + TASKS_LIST_PAGE_SIZE);
+      const nextOffset = offset + page.length;
+      return {
+        tasks: page.map((task) => toMcpTask(task, taskOptionsById.get(task.taskId))),
+        ...(nextOffset < tasks.length ? { nextCursor: String(nextOffset) } : {}),
+      };
     },
   };
+}
+
+function rememberTaskOptions(
+  taskOptionsById: Map<string, CreateTaskOptions>,
+  taskId: string,
+  options: CreateTaskOptions,
+): void {
+  taskOptionsById.set(taskId, normalizeCreateTaskOptions(options));
+  while (taskOptionsById.size > TASK_OPTIONS_CACHE_LIMIT) {
+    const oldestKey = taskOptionsById.keys().next().value;
+    if (oldestKey === undefined) break;
+    taskOptionsById.delete(oldestKey);
+  }
+}
+
+function pruneTaskOptions(taskOptionsById: Map<string, CreateTaskOptions>, taskIds: Set<string>): void {
+  for (const taskId of taskOptionsById.keys()) {
+    if (!taskIds.has(taskId)) {
+      taskOptionsById.delete(taskId);
+    }
+  }
+}
+
+function parseTaskListCursor(cursor: string | undefined): number {
+  if (!cursor) return 0;
+  const offset = Number(cursor);
+  if (!Number.isInteger(offset) || offset < 0) {
+    throw new McpError(ErrorCode.InvalidParams, `Invalid tasks/list cursor: ${cursor}`);
+  }
+  return offset;
 }
 
 function renderNativeTaskPayloadResult(task: OrchestrationTaskRecord): Result {
@@ -306,6 +349,16 @@ function renderNativeTaskPayloadResult(task: OrchestrationTaskRecord): Result {
     ErrorCode.InvalidRequest,
     `Task ${task.taskId} is still ${task.status}; use tasks/get until it is terminal or input_required`,
   );
+}
+
+function withRelatedTaskMeta(result: Result, taskId: string): Result {
+  return {
+    ...result,
+    _meta: {
+      ...result._meta,
+      [RELATED_TASK_META_KEY]: { taskId },
+    },
+  };
 }
 
 function renderNativeTaskResult(task: OrchestrationTaskRecord): Result {

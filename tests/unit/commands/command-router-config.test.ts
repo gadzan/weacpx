@@ -357,6 +357,21 @@ test("adds an acpx built-in agent from the built-in template", async () => {
   });
 });
 
+test("/agent add is idempotent and refuses to overwrite a different existing config", async () => {
+  const config = createConfig();
+  config.agents.qwen = { driver: "qwen", command: "custom-qwen" };
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const existingReply = await router.handle("wx:user", "/agent add codex");
+  const customReply = await router.handle("wx:user", "/agent add qwen");
+
+  expect(existingReply.text).toBe("Agent「codex」已存在");
+  expect(customReply.text).toBe("Agent「qwen」已存在且配置不同。请先执行 /agent rm qwen");
+  expect(config.agents.qwen).toEqual({ driver: "qwen", command: "custom-qwen" });
+});
+
 test("returns a chinese hint for unknown agent templates", async () => {
   const config = createConfig();
   const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());

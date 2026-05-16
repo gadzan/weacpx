@@ -360,7 +360,7 @@ weacpx channel add <channel-type>
 
 ### 内置模板
 
-通过微信发送 `/agent add <name>`，或在终端运行 `weacpx agent add <name>` 时使用以下内置模板；终端也可以用 `weacpx agent templates` 查看模板列表。
+通过微信发送 `/agent add <name>`，或在终端运行 `weacpx agent add <name>` 时使用以下内置模板；终端也可以用 `weacpx agent templates` 查看模板列表。添加已存在且配置相同的 agent 是幂等操作；如果同名 agent 已有不同配置，命令会提示先删除，不会静默覆盖自定义配置。
 
 | 模板名 | driver | command |
 |--------|--------|---------|

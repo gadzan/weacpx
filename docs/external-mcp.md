@@ -22,6 +22,17 @@ flowchart LR
   Host -->|legacy tools<br/>task_get / task_list / task_wait| Mcp
 ```
 
+## MCP Tasks 进展与输入请求
+
+支持 MCP Tasks 的 host 应优先用 task-augmented `tools/call` 调用 `delegate_request`：
+
+1. `delegate_request` 立即返回 native task handle。
+2. 用 `tasks/get` 或 `tasks/list` 轮询；`statusMessage` 会包含任务摘要，以及 worker 输出的最新 `[PROGRESS] ...` 进展。
+3. 任务进入 `input_required` 时，调用 `tasks/result` 会立即返回一个下一步操作包并结束本次 result stream，不会一直阻塞等待 terminal。client 应按包里的建议调用 `task_get` 查看详情，再调用 `task_approve` / `task_reject`、`coordinator_answer_question` 或 `coordinator_review_contested_result`；处理后继续 `tasks/get` / `tasks/result`。
+4. 任务进入 `completed` / `failed` / `cancelled` 后，再调用 `tasks/result` 获取最终结果。
+
+不支持 MCP Tasks 的 host 使用兼容工具：`delegate_request` → `task_wait` / `task_get` / `task_cancel`。`task_wait` 超时只表示“仍在运行”，继续再次调用即可。
+
 ## 最小配置
 
 先启动 daemon：

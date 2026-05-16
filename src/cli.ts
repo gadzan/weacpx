@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { ConfigStore } from "./config/config-store";
 import { loadConfig } from "./config/load-config";
 import { ensureConfigExists } from "./config/ensure-config";
-import { getAgentTemplate, listAgentTemplates } from "./config/agent-templates";
+import { getAgentTemplate, listAgentTemplates, sameAgentConfig } from "./config/agent-templates";
 import { createDaemonController } from "./daemon/create-daemon-controller";
 import { resolveDaemonPaths } from "./daemon/daemon-files";
 import type { DaemonController } from "./daemon/daemon-controller";
@@ -693,6 +693,16 @@ async function agentAdd(rawName: string, print: (line: string) => void): Promise
   }
 
   const store = await createCliConfigStore();
+  const config = await store.load();
+  const existing = config.agents[name];
+  if (existing) {
+    if (sameAgentConfig(existing, template)) {
+      print(`Agent「${name}」已存在`);
+      return 0;
+    }
+    print(`Agent「${name}」已存在且配置不同。请先执行：weacpx agent rm ${name}`);
+    return 1;
+  }
   await store.upsertAgent(name, template);
   print(`Agent「${name}」已保存`);
   return 0;

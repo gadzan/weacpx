@@ -559,6 +559,27 @@ test("agent add rejects unknown templates", async () => {
   });
 });
 
+test("agent add is idempotent and refuses to overwrite custom configs", async () => {
+  await withTempHome(async (home) => {
+    const lines: string[] = [];
+
+    await expect(runCli(["agent", "add", "codex"], { print: (line) => lines.push(line) })).resolves.toBe(0);
+
+    const configPath = join(home, ".weacpx", "config.json");
+    const config = await readConfigJson(home);
+    config.agents.qwen = { driver: "qwen", command: "custom-qwen" };
+    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
+
+    await expect(runCli(["agent", "add", "qwen"], { print: (line) => lines.push(line) })).resolves.toBe(1);
+
+    expect(lines).toEqual([
+      "Agent「codex」已存在",
+      "Agent「qwen」已存在且配置不同。请先执行：weacpx agent rm qwen",
+    ]);
+    expect((await readConfigJson(home)).agents.qwen).toEqual({ driver: "qwen", command: "custom-qwen" });
+  });
+});
+
 test("agent rm trims names and reports missing agents", async () => {
   await withTempHome(async () => {
     const lines: string[] = [];

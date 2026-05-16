@@ -71,3 +71,7 @@ export function getAgentTemplate(name: string): AgentConfig | null {
 export function listAgentTemplates(): string[] {
   return Object.keys(TEMPLATES);
 }
+
+export function sameAgentConfig(left: AgentConfig, right: AgentConfig): boolean {
+  return left.driver === right.driver && (left.command ?? "") === (right.command ?? "");
+}

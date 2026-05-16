@@ -177,7 +177,7 @@ weacpx restart
 | `weacpx doctor` | 运行环境诊断 |
 | `weacpx version` | 查看当前版本 |
 | `weacpx agent list` | 查看本机已注册的 agent |
-| `weacpx agent add <name>` | 从内置模板添加 agent |
+| `weacpx agent add <name>` | 从内置模板添加 agent；已存在且配置不同的同名 agent 不会被覆盖 |
 | `weacpx agent rm <name>` | 删除 agent |
 | `weacpx workspace list` | 查看本机已注册的 workspace |
 | `weacpx workspace add [name]` | 把当前目录注册成 workspace；不传 `name` 时使用当前目录名 |
@@ -387,7 +387,7 @@ README 里只保留用户视角的最常用命令。
 
 如果你想让 Codex、Claude Code 等外部 MCP host 直接使用 weacpx 的多 Agent 编排能力，可以把 `weacpx mcp-stdio` 配成一个 stdio MCP server。
 
-`delegate_request` 支持 MCP Tasks：支持该能力的 host 可以让委派请求立即返回原生 task handle，之后通过 `tasks/get` / `tasks/result` / `tasks/cancel` 获取状态、结果或取消任务；worker 输出的 `[PROGRESS] ...` 会显示在 `tasks/get` / `tasks/list` 的 `statusMessage` 里；`input_required` 状态下的 `tasks/result` 会返回下一步操作提示而不是长时间阻塞。不支持 MCP Tasks 的 host 仍可使用兼容工具 `task_get` / `task_wait` / `task_cancel`。
+`delegate_request` 支持 MCP Tasks：支持该能力的 host 可以让委派请求立即返回原生 task handle，之后通过 `tasks/get` / `tasks/result` / `tasks/cancel` 获取状态、结果或取消任务；worker 输出的 `[PROGRESS] ...` 会显示在 `tasks/get` / `tasks/list` 的 `statusMessage` 里；`input_required` 状态下的 `tasks/result` 会返回下一步操作提示并结束本次 result stream，而不是长时间阻塞；client 按提示调用 `task_get` / `task_approve` / `coordinator_answer_question` 等工具后，再继续 `tasks/get` / `tasks/result` 轮询。不支持 MCP Tasks 的 host 仍可使用兼容工具 `task_get` / `task_wait` / `task_cancel`。
 
 先启动 daemon：
 

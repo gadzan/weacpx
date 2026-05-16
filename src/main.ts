@@ -414,6 +414,24 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
       let taskRecord: OrchestrationTaskRecord | undefined;
       try {
         const progressBuffer = new ProgressLineBuffer();
+        const recordProgress = async (summary: string) => {
+          try {
+            await orchestration.recordTaskProgress(input.taskId, summary);
+            const taskState = await orchestration.getTask(input.taskId);
+            if (taskState?.chatKey && taskState.replyContextToken && deps.channel) {
+              await deps.channel.notifyTaskProgress(taskState, renderTaskProgress(taskState, summary));
+            }
+          } catch (error) {
+            await logger.error(
+              "orchestration.progress.send_failed",
+              "failed to send task progress",
+              {
+                taskId: input.taskId,
+                message: error instanceof Error ? error.message : String(error),
+              },
+            );
+          }
+        };
         const result = await transport.prompt(
           session,
           input.promptText,
@@ -423,26 +441,14 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
             onSegment: async (chunk) => {
               const summaries = progressBuffer.feed(chunk);
               for (const summary of summaries) {
-                try {
-                  await orchestration.recordTaskProgress(input.taskId, summary);
-                  const taskState = await orchestration.getTask(input.taskId);
-                  if (taskState?.chatKey && taskState.replyContextToken && deps.channel) {
-                    await deps.channel.notifyTaskProgress(taskState, renderTaskProgress(taskState, summary));
-                  }
-                } catch (error) {
-                  await logger.error(
-                    "orchestration.progress.send_failed",
-                    "failed to send task progress",
-                    {
-                      taskId: input.taskId,
-                      message: error instanceof Error ? error.message : String(error),
-                    },
-                  );
-                }
+                await recordProgress(summary);
               }
             },
           },
         );
+        for (const summary of progressBuffer.flush()) {
+          await recordProgress(summary);
+        }
         taskRecord = await finalizeWorkerTurn({
           taskId: input.taskId,
           workerSession: input.workerSession,
