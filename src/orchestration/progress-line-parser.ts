@@ -6,6 +6,7 @@ export class ProgressLineBuffer {
   private pending = "";
 
   feed(segment: string): string[] {
+    const hadPending = this.pending.length > 0;
     this.pending += segment;
     const summaries: string[] = [];
     let newlineIndex = this.pending.indexOf("\n");
@@ -14,6 +15,11 @@ export class ProgressLineBuffer {
       this.pending = this.pending.slice(newlineIndex + 1);
       this.extractLine(line, summaries);
       newlineIndex = this.pending.indexOf("\n");
+    }
+    if (!hadPending && this.pending.startsWith(PROGRESS_PREFIX)) {
+      this.extractLine(this.pending.replace(/\r$/, ""), summaries);
+      this.pending = "";
+      return summaries;
     }
     this.trimPendingIfHopeless();
     return summaries;
@@ -68,7 +74,5 @@ export function stripProgressLines(text: string): string {
 }
 
 function normalizeProgressLinePrefix(line: string): string {
-  return line
-    .replace(/^\r+/, "")
-    .replace(/^\u001B\[[0-9;]*[A-Za-z]/, "");
+  return line.replace(/^(?:\r+|\u001B\[[0-9;]*[A-Za-z])+/, "");
 }

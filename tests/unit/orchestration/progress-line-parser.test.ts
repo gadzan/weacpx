@@ -12,10 +12,10 @@ test("extracts progress summaries from a trimmed paragraph segment", () => {
   expect(result).toEqual(["analyzing types", "found 2 issues"]);
 });
 
-test("flushes progress when the final segment has no trailing newline", () => {
+test("extracts standalone progress segments without trailing newline immediately", () => {
   const buffer = new ProgressLineBuffer();
-  expect(buffer.feed("[PROGRESS] step 1 done")).toEqual([]);
-  expect(buffer.flush()).toEqual(["step 1 done"]);
+  expect(buffer.feed("[PROGRESS] step 1 done")).toEqual(["step 1 done"]);
+  expect(buffer.flush()).toEqual([]);
 });
 
 test("ignores non-progress segments regardless of newline shape", () => {
@@ -35,6 +35,13 @@ test("buffers progress lines across chunk boundaries", () => {
 test("extracts progress lines after ordinary output in the same chunk", () => {
   const buffer = new ProgressLineBuffer();
   expect(buffer.feed("ordinary output\n[PROGRESS] step after output\n")).toEqual(["step after output"]);
+});
+
+test("extracts trailing progress segment after ordinary output without trailing newline", () => {
+  const buffer = new ProgressLineBuffer();
+  expect(buffer.feed("ordinary output\n[PROGRESS] trailing step")).toEqual(["trailing step"]);
+  expect(buffer.feed("ordinary next segment")).toEqual([]);
+  expect(buffer.flush()).toEqual([]);
 });
 
 test("drops progress markers with empty summaries", () => {
@@ -61,6 +68,11 @@ test("strips CRLF and carriage-return progress lines from final text", () => {
 
 test("strips ANSI-prefixed progress lines from final text", () => {
   const text = "\u001B[2K[PROGRESS] redrawing\nDone.";
+  expect(stripProgressLines(text)).toBe("Done.");
+});
+
+test("strips mixed ANSI and carriage-return progress lines from final text", () => {
+  const text = "\u001B[2K\r[PROGRESS] redrawing\n\u001B[1m\u001B[2K[PROGRESS] bold\nDone.";
   expect(stripProgressLines(text)).toBe("Done.");
 });
 
