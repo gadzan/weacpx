@@ -439,6 +439,7 @@ function mcpTaskStatusMessage(
 function toMcpTaskStatus(
   task: Pick<OrchestrationTaskRecord, "status"> & Partial<Pick<OrchestrationTaskRecord, "reviewPending">>,
 ): Task["status"] {
+  if (task.reviewPending !== undefined) return "input_required";
   if (task.status === "completed") return "completed";
   if (task.status === "failed") return "failed";
   if (task.status === "cancelled") return "cancelled";
@@ -446,7 +447,6 @@ function toMcpTaskStatus(
     task.status === "needs_confirmation"
     || task.status === "blocked"
     || task.status === "waiting_for_human"
-    || task.reviewPending !== undefined
   ) {
     return "input_required";
   }

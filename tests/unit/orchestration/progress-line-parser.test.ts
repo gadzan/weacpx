@@ -49,6 +49,24 @@ test("strips progress lines from final text", () => {
   expect(stripProgressLines(text)).toBe("Here is my review:\nAll looks good.");
 });
 
+test("strips CRLF and carriage-return progress lines from final text", () => {
+  const text = "[PROGRESS] analyzing\r\n\r[PROGRESS] updating\r\nDone.";
+  expect(stripProgressLines(text)).toBe("Done.");
+});
+
+test("strips ANSI-prefixed progress lines from final text", () => {
+  const text = "\u001B[2K[PROGRESS] redrawing\nDone.";
+  expect(stripProgressLines(text)).toBe("Done.");
+});
+
+test("drops long non-progress pending chunks without newline", () => {
+  const buffer = new ProgressLineBuffer();
+  expect(buffer.feed("x".repeat(5000))).toEqual([]);
+  expect(buffer.flush()).toEqual([]);
+  expect(buffer.feed("[PRO")).toEqual([]);
+  expect(buffer.feed("GRESS] recovered\n")).toEqual(["recovered"]);
+});
+
 test("returns empty string when all lines are progress", () => {
   expect(stripProgressLines("[PROGRESS] step 1\n[PROGRESS] step 2\n")).toBe("");
 });

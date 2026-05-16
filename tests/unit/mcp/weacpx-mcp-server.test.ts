@@ -320,6 +320,151 @@ test("native MCP tasks map input-required states and cancellation", async () => 
   }
 });
 
+test("native MCP tasks expose pending approval as input_required", async () => {
+  const task: OrchestrationTaskRecord = {
+    taskId: "task-approval",
+    sourceHandle: "backend:main",
+    sourceKind: "worker",
+    coordinatorSession: "backend:main",
+    workerSession: "backend:worker",
+    workspace: "backend",
+    targetAgent: "claude",
+    task: "delegate onward",
+    status: "needs_confirmation",
+    summary: "Worker requested delegation",
+    resultText: "",
+    createdAt: "2026-05-16T00:00:00.000Z",
+    updatedAt: "2026-05-16T00:00:01.000Z",
+  };
+  const server = createWeacpxMcpServer({
+    transport: createMemoryTransport(
+      async () => ({ taskId: "task-approval", status: "needs_confirmation" }),
+      {
+        getTask: async ({ taskId }) => taskId === "task-approval" ? task : null,
+        listTasks: async () => [task],
+      },
+    ),
+    coordinatorSession: "backend:main",
+  });
+  const client = new Client({ name: "weacpx-test-client", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const messages: Array<{ type: string; result?: { structuredContent?: unknown } }> = [];
+    const stream = client.experimental.tasks.callToolStream(
+      {
+        name: "delegate_request",
+        arguments: {
+          targetAgent: "claude",
+          task: "review",
+          workingDirectory: "/repo/backend",
+        },
+      },
+      CallToolResultSchema,
+      { task: { pollInterval: 10 } },
+    );
+    for await (const message of stream) {
+      messages.push(message);
+    }
+
+    expect(await client.experimental.tasks.getTask("task-approval")).toMatchObject({
+      taskId: "task-approval",
+      status: "input_required",
+    });
+    expect(messages.at(-1)?.result?.structuredContent).toMatchObject({
+      nextAction: {
+        kind: "input_required",
+        taskId: "task-approval",
+        recommendedTools: ["task_approve", "task_reject"],
+      },
+    });
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("native MCP tasks keep contested terminal results input_required", async () => {
+  const task: OrchestrationTaskRecord = {
+    taskId: "task-contested",
+    sourceHandle: "backend:main",
+    sourceKind: "coordinator",
+    coordinatorSession: "backend:main",
+    workerSession: "backend:worker",
+    workspace: "backend",
+    targetAgent: "claude",
+    task: "review",
+    status: "completed",
+    summary: "Review result is contested",
+    resultText: "Looks good.",
+    createdAt: "2026-05-16T00:00:00.000Z",
+    updatedAt: "2026-05-16T00:00:01.000Z",
+    reviewPending: {
+      reviewId: "review-1",
+      reason: "misrouted_answer",
+      createdAt: "2026-05-16T00:00:01.000Z",
+      resultId: "result-1",
+      resultText: "Looks good.",
+    },
+  };
+  const server = createWeacpxMcpServer({
+    transport: createMemoryTransport(
+      async () => ({ taskId: "task-contested", status: "running" }),
+      {
+        getTask: async ({ taskId }) => taskId === "task-contested" ? task : null,
+        listTasks: async () => [task],
+      },
+    ),
+    coordinatorSession: "backend:main",
+  });
+  const client = new Client({ name: "weacpx-test-client", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const messages: Array<{ type: string; task?: { taskId: string; status: string }; result?: { structuredContent?: unknown } }> = [];
+    const stream = client.experimental.tasks.callToolStream(
+      {
+        name: "delegate_request",
+        arguments: {
+          targetAgent: "claude",
+          task: "review",
+          workingDirectory: "/repo/backend",
+        },
+      },
+      CallToolResultSchema,
+      { task: { pollInterval: 10 } },
+    );
+    for await (const message of stream) {
+      messages.push(message);
+    }
+
+    expect(messages[0]).toMatchObject({
+      type: "taskCreated",
+      task: { taskId: "task-contested", status: "input_required" },
+    });
+    expect(await client.experimental.tasks.getTask("task-contested")).toMatchObject({
+      taskId: "task-contested",
+      status: "input_required",
+    });
+    expect(messages.at(-1)?.result?.structuredContent).toMatchObject({
+      nextAction: {
+        kind: "input_required",
+        taskId: "task-contested",
+        recommendedTools: ["coordinator_review_contested_result"],
+      },
+    });
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("native MCP tasks list uses cursor pagination", async () => {
   const tasks: OrchestrationTaskRecord[] = Array.from({ length: 101 }, (_, index) => ({
     taskId: `task-${index}`,

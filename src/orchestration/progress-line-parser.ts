@@ -1,11 +1,18 @@
 const PROGRESS_PREFIX = "[PROGRESS]";
 export const MAX_PROGRESS_SUMMARY_LENGTH = 500;
+const MAX_PENDING_LINE_LENGTH = 4096;
 
 export class ProgressLineBuffer {
   private pending = "";
 
   feed(segment: string): string[] {
     this.pending += segment;
+    if (!PROGRESS_PREFIX.startsWith(this.pending) && !this.pending.startsWith(PROGRESS_PREFIX)) {
+      const lastNewlineIndex = Math.max(this.pending.lastIndexOf("\n"), this.pending.lastIndexOf("\r"));
+      this.pending = lastNewlineIndex >= 0 ? this.pending.slice(lastNewlineIndex + 1) : "";
+    } else if (this.pending.length > MAX_PENDING_LINE_LENGTH) {
+      this.pending = "";
+    }
     const summaries: string[] = [];
     let newlineIndex = this.pending.indexOf("\n");
     while (newlineIndex !== -1) {
@@ -49,7 +56,13 @@ export function sanitizeProgressSummary(summary: string): string {
 export function stripProgressLines(text: string): string {
   return text
     .split("\n")
-    .filter((line) => !line.startsWith(PROGRESS_PREFIX))
+    .filter((line) => !normalizeProgressLinePrefix(line).startsWith(PROGRESS_PREFIX))
     .join("\n")
     .trim();
+}
+
+function normalizeProgressLinePrefix(line: string): string {
+  return line
+    .replace(/^\r+/, "")
+    .replace(/^\u001B\[[0-9;]*[A-Za-z]/, "");
 }
