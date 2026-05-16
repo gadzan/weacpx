@@ -8651,11 +8651,13 @@ test("records task progress by updating lastProgressAt", async () => {
   });
   const service = new OrchestrationService(harness.deps);
 
-  const task = await service.recordTaskProgress("task-progress-1");
+  const task = await service.recordTaskProgress("task-progress-1", "analyzing code");
 
   expect(task.lastProgressAt).toBe("2026-04-13T10:00:00.000Z");
+  expect(task.lastProgressSummary).toBe("analyzing code");
   const reloaded = await service.getTask("task-progress-1");
   expect(reloaded?.lastProgressAt).toBe("2026-04-13T10:00:00.000Z");
+  expect(reloaded?.lastProgressSummary).toBe("analyzing code");
 });
 
 test("lists running tasks overdue for heartbeat", async () => {

@@ -278,6 +278,8 @@ sequenceDiagram
 - `tasks/result`：读取 terminal task 的结果；如果任务处于 `input_required`，会立即返回一个可操作的说明包（例如下一步应调用 `task_get` 后再 `task_approve` / `coordinator_answer_question` / `coordinator_review_contested_result`），不会阻塞等待 terminal。
 - `tasks/cancel`：取消任务，内部会转成 weacpx 的 `task_cancel`。
 
+如果 worker 输出 `[PROGRESS] ...` 行，weacpx 会把最近一条进展持久化到 task 上；MCP Tasks 的 `tasks/get` / `tasks/list` 会在 `statusMessage` 中带上 `Latest progress` 和 `Last progress at`，兼容工具 `task_get` 也会显示最新进展。
+
 不支持 MCP Tasks 的 host 仍然可以继续使用 `task_get` / `task_list` / `task_wait` / `task_cancel` 这些兼容工具。
 
 ## `sourceHandle` 的复用规则

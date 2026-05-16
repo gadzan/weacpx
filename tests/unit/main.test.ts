@@ -1831,6 +1831,7 @@ test("extracts [PROGRESS] markers from worker output and sends progress notifica
   expect(taskEntry?.resultText).not.toContain("[PROGRESS]");
   expect(taskEntry?.resultText).toContain("Here is the result.");
   expect(taskEntry?.lastProgressAt).toBeDefined();
+  expect(taskEntry?.lastProgressSummary).toBe("found 3 issues");
 
   await Bun.sleep(20);
   await runtime.dispose();

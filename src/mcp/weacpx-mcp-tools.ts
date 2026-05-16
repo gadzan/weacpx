@@ -653,6 +653,7 @@ function renderTaskSummary(task: {
   createdAt: string;
   updatedAt: string;
   lastProgressAt?: string;
+  lastProgressSummary?: string;
   cancelRequestedAt?: string;
   cancelCompletedAt?: string;
   lastCancelError?: string;
@@ -678,6 +679,7 @@ function renderTaskSummary(task: {
   }
   header.push(`- Task: ${task.task}`);
   if (task.summary.trim().length > 0) header.push(`- Summary: ${task.summary}`);
+  if (task.lastProgressSummary) header.push(`- Latest progress: ${task.lastProgressSummary}`);
   if (task.resultText.trim().length > 0) header.push(`- Result: ${task.resultText}`);
   const events: Array<{ at: string; event: string; detail?: string }> = [];
   events.push({ at: task.createdAt, event: "created" });

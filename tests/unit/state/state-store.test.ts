@@ -1176,7 +1176,7 @@ test("rejects states with malformed orchestration worker binding entries", async
   await rm(dir, { recursive: true, force: true });
 });
 
-test("loads orchestration task records with lastProgressAt", async () => {
+test("loads orchestration task records with progress metadata", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
   const path = join(dir, "state.json");
   const store = new StateStore(path);
@@ -1203,6 +1203,7 @@ test("loads orchestration task records with lastProgressAt", async () => {
             createdAt: "2026-04-18T10:00:00.000Z",
             updatedAt: "2026-04-18T10:05:00.000Z",
             lastProgressAt: "2026-04-18T10:03:00.000Z",
+            lastProgressSummary: "reading files",
           },
         },
         workerBindings: {},
@@ -1212,6 +1213,7 @@ test("loads orchestration task records with lastProgressAt", async () => {
 
   const state = await store.load();
   expect(state.orchestration.tasks["task-1"].lastProgressAt).toBe("2026-04-18T10:03:00.000Z");
+  expect(state.orchestration.tasks["task-1"].lastProgressSummary).toBe("reading files");
 
   await rm(dir, { recursive: true, force: true });
 });

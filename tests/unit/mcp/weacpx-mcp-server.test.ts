@@ -217,6 +217,8 @@ test("native MCP tasks map input-required states and cancellation", async () => 
     resultText: "",
     createdAt: "2026-05-16T00:00:00.000Z",
     updatedAt: "2026-05-16T00:00:02.000Z",
+    lastProgressAt: "2026-05-16T00:00:01.500Z",
+    lastProgressSummary: "reading files",
     openQuestion: {
       questionId: "q1",
       question: "Which branch?",
@@ -297,7 +299,7 @@ test("native MCP tasks map input-required states and cancellation", async () => 
     expect(status).toMatchObject({
       taskId: "task-blocked",
       status: "input_required",
-      statusMessage: "Need clarification",
+      statusMessage: "Need clarification\nLatest progress: reading files\nLast progress at: 2026-05-16T00:00:01.500Z",
     });
 
     const cancelled = await client.experimental.tasks.cancelTask("task-blocked");

@@ -68,6 +68,7 @@ export interface OrchestrationTaskRecord {
   injectionAppliedAt?: string;
   lastInjectionError?: string;
   lastProgressAt?: string;
+  lastProgressSummary?: string;
   groupId?: string;
   openQuestion?: OrchestrationOpenQuestionRecord;
   reviewPending?: OrchestrationReviewPendingRecord;

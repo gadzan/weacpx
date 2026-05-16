@@ -357,9 +357,10 @@ function inputRequiredActions(task: OrchestrationTaskRecord): string[] {
 }
 
 function toMcpTask(
-  task: Pick<OrchestrationTaskRecord, "taskId" | "status" | "createdAt" | "updatedAt" | "summary">,
+  task: Pick<OrchestrationTaskRecord, "taskId" | "status" | "createdAt" | "updatedAt" | "summary"> & Partial<Pick<OrchestrationTaskRecord, "lastProgressAt" | "lastProgressSummary" | "reviewPending">>,
   options: CreateTaskOptions = {},
 ): Task {
+  const statusMessage = mcpTaskStatusMessage(task);
   return {
     taskId: task.taskId,
     status: toMcpTaskStatus(task),
@@ -367,8 +368,19 @@ function toMcpTask(
     createdAt: task.createdAt,
     lastUpdatedAt: task.updatedAt,
     ...(options.pollInterval !== undefined ? { pollInterval: options.pollInterval } : {}),
-    ...(task.summary.trim().length > 0 ? { statusMessage: task.summary } : {}),
+    ...(statusMessage ? { statusMessage } : {}),
   };
+}
+
+function mcpTaskStatusMessage(
+  task: Pick<OrchestrationTaskRecord, "summary"> & Partial<Pick<OrchestrationTaskRecord, "lastProgressAt" | "lastProgressSummary">>,
+): string | undefined {
+  const lines = [
+    task.summary.trim().length > 0 ? task.summary : "",
+    task.lastProgressSummary ? `Latest progress: ${task.lastProgressSummary}` : "",
+    task.lastProgressAt ? `Last progress at: ${task.lastProgressAt}` : "",
+  ].filter((line) => line.trim().length > 0);
+  return lines.length > 0 ? lines.join("\n") : undefined;
 }
 
 function toMcpTaskStatus(

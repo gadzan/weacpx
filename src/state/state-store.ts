@@ -132,6 +132,7 @@ function isTaskRecord(value: unknown): value is OrchestrationTaskRecord {
     isOptionalString(value.injectionAppliedAt) &&
     isOptionalString(value.lastInjectionError) &&
     isOptionalString(value.lastProgressAt) &&
+    isOptionalString(value.lastProgressSummary) &&
     isOptionalString(value.groupId) &&
     (value.openQuestion === undefined || isOpenQuestionRecord(value.openQuestion)) &&
     (value.reviewPending === undefined || isReviewPendingRecord(value.reviewPending)) &&

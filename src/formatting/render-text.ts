@@ -117,6 +117,7 @@ export function renderTaskSummary(task: OrchestrationTaskRecord): string {
   }
   header.push(`- 任务：${task.task}`);
   if (task.summary.trim().length > 0) header.push(`- 摘要：${task.summary}`);
+  if (task.lastProgressSummary) header.push(`- 最新进展：${task.lastProgressSummary}`);
   if (task.resultText.trim().length > 0) header.push(`- 结果：${task.resultText}`);
 
   const events: TimelineEvent[] = [];

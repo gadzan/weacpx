@@ -424,7 +424,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
               const summaries = progressBuffer.feed(chunk);
               for (const summary of summaries) {
                 try {
-                  await orchestration.recordTaskProgress(input.taskId);
+                  await orchestration.recordTaskProgress(input.taskId, summary);
                   const taskState = await orchestration.getTask(input.taskId);
                   if (taskState?.chatKey && taskState.replyContextToken && deps.channel) {
                     await deps.channel.notifyTaskProgress(taskState, renderTaskProgress(taskState, summary));

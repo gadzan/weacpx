@@ -2536,7 +2536,7 @@ export class OrchestrationService {
     }
   }
 
-  async recordTaskProgress(taskId: string): Promise<OrchestrationTaskRecord> {
+  async recordTaskProgress(taskId: string, summary?: string): Promise<OrchestrationTaskRecord> {
     return await this.mutate(async () => {
       const state = await this.deps.loadState();
       const task = state.orchestration.tasks[taskId];
@@ -2545,6 +2545,12 @@ export class OrchestrationService {
       }
 
       task.lastProgressAt = this.deps.now().toISOString();
+      if (summary !== undefined) {
+        const trimmed = summary.trim();
+        if (trimmed.length > 0) {
+          task.lastProgressSummary = trimmed;
+        }
+      }
       task.updatedAt = task.lastProgressAt;
       await this.deps.saveState(state);
       return { ...task };
