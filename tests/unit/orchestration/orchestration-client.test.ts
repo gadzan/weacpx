@@ -3,16 +3,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getWaitRequestTimeoutMs, getWatchRequestTimeoutMs, OrchestrationClient } from "../../../src/orchestration/orchestration-client";
+import { getWatchRequestTimeoutMs, OrchestrationClient } from "../../../src/orchestration/orchestration-client";
 import { resolveOrchestrationEndpoint } from "../../../src/orchestration/orchestration-ipc";
 import { OrchestrationServer } from "../../../src/orchestration/orchestration-server";
 import { skipIfLocalIpcUnavailable } from "../../helpers/ipc-capability";
-
-test("task wait RPC timeout follows five minute default and twenty minute cap", () => {
-  expect(getWaitRequestTimeoutMs(undefined, 30_000)).toBe(305_000);
-  expect(getWaitRequestTimeoutMs(1_200_000, 30_000)).toBe(1_205_000);
-  expect(getWaitRequestTimeoutMs(9_999_999, 30_000)).toBe(1_205_000);
-});
 
 test("task watch RPC timeout follows one minute default and twenty minute cap", () => {
   expect(getWatchRequestTimeoutMs(undefined, 30_000)).toBe(65_000);
@@ -69,7 +63,6 @@ test("sends orchestration RPC requests through the client", async () => {
         updatedAt: "2026-04-13T00:00:00.000Z",
       },
     ],
-    waitTask: async (input) => ({ status: "timeout" as const, task: null }),
     watchTask: async (input) => ({ status: "timeout" as const, task: null, events: [], nextAfterSeq: input.afterSeq ?? 0 }),
     cancelTask: async (input) => ({
       taskId: input.taskId,
@@ -182,64 +175,6 @@ test("sends orchestration RPC requests through the client", async () => {
     await expect(
       client.workerReply({ taskId: "task-1", sourceHandle: "backend:claude:worker", resultText: "done" }),
     ).resolves.toEqual({ accepted: true });
-  } finally {
-    await server.stop();
-    await rm(dir, { recursive: true, force: true });
-  }
-});
-
-test("waitTask extends the RPC timeout beyond the requested wait window", async () => {
-  if (await skipIfLocalIpcUnavailable("orchestration-client waitTask integration tests")) return;
-
-  const dir = await mkdtemp(join(tmpdir(), "weacpx-orch-client-wait-"));
-  const endpoint = resolveOrchestrationEndpoint(dir);
-  let receivedInput: unknown;
-  const server = new OrchestrationServer(endpoint, {
-    waitTask: async (input) => {
-      receivedInput = input;
-      await Bun.sleep(45);
-      return {
-        status: "timeout" as const,
-        task: {
-          taskId: input.taskId,
-          sourceHandle: "backend:main",
-          sourceKind: "coordinator" as const,
-          coordinatorSession: input.coordinatorSession,
-          workerSession: "backend:claude:worker",
-          workspace: "backend",
-          targetAgent: "claude",
-          task: "review",
-          status: "running" as const,
-          summary: "",
-          resultText: "",
-          createdAt: "2026-04-13T00:00:00.000Z",
-          updatedAt: "2026-04-13T00:00:00.000Z",
-        },
-      };
-    },
-  } as Partial<ConstructorParameters<typeof OrchestrationServer>[1]> as ConstructorParameters<typeof OrchestrationServer>[1]);
-  const client = new OrchestrationClient(endpoint, { timeoutMs: 20 });
-
-  try {
-    await server.start();
-
-    await expect(
-      client.waitTask({
-        coordinatorSession: "backend:main",
-        taskId: "task-1",
-        timeoutMs: 30,
-        pollIntervalMs: 10,
-      }),
-    ).resolves.toMatchObject({
-      status: "timeout",
-      task: { taskId: "task-1", status: "running" },
-    });
-    expect(receivedInput).toEqual({
-      coordinatorSession: "backend:main",
-      taskId: "task-1",
-      timeoutMs: 30,
-      pollIntervalMs: 10,
-    });
   } finally {
     await server.stop();
     await rm(dir, { recursive: true, force: true });

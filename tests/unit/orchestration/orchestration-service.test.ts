@@ -8,7 +8,7 @@ import { AsyncMutex } from "../../../src/orchestration/async-mutex";
 import {
   DEFAULT_TASK_WATCH_TIMEOUT_MS,
   MAX_TASK_WATCH_TIMEOUT_MS,
-} from "../../../src/orchestration/task-wait-timeouts";
+} from "../../../src/orchestration/task-watch-timeouts";
 import { createEmptyState, type AppState } from "../../../src/state/types";
 import type { AppConfig } from "../../../src/config/types";
 import { QuotaDeferredError } from "../../../src/weixin/messaging/quota-errors";
@@ -2049,186 +2049,6 @@ test("concurrent worker-originated rpc requests recheck quota before persisting"
 });
 
 
-test("task_wait returns terminal task states", async () => {
-  const harness = makeDeps({
-    initialState: {
-      ...createEmptyState(),
-      orchestration: {
-        ...createEmptyState().orchestration,
-        tasks: {
-          "task-1": makeCompletedTask("task-1"),
-        },
-      },
-    },
-  });
-  const service = new OrchestrationService(harness.deps);
-
-  await expect(
-    service.waitTask({ coordinatorSession: "backend:main", taskId: "task-1", timeoutMs: 0 }),
-  ).resolves.toMatchObject({
-    status: "terminal",
-    task: { taskId: "task-1", status: "completed", resultText: "result task-1" },
-  });
-});
-
-test("task_wait returns attention_required for coordinator action states", async () => {
-  const attentionTasks = [
-    { ...makeCompletedTask("task-1"), status: "needs_confirmation" as const, summary: "", resultText: "" },
-    makeBlockedTask("task-1", "question-1"),
-    { ...makeBlockedTask("task-1", "question-1"), status: "waiting_for_human" as const },
-    {
-      ...makeCompletedTask("task-1"),
-      reviewPending: {
-        reviewId: "review-1",
-        reason: "misrouted_answer" as const,
-        createdAt: "2026-04-13T10:00:00.000Z",
-        resultId: "result-1",
-        resultText: "contested result",
-      },
-    },
-  ];
-
-  for (const task of attentionTasks) {
-    const harness = makeDeps({
-      initialState: {
-        ...createEmptyState(),
-        orchestration: {
-          ...createEmptyState().orchestration,
-          tasks: { "task-1": task },
-        },
-      },
-    });
-    const service = new OrchestrationService(harness.deps);
-
-    await expect(
-      service.waitTask({ coordinatorSession: "backend:main", taskId: "task-1", timeoutMs: 0 }),
-    ).resolves.toMatchObject({ status: "attention_required", task: { taskId: "task-1" } });
-  }
-});
-
-test("task_wait returns timeout current task state while still running", async () => {
-  const harness = makeDeps({
-    initialState: {
-      ...createEmptyState(),
-      orchestration: {
-        ...createEmptyState().orchestration,
-        tasks: {
-          "task-1": { ...makeCompletedTask("task-1"), status: "running", summary: "", resultText: "" },
-        },
-      },
-    },
-  });
-  const service = new OrchestrationService(harness.deps);
-
-  await expect(
-    service.waitTask({ coordinatorSession: "backend:main", taskId: "task-1", timeoutMs: 0 }),
-  ).resolves.toMatchObject({ status: "timeout", task: { taskId: "task-1", status: "running" } });
-});
-
-test("task_wait defaults to a five minute timeout", async () => {
-  const harness = makeDeps({
-    initialState: {
-      ...createEmptyState(),
-      orchestration: {
-        ...createEmptyState().orchestration,
-        tasks: {
-          "task-1": { ...makeCompletedTask("task-1"), status: "running", summary: "", resultText: "" },
-        },
-      },
-    },
-  });
-  const service = new OrchestrationService(harness.deps);
-  const sleepDurations: number[] = [];
-  const originalNow = Date.now;
-  const originalSetTimeout = globalThis.setTimeout;
-  let nowCalls = 0;
-
-  Date.now = (() => {
-    nowCalls += 1;
-    if (nowCalls === 1) return 0;
-    if (nowCalls === 2) return 300_000 - 42;
-    return 300_001;
-  }) as typeof Date.now;
-  globalThis.setTimeout = ((callback: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
-    sleepDurations.push(ms ?? 0);
-    queueMicrotask(() => callback(...args));
-    return 0 as unknown as ReturnType<typeof setTimeout>;
-  }) as typeof setTimeout;
-
-  try {
-    await expect(
-      service.waitTask({ coordinatorSession: "backend:main", taskId: "task-1" }),
-    ).resolves.toMatchObject({ status: "timeout", task: { taskId: "task-1", status: "running" } });
-    expect(sleepDurations).toEqual([42]);
-  } finally {
-    Date.now = originalNow;
-    globalThis.setTimeout = originalSetTimeout;
-  }
-});
-
-test("task_wait caps explicit timeout at twenty minutes", async () => {
-  const harness = makeDeps({
-    initialState: {
-      ...createEmptyState(),
-      orchestration: {
-        ...createEmptyState().orchestration,
-        tasks: {
-          "task-1": { ...makeCompletedTask("task-1"), status: "running", summary: "", resultText: "" },
-        },
-      },
-    },
-  });
-  const service = new OrchestrationService(harness.deps);
-  const sleepDurations: number[] = [];
-  const originalNow = Date.now;
-  const originalSetTimeout = globalThis.setTimeout;
-  let nowCalls = 0;
-
-  Date.now = (() => {
-    nowCalls += 1;
-    if (nowCalls === 1) return 0;
-    if (nowCalls === 2) return 1_200_000 - 42;
-    return 1_200_001;
-  }) as typeof Date.now;
-  globalThis.setTimeout = ((callback: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
-    sleepDurations.push(ms ?? 0);
-    queueMicrotask(() => callback(...args));
-    return 0 as unknown as ReturnType<typeof setTimeout>;
-  }) as typeof setTimeout;
-
-  try {
-    await expect(
-      service.waitTask({ coordinatorSession: "backend:main", taskId: "task-1", timeoutMs: 9_999_999 }),
-    ).resolves.toMatchObject({ status: "timeout", task: { taskId: "task-1", status: "running" } });
-    expect(sleepDurations).toEqual([42]);
-  } finally {
-    Date.now = originalNow;
-    globalThis.setTimeout = originalSetTimeout;
-  }
-});
-
-test("task_wait returns not_found for missing or wrong coordinator tasks", async () => {
-  const harness = makeDeps({
-    initialState: {
-      ...createEmptyState(),
-      orchestration: {
-        ...createEmptyState().orchestration,
-        tasks: {
-          "task-1": { ...makeCompletedTask("task-1"), coordinatorSession: "backend:other" },
-        },
-      },
-    },
-  });
-  const service = new OrchestrationService(harness.deps);
-
-  await expect(
-    service.waitTask({ coordinatorSession: "backend:main", taskId: "missing", timeoutMs: 0 }),
-  ).resolves.toEqual({ status: "not_found", task: null });
-  await expect(
-    service.waitTask({ coordinatorSession: "backend:main", taskId: "task-1", timeoutMs: 0 }),
-  ).resolves.toEqual({ status: "not_found", task: null });
-});
-
 test("task_watch returns new task events and advances afterSeq", async () => {
   const harness = makeDeps({
     initialState: {
@@ -3424,7 +3244,7 @@ test("external coordinator worker replies persist results without coordinator in
   expect(task.coordinatorInjectedAt).toBeUndefined();
   await expect(service.getTask("task-1")).resolves.toMatchObject({ resultText: "external result" });
   await expect(
-    service.waitTask({ coordinatorSession: "codex:backend", taskId: "task-1", timeoutMs: 0 }),
+    service.watchTask({ coordinatorSession: "codex:backend", taskId: "task-1", timeoutMs: 0 }),
   ).resolves.toMatchObject({ status: "terminal", task: { resultText: "external result" } });
   expect(harness.wakeCoordinatorCalls).toEqual([]);
 });

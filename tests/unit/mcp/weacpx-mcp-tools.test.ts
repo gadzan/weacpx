@@ -23,10 +23,6 @@ test("builds 17 MCP tools and appends blocker-loop actions after the original or
       cancelTask: async () => {
         throw new Error("cancel not implemented");
       },
-      waitTask: async (input) => {
-        calls.push(input);
-        return { status: "timeout", task: null };
-      },
       workerRaiseQuestion: async (input) => {
         calls.push(input);
         return { taskId: "task-1", questionId: "question-1", status: "blocked" };
@@ -40,7 +36,7 @@ test("builds 17 MCP tools and appends blocker-loop actions after the original or
     sourceHandle: "backend:worker",
   });
 
-  expect(registry).toHaveLength(17);
+  expect(registry).toHaveLength(16);
   expect(registry.map((tool) => tool.name)).toEqual([
     "delegate_request",
     "group_new",
@@ -52,7 +48,6 @@ test("builds 17 MCP tools and appends blocker-loop actions after the original or
     "task_approve",
     "task_reject",
     "task_cancel",
-    "task_wait",
     "task_watch",
     "worker_raise_question",
     "coordinator_answer_question",
@@ -95,23 +90,11 @@ test("builds 17 MCP tools and appends blocker-loop actions after the original or
   expect(taskListTool).toBeDefined();
   expect(taskListTool?.inputSchema.safeParse({ status: "blocked" }).success).toBe(true);
   expect(taskListTool?.inputSchema.safeParse({ status: "waiting_for_human" }).success).toBe(true);
-  const taskWaitTool = registry.find((tool) => tool.name === "task_wait");
-  expect(taskWaitTool).toBeDefined();
-  expect(taskWaitTool?.description).toContain("Defaults: timeout 300000 ms");
-  expect(taskWaitTool?.inputSchema.safeParse({ taskId: "task-1", timeoutMs: 1000, pollIntervalMs: 50 }).success).toBe(true);
-  expect(taskWaitTool?.inputSchema.safeParse({ taskId: "task-1", timeoutMs: 1_200_000 }).success).toBe(true);
-  expect(taskWaitTool?.inputSchema.safeParse({ taskId: "task-1", timeoutMs: 1_200_001 }).success).toBe(false);
-
   const response = await delegateTool?.handler({
     targetAgent: "claude",
     task: "review",
     workingDirectory: "/repo/weacpx",
     role: "reviewer",
-  });
-  const waitResponse = await taskWaitTool?.handler({
-    taskId: "task-1",
-    timeoutMs: 1000,
-    pollIntervalMs: 50,
   });
   const workerResponse = await workerRaiseQuestionTool?.handler({
     taskId: "task-1",
@@ -130,12 +113,6 @@ test("builds 17 MCP tools and appends blocker-loop actions after the original or
       role: "reviewer",
     },
     {
-      coordinatorSession: "backend:main",
-      taskId: "task-1",
-      timeoutMs: 1000,
-      pollIntervalMs: 50,
-    },
-    {
       sourceHandle: "backend:worker",
       taskId: "task-1",
       question: "Need environment details",
@@ -149,15 +126,11 @@ test("builds 17 MCP tools and appends blocker-loop actions after the original or
         type: "text",
         text:
           "Delegation task \"task-9\" created.\n- Status: needs_confirmation\n"
-          + "Next: this delegation requires user approval; do not call task_wait yet. "
+          + "Next: this delegation requires user approval. "
           + "Tell the user, then call task_approve or task_reject based on their response.",
       },
     ],
     structuredContent: { taskId: "task-9", status: "needs_confirmation" },
-  });
-  expect(waitResponse).toEqual({
-    content: [{ type: "text", text: "Task wait timeout; current state is unavailable." }],
-    structuredContent: { status: "timeout", task: null },
   });
   expect(workerResponse).toEqual({
     content: [{ type: "text", text: "Blocker question submitted for task \"task-1\".\n- questionId: question-1" }],
@@ -365,8 +338,7 @@ test("delegate_request running result appends a non-blocking Next hint", async (
   expect(text).toContain("Next: task \"task-running\" is running.");
   expect(text).toContain("Return this taskId to the user");
   expect(text).toContain("task_get/task_list for non-blocking progress snapshots");
-  expect(text).toContain("task_watch to long-poll for the next event");
-  expect(text).toContain("Call task_wait only if the user explicitly asks");
+  expect(text).toContain("task_watch to long-poll for the next event or terminal state");
 });
 
 test("task_watch description states the native watcher is single-shot", async () => {
@@ -377,69 +349,6 @@ test("task_watch description states the native watcher is single-shot", async ()
   const taskWatch = registry.find((tool) => tool.name === "task_watch");
   expect(taskWatch?.description).toContain("single-shot");
   expect(taskWatch?.description).toContain("afterSeq set to the returned nextAfterSeq");
-});
-
-test("task_wait terminal / attention / timeout each include the matching Next: hint", async () => {
-  let nextStatus: "terminal" | "attention_required" | "timeout" = "terminal";
-  const registry = buildWeacpxMcpToolRegistry({
-    transport: createMemoryTransport(
-      async () => ({ taskId: "task-1", status: "needs_confirmation" }),
-      {
-        getTask: async () => null,
-        listTasks: async () => [],
-        approveTask: async () => {
-          throw new Error("approve not implemented");
-        },
-        rejectTask: async () => {
-          throw new Error("reject not implemented");
-        },
-        cancelTask: async () => {
-          throw new Error("cancel not implemented");
-        },
-        waitTask: async () => ({
-          status: nextStatus,
-          task: { taskId: "task-1", status: nextStatus === "timeout" ? "running" : nextStatus === "terminal" ? "completed" : "blocked" },
-        }),
-      },
-    ),
-    coordinatorSession: "backend:main",
-  });
-
-  const waitTool = registry.find((tool) => tool.name === "task_wait");
-
-  nextStatus = "terminal";
-  const terminalText = (
-    (await waitTool?.handler({ taskId: "task-1" }))?.content[0] as { text: string }
-  ).text;
-  expect(terminalText).toContain("reached terminal state");
-  expect(terminalText).toContain("Next: call task_get to read the worker's final result");
-
-  nextStatus = "attention_required";
-  const attentionText = (
-    (await waitTool?.handler({ taskId: "task-1" }))?.content[0] as { text: string }
-  ).text;
-  expect(attentionText).toContain("requires attention");
-  // Must mention task_get-then-branch instead of dumping the user into coordinator_answer_question
-  // for every attention_required case (needs_confirmation / reviewPending would throw).
-  expect(attentionText).toContain("call task_get");
-  expect(attentionText).toContain("needs_confirmation -> task_approve");
-  expect(attentionText).toContain("blocked or waiting_for_human -> coordinator_answer_question");
-  expect(attentionText).toContain("reviewPending set -> coordinator_review_contested_result");
-  expect(attentionText).toContain("call task_wait again");
-  // Must NOT advertise coordinator_request_human_input on this path: it throws for external
-  // coordinators (the MCP server's primary use case) per orchestration-service.ts:1564.
-  expect(attentionText).not.toContain("coordinator_request_human_input");
-  // pending is unreachable through task_approve today (assertNeedsConfirmation only accepts
-  // needs_confirmation), so the guidance must not promise it.
-  expect(attentionText).not.toContain("pending or needs_confirmation");
-
-  nextStatus = "timeout";
-  const timeoutText = (
-    (await waitTool?.handler({ taskId: "task-1" }))?.content[0] as { text: string }
-  ).text;
-  expect(timeoutText).toContain("wait timed out");
-  expect(timeoutText).toContain("Next: call task_get for a snapshot");
-  expect(timeoutText).toContain("call task_wait again only if you intentionally want to keep blocking");
 });
 
 test("tool descriptions reference the next step in the lifecycle", () => {
@@ -466,24 +375,16 @@ test("tool descriptions reference the next step in the lifecycle", () => {
   const byName = new Map(registry.map((tool) => [tool.name, tool]));
 
   expect(byName.get("delegate_request")?.description).toContain("task_get/task_list for non-blocking progress snapshots");
-  expect(byName.get("delegate_request")?.description).toContain("call task_wait only when the user explicitly wants");
-  expect(byName.get("task_wait")?.description).toContain("blocking legacy compatibility tool");
-  expect(byName.get("task_wait")?.description).toContain("do not call it automatically after delegate_request");
-  expect(byName.get("task_wait")?.description).toContain("attention_required");
-  // task_wait description must spell out the attention_required branches so the LLM
-  // does not blindly route every attention_required task into coordinator_answer_question.
-  expect(byName.get("task_wait")?.description).toContain("needs_confirmation -> task_approve");
-  expect(byName.get("task_wait")?.description).toContain("blocked or waiting_for_human -> coordinator_answer_question");
-  expect(byName.get("task_wait")?.description).toContain("reviewPending set -> coordinator_review_contested_result");
-  // External coordinators are the MCP server's main case and cannot use coordinator_request_human_input.
-  expect(byName.get("task_wait")?.description ?? "").not.toContain("coordinator_request_human_input");
+  expect(byName.get("delegate_request")?.description).toContain("task_watch to long-poll");
+  expect(byName.get("task_watch")?.description).toContain("Long-poll a task");
+  expect(byName.get("task_watch")?.description).toContain("single-shot");
   expect(byName.get("task_get")?.description).toContain("inspect a task snapshot non-blockingly");
   expect(byName.get("task_approve")?.description).toContain("needs_confirmation");
   expect(byName.get("coordinator_answer_question")?.description).toContain("task_get/task_list for snapshots");
   expect(byName.get("worker_raise_question")?.description).toContain("Worker-side only");
 });
 
-test("task_approve result text points the coordinator back to task_wait", async () => {
+test("task_approve result text points the coordinator back to task_watch", async () => {
   const registry = buildWeacpxMcpToolRegistry({
     transport: createMemoryTransport(
       async () => ({ taskId: "task-1", status: "needs_confirmation" }),
@@ -510,7 +411,7 @@ test("task_approve result text points the coordinator back to task_wait", async 
   expect(text).toContain("Task \"task-approved\" approved.");
   expect(text).toContain("- Current status: running");
   expect(text).toContain("Next: use task_get/task_list for non-blocking progress snapshots");
-  expect(text).toContain("call task_wait only if you intentionally want to block");
+  expect(text).toContain("task_watch to long-poll until the worker finishes");
 });
 
 test("registry hides human-input package tools when the coordinator is external", () => {
@@ -544,16 +445,16 @@ test("registry hides human-input package tools when the coordinator is external"
   // Other coordinator-side tools must remain available — answering questions, reviewing
   // contested results, approving / rejecting / cancelling all work for external coordinators.
   expect(externalNames).toContain("delegate_request");
-  expect(externalNames).toContain("task_wait");
+  expect(externalNames).toContain("task_watch");
   expect(externalNames).toContain("coordinator_answer_question");
   expect(externalNames).toContain("coordinator_review_contested_result");
-  expect(externalRegistry).toHaveLength(15);
+  expect(externalRegistry).toHaveLength(14);
 
   const internalRegistry = buildWeacpxMcpToolRegistry({
     transport,
     coordinatorSession: "backend:main",
   });
-  expect(internalRegistry).toHaveLength(17);
+  expect(internalRegistry).toHaveLength(16);
   expect(internalRegistry.map((tool) => tool.name)).toContain("coordinator_request_human_input");
   expect(internalRegistry.map((tool) => tool.name)).toContain("coordinator_follow_up_human_package");
 });

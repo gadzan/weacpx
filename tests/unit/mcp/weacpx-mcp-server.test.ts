@@ -89,12 +89,12 @@ test("lists 17 MCP tools and hides coordinator/source identity from input schema
     await client.connect(clientTransport);
 
     const list = await client.listTools();
-    expect(list.tools).toHaveLength(17);
+    expect(list.tools).toHaveLength(16);
     const delegate = list.tools.find((tool) => tool.name === "delegate_request");
     const workerRaiseQuestion = list.tools.find((tool) => tool.name === "worker_raise_question");
     const coordinatorAnswerQuestion = list.tools.find((tool) => tool.name === "coordinator_answer_question");
     const taskList = list.tools.find((tool) => tool.name === "task_list");
-    const taskWait = list.tools.find((tool) => tool.name === "task_wait");
+    const taskWatch = list.tools.find((tool) => tool.name === "task_watch");
     expect(delegate?.inputSchema.properties).not.toHaveProperty("sourceHandle");
     expect(delegate?.inputSchema.properties).not.toHaveProperty("coordinatorSession");
     expect(delegate?.execution?.taskSupport).toBe("optional");
@@ -103,7 +103,7 @@ test("lists 17 MCP tools and hides coordinator/source identity from input schema
     expect(coordinatorAnswerQuestion?.inputSchema.properties).not.toHaveProperty("coordinatorSession");
     expect(taskList?.inputSchema.properties?.status?.enum).toContain("blocked");
     expect(taskList?.inputSchema.properties?.status?.enum).toContain("waiting_for_human");
-    expect(taskWait?.inputSchema.properties).not.toHaveProperty("coordinatorSession");
+    expect(taskWatch?.inputSchema.properties).not.toHaveProperty("coordinatorSession");
   } finally {
     await client.close();
     await server.close();
@@ -530,7 +530,7 @@ test("hides coordinator human-input package tools when resolveIdentity reports a
 
     const list = await client.listTools();
     const names = list.tools.map((tool) => tool.name);
-    expect(list.tools).toHaveLength(15);
+    expect(list.tools).toHaveLength(14);
     expect(names).not.toContain("coordinator_request_human_input");
     expect(names).not.toContain("coordinator_follow_up_human_package");
     expect(names).toContain("coordinator_answer_question");
@@ -567,7 +567,7 @@ test("infers MCP identity from client roots before listing tools", async () => {
     await client.connect(clientTransport);
 
     const list = await client.listTools();
-    expect(list.tools).toHaveLength(17);
+    expect(list.tools).toHaveLength(16);
     expect(resolved).toEqual([
       {
         clientName: "Claude Code",
@@ -599,7 +599,7 @@ test("uses resolveIdentity when both static and lazy MCP identities are configur
     await client.connect(clientTransport);
 
     const list = await client.listTools();
-    expect(list.tools).toHaveLength(17);
+    expect(list.tools).toHaveLength(16);
     expect(resolved).toEqual([{ clientName: "Claude Code" }]);
   } finally {
     await client.close();
@@ -623,11 +623,9 @@ test("exposes the orchestration lifecycle as server instructions to the client",
     expect(instructions).toBe(WEACPX_MCP_SERVER_INSTRUCTIONS);
     expect(instructions ?? "").toContain("Typical lifecycle");
     expect(instructions ?? "").toContain("delegate_request");
-    expect(instructions ?? "").toContain("task_wait");
-    // task_watch must be offered as the non-blocking long-poll alternative in
-    // the legacy lifecycle, not just task_wait.
+    // task_watch is the long-poll mechanism for the legacy lifecycle.
     expect(instructions ?? "").toContain("task_watch to long-poll for the next event");
-    expect(instructions ?? "").toContain("Do not call it automatically when the user asked to delegate and continue");
+    expect(instructions ?? "").toContain("Do not poll in a tight loop when the user asked to delegate and continue");
     expect(instructions ?? "").toContain("status=attention_required");
     // Each attention_required sub-case must be wired to a different tool so the LLM
     // does not blindly call coordinator_answer_question on a needs_confirmation task.
@@ -637,8 +635,8 @@ test("exposes the orchestration lifecycle as server instructions to the client",
     // External coordinators (the MCP server's main client population) cannot use
     // coordinator_request_human_input — keep it out of the attention_required guidance.
     expect(instructions ?? "").not.toContain("blocked -> coordinator_answer_question if you can answer");
-    // Approval must loop back to task_wait, otherwise the coordinator hangs after approving.
-    expect(instructions ?? "").toContain("After task_approve, use task_get/task_list for snapshots");
+    // Approval must point at a follow tool, otherwise the coordinator hangs after approving.
+    expect(instructions ?? "").toContain("After task_approve, use task_get / task_list snapshots");
     expect(instructions ?? "").toContain("worker_raise_question is worker-side only");
   } finally {
     await client.close();
@@ -673,8 +671,8 @@ test("memoizes in-flight lazy MCP identity resolution across concurrent first re
     releaseResolve();
 
     const [first, second] = await Promise.all([firstList, secondList]);
-    expect(first.tools).toHaveLength(17);
-    expect(second.tools).toHaveLength(17);
+    expect(first.tools).toHaveLength(16);
+    expect(second.tools).toHaveLength(16);
     expect(resolveCalls).toBe(1);
   } finally {
     await client.close();
@@ -894,7 +892,7 @@ test("delegates through the MCP server and rejects spoofed sourceHandle params",
           type: "text",
           text:
             "Delegation task \"task-9\" created.\n- Status: needs_confirmation\n"
-            + "Next: this delegation requires user approval; do not call task_wait yet. "
+            + "Next: this delegation requires user approval. "
             + "Tell the user, then call task_approve or task_reject based on their response.",
         },
       ],

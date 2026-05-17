@@ -16,16 +16,13 @@ import type {
   RecordWorkerReplyInput,
   RegisterExternalCoordinatorInput,
   RequestDelegateRpcInput,
-  WaitTaskInput,
   WatchTaskInput,
   WorkerRaiseQuestionInput,
 } from "./orchestration-service";
 import {
-  MAX_TASK_WAIT_POLL_INTERVAL_MS,
-  MAX_TASK_WAIT_TIMEOUT_MS,
   MAX_TASK_WATCH_POLL_INTERVAL_MS,
   MAX_TASK_WATCH_TIMEOUT_MS,
-} from "./task-wait-timeouts";
+} from "./task-watch-timeouts";
 
 class OrchestrationInvalidRequestError extends Error {}
 
@@ -34,7 +31,6 @@ const ORCHESTRATION_RPC_METHODS = new Set<OrchestrationRpcMethod>([
   "delegate.request",
   "task.get",
   "task.list",
-  "task.wait",
   "task.watch",
   "task.approve",
   "task.reject",
@@ -174,8 +170,6 @@ export class OrchestrationServer {
         return await this.dispatchTaskGet(params);
       case "task.list":
         return await this.handlers.listTasks(this.parseTaskListFilter(params));
-      case "task.wait":
-        return await this.handlers.waitTask(this.parseWaitTaskInput(params));
       case "task.watch":
         return await this.handlers.watchTask(this.parseWatchTaskInput(params));
       case "task.approve":
@@ -366,18 +360,6 @@ export class OrchestrationServer {
     };
   }
 
-
-  private parseWaitTaskInput(params: Record<string, unknown>): WaitTaskInput {
-    requireOnlyKeys(params, ["coordinatorSession", "taskId", "timeoutMs", "pollIntervalMs"], "params");
-    const timeoutMs = requireOptionalIntegerInRange(params, "timeoutMs", 0, MAX_TASK_WAIT_TIMEOUT_MS);
-    const pollIntervalMs = requireOptionalIntegerInRange(params, "pollIntervalMs", 1, MAX_TASK_WAIT_POLL_INTERVAL_MS);
-    return {
-      coordinatorSession: requireString(params, "coordinatorSession"),
-      taskId: requireString(params, "taskId"),
-      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-      ...(pollIntervalMs !== undefined ? { pollIntervalMs } : {}),
-    };
-  }
 
   private parseWatchTaskInput(params: Record<string, unknown>): WatchTaskInput {
     requireOnlyKeys(params, ["coordinatorSession", "taskId", "afterSeq", "mode", "includeProgress", "timeoutMs", "pollIntervalMs"], "params");

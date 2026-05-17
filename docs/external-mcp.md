@@ -1,6 +1,6 @@
 # External MCP coordinator
 
-`weacpx mcp-stdio` 是标准 MCP stdio server。Codex、Claude Code 等外部 MCP host 可以通过它调用 weacpx 的编排工具，例如 `delegate_request`、`task_get`、`task_list`、`task_watch`、`task_wait`。如果 host 支持 MCP Tasks，`delegate_request` 和 `task_watch` 也支持原生 task execution：call now、fetch later。
+`weacpx mcp-stdio` 是标准 MCP stdio server。Codex、Claude Code 等外部 MCP host 可以通过它调用 weacpx 的编排工具，例如 `delegate_request`、`task_get`、`task_list`、`task_watch`。如果 host 支持 MCP Tasks，`delegate_request` 和 `task_watch` 也支持原生 task execution：call now、fetch later。
 
 核心目标：让“当前正在使用的 coding agent”成为 coordinator，把子任务派给其他 agent，同时让被派出去的 worker 明确知道自己应该在哪个目录工作。
 
@@ -19,7 +19,7 @@ flowchart LR
   Daemon -->|ensure worker session<br/>cwd = workingDirectory| Worker[worker agent session]
   Worker -->|result / blockers / progress| Daemon
   Host -->|MCP Tasks<br/>tasks/get / tasks/list / tasks/result| Mcp
-  Host -->|legacy tools<br/>task_get / task_list / task_watch / task_wait| Mcp
+  Host -->|legacy tools<br/>task_get / task_list / task_watch| Mcp
 ```
 
 ## MCP Tasks 进展与输入请求
@@ -31,7 +31,7 @@ flowchart LR
 3. 任务进入 `input_required` 时，调用 `tasks/result` 会立即返回一个下一步操作包并结束本次 result stream，不会一直阻塞等待 terminal。client 应按包里的建议调用 `task_get` 查看详情，再调用 `task_approve` / `task_reject`、`coordinator_answer_question` 或 `coordinator_review_contested_result`；处理后继续 `tasks/get` / `tasks/result`。
 4. 任务进入 `completed` / `failed` / `cancelled` 后，再调用 `tasks/result` 获取最终结果。
 
-不支持 MCP Tasks 的 host 使用兼容工具：`delegate_request` → `task_get` / `task_list` / `task_watch` / `task_cancel`。`task_watch` 是推荐的长轮询入口：用返回的 `nextAfterSeq` 继续监听下一段事件。只有在明确需要阻塞等待完成或进入需处理状态时才调用 `task_wait`。`task_wait` 超时只表示“仍在运行”，可改用 `task_get` 查看快照，或在确实需要继续阻塞时再次调用。
+不支持 MCP Tasks 的 host 使用兼容工具：`delegate_request` → `task_get` / `task_list` / `task_watch` / `task_cancel`。`task_watch` 是推荐的长轮询入口：它会阻塞到下一条事件、任务需要处理、任务结束或超时，并返回 `events` 和 `nextAfterSeq`；用返回的 `nextAfterSeq` 作为下一次 `afterSeq` 继续监听。`task_watch` 超时只表示“仍在运行”，再次调用即可继续等待，也可改用 `task_get` 查看一次性快照。
 
 ## 最小配置
 
@@ -107,7 +107,7 @@ coordinator identity 和 worker cwd 是两个不同问题：
 如果把 path 放进 coordinator identity，会有两个问题：
 
 1. 同一个 Codex / Claude Code 会话想派 agent 去另一个目录时，会被迫变成另一个 coordinator。
-2. `task_get`、`task_list`、`task_wait` 这类只和 coordinator 相关的查询也会被 path 污染。
+2. `task_get`、`task_list`、`task_watch` 这类只和 coordinator 相关的查询也会被 path 污染。
 
 所以 weacpx 的规则是：
 
@@ -249,7 +249,7 @@ sequenceDiagram
   Daemon->>Worker: ensure + prompt with cwd
   Daemon-->>Mcp: taskId + running
   Mcp-->>Host: native MCP task or legacy taskId + running
-  Host->>Mcp: tasks/get / tasks/result, task_watch, or legacy task_get/task_wait
+  Host->>Mcp: tasks/get / tasks/result, task_watch, or legacy task_get
   Mcp->>Daemon: query task
   Daemon-->>Mcp: task status/result
   Mcp-->>Host: status/result
@@ -262,12 +262,11 @@ sequenceDiagram
 - `delegate_request`：派出一个子任务。推荐传 `workingDirectory`。支持 MCP Tasks 的 host 可以请求 task execution，让该调用立即返回原生 task handle。
 - `task_get`：查看单个任务。
 - `task_list`：列出当前 coordinator 的任务。
-- `task_watch`：长轮询一个任务，直到出现下一条事件、任务需要处理、任务结束或超时。返回 `events` 和 `nextAfterSeq`；继续监听时把 `nextAfterSeq` 作为下一次 `afterSeq`。支持 MCP Tasks 的 host 可以对 `task_watch` 请求 task execution，让 watcher 作为后台 native MCP task 运行，之后用 `tasks/get` / `tasks/result` 取结果。
-- `task_wait`：阻塞式兼容工具，用于等待任务完成或进入需要处理的状态。不要在 `delegate_request` 后默认立刻调用；优先用 `task_get` / `task_list` 做非阻塞进展快照。默认最多等待 5 分钟；可传 `timeoutMs` 调整，最大 20 分钟。
+- `task_watch`：长轮询一个任务，直到出现下一条事件、任务需要处理、任务结束或超时。返回 `events` 和 `nextAfterSeq`；继续监听时把 `nextAfterSeq` 作为下一次 `afterSeq`。默认最多等待 1 分钟；可传 `timeoutMs` 调整，最大 20 分钟。支持 MCP Tasks 的 host 可以对 `task_watch` 请求 task execution，让 watcher 作为后台 native MCP task 运行，之后用 `tasks/get` / `tasks/result` 取结果。
 - `task_cancel`：取消任务。
 - `group_new` / `group_list` / `group_cancel`：管理任务组。
 
-`task_get` / `task_list` / `task_watch` / `task_wait` 不需要 `workingDirectory`，因为它们查的是 coordinator 名下的任务，不是新开 worker。
+`task_get` / `task_list` / `task_watch` 不需要 `workingDirectory`，因为它们查的是 coordinator 名下的任务，不是新开 worker。
 
 ### MCP Tasks 原生状态映射
 
@@ -292,7 +291,7 @@ sequenceDiagram
 
 如果 worker 输出 `[PROGRESS] ...` 行，weacpx 会把最近一条进展持久化到 task 上；MCP Tasks 的 `tasks/get` / `tasks/list` 会在 `statusMessage` 中带上 `Latest progress` 和 `Last progress at`，兼容工具 `task_get` 也会显示最新进展。
 
-不支持 MCP Tasks 的 host 仍然可以继续使用 `task_get` / `task_list` / `task_watch` / `task_cancel` 这些兼容工具；仅在明确要阻塞等待时使用 `task_wait`。
+不支持 MCP Tasks 的 host 仍然可以继续使用 `task_get` / `task_list` / `task_watch` / `task_cancel` 这些兼容工具；`task_watch` 提供长轮询，无需阻塞式的轮询循环。
 
 ### 长时间监听任务：`task_watch`
 

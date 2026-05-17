@@ -23,15 +23,11 @@ import { AsyncMutex } from "./async-mutex";
 import { sanitizeProgressSummary, stripProgressLines } from "./progress-line-parser";
 import { isQuotaDeferredError } from "../weixin/messaging/quota-errors";
 import {
-  DEFAULT_TASK_WAIT_POLL_INTERVAL_MS,
-  DEFAULT_TASK_WAIT_TIMEOUT_MS,
   DEFAULT_TASK_WATCH_POLL_INTERVAL_MS,
   DEFAULT_TASK_WATCH_TIMEOUT_MS,
-  MAX_TASK_WAIT_POLL_INTERVAL_MS,
-  MAX_TASK_WAIT_TIMEOUT_MS,
   MAX_TASK_WATCH_POLL_INTERVAL_MS,
   MAX_TASK_WATCH_TIMEOUT_MS,
-} from "./task-wait-timeouts";
+} from "./task-watch-timeouts";
 
 const MAX_TASK_EVENTS_PER_TASK = 200;
 
@@ -299,18 +295,6 @@ export interface OrchestrationTaskFilter {
   order?: "asc" | "desc";
 }
 
-export interface WaitTaskInput {
-  coordinatorSession: string;
-  taskId: string;
-  timeoutMs?: number;
-  pollIntervalMs?: number;
-}
-
-export interface WaitTaskResult {
-  status: "terminal" | "attention_required" | "timeout" | "not_found";
-  task: OrchestrationTaskRecord | null;
-}
-
 export interface WatchTaskInput {
   coordinatorSession: string;
   taskId: string;
@@ -329,9 +313,9 @@ export interface WatchTaskResult {
   historyTruncated?: boolean;
 }
 
-// Mirrors clampWaitTimeout: an invalid timeout collapses to 0 (an immediate
-// single-shot watch), never to the 60s default, so a bad value cannot silently
-// turn into a long-poll for direct callers of OrchestrationService.watchTask.
+// An invalid timeout collapses to 0 (an immediate single-shot watch), never to
+// the 60s default, so a bad value cannot silently turn into a long-poll for
+// direct callers of OrchestrationService.watchTask.
 export function clampWatchTimeout(value: number | undefined): number {
   if (value === undefined) return DEFAULT_TASK_WATCH_TIMEOUT_MS;
   if (!Number.isFinite(value) || value < 0) return 0;
@@ -1282,34 +1266,6 @@ export class OrchestrationService {
     return task ? { ...task } : null;
   }
 
-
-  async waitTask(input: WaitTaskInput): Promise<WaitTaskResult> {
-    const timeoutMs = clampWaitTimeout(input.timeoutMs);
-    const pollIntervalMs = clampPollInterval(input.pollIntervalMs);
-    const deadline = Date.now() + timeoutMs;
-
-    while (true) {
-      const state = await this.deps.loadState();
-      const task = state.orchestration.tasks[input.taskId];
-      if (!task || task.coordinatorSession !== input.coordinatorSession) {
-        return { status: "not_found", task: null };
-      }
-
-      const snapshot = { ...task };
-      if (isTerminalTaskStatus(task.status) && task.reviewPending === undefined) {
-        return { status: "terminal", task: snapshot };
-      }
-      if (isAttentionRequiredTask(task)) {
-        return { status: "attention_required", task: snapshot };
-      }
-
-      const remainingMs = deadline - Date.now();
-      if (remainingMs <= 0) {
-        return { status: "timeout", task: snapshot };
-      }
-      await sleep(Math.min(pollIntervalMs, remainingMs));
-    }
-  }
 
   async watchTask(input: WatchTaskInput): Promise<WatchTaskResult> {
     const timeoutMs = clampWatchTimeout(input.timeoutMs);
@@ -4407,26 +4363,6 @@ function isAttentionRequiredTask(task: OrchestrationTaskRecord): boolean {
     task.status === "blocked" ||
     task.status === "waiting_for_human"
   );
-}
-
-function clampWaitTimeout(timeoutMs: number | undefined): number {
-  if (timeoutMs === undefined) {
-    return DEFAULT_TASK_WAIT_TIMEOUT_MS;
-  }
-  if (!Number.isFinite(timeoutMs) || timeoutMs < 0) {
-    return 0;
-  }
-  return Math.min(Math.floor(timeoutMs), MAX_TASK_WAIT_TIMEOUT_MS);
-}
-
-function clampPollInterval(pollIntervalMs: number | undefined): number {
-  if (pollIntervalMs === undefined) {
-    return DEFAULT_TASK_WAIT_POLL_INTERVAL_MS;
-  }
-  if (!Number.isFinite(pollIntervalMs) || pollIntervalMs <= 0) {
-    return 1;
-  }
-  return Math.min(Math.floor(pollIntervalMs), MAX_TASK_WAIT_POLL_INTERVAL_MS);
 }
 
 async function sleep(ms: number): Promise<void> {

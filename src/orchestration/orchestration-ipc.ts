@@ -12,8 +12,6 @@ import type {
   RegisterExternalCoordinatorInput,
   RequestDelegateRpcInput,
   RequestDelegateRpcResult,
-  WaitTaskInput,
-  WaitTaskResult,
   WatchTaskInput,
   WatchTaskResult,
   WorkerRaiseQuestionInput,
@@ -30,7 +28,6 @@ export type OrchestrationRpcMethod =
   | "delegate.request"
   | "task.get"
   | "task.list"
-  | "task.wait"
   | "task.watch"
   | "task.approve"
   | "task.reject"
@@ -82,7 +79,6 @@ export interface OrchestrationRpcHandlers {
   requestDelegate: (input: RequestDelegateRpcInput) => Promise<RequestDelegateRpcResult>;
   getTask: (taskId: string) => Promise<OrchestrationTaskRecord | null>;
   listTasks: (filter?: OrchestrationTaskFilter) => Promise<OrchestrationTaskRecord[]>;
-  waitTask: (input: WaitTaskInput) => Promise<WaitTaskResult>;
   watchTask: (input: WatchTaskInput) => Promise<WatchTaskResult>;
   approveTask: (input: { taskId: string; coordinatorSession: string }) => Promise<OrchestrationTaskRecord>;
   rejectTask: (input: { taskId: string; coordinatorSession: string }) => Promise<OrchestrationTaskRecord>;

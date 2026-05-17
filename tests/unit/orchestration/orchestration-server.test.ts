@@ -43,7 +43,6 @@ function makeServerHandlers(overrides: Partial<Record<string, unknown>> = {}) {
     requestDelegate: async () => ({ taskId: "task-1", status: "needs_confirmation" }),
     getTask: async () => null,
     listTasks: async () => [],
-    waitTask: async (input: Record<string, unknown>) => ({ status: "timeout", task: { taskId: input.taskId, status: "running" } }),
     watchTask: async (input: Record<string, unknown>) => ({ status: "timeout", task: { taskId: input.taskId, status: "running" }, events: [], nextAfterSeq: input.afterSeq ?? 0 }),
     approveTask: async (input: Record<string, unknown>) => ({
       taskId: input.taskId,
@@ -99,39 +98,6 @@ function makeServerHandlers(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 
-
-test("forwards task wait RPC to handlers", async () => {
-  const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
-  const waitTask = mock(async (input: Record<string, unknown>) => ({
-    status: "timeout",
-    task: { taskId: input.taskId, status: "running" },
-  }));
-  const server = new OrchestrationServer(endpoint, makeServerHandlers({ waitTask }));
-
-  await expect(
-    server.handleLine(JSON.stringify({
-      id: "req-task-wait",
-      method: "task.wait",
-      params: {
-        coordinatorSession: "backend:main",
-        taskId: "task-1",
-        timeoutMs: 1_200_000,
-        pollIntervalMs: 50,
-      },
-    })),
-  ).resolves.toBe(`${JSON.stringify({
-    id: "req-task-wait",
-    ok: true,
-    result: { status: "timeout", task: { taskId: "task-1", status: "running" } },
-  })}\n`);
-
-  expect(waitTask).toHaveBeenCalledWith({
-    coordinatorSession: "backend:main",
-    taskId: "task-1",
-    timeoutMs: 1_200_000,
-    pollIntervalMs: 50,
-  });
-});
 
 test("forwards task watch RPC to handlers", async () => {
   const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
@@ -214,42 +180,6 @@ test("rejects malformed task watch option ranges before dispatch", async () => {
   }
 
   expect(watchTask).not.toHaveBeenCalled();
-});
-
-test("rejects malformed task wait option ranges before dispatch", async () => {
-  const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
-  const waitTask = mock(async (input: Record<string, unknown>) => ({
-    status: "timeout",
-    task: { taskId: input.taskId, status: "running" },
-  }));
-  const server = new OrchestrationServer(endpoint, makeServerHandlers({ waitTask }));
-
-  for (const params of [
-    { timeoutMs: -1 },
-    { timeoutMs: 1_200_001 },
-    { timeoutMs: 1.5 },
-    { pollIntervalMs: 0 },
-    { pollIntervalMs: 10_001 },
-    { pollIntervalMs: 1.5 },
-  ]) {
-    const response = JSON.parse(await server.handleLine(JSON.stringify({
-      id: "req-bad-wait",
-      method: "task.wait",
-      params: {
-        coordinatorSession: "backend:main",
-        taskId: "task-1",
-        ...params,
-      },
-    })));
-
-    expect(response).toMatchObject({
-      id: "req-bad-wait",
-      ok: false,
-      error: { code: "ORCHESTRATION_INVALID_REQUEST" },
-    });
-  }
-
-  expect(waitTask).not.toHaveBeenCalled();
 });
 
 test("forwards coordinator answer retraction RPC to handlers", async () => {

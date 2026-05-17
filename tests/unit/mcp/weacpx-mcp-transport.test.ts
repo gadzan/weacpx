@@ -18,10 +18,6 @@ test("createMemoryTransport delegates and exposes override hooks", async () => {
         calls.push(input);
         return null;
       },
-      waitTask: async (input) => {
-        calls.push(input);
-        return { status: "timeout", task: null };
-      },
       watchTask: async (input) => {
         calls.push(input);
         return { status: "timeout", task: null, events: [], nextAfterSeq: input.afterSeq ?? 0 };
@@ -44,9 +40,6 @@ test("createMemoryTransport delegates and exposes override hooks", async () => {
   await expect(
     transport.getTask({ coordinatorSession: "backend:main", taskId: "task-1" }),
   ).resolves.toBeNull();
-  await expect(
-    transport.waitTask({ coordinatorSession: "backend:main", taskId: "task-1", timeoutMs: 1000 }),
-  ).resolves.toEqual({ status: "timeout", task: null });
   await expect(
     transport.watchTask({ coordinatorSession: "backend:main", taskId: "task-1", afterSeq: 1, mode: "next_event" }),
   ).resolves.toEqual({ status: "timeout", task: null, events: [], nextAfterSeq: 1 });
@@ -72,7 +65,6 @@ test("createMemoryTransport delegates and exposes override hooks", async () => {
       groupId: "group-1",
     },
     { coordinatorSession: "backend:main", taskId: "task-1" },
-    { coordinatorSession: "backend:main", taskId: "task-1", timeoutMs: 1000 },
     { coordinatorSession: "backend:main", taskId: "task-1", afterSeq: 1, mode: "next_event" },
     {
       sourceHandle: "backend:worker",
@@ -167,10 +159,6 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
       calls.push({ method: "cancelTaskForCoordinator", input });
       return { ...taskRecord, status: "cancelled" as const };
     },
-    waitTask: async (input: unknown) => {
-      calls.push({ method: "waitTask", input });
-      return { status: "terminal" as const, task: taskRecord };
-    },
     watchTask: async (input: unknown) => {
       calls.push({ method: "watchTask", input });
       return { status: "event" as const, task: taskRecord, events: [], nextAfterSeq: 1 };
@@ -229,12 +217,6 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
   await transport.approveTask(taskArgs);
   await transport.rejectTask(taskArgs);
   await transport.cancelTask(taskArgs);
-  await transport.waitTask({
-    coordinatorSession: "backend:main",
-    taskId: "task-1",
-    timeoutMs: 1000,
-    pollIntervalMs: 50,
-  });
   await transport.watchTask({
     coordinatorSession: "backend:main",
     taskId: "task-1",
@@ -309,15 +291,6 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
     { method: "approveTask", input: taskArgs },
     { method: "rejectTask", input: taskArgs },
     { method: "cancelTaskForCoordinator", input: taskArgs },
-    {
-      method: "waitTask",
-      input: {
-        coordinatorSession: "backend:main",
-        taskId: "task-1",
-        timeoutMs: 1000,
-        pollIntervalMs: 50,
-      },
-    },
     {
       method: "watchTask",
       input: {

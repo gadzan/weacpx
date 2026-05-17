@@ -18,8 +18,6 @@ import type {
   RegisterExternalCoordinatorInput,
   RequestDelegateRpcInput,
   RequestDelegateRpcResult,
-  WaitTaskInput,
-  WaitTaskResult,
   WatchTaskInput,
   WatchTaskResult,
   WorkerRaiseQuestionInput,
@@ -31,13 +29,10 @@ import type {
   OrchestrationTaskRecord,
 } from "./orchestration-types";
 import {
-  DEFAULT_TASK_WAIT_TIMEOUT_MS,
   DEFAULT_TASK_WATCH_TIMEOUT_MS,
-  MAX_TASK_WAIT_TIMEOUT_MS,
   MAX_TASK_WATCH_TIMEOUT_MS,
-  TASK_WAIT_RPC_TIMEOUT_PADDING_MS,
   TASK_WATCH_RPC_TIMEOUT_PADDING_MS,
-} from "./task-wait-timeouts";
+} from "./task-watch-timeouts";
 
 export type CoordinatorTaskListFilter = Pick<OrchestrationTaskFilter, "status" | "stuck" | "sort" | "order"> & {
   coordinatorSession: string;
@@ -80,10 +75,6 @@ export class OrchestrationClient {
 
   async listTasks(filter: CoordinatorTaskListFilter): Promise<OrchestrationTaskRecord[]> {
     return await this.request<OrchestrationTaskRecord[]>("task.list", { filter });
-  }
-
-  async waitTask(input: WaitTaskInput): Promise<WaitTaskResult> {
-    return await this.request<WaitTaskResult>("task.wait", input, getWaitRequestTimeoutMs(input.timeoutMs, this.timeoutMs));
   }
 
   async watchTask(input: WatchTaskInput): Promise<WatchTaskResult> {
@@ -300,16 +291,6 @@ export class OrchestrationClient {
       });
     });
   }
-}
-
-export function getWaitRequestTimeoutMs(waitTimeoutMs: number | undefined, defaultTimeoutMs: number): number {
-  const requestedWaitTimeoutMs =
-    waitTimeoutMs === undefined ? undefined : Number.isFinite(waitTimeoutMs) ? waitTimeoutMs : 0;
-  const boundedWaitTimeoutMs = Math.min(
-    Math.max(Math.floor(requestedWaitTimeoutMs ?? DEFAULT_TASK_WAIT_TIMEOUT_MS), 0),
-    MAX_TASK_WAIT_TIMEOUT_MS,
-  );
-  return Math.max(defaultTimeoutMs, boundedWaitTimeoutMs + TASK_WAIT_RPC_TIMEOUT_PADDING_MS);
 }
 
 export function getWatchRequestTimeoutMs(watchTimeoutMs: number | undefined, defaultTimeoutMs: number): number {
