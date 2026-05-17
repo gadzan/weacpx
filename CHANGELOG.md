@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.4.5] - 2026-05-17
+
+### Added
+
+- **MCP 任务编排与 agent CLI：** 新增 agent CLI 与 MCP task 支持，coordinator 可通过 `delegate_request` 派遣子任务，并用原生 MCP task handle（`tasks/get` / `tasks/result` / `tasks/list` / `tasks/cancel`）跟踪。
+- **acpx 内置 agent 模板：** 新增 acpx built-in agent templates，开箱即用地配置 codex / claude / gemini / opencode 等 agent。
+- **`task_watch` 事件流编排：** 新增 `task_watch` 长轮询工具，基于 `afterSeq` / `nextAfterSeq` 事件游标推进；任务事件持久化为 `events[]`（200 条环形缓冲），支持 `next_event` 与 `until_attention_or_terminal` 两种模式。
+- **委派进度可见：** MCP task 现在透传 worker 的实时进度（`[PROGRESS]` 行解析），coordinator 无需阻塞即可观察子任务进展。
+
+### Changed
+
+- **避免 MCP task 自动阻塞：** 派遣后默认返回 `running` 句柄，不再自动进入 `input_required` 等待；提示词引导优先用 `task_get` / `task_watch` 做非阻塞快照，仅在显式需要时调用 `task_wait`。
+- **MCP task / agent CLI 加固：** 收紧进度解析边界、watcher 缓存上限（256）与超时钳制，修复独立进度段及正常输出后的进度行解析。
+
+### Fixed
+
+- **委派结果文本截断：** `extractPromptOutput` 此前只保留最后一段连续的 `agent_message_chunk`，worker 在回答中途调用工具会导致回复被切碎、只剩尾部片段。现在按顺序拼接所有消息块，跳过中间的工具调用/思考/非 JSON 噪声行。
+- **MCP contested task 状态：** 修正争议复核任务的状态流转。
+
+### Tests
+
+- 新增 agent CLI、MCP server / tools / transport、orchestration server/service、progress-line-parser、`task_watch` 等套件的单元测试；更新 prompt-output / bridge-server / acpx-cli-transport 用例断言完整回复。
+
 ## [0.4.4] - 2026-05-15
 
 ### Added
