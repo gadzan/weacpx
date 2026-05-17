@@ -14,6 +14,8 @@ import type {
   RequestDelegateRpcResult,
   WaitTaskInput,
   WaitTaskResult,
+  WatchTaskInput,
+  WatchTaskResult,
   WorkerRaiseQuestionInput,
 } from "./orchestration-service";
 import type {
@@ -29,6 +31,7 @@ export type OrchestrationRpcMethod =
   | "task.get"
   | "task.list"
   | "task.wait"
+  | "task.watch"
   | "task.approve"
   | "task.reject"
   | "task.cancel"
@@ -80,6 +83,7 @@ export interface OrchestrationRpcHandlers {
   getTask: (taskId: string) => Promise<OrchestrationTaskRecord | null>;
   listTasks: (filter?: OrchestrationTaskFilter) => Promise<OrchestrationTaskRecord[]>;
   waitTask: (input: WaitTaskInput) => Promise<WaitTaskResult>;
+  watchTask: (input: WatchTaskInput) => Promise<WatchTaskResult>;
   approveTask: (input: { taskId: string; coordinatorSession: string }) => Promise<OrchestrationTaskRecord>;
   rejectTask: (input: { taskId: string; coordinatorSession: string }) => Promise<OrchestrationTaskRecord>;
   cancelTask: (input: CancelTaskInput) => Promise<OrchestrationTaskRecord>;

@@ -20,6 +20,8 @@ import type {
   RequestDelegateRpcResult,
   WaitTaskInput,
   WaitTaskResult,
+  WatchTaskInput,
+  WatchTaskResult,
   WorkerRaiseQuestionInput,
 } from "./orchestration-service";
 import type {
@@ -30,8 +32,11 @@ import type {
 } from "./orchestration-types";
 import {
   DEFAULT_TASK_WAIT_TIMEOUT_MS,
+  DEFAULT_TASK_WATCH_TIMEOUT_MS,
   MAX_TASK_WAIT_TIMEOUT_MS,
+  MAX_TASK_WATCH_TIMEOUT_MS,
   TASK_WAIT_RPC_TIMEOUT_PADDING_MS,
+  TASK_WATCH_RPC_TIMEOUT_PADDING_MS,
 } from "./task-wait-timeouts";
 
 export type CoordinatorTaskListFilter = Pick<OrchestrationTaskFilter, "status" | "stuck" | "sort" | "order"> & {
@@ -79,6 +84,10 @@ export class OrchestrationClient {
 
   async waitTask(input: WaitTaskInput): Promise<WaitTaskResult> {
     return await this.request<WaitTaskResult>("task.wait", input, getWaitRequestTimeoutMs(input.timeoutMs, this.timeoutMs));
+  }
+
+  async watchTask(input: WatchTaskInput): Promise<WatchTaskResult> {
+    return await this.request<WatchTaskResult>("task.watch", input, getWatchRequestTimeoutMs(input.timeoutMs, this.timeoutMs));
   }
 
   async approveTask(input: {
@@ -301,4 +310,14 @@ export function getWaitRequestTimeoutMs(waitTimeoutMs: number | undefined, defau
     MAX_TASK_WAIT_TIMEOUT_MS,
   );
   return Math.max(defaultTimeoutMs, boundedWaitTimeoutMs + TASK_WAIT_RPC_TIMEOUT_PADDING_MS);
+}
+
+export function getWatchRequestTimeoutMs(watchTimeoutMs: number | undefined, defaultTimeoutMs: number): number {
+  const requestedWatchTimeoutMs =
+    watchTimeoutMs === undefined ? undefined : Number.isFinite(watchTimeoutMs) ? watchTimeoutMs : 0;
+  const boundedWatchTimeoutMs = Math.min(
+    Math.max(Math.floor(requestedWatchTimeoutMs ?? DEFAULT_TASK_WATCH_TIMEOUT_MS), 0),
+    MAX_TASK_WATCH_TIMEOUT_MS,
+  );
+  return Math.max(defaultTimeoutMs, boundedWatchTimeoutMs + TASK_WATCH_RPC_TIMEOUT_PADDING_MS);
 }

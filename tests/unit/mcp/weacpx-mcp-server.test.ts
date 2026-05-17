@@ -5,16 +5,18 @@ import { expect, test } from "bun:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { CallToolResultSchema, ListRootsRequestSchema, RELATED_TASK_META_KEY } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
 
 import {
   createWeacpxMcpServer,
   installMcpStdioShutdownHooks,
+  WATCH_TASKS_CACHE_LIMIT,
   WEACPX_MCP_SERVER_INSTRUCTIONS,
 } from "../../../src/mcp/weacpx-mcp-server";
 import { createMemoryTransport } from "../../../src/mcp/weacpx-mcp-transport";
 import type { OrchestrationTaskRecord } from "../../../src/orchestration/orchestration-types";
 
-test("lists 16 MCP tools and hides coordinator/source identity from input schemas", async () => {
+test("lists 17 MCP tools and hides coordinator/source identity from input schemas", async () => {
   const transport = createMemoryTransport(
     async () => ({ taskId: "task-1", status: "needs_confirmation" }),
     {
@@ -87,7 +89,7 @@ test("lists 16 MCP tools and hides coordinator/source identity from input schema
     await client.connect(clientTransport);
 
     const list = await client.listTools();
-    expect(list.tools).toHaveLength(16);
+    expect(list.tools).toHaveLength(17);
     const delegate = list.tools.find((tool) => tool.name === "delegate_request");
     const workerRaiseQuestion = list.tools.find((tool) => tool.name === "worker_raise_question");
     const coordinatorAnswerQuestion = list.tools.find((tool) => tool.name === "coordinator_answer_question");
@@ -528,7 +530,7 @@ test("hides coordinator human-input package tools when resolveIdentity reports a
 
     const list = await client.listTools();
     const names = list.tools.map((tool) => tool.name);
-    expect(list.tools).toHaveLength(14);
+    expect(list.tools).toHaveLength(15);
     expect(names).not.toContain("coordinator_request_human_input");
     expect(names).not.toContain("coordinator_follow_up_human_package");
     expect(names).toContain("coordinator_answer_question");
@@ -565,7 +567,7 @@ test("infers MCP identity from client roots before listing tools", async () => {
     await client.connect(clientTransport);
 
     const list = await client.listTools();
-    expect(list.tools).toHaveLength(16);
+    expect(list.tools).toHaveLength(17);
     expect(resolved).toEqual([
       {
         clientName: "Claude Code",
@@ -597,7 +599,7 @@ test("uses resolveIdentity when both static and lazy MCP identities are configur
     await client.connect(clientTransport);
 
     const list = await client.listTools();
-    expect(list.tools).toHaveLength(16);
+    expect(list.tools).toHaveLength(17);
     expect(resolved).toEqual([{ clientName: "Claude Code" }]);
   } finally {
     await client.close();
@@ -622,6 +624,10 @@ test("exposes the orchestration lifecycle as server instructions to the client",
     expect(instructions ?? "").toContain("Typical lifecycle");
     expect(instructions ?? "").toContain("delegate_request");
     expect(instructions ?? "").toContain("task_wait");
+    // task_watch must be offered as the non-blocking long-poll alternative in
+    // the legacy lifecycle, not just task_wait.
+    expect(instructions ?? "").toContain("task_watch to long-poll for the next event");
+    expect(instructions ?? "").toContain("Do not call it automatically when the user asked to delegate and continue");
     expect(instructions ?? "").toContain("status=attention_required");
     // Each attention_required sub-case must be wired to a different tool so the LLM
     // does not blindly call coordinator_answer_question on a needs_confirmation task.
@@ -632,7 +638,7 @@ test("exposes the orchestration lifecycle as server instructions to the client",
     // coordinator_request_human_input — keep it out of the attention_required guidance.
     expect(instructions ?? "").not.toContain("blocked -> coordinator_answer_question if you can answer");
     // Approval must loop back to task_wait, otherwise the coordinator hangs after approving.
-    expect(instructions ?? "").toContain("After task_approve, return to step 2");
+    expect(instructions ?? "").toContain("After task_approve, use task_get/task_list for snapshots");
     expect(instructions ?? "").toContain("worker_raise_question is worker-side only");
   } finally {
     await client.close();
@@ -667,8 +673,8 @@ test("memoizes in-flight lazy MCP identity resolution across concurrent first re
     releaseResolve();
 
     const [first, second] = await Promise.all([firstList, secondList]);
-    expect(first.tools).toHaveLength(16);
-    expect(second.tools).toHaveLength(16);
+    expect(first.tools).toHaveLength(17);
+    expect(second.tools).toHaveLength(17);
     expect(resolveCalls).toBe(1);
   } finally {
     await client.close();
@@ -1078,4 +1084,322 @@ test("MCP stdio shutdown hooks poll parent process liveness", () => {
   expect(diagnostics).toEqual([{ event: "mcp.stdio.shutdown", context: { reason: "parent_dead", parentPid: 1234 } }]);
   cleanup();
   expect(cleared).toBe(true);
+});
+
+test("task_watch native MCP task surfaces the watch result and is purged once consumed", async () => {
+  const baseTask: OrchestrationTaskRecord = {
+    taskId: "task-1",
+    sourceHandle: "backend:main",
+    sourceKind: "coordinator",
+    coordinatorSession: "backend:main",
+    workerSession: "backend:worker",
+    workspace: "backend",
+    targetAgent: "claude",
+    task: "review",
+    status: "completed",
+    summary: "review complete",
+    resultText: "All good.",
+    createdAt: "2026-05-16T00:00:00.000Z",
+    updatedAt: "2026-05-16T00:00:05.000Z",
+  };
+  const watchCalls: unknown[] = [];
+  const server = createWeacpxMcpServer({
+    transport: createMemoryTransport(
+      async () => ({ taskId: "task-1", status: "running" }),
+      {
+        getTask: async ({ taskId }) => (taskId === "task-1" ? baseTask : null),
+        listTasks: async () => [baseTask],
+        watchTask: async (input) => {
+          watchCalls.push(input);
+          return {
+            status: "terminal" as const,
+            task: baseTask,
+            events: [
+              { seq: 1, at: "2026-05-16T00:00:00.000Z", type: "created", status: "running", message: "Task created" },
+              { seq: 2, at: "2026-05-16T00:00:05.000Z", type: "status_changed", status: "completed", message: "Task completed" },
+            ],
+            nextAfterSeq: 2,
+          };
+        },
+      },
+    ),
+    coordinatorSession: "backend:main",
+  });
+  const client = new Client({ name: "weacpx-test-client", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const messages: Array<{ type: string; task?: { taskId: string; status: string }; result?: { content?: Array<{ type: string; text?: string }>; _meta?: unknown } }> = [];
+    const stream = client.experimental.tasks.callToolStream(
+      { name: "task_watch", arguments: { taskId: "task-1", mode: "until_attention_or_terminal" } },
+      CallToolResultSchema,
+      { task: { ttl: 60_000, pollInterval: 1 } },
+    );
+    for await (const message of stream) {
+      messages.push(message);
+    }
+
+    // The native watcher delegates to the orchestration watchTask transport.
+    expect(watchCalls).toEqual([
+      { coordinatorSession: "backend:main", taskId: "task-1", mode: "until_attention_or_terminal" },
+    ]);
+
+    expect(messages[0]).toMatchObject({ type: "taskCreated" });
+    expect(messages[0]?.task?.taskId).toMatch(/^watch:task-1:/);
+    expect(messages[0]?.task?.status).toBe("working");
+
+    const final = messages.at(-1);
+    expect(final?.type).toBe("result");
+    const text = final?.result?.content?.[0]?.text ?? "";
+    expect(text).toContain("finished with terminal");
+    expect(text).toContain("Watched task task-1 is completed");
+    expect(text).toContain("nextAfterSeq: 2");
+    expect(text).toContain("#2 status_changed");
+    expect(final?.result?._meta).toEqual({ [RELATED_TASK_META_KEY]: { taskId: "task-1" } });
+
+    // Leak guard: a one-shot watcher must not linger in the registry once its
+    // result has been delivered.
+    const listed = await client.experimental.tasks.listTasks();
+    expect(listed.tasks.map((task) => task.taskId)).toEqual(["task-1"]);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("task_watch native MCP task maps attention_required to input_required", async () => {
+  const baseTask: OrchestrationTaskRecord = {
+    taskId: "task-blocked",
+    sourceHandle: "backend:main",
+    sourceKind: "coordinator",
+    coordinatorSession: "backend:main",
+    workerSession: "backend:worker",
+    workspace: "backend",
+    targetAgent: "claude",
+    task: "review",
+    status: "blocked",
+    summary: "Need clarification",
+    resultText: "",
+    createdAt: "2026-05-16T00:00:00.000Z",
+    updatedAt: "2026-05-16T00:00:02.000Z",
+  };
+  const server = createWeacpxMcpServer({
+    transport: createMemoryTransport(
+      async () => ({ taskId: "task-blocked", status: "running" }),
+      {
+        getTask: async ({ taskId }) => (taskId === "task-blocked" ? baseTask : null),
+        listTasks: async () => [baseTask],
+        watchTask: async () => ({
+          status: "attention_required" as const,
+          task: baseTask,
+          events: [
+            { seq: 3, at: "2026-05-16T00:00:02.000Z", type: "attention_required", status: "blocked", message: "Which branch?" },
+          ],
+          nextAfterSeq: 3,
+        }),
+      },
+    ),
+    coordinatorSession: "backend:main",
+  });
+  const client = new Client({ name: "weacpx-test-client", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const messages: Array<{ type: string; task?: { taskId: string; status: string }; result?: { content?: Array<{ type: string; text?: string }> } }> = [];
+    const stream = client.experimental.tasks.callToolStream(
+      { name: "task_watch", arguments: { taskId: "task-blocked" } },
+      CallToolResultSchema,
+      { task: { pollInterval: 1 } },
+    );
+    for await (const message of stream) {
+      messages.push(message);
+    }
+
+    expect(messages.some((message) => message.task?.status === "input_required")).toBe(true);
+    const final = messages.at(-1);
+    expect(final?.type).toBe("result");
+    const text = final?.result?.content?.[0]?.text ?? "";
+    expect(text).toContain("finished with attention required");
+    expect(text).toContain("call task_get on the watched task");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("task_watch native MCP task registry stays bounded for clients that never consume results", async () => {
+  const baseTask: OrchestrationTaskRecord = {
+    taskId: "task-1",
+    sourceHandle: "backend:main",
+    sourceKind: "coordinator",
+    coordinatorSession: "backend:main",
+    workerSession: "backend:worker",
+    workspace: "backend",
+    targetAgent: "claude",
+    task: "review",
+    status: "running",
+    summary: "",
+    resultText: "",
+    createdAt: "2026-05-16T00:00:00.000Z",
+    updatedAt: "2026-05-16T00:00:00.000Z",
+  };
+  const server = createWeacpxMcpServer({
+    transport: createMemoryTransport(
+      async () => ({ taskId: "task-1", status: "running" }),
+      {
+        getTask: async () => baseTask,
+        listTasks: async () => [],
+        cancelTask: async () => baseTask,
+        watchTask: async () => ({ status: "timeout" as const, task: baseTask, events: [], nextAfterSeq: 0 }),
+      },
+    ),
+    coordinatorSession: "backend:main",
+  });
+  const client = new Client({ name: "weacpx-test-client", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const createTaskResultSchema = z
+    .object({ task: z.object({ taskId: z.string() }).passthrough() })
+    .passthrough();
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    // Create more native watchers than the cache limit without ever fetching
+    // their results, simulating a client that abandons watchers.
+    const total = WATCH_TASKS_CACHE_LIMIT + 24;
+    for (let index = 0; index < total; index += 1) {
+      await client.request(
+        {
+          method: "tools/call",
+          params: {
+            name: "task_watch",
+            arguments: { taskId: "task-1" },
+            task: { ttl: 60_000, pollInterval: 1 },
+          },
+        },
+        createTaskResultSchema,
+      );
+    }
+    // Let every background watcher settle.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const watchIds = new Set<string>();
+    let cursor: string | undefined;
+    do {
+      const page = await client.experimental.tasks.listTasks(cursor);
+      for (const task of page.tasks) {
+        if (task.taskId.startsWith("watch:")) watchIds.add(task.taskId);
+      }
+      cursor = page.nextCursor;
+    } while (cursor);
+
+    expect(watchIds.size).toBeGreaterThan(0);
+    expect(watchIds.size).toBeLessThanOrEqual(WATCH_TASKS_CACHE_LIMIT);
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+test("task_watch native MCP task evicted mid-flight is not resurrected past the cap", async () => {
+  const baseTask: OrchestrationTaskRecord = {
+    taskId: "task-1",
+    sourceHandle: "backend:main",
+    sourceKind: "coordinator",
+    coordinatorSession: "backend:main",
+    workerSession: "backend:worker",
+    workspace: "backend",
+    targetAgent: "claude",
+    task: "review",
+    status: "running",
+    summary: "",
+    resultText: "",
+    createdAt: "2026-05-16T00:00:00.000Z",
+    updatedAt: "2026-05-16T00:00:00.000Z",
+  };
+  let watchCallCount = 0;
+  let releaseFirstWatch!: () => void;
+  const firstWatchGate = new Promise<void>((resolve) => {
+    releaseFirstWatch = resolve;
+  });
+  const server = createWeacpxMcpServer({
+    transport: createMemoryTransport(
+      async () => ({ taskId: "task-1", status: "running" }),
+      {
+        getTask: async () => baseTask,
+        listTasks: async () => [],
+        cancelTask: async () => baseTask,
+        watchTask: async () => {
+          watchCallCount += 1;
+          // The first watcher's background watch hangs, so the cap evicts it
+          // while it is still in flight.
+          if (watchCallCount === 1) {
+            await firstWatchGate;
+          }
+          return { status: "timeout" as const, task: baseTask, events: [], nextAfterSeq: 0 };
+        },
+      },
+    ),
+    coordinatorSession: "backend:main",
+  });
+  const client = new Client({ name: "weacpx-test-client", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const createTaskResultSchema = z
+    .object({ task: z.object({ taskId: z.string() }).passthrough() })
+    .passthrough();
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const createWatcher = async (): Promise<string> => {
+      const created = await client.request(
+        {
+          method: "tools/call",
+          params: {
+            name: "task_watch",
+            arguments: { taskId: "task-1" },
+            task: { ttl: 60_000, pollInterval: 1 },
+          },
+        },
+        createTaskResultSchema,
+      );
+      return (created.task as { taskId: string }).taskId;
+    };
+
+    const firstWatchTaskId = await createWatcher();
+    // Fill the cache; the last insertion evicts the still-in-flight first watcher.
+    for (let index = 0; index < WATCH_TASKS_CACHE_LIMIT; index += 1) {
+      await createWatcher();
+    }
+
+    // Let the evicted watcher's background watch resolve. It must not
+    // re-insert itself past the cap.
+    releaseFirstWatch();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const watchIds = new Set<string>();
+    let cursor: string | undefined;
+    do {
+      const page = await client.experimental.tasks.listTasks(cursor);
+      for (const task of page.tasks) {
+        if (task.taskId.startsWith("watch:")) watchIds.add(task.taskId);
+      }
+      cursor = page.nextCursor;
+    } while (cursor);
+
+    expect(watchIds.size).toBeLessThanOrEqual(WATCH_TASKS_CACHE_LIMIT);
+    expect(watchIds.has(firstWatchTaskId)).toBe(false);
+  } finally {
+    releaseFirstWatch();
+    await client.close();
+    await server.close();
+  }
 });

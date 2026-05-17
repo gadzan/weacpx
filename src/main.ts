@@ -128,6 +128,11 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
   const config = await loadConfig(paths.configPath, {
     defaultLoggingLevel: deps.defaultLoggingLevel,
   });
+  const reloadRuntimeConfig = async (): Promise<AppConfig> => {
+    const updated = await configStore.load();
+    replaceRuntimeConfig(config, updated);
+    return config;
+  };
   const logger = createAppLogger({
     filePath: resolveAppLogPath(paths.configPath),
     level: config.logging.level,
@@ -407,12 +412,13 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     cwd?: string;
     promptText: string;
   }): void => {
-    const session = resolveWorkerRuntimeSession(input);
-    session.mcpCoordinatorSession = input.coordinatorSession;
-    session.mcpSourceHandle = input.workerSession;
     const workerDispatch = (async () => {
       let taskRecord: OrchestrationTaskRecord | undefined;
       try {
+        await reloadRuntimeConfig();
+        const session = resolveWorkerRuntimeSession(input);
+        session.mcpCoordinatorSession = input.coordinatorSession;
+        session.mcpSourceHandle = input.workerSession;
         const progressBuffer = new ProgressLineBuffer();
         const recordProgress = async (summary: string) => {
           try {
@@ -520,6 +526,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     },
     stateMutex,
     ensureWorkerSession: async ({ workerSession, targetAgent, workspace, cwd, coordinatorSession }) => {
+      await reloadRuntimeConfig();
       const session = resolveWorkerRuntimeSession({ workerSession, targetAgent, workspace, ...(cwd ? { cwd } : {}) });
       session.mcpCoordinatorSession = coordinatorSession;
       session.mcpSourceHandle = workerSession;
@@ -653,6 +660,13 @@ function replaceRuntimeState(target: AppState, source: AppState): void {
   target.sessions = source.sessions;
   target.chat_contexts = source.chat_contexts;
   target.orchestration = source.orchestration;
+}
+
+function replaceRuntimeConfig(target: AppConfig, source: AppConfig): void {
+  // Copy every AppConfig field onto the live config object in place, preserving
+  // its identity for holders of the reference. Object.assign stays exhaustive
+  // automatically, so a newly added AppConfig field cannot be silently missed.
+  Object.assign(target, source);
 }
 
 export async function main(): Promise<void> {

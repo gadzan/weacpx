@@ -3,8 +3,12 @@ import { expect, test } from "bun:test";
 import { normalize } from "node:path";
 
 import { createConfig } from "../commands/command-router-test-support";
-import { OrchestrationService, type OrchestrationServiceDeps } from "../../../src/orchestration/orchestration-service";
+import { clampWatchTimeout, OrchestrationService, type OrchestrationServiceDeps } from "../../../src/orchestration/orchestration-service";
 import { AsyncMutex } from "../../../src/orchestration/async-mutex";
+import {
+  DEFAULT_TASK_WATCH_TIMEOUT_MS,
+  MAX_TASK_WATCH_TIMEOUT_MS,
+} from "../../../src/orchestration/task-wait-timeouts";
 import { createEmptyState, type AppState } from "../../../src/state/types";
 import type { AppConfig } from "../../../src/config/types";
 import { QuotaDeferredError } from "../../../src/weixin/messaging/quota-errors";
@@ -254,6 +258,8 @@ test("creates a running task and reuses an injected worker session", async () =>
     resultText: "",
     createdAt: "2026-04-13T10:00:00.000Z",
     updatedAt: "2026-04-13T10:00:00.000Z",
+    eventSeq: 1,
+    events: [{ seq: 1, at: "2026-04-13T10:00:00.000Z", type: "created", status: "running", message: "Task created" }],
   });
   expect(harness.getState().orchestration.workerBindings["backend:claude:shared-worker"]).toEqual({
     sourceHandle: "backend:claude:shared-worker",
@@ -2221,6 +2227,166 @@ test("task_wait returns not_found for missing or wrong coordinator tasks", async
   await expect(
     service.waitTask({ coordinatorSession: "backend:main", taskId: "task-1", timeoutMs: 0 }),
   ).resolves.toEqual({ status: "not_found", task: null });
+});
+
+test("task_watch returns new task events and advances afterSeq", async () => {
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        tasks: {
+          "task-1": {
+            ...makeCompletedTask("task-1"),
+            status: "running",
+            summary: "",
+            resultText: "",
+            eventSeq: 1,
+            events: [{ seq: 1, at: "2026-04-13T10:00:00.000Z", type: "created", status: "running", message: "Task created" }],
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  await service.recordTaskProgress("task-1", "analyzing code");
+
+  await expect(
+    service.watchTask({
+      coordinatorSession: "backend:main",
+      taskId: "task-1",
+      afterSeq: 1,
+      mode: "next_event",
+      timeoutMs: 0,
+    }),
+  ).resolves.toMatchObject({
+    status: "event",
+    task: { taskId: "task-1", status: "running" },
+    events: [{ seq: 2, type: "progress", summary: "analyzing code" }],
+    nextAfterSeq: 2,
+  });
+});
+
+test("clampWatchTimeout collapses invalid input to an immediate watch like clampWaitTimeout", () => {
+  expect(clampWatchTimeout(undefined)).toBe(DEFAULT_TASK_WATCH_TIMEOUT_MS);
+  // Invalid values must not silently become a 60s long-poll.
+  expect(clampWatchTimeout(-1)).toBe(0);
+  expect(clampWatchTimeout(Number.NaN)).toBe(0);
+  expect(clampWatchTimeout(Number.POSITIVE_INFINITY)).toBe(0);
+  expect(clampWatchTimeout(1_500.9)).toBe(1_500);
+  expect(clampWatchTimeout(MAX_TASK_WATCH_TIMEOUT_MS + 10_000)).toBe(MAX_TASK_WATCH_TIMEOUT_MS);
+});
+
+test("task_watch returns terminal, attention_required, timeout, and not_found states", async () => {
+  const terminalHarness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        tasks: { "task-1": makeCompletedTask("task-1") },
+      },
+    },
+  });
+  await expect(
+    new OrchestrationService(terminalHarness.deps).watchTask({
+      coordinatorSession: "backend:main",
+      taskId: "task-1",
+      timeoutMs: 0,
+    }),
+  ).resolves.toMatchObject({ status: "terminal", task: { taskId: "task-1", status: "completed" } });
+
+  const attentionHarness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        tasks: { "task-1": makeBlockedTask("task-1", "question-1") },
+      },
+    },
+  });
+  await expect(
+    new OrchestrationService(attentionHarness.deps).watchTask({
+      coordinatorSession: "backend:main",
+      taskId: "task-1",
+      timeoutMs: 0,
+    }),
+  ).resolves.toMatchObject({ status: "attention_required", task: { taskId: "task-1", status: "blocked" } });
+
+  const runningHarness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        tasks: { "task-1": { ...makeCompletedTask("task-1"), status: "running", summary: "", resultText: "" } },
+      },
+    },
+  });
+  const runningService = new OrchestrationService(runningHarness.deps);
+  await expect(
+    runningService.watchTask({ coordinatorSession: "backend:main", taskId: "task-1", timeoutMs: 0 }),
+  ).resolves.toMatchObject({ status: "timeout", task: { taskId: "task-1", status: "running" } });
+  await expect(
+    runningService.watchTask({ coordinatorSession: "backend:main", taskId: "missing", timeoutMs: 0 }),
+  ).resolves.toEqual({ status: "not_found", task: null, events: [], nextAfterSeq: 0 });
+});
+
+test("task_watch flags historyTruncated once the 200-event cap prunes older events", async () => {
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        tasks: {
+          "task-1": {
+            ...makeCompletedTask("task-1"),
+            status: "running",
+            summary: "",
+            resultText: "",
+            eventSeq: 1,
+            events: [{ seq: 1, at: "2026-04-13T10:00:00.000Z", type: "created", status: "running", message: "Task created" }],
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  // 249 progress events + the initial "created" event = 250 events; the
+  // appendTaskEvent ring buffer keeps only the last 200 (seq 51..250).
+  for (let index = 0; index < 249; index += 1) {
+    await service.recordTaskProgress("task-1", `progress ${index}`);
+  }
+
+  // A cursor older than the retained window must surface historyTruncated and
+  // still hand back every retained event without re-delivering pruned ones.
+  const truncated = await service.watchTask({
+    coordinatorSession: "backend:main",
+    taskId: "task-1",
+    afterSeq: 1,
+    mode: "next_event",
+    timeoutMs: 0,
+  });
+  expect(truncated.status).toBe("event");
+  expect(truncated.historyTruncated).toBe(true);
+  expect(truncated.nextAfterSeq).toBe(250);
+  expect(truncated.events).toHaveLength(200);
+  expect(truncated.events[0]?.seq).toBe(51);
+  expect(truncated.events.at(-1)?.seq).toBe(250);
+
+  // A cursor inside the retained window is fully caught up: no truncation flag.
+  const withinWindow = await service.watchTask({
+    coordinatorSession: "backend:main",
+    taskId: "task-1",
+    afterSeq: 200,
+    mode: "next_event",
+    timeoutMs: 0,
+  });
+  expect(withinWindow.status).toBe("event");
+  expect(withinWindow.historyTruncated).toBeUndefined();
+  expect(withinWindow.events.map((event) => event.seq)).toEqual(
+    Array.from({ length: 50 }, (_, index) => 201 + index),
+  );
 });
 
 test("registers or refreshes an external coordinator", async () => {

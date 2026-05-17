@@ -3,8 +3,12 @@ import type { WeacpxMcpTransport } from "./weacpx-mcp-transport";
 import {
   DEFAULT_TASK_WAIT_POLL_INTERVAL_MS,
   DEFAULT_TASK_WAIT_TIMEOUT_MS,
+  DEFAULT_TASK_WATCH_POLL_INTERVAL_MS,
+  DEFAULT_TASK_WATCH_TIMEOUT_MS,
   MAX_TASK_WAIT_POLL_INTERVAL_MS,
   MAX_TASK_WAIT_TIMEOUT_MS,
+  MAX_TASK_WATCH_POLL_INTERVAL_MS,
+  MAX_TASK_WATCH_TIMEOUT_MS,
 } from "../orchestration/task-wait-timeouts";
 import { isQuotaDeferredError } from "../weixin/messaging/quota-errors";
 import { z } from "zod";
@@ -22,6 +26,7 @@ const taskStatusSchema = z.enum([
 const sortSchema = z.enum(["updatedAt", "createdAt"]);
 const orderSchema = z.enum(["asc", "desc"]);
 const contestedDecisionSchema = z.enum(["accept", "discard"]);
+const taskWatchModeSchema = z.enum(["next_event", "until_attention_or_terminal"]);
 const taskQuestionSchema = z
   .object({
     taskId: z.string().min(1),
@@ -57,7 +62,7 @@ export function buildWeacpxMcpToolRegistry(input: {
   const tools: WeacpxMcpToolDefinition<unknown>[] = [
     {
       name: "delegate_request",
-      description: `Delegate a subtask to another agent under the current coordinator. Pass an absolute workingDirectory for the worker. Supports MCP Tasks when the client requests task execution: the tool can return a native task handle immediately, then clients can use tasks/get, tasks/result, tasks/list, and tasks/cancel. For legacy clients, after this returns status=running, call task_wait with the returned taskId to wait for completion before reporting back to the user; if status=needs_confirmation, wait for the user to approve (task_approve / task_reject) and do not call task_wait yet.${availableAgents && availableAgents.length > 0 ? ` Available agents: ${availableAgents.join(", ")}.` : ""}`,
+      description: `Delegate a subtask to another agent under the current coordinator. Pass an absolute workingDirectory for the worker. Supports MCP Tasks when the client requests task execution: the tool can return a native task handle immediately, then clients can use tasks/get, tasks/result, tasks/list, and tasks/cancel. For legacy clients, after this returns status=running, keep the returned taskId and use task_get/task_list for non-blocking progress snapshots; call task_wait only when the user explicitly wants you to wait/block until completion or attention is required. If status=needs_confirmation, wait for the user to approve (task_approve / task_reject) and do not call task_wait yet.${availableAgents && availableAgents.length > 0 ? ` Available agents: ${availableAgents.join(", ")}.` : ""}`,
       execution: { taskSupport: "optional" },
       inputSchema: z
         .object({
@@ -162,7 +167,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "task_get",
-      description: "Fetch a single task under the current coordinator, including the worker's final result and any pending question. Use after task_wait returns to read the actual output before summarizing it for the user, or to inspect a task that requires attention.",
+      description: "Fetch a single task under the current coordinator, including the worker's final result and any pending question. Use to inspect a task snapshot non-blockingly, read the actual output after completion, or inspect a task that requires attention.",
       inputSchema: z
         .object({
           taskId: z.string().min(1),
@@ -215,7 +220,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "task_approve",
-      description: "Approve a pending task under the current coordinator. Use when delegate_request returned status=needs_confirmation and the user has authorized it; after approval, call task_wait.",
+      description: "Approve a pending task under the current coordinator. Use when delegate_request returned status=needs_confirmation and the user has authorized it; after approval, use task_get/task_list for snapshots or task_wait only if intentionally blocking.",
       inputSchema: z
         .object({
           taskId: z.string().min(1),
@@ -266,7 +271,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "task_wait",
-      description: `Wait for a task to finish or require attention. Call this immediately after delegate_request (when status=running) unless you intend a fire-and-forget. Returns status=terminal (done; call task_get for the result), status=attention_required (call task_get first to read the task's current status, then branch: needs_confirmation -> task_approve or task_reject; blocked or waiting_for_human -> coordinator_answer_question; reviewPending set -> coordinator_review_contested_result; after resolving, call task_wait again), or status=timeout (still running; call task_wait again or task_get for a snapshot). Defaults: timeout ${DEFAULT_TASK_WAIT_TIMEOUT_MS} ms, poll interval ${DEFAULT_TASK_WAIT_POLL_INTERVAL_MS} ms. Maximums: timeout ${MAX_TASK_WAIT_TIMEOUT_MS} ms, poll interval ${MAX_TASK_WAIT_POLL_INTERVAL_MS} ms.`,
+      description: `Wait for a task to finish or require attention. This is a blocking legacy compatibility tool; do not call it automatically after delegate_request when the user only asked to start/delegate work. Use task_get/task_list for non-blocking progress snapshots; call task_wait when the user explicitly asks to wait, or when your next step truly depends on completion. Returns status=terminal (done; call task_get for the result), status=attention_required (call task_get first to read the task's current status, then branch: needs_confirmation -> task_approve or task_reject; blocked or waiting_for_human -> coordinator_answer_question; reviewPending set -> coordinator_review_contested_result; after resolving, use task_get/task_list snapshots or task_wait only if intentionally blocking), or status=timeout (still running; use task_get for a snapshot, or task_wait only if intentionally blocking). Defaults: timeout ${DEFAULT_TASK_WAIT_TIMEOUT_MS} ms, poll interval ${DEFAULT_TASK_WAIT_POLL_INTERVAL_MS} ms. Maximums: timeout ${MAX_TASK_WAIT_TIMEOUT_MS} ms, poll interval ${MAX_TASK_WAIT_POLL_INTERVAL_MS} ms.`,
       inputSchema: z
         .object({
           taskId: z.string().min(1),
@@ -284,8 +289,38 @@ export function buildWeacpxMcpToolRegistry(input: {
         }),
     },
     {
+      name: "task_watch",
+      description: `Long-poll a task for the next event, attention-required state, or terminal state. This is the recommended legacy way to watch a delegated task without repeatedly calling task_wait. For MCP-task-capable clients, request task execution for this tool to create a background watcher: the call returns a native task handle immediately, and tasks/result returns when the watch condition is met. The native watcher is single-shot: it runs one watch cycle then terminates, so to keep watching start another task_watch with afterSeq set to the returned nextAfterSeq. Defaults: timeout ${DEFAULT_TASK_WATCH_TIMEOUT_MS} ms, poll interval ${DEFAULT_TASK_WATCH_POLL_INTERVAL_MS} ms. Maximums: timeout ${MAX_TASK_WATCH_TIMEOUT_MS} ms, poll interval ${MAX_TASK_WATCH_POLL_INTERVAL_MS} ms.`,
+      execution: { taskSupport: "optional" },
+      inputSchema: z
+        .object({
+          taskId: z.string().min(1),
+          afterSeq: z.number().int().min(0).optional(),
+          mode: taskWatchModeSchema.optional(),
+          includeProgress: z.boolean().optional(),
+          timeoutMs: z.number().int().min(0).max(MAX_TASK_WATCH_TIMEOUT_MS).optional(),
+          pollIntervalMs: z.number().int().min(1).max(MAX_TASK_WATCH_POLL_INTERVAL_MS).optional(),
+        })
+        .strict(),
+      handler: async (args) =>
+        await asToolResult(async () => {
+          const result = await transport.watchTask({
+            coordinatorSession,
+            ...(args as {
+              taskId: string;
+              afterSeq?: number;
+              mode?: "next_event" | "until_attention_or_terminal";
+              includeProgress?: boolean;
+              timeoutMs?: number;
+              pollIntervalMs?: number;
+            }),
+          });
+          return createSuccessResult(renderTaskWatchResult(result), result);
+        }),
+    },
+    {
       name: "worker_raise_question",
-      description: "Raise a blocker question for the current bound worker session. Worker-side only: call this from inside a delegated task when you are blocked and need the coordinator's input. Coordinators waiting on a delegation should not call this; use task_wait instead.",
+      description: "Raise a blocker question for the current bound worker session. Worker-side only: call this from inside a delegated task when you are blocked and need the coordinator's input. Coordinators waiting on a delegation should not call this; use task_get/task_list for snapshots, or task_wait only if intentionally blocking.",
       inputSchema: z
         .object({
           taskId: z.string().min(1),
@@ -315,7 +350,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "coordinator_answer_question",
-      description: "Answer a blocked worker question under the current coordinator. Use after task_wait returns status=attention_required and task_get shows a pending question; after answering, call task_wait again to keep waiting for the worker to finish.",
+      description: "Answer a blocked worker question under the current coordinator. Use when task_get shows a pending question; after answering, use task_get/task_list for snapshots or task_wait only if intentionally blocking for the worker to finish.",
       inputSchema: z
         .object({
           taskId: z.string().min(1),
@@ -464,7 +499,7 @@ function renderTaskWaitResult(result: {
   if (result.status === "timeout") {
     return [
       `Task ${result.task.taskId} wait timed out; current state is ${result.task.status}.`,
-      `Next: call task_wait again with this taskId to keep waiting, or task_get for a snapshot.`,
+      `Next: call task_get for a snapshot, or call task_wait again only if you intentionally want to keep blocking.`,
     ].join("\n");
   }
   if (result.status === "attention_required") {
@@ -474,13 +509,45 @@ function renderTaskWaitResult(result: {
       `  - status=needs_confirmation -> task_approve or task_reject`,
       `  - status=blocked or waiting_for_human -> coordinator_answer_question`,
       `  - reviewPending set -> coordinator_review_contested_result`,
-      `After resolving, call task_wait again to keep waiting for the worker to finish.`,
+      `After resolving, use task_get/task_list for snapshots, or call task_wait again only if you intentionally want to keep blocking.`,
     ].join("\n");
   }
   return [
     `Task ${result.task.taskId} reached terminal state ${result.task.status}.`,
     `Next: call task_get to read the worker's final result before reporting back to the user.`,
   ].join("\n");
+}
+
+function renderTaskWatchResult(result: {
+  status: "event" | "attention_required" | "terminal" | "timeout" | "not_found";
+  task: { taskId: string; status: string } | null;
+  events: Array<{ seq: number; type: string; at: string; summary?: string; message?: string; status?: string }>;
+  nextAfterSeq: number;
+  historyTruncated?: boolean;
+}): string {
+  if (result.status === "not_found" || !result.task) {
+    return "Task not found.";
+  }
+  const header = [
+    `Task ${result.task.taskId} watch ${result.status.replace("_", " ")}; current state is ${result.task.status}.`,
+    `- nextAfterSeq: ${result.nextAfterSeq}`,
+    result.historyTruncated ? "- historyTruncated: true" : "",
+  ].filter((line) => line.length > 0);
+  const events = result.events.length > 0
+    ? [
+        "- Events:",
+        ...result.events.map((event) => {
+          const detail = event.summary ?? event.message ?? event.status ?? "";
+          return `  - #${event.seq} ${event.type} at ${event.at}${detail ? `: ${detail}` : ""}`;
+        }),
+      ]
+    : ["- Events: none"];
+  const next = result.status === "terminal"
+    ? "Next: call task_get to read the final result."
+    : result.status === "attention_required"
+      ? "Next: call task_get to inspect openQuestion / reviewPending, then resolve it with the recommended action tool."
+      : `Next: call task_watch again with afterSeq=${result.nextAfterSeq} to keep watching, preferably as an MCP task if your client supports background task execution.`;
+  return [...header, ...events, next].join("\n");
 }
 
 function createSuccessResult(
@@ -503,7 +570,7 @@ function createErrorResult(message: string): WeacpxMcpToolResult {
 function renderDelegateSuccess(result: { taskId: string; status: string }): string {
   const next = result.status === "needs_confirmation"
     ? `Next: this delegation requires user approval; do not call task_wait yet. Tell the user, then call task_approve or task_reject based on their response.`
-    : `Next: call task_wait with taskId="${result.taskId}" to wait for the worker to finish, then task_get to read the result before reporting back.`;
+    : `Next: task "${result.taskId}" is running. Return this taskId to the user, or call task_get/task_list for non-blocking progress snapshots (or task_watch to long-poll for the next event). Call task_wait only if the user explicitly asks you to wait/block until completion.`;
   return [`Delegation task "${result.taskId}" created.`, `- Status: ${result.status}`, next].join("\n");
 }
 
@@ -714,7 +781,7 @@ function renderTaskApprovalSuccess(task: { taskId: string; status: string }): st
   return [
     `Task "${task.taskId}" approved.`,
     `- Current status: ${task.status}`,
-    `Next: call task_wait with taskId="${task.taskId}" to wait for the worker to finish, then task_get to read the result before reporting back.`,
+    `Next: use task_get/task_list for non-blocking progress snapshots, or call task_wait only if you intentionally want to block until the worker finishes; then task_get to read the final result.`,
   ].join("\n");
 }
 

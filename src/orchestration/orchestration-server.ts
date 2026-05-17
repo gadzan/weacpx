@@ -17,11 +17,14 @@ import type {
   RegisterExternalCoordinatorInput,
   RequestDelegateRpcInput,
   WaitTaskInput,
+  WatchTaskInput,
   WorkerRaiseQuestionInput,
 } from "./orchestration-service";
 import {
   MAX_TASK_WAIT_POLL_INTERVAL_MS,
   MAX_TASK_WAIT_TIMEOUT_MS,
+  MAX_TASK_WATCH_POLL_INTERVAL_MS,
+  MAX_TASK_WATCH_TIMEOUT_MS,
 } from "./task-wait-timeouts";
 
 class OrchestrationInvalidRequestError extends Error {}
@@ -32,6 +35,7 @@ const ORCHESTRATION_RPC_METHODS = new Set<OrchestrationRpcMethod>([
   "task.get",
   "task.list",
   "task.wait",
+  "task.watch",
   "task.approve",
   "task.reject",
   "task.cancel",
@@ -172,6 +176,8 @@ export class OrchestrationServer {
         return await this.handlers.listTasks(this.parseTaskListFilter(params));
       case "task.wait":
         return await this.handlers.waitTask(this.parseWaitTaskInput(params));
+      case "task.watch":
+        return await this.handlers.watchTask(this.parseWatchTaskInput(params));
       case "task.approve":
         requireOnlyKeys(params, ["taskId", "coordinatorSession"], "params");
         return await this.handlers.approveTask({
@@ -368,6 +374,24 @@ export class OrchestrationServer {
     return {
       coordinatorSession: requireString(params, "coordinatorSession"),
       taskId: requireString(params, "taskId"),
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      ...(pollIntervalMs !== undefined ? { pollIntervalMs } : {}),
+    };
+  }
+
+  private parseWatchTaskInput(params: Record<string, unknown>): WatchTaskInput {
+    requireOnlyKeys(params, ["coordinatorSession", "taskId", "afterSeq", "mode", "includeProgress", "timeoutMs", "pollIntervalMs"], "params");
+    const afterSeq = requireOptionalIntegerInRange(params, "afterSeq", 0, Number.MAX_SAFE_INTEGER);
+    const mode = requireOptionalEnum(params, "mode", ["next_event", "until_attention_or_terminal"]);
+    const includeProgress = requireOptionalBoolean(params, "includeProgress");
+    const timeoutMs = requireOptionalIntegerInRange(params, "timeoutMs", 0, MAX_TASK_WATCH_TIMEOUT_MS);
+    const pollIntervalMs = requireOptionalIntegerInRange(params, "pollIntervalMs", 1, MAX_TASK_WATCH_POLL_INTERVAL_MS);
+    return {
+      coordinatorSession: requireString(params, "coordinatorSession"),
+      taskId: requireString(params, "taskId"),
+      ...(afterSeq !== undefined ? { afterSeq } : {}),
+      ...(mode !== undefined ? { mode } : {}),
+      ...(includeProgress !== undefined ? { includeProgress } : {}),
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       ...(pollIntervalMs !== undefined ? { pollIntervalMs } : {}),
     };

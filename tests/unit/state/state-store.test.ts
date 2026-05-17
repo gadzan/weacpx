@@ -64,6 +64,11 @@ test("persists sessions and chat context", async () => {
           resultText: "",
           createdAt: "2026-04-13T10:00:00.000Z",
           updatedAt: "2026-04-13T10:00:00.000Z",
+          eventSeq: 2,
+          events: [
+            { seq: 1, at: "2026-04-13T10:00:00.000Z", type: "created", status: "running", message: "Task created" },
+            { seq: 2, at: "2026-04-13T10:00:01.000Z", type: "progress", status: "running", summary: "正在审查当前方案风险" },
+          ],
         },
       },
       workerBindings: {

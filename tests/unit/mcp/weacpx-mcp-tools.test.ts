@@ -4,7 +4,7 @@ import { buildWeacpxMcpToolRegistry } from "../../../src/mcp/weacpx-mcp-tools";
 import { createMemoryTransport } from "../../../src/mcp/weacpx-mcp-transport";
 import { QuotaDeferredError } from "../../../src/weixin/messaging/quota-errors";
 
-test("builds 16 MCP tools and appends blocker-loop actions after the original orchestration tools", async () => {
+test("builds 17 MCP tools and appends blocker-loop actions after the original orchestration tools", async () => {
   const calls: unknown[] = [];
   const transport = createMemoryTransport(
     async (input) => {
@@ -40,7 +40,7 @@ test("builds 16 MCP tools and appends blocker-loop actions after the original or
     sourceHandle: "backend:worker",
   });
 
-  expect(registry).toHaveLength(16);
+  expect(registry).toHaveLength(17);
   expect(registry.map((tool) => tool.name)).toEqual([
     "delegate_request",
     "group_new",
@@ -53,6 +53,7 @@ test("builds 16 MCP tools and appends blocker-loop actions after the original or
     "task_reject",
     "task_cancel",
     "task_wait",
+    "task_watch",
     "worker_raise_question",
     "coordinator_answer_question",
     "coordinator_request_human_input",
@@ -329,7 +330,7 @@ test("task_get renders not-found as text plus structured null wrapper", async ()
   });
 });
 
-test("delegate_request running result appends a Next: hint pointing at task_wait", async () => {
+test("delegate_request running result appends a non-blocking Next hint", async () => {
   const registry = buildWeacpxMcpToolRegistry({
     transport: createMemoryTransport(
       async () => ({ taskId: "task-running", status: "running" }),
@@ -361,8 +362,21 @@ test("delegate_request running result appends a Next: hint pointing at task_wait
   const text = (result?.content[0] as { text: string }).text;
   expect(text).toContain("Delegation task \"task-running\" created.");
   expect(text).toContain("- Status: running");
-  expect(text).toContain("Next: call task_wait with taskId=\"task-running\"");
-  expect(text).toContain("task_get to read the result");
+  expect(text).toContain("Next: task \"task-running\" is running.");
+  expect(text).toContain("Return this taskId to the user");
+  expect(text).toContain("task_get/task_list for non-blocking progress snapshots");
+  expect(text).toContain("task_watch to long-poll for the next event");
+  expect(text).toContain("Call task_wait only if the user explicitly asks");
+});
+
+test("task_watch description states the native watcher is single-shot", async () => {
+  const registry = buildWeacpxMcpToolRegistry({
+    transport: createMemoryTransport(async () => ({ taskId: "task-1", status: "running" })),
+    coordinatorSession: "backend:main",
+  });
+  const taskWatch = registry.find((tool) => tool.name === "task_watch");
+  expect(taskWatch?.description).toContain("single-shot");
+  expect(taskWatch?.description).toContain("afterSeq set to the returned nextAfterSeq");
 });
 
 test("task_wait terminal / attention / timeout each include the matching Next: hint", async () => {
@@ -424,7 +438,8 @@ test("task_wait terminal / attention / timeout each include the matching Next: h
     (await waitTool?.handler({ taskId: "task-1" }))?.content[0] as { text: string }
   ).text;
   expect(timeoutText).toContain("wait timed out");
-  expect(timeoutText).toContain("Next: call task_wait again");
+  expect(timeoutText).toContain("Next: call task_get for a snapshot");
+  expect(timeoutText).toContain("call task_wait again only if you intentionally want to keep blocking");
 });
 
 test("tool descriptions reference the next step in the lifecycle", () => {
@@ -450,8 +465,10 @@ test("tool descriptions reference the next step in the lifecycle", () => {
   });
   const byName = new Map(registry.map((tool) => [tool.name, tool]));
 
-  expect(byName.get("delegate_request")?.description).toContain("call task_wait with the returned taskId");
-  expect(byName.get("task_wait")?.description).toContain("immediately after delegate_request");
+  expect(byName.get("delegate_request")?.description).toContain("task_get/task_list for non-blocking progress snapshots");
+  expect(byName.get("delegate_request")?.description).toContain("call task_wait only when the user explicitly wants");
+  expect(byName.get("task_wait")?.description).toContain("blocking legacy compatibility tool");
+  expect(byName.get("task_wait")?.description).toContain("do not call it automatically after delegate_request");
   expect(byName.get("task_wait")?.description).toContain("attention_required");
   // task_wait description must spell out the attention_required branches so the LLM
   // does not blindly route every attention_required task into coordinator_answer_question.
@@ -460,9 +477,9 @@ test("tool descriptions reference the next step in the lifecycle", () => {
   expect(byName.get("task_wait")?.description).toContain("reviewPending set -> coordinator_review_contested_result");
   // External coordinators are the MCP server's main case and cannot use coordinator_request_human_input.
   expect(byName.get("task_wait")?.description ?? "").not.toContain("coordinator_request_human_input");
-  expect(byName.get("task_get")?.description).toContain("after task_wait returns");
+  expect(byName.get("task_get")?.description).toContain("inspect a task snapshot non-blockingly");
   expect(byName.get("task_approve")?.description).toContain("needs_confirmation");
-  expect(byName.get("coordinator_answer_question")?.description).toContain("task_wait again");
+  expect(byName.get("coordinator_answer_question")?.description).toContain("task_get/task_list for snapshots");
   expect(byName.get("worker_raise_question")?.description).toContain("Worker-side only");
 });
 
@@ -492,7 +509,8 @@ test("task_approve result text points the coordinator back to task_wait", async 
 
   expect(text).toContain("Task \"task-approved\" approved.");
   expect(text).toContain("- Current status: running");
-  expect(text).toContain("Next: call task_wait with taskId=\"task-approved\"");
+  expect(text).toContain("Next: use task_get/task_list for non-blocking progress snapshots");
+  expect(text).toContain("call task_wait only if you intentionally want to block");
 });
 
 test("registry hides human-input package tools when the coordinator is external", () => {
@@ -529,13 +547,13 @@ test("registry hides human-input package tools when the coordinator is external"
   expect(externalNames).toContain("task_wait");
   expect(externalNames).toContain("coordinator_answer_question");
   expect(externalNames).toContain("coordinator_review_contested_result");
-  expect(externalRegistry).toHaveLength(14);
+  expect(externalRegistry).toHaveLength(15);
 
   const internalRegistry = buildWeacpxMcpToolRegistry({
     transport,
     coordinatorSession: "backend:main",
   });
-  expect(internalRegistry).toHaveLength(16);
+  expect(internalRegistry).toHaveLength(17);
   expect(internalRegistry.map((tool) => tool.name)).toContain("coordinator_request_human_input");
   expect(internalRegistry.map((tool) => tool.name)).toContain("coordinator_follow_up_human_package");
 });

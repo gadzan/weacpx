@@ -29,6 +29,16 @@ import { createOrchestrationTransport, type WeacpxMcpTransport } from "./weacpx-
 const TASK_OPTIONS_CACHE_LIMIT = 1_000;
 const TASKS_LIST_PAGE_SIZE = 100;
 
+// Upper bound on native task_watch watchers retained in memory. Watchers are
+// one-shot and normally evicted as soon as their result is consumed; this cap
+// is the backstop for clients that create watchers and never fetch results.
+export const WATCH_TASKS_CACHE_LIMIT = 256;
+
+interface WatchMcpTaskRecord {
+  task: Task;
+  result?: Result;
+}
+
 export interface WeacpxMcpServerOptions {
   transport?: WeacpxMcpTransport;
   coordinatorSession?: string;
@@ -59,22 +69,22 @@ export const WEACPX_MCP_SERVER_INSTRUCTIONS = [
   "Typical lifecycle for a single delegation:",
   "Preferred MCP Tasks lifecycle (for clients that support task-augmented tools/call):",
   "1. Call delegate_request with task execution requested. It returns a native MCP task handle immediately.",
-  "2. Use tasks/get or tasks/list to poll status; use tasks/result after terminal status, or on input_required to receive an actionable next-step package; use tasks/cancel to cancel.",
+  "2. Use task_watch with MCP task execution to start a background watcher, or use tasks/get / tasks/list to poll status. Use tasks/result after terminal status, or on input_required to receive an actionable next-step package; use tasks/cancel to cancel.",
   "   - When tasks/result returns input_required, that result stream is complete. Call the recommended tool, then resume polling with tasks/get / tasks/result.",
   "3. Status mapping: working = running, input_required = needs_confirmation / blocked / waiting_for_human / contested review, completed / failed / cancelled are terminal.",
   "",
   "Legacy tool lifecycle for clients without MCP Tasks support:",
   "1. delegate_request → returns { taskId, status }.",
-  "   - status=running: the worker has started; go to step 2.",
-  "   - status=needs_confirmation: tell the user, then call task_approve or task_reject based on their response. After task_approve, return to step 2 to wait for the worker. Do not call task_wait before approval.",
-  "2. task_wait(taskId) → blocks until the task is done, needs attention, or times out.",
+  "   - status=running: the worker has started. Return the taskId to the user, use task_get / task_list for non-blocking snapshots, or task_watch to long-poll for the next event; only go to step 2 when you intentionally want to block waiting.",
+  "   - status=needs_confirmation: tell the user, then call task_approve or task_reject based on their response. After task_approve, use task_get/task_list for snapshots or step 2 only if intentionally blocking. Do not call task_wait before approval.",
+  "2. Optional blocking wait: task_wait(taskId) → blocks until the task is done, needs attention, or times out. Do not call it automatically when the user asked to delegate and continue.",
   "   - status=terminal: go to step 3.",
   "   - status=attention_required: the task is in needs_confirmation / blocked / waiting_for_human, or has reviewPending set. Call task_get(taskId) to read the actual status and any openQuestion / reviewPending fields, then branch:",
-  "       * needs_confirmation -> task_approve or task_reject (after approval, go back to step 2)",
+  "       * needs_confirmation -> task_approve or task_reject (after approval, use snapshots or optional blocking wait only if needed)",
   "       * blocked or waiting_for_human -> coordinator_answer_question (the answer can come from you or be relayed from a human you consulted)",
   "       * reviewPending set -> coordinator_review_contested_result with accept or discard",
-  "     After resolving, call task_wait again to keep waiting.",
-  "   - status=timeout: the task is still running. Call task_wait again to keep waiting, or task_get for a snapshot.",
+  "     After resolving, use task_get / task_list for snapshots, or step 2 only if intentionally blocking.",
+  "   - status=timeout: the task is still running. Use task_get for a snapshot, or call task_wait again only if you still intentionally want to block.",
   "3. The task is terminal. Call task_get(taskId) to read the worker's final result, then summarize it for the user. Do not invent results that did not come from task_get.",
   "",
   "Batching: use group_new before a wave of delegate_request calls and pass groupId on each, then group_get / group_list / group_cancel to manage the batch.",
@@ -87,6 +97,7 @@ export const WEACPX_MCP_SERVER_INSTRUCTIONS = [
 export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
   let getToolState!: () => Promise<ReturnType<typeof buildToolState>>;
   const taskOptionsById = new Map<string, CreateTaskOptions>();
+  const watchTasksById = new Map<string, WatchMcpTaskRecord>();
   const server = new Server(
     {
       name: "weacpx-orchestration",
@@ -102,7 +113,7 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
         },
       },
       instructions: WEACPX_MCP_SERVER_INSTRUCTIONS,
-      taskStore: createWeacpxTaskStore(async () => await getToolState(), taskOptionsById),
+      taskStore: createWeacpxTaskStore(async () => await getToolState(), taskOptionsById, watchTasksById),
     },
   );
 
@@ -160,17 +171,26 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
     }
 
     if (request.params.task) {
-      if (tool.name !== "delegate_request") {
+      if (tool.name !== "delegate_request" && tool.name !== "task_watch") {
         throw new McpError(
           ErrorCode.InvalidParams,
           `Tool ${tool.name} does not support MCP task execution`,
         );
       }
-      return await createDelegationMcpTask({
+      if (tool.name === "delegate_request") {
+        return await createDelegationMcpTask({
+          state: await getToolState(),
+          args: parsed.data,
+          taskParams: request.params.task,
+          taskOptionsById,
+        });
+      }
+      return await createWatchMcpTask({
         state: await getToolState(),
         args: parsed.data,
         taskParams: request.params.task,
         taskOptionsById,
+        watchTasksById,
       });
     }
 
@@ -183,6 +203,17 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
   // Return an actionable package immediately for input_required so task-aware
   // clients do not deadlock waiting for a result that depends on their action.
   server.setRequestHandler(GetTaskPayloadRequestSchema, async (request): Promise<Result> => {
+    const watchTask = watchTasksById.get(request.params.taskId);
+    if (watchTask) {
+      if (!watchTask.result) {
+        throw new McpError(ErrorCode.InvalidRequest, `Task ${request.params.taskId} is still ${watchTask.task.status}`);
+      }
+      // A watcher is one-shot: its result has now been delivered, so drop the
+      // entry. Without this, watchTasksById grows for the lifetime of the
+      // MCP server process.
+      watchTasksById.delete(request.params.taskId);
+      return watchTask.result;
+    }
     const state = await getToolState();
     const task = await state.transport.getTask({
       coordinatorSession: state.coordinatorSession,
@@ -257,15 +288,177 @@ async function createDelegationMcpTask(input: {
   };
 }
 
+async function createWatchMcpTask(input: {
+  state: ReturnType<typeof buildToolState>;
+  args: unknown;
+  taskParams: CreateTaskOptions;
+  taskOptionsById: Map<string, CreateTaskOptions>;
+  watchTasksById: Map<string, WatchMcpTaskRecord>;
+}): Promise<CreateTaskResult> {
+  const taskId = (input.args as { taskId?: unknown }).taskId;
+  if (typeof taskId !== "string" || taskId.length === 0) {
+    throw new McpError(ErrorCode.InvalidParams, "task_watch requires taskId");
+  }
+  const baseTask = await input.state.transport.getTask({
+    coordinatorSession: input.state.coordinatorSession,
+    taskId,
+  });
+  if (!baseTask) {
+    throw new McpError(ErrorCode.InvalidParams, `Task not found: ${taskId}`);
+  }
+  const now = new Date().toISOString();
+  const watchTaskId = `watch:${taskId}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+  rememberTaskOptions(input.taskOptionsById, watchTaskId, input.taskParams);
+  const watchTask = toMcpTask({
+    taskId: watchTaskId,
+    status: "running",
+    summary: `Watching task ${taskId}`,
+    createdAt: now,
+    updatedAt: now,
+  }, input.taskParams);
+  registerWatchTask(input.watchTasksById, watchTaskId, { task: watchTask });
+  void runWatchMcpTask({
+    state: input.state,
+    args: input.args,
+    watchTaskId,
+    taskOptions: input.taskParams,
+    watchTasksById: input.watchTasksById,
+  });
+  return {
+    task: watchTask,
+  };
+}
+
+async function runWatchMcpTask(input: {
+  state: ReturnType<typeof buildToolState>;
+  args: unknown;
+  watchTaskId: string;
+  taskOptions: CreateTaskOptions;
+  watchTasksById: Map<string, WatchMcpTaskRecord>;
+}): Promise<void> {
+  const args = input.args as {
+    taskId: string;
+    afterSeq?: number;
+    mode?: "next_event" | "until_attention_or_terminal";
+    includeProgress?: boolean;
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+  };
+  try {
+    const result = await input.state.transport.watchTask({
+      coordinatorSession: input.state.coordinatorSession,
+      ...args,
+    });
+    // If the cap evicted this watcher while watchTask() was in flight, its
+    // result is already unreachable — do not resurrect it past the cap.
+    if (!input.watchTasksById.has(input.watchTaskId)) return;
+    const now = new Date().toISOString();
+    const mcpStatus = result.status === "attention_required"
+      ? "input_required"
+      : result.status === "not_found"
+        ? "failed"
+        : "completed";
+    input.watchTasksById.set(input.watchTaskId, {
+      task: {
+        taskId: input.watchTaskId,
+        status: mcpStatus,
+        ttl: input.taskOptions.ttl ?? null,
+        createdAt: input.watchTasksById.get(input.watchTaskId)?.task.createdAt ?? now,
+        lastUpdatedAt: now,
+        ...(input.taskOptions.pollInterval !== undefined ? { pollInterval: input.taskOptions.pollInterval } : {}),
+        statusMessage: renderWatchTaskStatusMessage(result),
+      },
+      result: withRelatedTaskMeta(renderWatchMcpTaskResult(result, input.watchTaskId), result.task?.taskId ?? input.watchTaskId),
+    });
+  } catch (error) {
+    // Same eviction guard as the success path: a watcher dropped by the cap
+    // must not reappear once its watch settles.
+    if (!input.watchTasksById.has(input.watchTaskId)) return;
+    const now = new Date().toISOString();
+    const message = error instanceof Error ? error.message : String(error);
+    input.watchTasksById.set(input.watchTaskId, {
+      task: {
+        taskId: input.watchTaskId,
+        status: "failed",
+        ttl: input.taskOptions.ttl ?? null,
+        createdAt: input.watchTasksById.get(input.watchTaskId)?.task.createdAt ?? now,
+        lastUpdatedAt: now,
+        statusMessage: message,
+      },
+      result: {
+        content: [{ type: "text", text: `Task watch "${input.watchTaskId}" failed: ${message}` }],
+        structuredContent: { watchTaskId: input.watchTaskId, error: message },
+        isError: true,
+      } as CallToolResult,
+    });
+  }
+}
+
+function renderWatchTaskStatusMessage(result: {
+  status: string;
+  task: { taskId: string; status: string } | null;
+  events?: Array<{ seq: number }>;
+}): string {
+  if (!result.task) return `Watch finished: ${result.status}`;
+  return `Watch finished for ${result.task.taskId}: ${result.status}; task status ${result.task.status}; events ${result.events?.length ?? 0}`;
+}
+
+function renderWatchMcpTaskResult(result: {
+  status: "event" | "attention_required" | "terminal" | "timeout" | "not_found";
+  task: OrchestrationTaskRecord | null;
+  events: Array<{ seq: number; type: string; at: string; summary?: string; message?: string; status?: string }>;
+  nextAfterSeq: number;
+  historyTruncated?: boolean;
+}, watchTaskId: string): Result {
+  if (result.status === "not_found" || !result.task) {
+    return {
+      content: [{ type: "text", text: `Task watch "${watchTaskId}" finished: watched task not found.` }],
+      structuredContent: { watchTaskId, ...result },
+      isError: true,
+    } as CallToolResult;
+  }
+  const header = [
+    `Task watch "${watchTaskId}" finished with ${result.status.replace("_", " ")}.`,
+    `Watched task ${result.task.taskId} is ${result.task.status}.`,
+    `nextAfterSeq: ${result.nextAfterSeq}`,
+    result.historyTruncated ? "historyTruncated: true" : "",
+  ].filter((line) => line.length > 0);
+  const events = result.events.length > 0
+    ? [
+        "Events:",
+        ...result.events.map((event) => {
+          const detail = event.summary ?? event.message ?? event.status ?? "";
+          return `- #${event.seq} ${event.type} at ${event.at}${detail ? `: ${detail}` : ""}`;
+        }),
+      ]
+    : ["Events: none"];
+  const next = result.status === "terminal"
+    ? "Next: call task_get on the watched task to read the final result."
+    : result.status === "attention_required"
+      ? "Next: call task_get on the watched task, then resolve openQuestion / reviewPending with the recommended action tool."
+      : `Next: call task_watch again with afterSeq=${result.nextAfterSeq} to keep watching.`;
+  return {
+    content: [{ type: "text", text: [...header, ...events, next].join("\n") }],
+    structuredContent: { watchTaskId, ...result },
+  } as CallToolResult;
+}
+
 function createWeacpxTaskStore(
   resolveState: () => Promise<ReturnType<typeof buildToolState>>,
   taskOptionsById: Map<string, CreateTaskOptions>,
+  watchTasksById: Map<string, WatchMcpTaskRecord>,
 ): TaskStore {
   return {
     createTask: async () => {
       throw new Error("weacpx native MCP tasks are created by delegate_request");
     },
     getTask: async (taskId) => {
+      const watchTask = watchTasksById.get(taskId);
+      if (watchTask) return watchTask.task;
+      // A watch:* id with no registry entry was already consumed or evicted
+      // (watchers are one-shot). It is not an orchestration task, so the
+      // transport lookup below returns null and the SDK surfaces a clean
+      // not-found — expected behaviour, not an error.
       const state = await resolveState();
       const task = await state.transport.getTask({ coordinatorSession: state.coordinatorSession, taskId });
       return task ? toMcpTask(task, taskOptionsById.get(taskId)) : null;
@@ -274,6 +467,15 @@ function createWeacpxTaskStore(
       throw new Error("weacpx native MCP task results are stored by orchestration");
     },
     getTaskResult: async (taskId) => {
+      const watchTask = watchTasksById.get(taskId);
+      if (watchTask) {
+        if (!watchTask.result) {
+          throw new Error(`Task ${taskId} is still ${watchTask.task.status}`);
+        }
+        // One-shot watcher: drop it once its result has been delivered.
+        watchTasksById.delete(taskId);
+        return watchTask.result;
+      }
       const state = await resolveState();
       const task = await state.transport.getTask({ coordinatorSession: state.coordinatorSession, taskId });
       if (!task) {
@@ -296,13 +498,18 @@ function createWeacpxTaskStore(
         sort: "updatedAt",
         order: "desc",
       });
-      pruneTaskOptions(taskOptionsById, new Set(tasks.map((task) => task.taskId)));
+      const watchTasks = Array.from(watchTasksById.values()).map((record) => record.task);
+      pruneTaskOptions(taskOptionsById, new Set([...tasks.map((task) => task.taskId), ...watchTasks.map((task) => task.taskId)]));
       const offset = parseTaskListCursor(cursor);
-      const page = tasks.slice(offset, offset + TASKS_LIST_PAGE_SIZE);
+      const allTasks = [
+        ...watchTasks,
+        ...tasks.map((task) => toMcpTask(task, taskOptionsById.get(task.taskId))),
+      ].sort((a, b) => b.lastUpdatedAt.localeCompare(a.lastUpdatedAt));
+      const page = allTasks.slice(offset, offset + TASKS_LIST_PAGE_SIZE);
       const nextOffset = offset + page.length;
       return {
-        tasks: page.map((task) => toMcpTask(task, taskOptionsById.get(task.taskId))),
-        ...(nextOffset < tasks.length ? { nextCursor: String(nextOffset) } : {}),
+        tasks: page,
+        ...(nextOffset < allTasks.length ? { nextCursor: String(nextOffset) } : {}),
       };
     },
   };
@@ -318,6 +525,21 @@ function rememberTaskOptions(
     const oldestKey = taskOptionsById.keys().next().value;
     if (oldestKey === undefined) break;
     taskOptionsById.delete(oldestKey);
+  }
+}
+
+function registerWatchTask(
+  watchTasksById: Map<string, WatchMcpTaskRecord>,
+  watchTaskId: string,
+  record: WatchMcpTaskRecord,
+): void {
+  watchTasksById.set(watchTaskId, record);
+  // Evict the oldest watchers (insertion order) so an abandoned-watcher client
+  // cannot grow the registry without bound.
+  while (watchTasksById.size > WATCH_TASKS_CACHE_LIMIT) {
+    const oldestKey = watchTasksById.keys().next().value;
+    if (oldestKey === undefined || oldestKey === watchTaskId) break;
+    watchTasksById.delete(oldestKey);
   }
 }
 

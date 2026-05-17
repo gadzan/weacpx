@@ -73,6 +73,24 @@ export interface OrchestrationTaskRecord {
   openQuestion?: OrchestrationOpenQuestionRecord;
   reviewPending?: OrchestrationReviewPendingRecord;
   correctionPending?: OrchestrationCorrectionPendingRecord;
+  eventSeq?: number;
+  events?: OrchestrationTaskEventRecord[];
+}
+
+export type OrchestrationTaskEventType =
+  | "created"
+  | "progress"
+  | "status_changed"
+  | "attention_required"
+  | "cancel_requested";
+
+export interface OrchestrationTaskEventRecord {
+  seq: number;
+  at: string;
+  type: OrchestrationTaskEventType;
+  status?: OrchestrationTaskStatus;
+  summary?: string;
+  message?: string;
 }
 
 export interface OrchestrationGroupRecord {

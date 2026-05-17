@@ -22,6 +22,10 @@ test("createMemoryTransport delegates and exposes override hooks", async () => {
         calls.push(input);
         return { status: "timeout", task: null };
       },
+      watchTask: async (input) => {
+        calls.push(input);
+        return { status: "timeout", task: null, events: [], nextAfterSeq: input.afterSeq ?? 0 };
+      },
       workerRaiseQuestion: async (input) => {
         calls.push(input);
         return { taskId: "task-1", questionId: "question-1", status: "blocked" };
@@ -43,6 +47,9 @@ test("createMemoryTransport delegates and exposes override hooks", async () => {
   await expect(
     transport.waitTask({ coordinatorSession: "backend:main", taskId: "task-1", timeoutMs: 1000 }),
   ).resolves.toEqual({ status: "timeout", task: null });
+  await expect(
+    transport.watchTask({ coordinatorSession: "backend:main", taskId: "task-1", afterSeq: 1, mode: "next_event" }),
+  ).resolves.toEqual({ status: "timeout", task: null, events: [], nextAfterSeq: 1 });
   await expect(
     transport.workerRaiseQuestion({
       sourceHandle: "backend:worker",
@@ -66,6 +73,7 @@ test("createMemoryTransport delegates and exposes override hooks", async () => {
     },
     { coordinatorSession: "backend:main", taskId: "task-1" },
     { coordinatorSession: "backend:main", taskId: "task-1", timeoutMs: 1000 },
+    { coordinatorSession: "backend:main", taskId: "task-1", afterSeq: 1, mode: "next_event" },
     {
       sourceHandle: "backend:worker",
       taskId: "task-1",
@@ -163,6 +171,10 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
       calls.push({ method: "waitTask", input });
       return { status: "terminal" as const, task: taskRecord };
     },
+    watchTask: async (input: unknown) => {
+      calls.push({ method: "watchTask", input });
+      return { status: "event" as const, task: taskRecord, events: [], nextAfterSeq: 1 };
+    },
     workerRaiseQuestion: async (input: unknown) => {
       calls.push({ method: "workerRaiseQuestion", input });
       return { taskId: "task-1", questionId: "question-1", status: "blocked" as const };
@@ -222,6 +234,12 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
     taskId: "task-1",
     timeoutMs: 1000,
     pollIntervalMs: 50,
+  });
+  await transport.watchTask({
+    coordinatorSession: "backend:main",
+    taskId: "task-1",
+    afterSeq: 1,
+    mode: "next_event",
   });
   await transport.workerRaiseQuestion({
     sourceHandle: "backend:worker",
@@ -298,6 +316,15 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
         taskId: "task-1",
         timeoutMs: 1000,
         pollIntervalMs: 50,
+      },
+    },
+    {
+      method: "watchTask",
+      input: {
+        coordinatorSession: "backend:main",
+        taskId: "task-1",
+        afterSeq: 1,
+        mode: "next_event",
       },
     },
     {

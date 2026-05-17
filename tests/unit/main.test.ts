@@ -108,6 +108,101 @@ test("buildApp exposes orchestration IPC runtime state", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test("external coordinator delegation sees agents added after daemon startup", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const ensureSession = mock(async () => {});
+  const prompt = mock(async () => ({ text: "review ok" }));
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: {
+        codex: { driver: "codex" },
+      },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex"],
+        },
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession,
+        prompt,
+        setMode: async () => {},
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+        listSessions: async () => [],
+      }),
+    },
+  );
+
+  await runtime.orchestration.service.registerExternalCoordinator({
+    coordinatorSession: "external:codex",
+    workspace: "backend",
+  });
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: {
+        codex: { driver: "codex" },
+        opencode: { driver: "opencode" },
+      },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+          allowed_agents: ["codex"],
+        },
+      },
+    }),
+  );
+
+  const result = await runtime.orchestration.service.requestDelegate({
+    sourceHandle: "external:codex",
+    targetAgent: "opencode",
+    task: "review recent commits",
+    cwd: "/tmp/backend",
+  });
+
+  expect(result.status).toBe("running");
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const task = await runtime.orchestration.service.getTask(result.taskId);
+    if (task?.status === "completed") {
+      break;
+    }
+    await Bun.sleep(10);
+  }
+
+  expect(await runtime.orchestration.service.getTask(result.taskId)).toMatchObject({
+    status: "completed",
+    targetAgent: "opencode",
+    resultText: "review ok",
+  });
+  expect(ensureSession.mock.calls.at(0)?.[0]).toMatchObject({
+    agent: "opencode",
+    agentCommand: undefined,
+    cwd: "/tmp/backend",
+  });
+  expect(prompt.mock.calls.at(0)?.[0]).toMatchObject({
+    agent: "opencode",
+    agentCommand: undefined,
+    cwd: "/tmp/backend",
+  });
+
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
 test("buildApp keeps session and orchestration mutations on the same runtime state object", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
   const configPath = join(dir, "config.json");

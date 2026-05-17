@@ -9,6 +9,7 @@ import type {
   OrchestrationTaskFilter,
   RequestDelegateRpcResult,
   WaitTaskResult,
+  WatchTaskResult,
 } from "../orchestration/orchestration-service";
 import type {
   OrchestrationGroupRecord,
@@ -31,6 +32,12 @@ export interface WeacpxMcpTaskWaitArgs {
   taskId: string;
   timeoutMs?: number;
   pollIntervalMs?: number;
+}
+
+export interface WeacpxMcpTaskWatchArgs extends WeacpxMcpTaskWaitArgs {
+  afterSeq?: number;
+  mode?: "next_event" | "until_attention_or_terminal";
+  includeProgress?: boolean;
 }
 
 export interface WeacpxMcpTaskIdArgs {
@@ -113,6 +120,7 @@ export interface WeacpxMcpTransport {
   rejectTask: (input: WeacpxMcpTaskIdArgs) => Promise<OrchestrationTaskRecord>;
   cancelTask: (input: WeacpxMcpTaskIdArgs) => Promise<OrchestrationTaskRecord>;
   waitTask: (input: WeacpxMcpTaskWaitArgs) => Promise<WaitTaskResult>;
+  watchTask: (input: WeacpxMcpTaskWatchArgs) => Promise<WatchTaskResult>;
   workerRaiseQuestion: (
     input: WeacpxMcpWorkerRaiseQuestionArgs,
   ) => Promise<{ taskId: string; questionId: string; status: "blocked" }>;
@@ -143,6 +151,7 @@ interface OrchestrationClientLike {
   rejectTask: OrchestrationClient["rejectTask"];
   cancelTaskForCoordinator: OrchestrationClient["cancelTaskForCoordinator"];
   waitTask: OrchestrationClient["waitTask"];
+  watchTask: OrchestrationClient["watchTask"];
   workerRaiseQuestion: OrchestrationClient["workerRaiseQuestion"];
   coordinatorAnswerQuestion: OrchestrationClient["coordinatorAnswerQuestion"];
   coordinatorRequestHumanInput: OrchestrationClient["coordinatorRequestHumanInput"];
@@ -187,6 +196,7 @@ export function createOrchestrationTransport(
     rejectTask: async (input) => await client.rejectTask(input),
     cancelTask: async (input) => await client.cancelTaskForCoordinator(input),
     waitTask: async (input) => await client.waitTask(input),
+    watchTask: async (input) => await client.watchTask(input),
     workerRaiseQuestion: async (input) => {
       const sourceHandle = input.sourceHandle.trim();
       if (sourceHandle.length === 0) {
@@ -229,6 +239,7 @@ export function createMemoryTransport(
     rejectTask: overrides.rejectTask ?? (unimplemented("rejectTask") as WeacpxMcpTransport["rejectTask"]),
     cancelTask: overrides.cancelTask ?? (unimplemented("cancelTask") as WeacpxMcpTransport["cancelTask"]),
     waitTask: overrides.waitTask ?? (unimplemented("waitTask") as WeacpxMcpTransport["waitTask"]),
+    watchTask: overrides.watchTask ?? (unimplemented("watchTask") as WeacpxMcpTransport["watchTask"]),
     workerRaiseQuestion:
       overrides.workerRaiseQuestion ?? (unimplemented("workerRaiseQuestion") as WeacpxMcpTransport["workerRaiseQuestion"]),
     coordinatorAnswerQuestion:

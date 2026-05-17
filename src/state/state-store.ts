@@ -16,6 +16,7 @@ import {
   type OrchestrationSourceKind,
   type OrchestrationState,
   type OrchestrationTaskRecord,
+  type OrchestrationTaskEventRecord,
   type OrchestrationTaskStatus,
   type OrchestrationQueuedQuestionRecord,
   type WorkerBindingRecord,
@@ -51,6 +52,31 @@ function isTaskStatus(value: unknown): value is OrchestrationTaskStatus {
 
 function isSourceKind(value: unknown): value is OrchestrationSourceKind {
   return value === "human" || value === "coordinator" || value === "worker";
+}
+
+function isOptionalNumber(value: unknown): value is number | undefined {
+  return value === undefined || typeof value === "number";
+}
+
+function isTaskEventRecord(value: unknown): value is OrchestrationTaskEventRecord {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    typeof value.seq === "number" &&
+    isString(value.at) &&
+    (
+      value.type === "created" ||
+      value.type === "progress" ||
+      value.type === "status_changed" ||
+      value.type === "attention_required" ||
+      value.type === "cancel_requested"
+    ) &&
+    (value.status === undefined || isTaskStatus(value.status)) &&
+    isOptionalString(value.summary) &&
+    isOptionalString(value.message)
+  );
 }
 
 function isOpenQuestionRecord(value: unknown): value is OrchestrationOpenQuestionRecord {
@@ -136,7 +162,9 @@ function isTaskRecord(value: unknown): value is OrchestrationTaskRecord {
     isOptionalString(value.groupId) &&
     (value.openQuestion === undefined || isOpenQuestionRecord(value.openQuestion)) &&
     (value.reviewPending === undefined || isReviewPendingRecord(value.reviewPending)) &&
-    (value.correctionPending === undefined || isCorrectionPendingRecord(value.correctionPending))
+    (value.correctionPending === undefined || isCorrectionPendingRecord(value.correctionPending)) &&
+    isOptionalNumber(value.eventSeq) &&
+    (value.events === undefined || (Array.isArray(value.events) && value.events.every(isTaskEventRecord)))
   );
 }
 

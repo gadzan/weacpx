@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { getWaitRequestTimeoutMs, OrchestrationClient } from "../../../src/orchestration/orchestration-client";
+import { getWaitRequestTimeoutMs, getWatchRequestTimeoutMs, OrchestrationClient } from "../../../src/orchestration/orchestration-client";
 import { resolveOrchestrationEndpoint } from "../../../src/orchestration/orchestration-ipc";
 import { OrchestrationServer } from "../../../src/orchestration/orchestration-server";
 import { skipIfLocalIpcUnavailable } from "../../helpers/ipc-capability";
@@ -12,6 +12,12 @@ test("task wait RPC timeout follows five minute default and twenty minute cap", 
   expect(getWaitRequestTimeoutMs(undefined, 30_000)).toBe(305_000);
   expect(getWaitRequestTimeoutMs(1_200_000, 30_000)).toBe(1_205_000);
   expect(getWaitRequestTimeoutMs(9_999_999, 30_000)).toBe(1_205_000);
+});
+
+test("task watch RPC timeout follows one minute default and twenty minute cap", () => {
+  expect(getWatchRequestTimeoutMs(undefined, 30_000)).toBe(65_000);
+  expect(getWatchRequestTimeoutMs(1_200_000, 30_000)).toBe(1_205_000);
+  expect(getWatchRequestTimeoutMs(9_999_999, 30_000)).toBe(1_205_000);
 });
 
 test("sends orchestration RPC requests through the client", async () => {
@@ -63,6 +69,8 @@ test("sends orchestration RPC requests through the client", async () => {
         updatedAt: "2026-04-13T00:00:00.000Z",
       },
     ],
+    waitTask: async (input) => ({ status: "timeout" as const, task: null }),
+    watchTask: async (input) => ({ status: "timeout" as const, task: null, events: [], nextAfterSeq: input.afterSeq ?? 0 }),
     cancelTask: async (input) => ({
       taskId: input.taskId,
       sourceHandle: input.sourceHandle ?? "wx:user",
@@ -152,6 +160,9 @@ test("sends orchestration RPC requests through the client", async () => {
       client.getTaskForCoordinator({ coordinatorSession: "backend:main", taskId: "task-1" }),
     ).resolves.toMatchObject({ taskId: "task-1", status: "running" });
     await expect(client.listTasks({ coordinatorSession: "backend:main" })).resolves.toHaveLength(1);
+    await expect(
+      client.watchTask({ coordinatorSession: "backend:main", taskId: "task-1", afterSeq: 1, mode: "next_event" }),
+    ).resolves.toEqual({ status: "timeout", task: null, events: [], nextAfterSeq: 1 });
     await expect(client.cancelTask({ taskId: "task-1", sourceHandle: "wx:user" })).resolves.toMatchObject({
       taskId: "task-1",
       status: "cancelled",

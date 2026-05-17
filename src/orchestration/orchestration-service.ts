@@ -14,6 +14,8 @@ import type {
   OrchestrationHumanQuestionPackageRecord,
   OrchestrationOpenQuestionRecord,
   OrchestrationSourceKind,
+  OrchestrationTaskEventRecord,
+  OrchestrationTaskEventType,
   OrchestrationTaskRecord,
   OrchestrationTaskStatus,
 } from "./orchestration-types";
@@ -23,9 +25,15 @@ import { isQuotaDeferredError } from "../weixin/messaging/quota-errors";
 import {
   DEFAULT_TASK_WAIT_POLL_INTERVAL_MS,
   DEFAULT_TASK_WAIT_TIMEOUT_MS,
+  DEFAULT_TASK_WATCH_POLL_INTERVAL_MS,
+  DEFAULT_TASK_WATCH_TIMEOUT_MS,
   MAX_TASK_WAIT_POLL_INTERVAL_MS,
   MAX_TASK_WAIT_TIMEOUT_MS,
+  MAX_TASK_WATCH_POLL_INTERVAL_MS,
+  MAX_TASK_WATCH_TIMEOUT_MS,
 } from "./task-wait-timeouts";
+
+const MAX_TASK_EVENTS_PER_TASK = 200;
 
 export interface RequestDelegateInput {
   sourceHandle: string;
@@ -301,6 +309,39 @@ export interface WaitTaskInput {
 export interface WaitTaskResult {
   status: "terminal" | "attention_required" | "timeout" | "not_found";
   task: OrchestrationTaskRecord | null;
+}
+
+export interface WatchTaskInput {
+  coordinatorSession: string;
+  taskId: string;
+  afterSeq?: number;
+  mode?: "next_event" | "until_attention_or_terminal";
+  includeProgress?: boolean;
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+}
+
+export interface WatchTaskResult {
+  status: "event" | "attention_required" | "terminal" | "timeout" | "not_found";
+  task: OrchestrationTaskRecord | null;
+  events: OrchestrationTaskEventRecord[];
+  nextAfterSeq: number;
+  historyTruncated?: boolean;
+}
+
+// Mirrors clampWaitTimeout: an invalid timeout collapses to 0 (an immediate
+// single-shot watch), never to the 60s default, so a bad value cannot silently
+// turn into a long-poll for direct callers of OrchestrationService.watchTask.
+export function clampWatchTimeout(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_TASK_WATCH_TIMEOUT_MS;
+  if (!Number.isFinite(value) || value < 0) return 0;
+  return Math.min(Math.floor(value), MAX_TASK_WATCH_TIMEOUT_MS);
+}
+
+function clampWatchPollInterval(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_TASK_WATCH_POLL_INTERVAL_MS;
+  if (!Number.isFinite(value) || value < 1) return DEFAULT_TASK_WATCH_POLL_INTERVAL_MS;
+  return Math.min(value, MAX_TASK_WATCH_POLL_INTERVAL_MS);
 }
 
 export interface OrchestrationGroupListFilter {
@@ -581,6 +622,8 @@ export class OrchestrationService {
           resultText: "",
           createdAt: now,
           updatedAt: now,
+          eventSeq: 1,
+          events: [{ seq: 1, at: now, type: "created", status: "running", message: "Task created" }],
           ...(input.chatKey ? { chatKey: input.chatKey } : {}),
           ...(input.replyContextToken ? { replyContextToken: input.replyContextToken } : {}),
           ...(input.accountId ? { accountId: input.accountId } : {}),
@@ -741,6 +784,8 @@ export class OrchestrationService {
           resultText: "",
           createdAt: now,
           updatedAt: now,
+          eventSeq: 1,
+          events: [{ seq: 1, at: now, type: "created", status, message: "Task created" }],
         };
 
         if (preflight.normalizedGroupId) {
@@ -955,6 +1000,11 @@ export class OrchestrationService {
           current.summary = message;
           current.resultText = "";
           current.updatedAt = now;
+          this.appendTaskEvent(current, now, "status_changed", {
+            status: "failed",
+            summary: message,
+            message: "Task failed during startup",
+          });
           restoreOrDeleteBinding();
           await this.deps.saveState(state);
           return true;
@@ -1090,6 +1140,11 @@ export class OrchestrationService {
       task.status = input.status ?? "completed";
       task.summary = input.summary ?? "";
       task.resultText = stripProgressLines(input.resultText ?? "");
+      this.appendTaskEvent(task, updatedAt, "status_changed", {
+        status: task.status,
+        summary: task.summary,
+        message: task.status === "completed" ? "Task completed" : task.status === "failed" ? "Task failed" : "Task cancelled",
+      });
       if (task.status === "completed" || task.status === "failed") {
         if (!this.isExternalCoordinatorSession(state, task.coordinatorSession)) {
           task.injectionPending = true;
@@ -1118,6 +1173,10 @@ export class OrchestrationService {
           resultId: this.deps.createId(),
           resultText: task.resultText,
         };
+        this.appendTaskEvent(task, updatedAt, "attention_required", {
+          status: task.status,
+          message: "Task result requires contested review",
+        });
         task.correctionPending = undefined;
         task.cancelRequestedAt = undefined;
         task.cancelCompletedAt = undefined;
@@ -1252,6 +1311,71 @@ export class OrchestrationService {
     }
   }
 
+  async watchTask(input: WatchTaskInput): Promise<WatchTaskResult> {
+    const timeoutMs = clampWatchTimeout(input.timeoutMs);
+    const pollIntervalMs = clampWatchPollInterval(input.pollIntervalMs);
+    const afterSeq = Math.max(0, Math.floor(input.afterSeq ?? 0));
+    const mode = input.mode ?? "until_attention_or_terminal";
+    const includeProgress = input.includeProgress ?? true;
+    const deadline = Date.now() + timeoutMs;
+
+    while (true) {
+      const state = await this.deps.loadState();
+      const task = state.orchestration.tasks[input.taskId];
+      if (!task || task.coordinatorSession !== input.coordinatorSession) {
+        return { status: "not_found", task: null, events: [], nextAfterSeq: afterSeq };
+      }
+
+      const snapshot = { ...task };
+      const allEvents = task.events ?? [];
+      const filteredEvents = allEvents
+        .filter((event) => event.seq > afterSeq)
+        .filter((event) => includeProgress || event.type !== "progress");
+      const nextAfterSeq = task.eventSeq ?? allEvents.at(-1)?.seq ?? afterSeq;
+      const historyTruncated = allEvents.length > 0 && afterSeq < allEvents[0]!.seq - 1;
+
+      if (isTerminalTaskStatus(task.status) && task.reviewPending === undefined) {
+        return {
+          status: "terminal",
+          task: snapshot,
+          events: filteredEvents.map((event) => ({ ...event })),
+          nextAfterSeq,
+          ...(historyTruncated ? { historyTruncated } : {}),
+        };
+      }
+      if (isAttentionRequiredTask(task)) {
+        return {
+          status: "attention_required",
+          task: snapshot,
+          events: filteredEvents.map((event) => ({ ...event })),
+          nextAfterSeq,
+          ...(historyTruncated ? { historyTruncated } : {}),
+        };
+      }
+      if (filteredEvents.length > 0 && mode === "next_event") {
+        return {
+          status: "event",
+          task: snapshot,
+          events: filteredEvents.map((event) => ({ ...event })),
+          nextAfterSeq,
+          ...(historyTruncated ? { historyTruncated } : {}),
+        };
+      }
+
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) {
+        return {
+          status: "timeout",
+          task: snapshot,
+          events: filteredEvents.map((event) => ({ ...event })),
+          nextAfterSeq,
+          ...(historyTruncated ? { historyTruncated } : {}),
+        };
+      }
+      await sleep(Math.min(pollIntervalMs, remainingMs));
+    }
+  }
+
   async recordCoordinatorRouteContext(input: {
     coordinatorSession: string;
     chatKey: string;
@@ -1350,6 +1474,10 @@ export class OrchestrationService {
         status: "open",
       };
       task.updatedAt = now;
+      this.appendTaskEvent(task, now, "attention_required", {
+        status: "blocked",
+        message: input.question.trim(),
+      });
       this.bumpGroupUpdated(state, task.groupId, now);
       await this.deps.saveState(state);
 
@@ -1423,6 +1551,10 @@ export class OrchestrationService {
         lastResumeError: undefined,
       };
       task.updatedAt = now;
+      this.appendTaskEvent(task, now, "status_changed", {
+        status: "running",
+        message: "Blocker question answered",
+      });
       this.bumpGroupUpdated(state, task.groupId, now);
       await this.deps.saveState(state);
 
@@ -1497,6 +1629,10 @@ export class OrchestrationService {
         };
         task.cancelRequestedAt = task.cancelRequestedAt ?? now;
         task.updatedAt = now;
+        this.appendTaskEvent(task, now, "cancel_requested", {
+          status: task.status,
+          message: "Correction requested for misrouted answer",
+        });
         this.bumpGroupUpdated(state, task.groupId, now);
         await this.deps.saveState(state);
 
@@ -1521,6 +1657,10 @@ export class OrchestrationService {
         task.noticePending = false;
         task.lastNoticeError = undefined;
         task.updatedAt = now;
+        this.appendTaskEvent(task, now, "attention_required", {
+          status: task.status,
+          message: "Task result requires contested review",
+        });
         this.bumpGroupUpdated(state, task.groupId, now);
         await this.deps.saveState(state);
 
@@ -1647,6 +1787,10 @@ export class OrchestrationService {
           packageId,
         };
         task.updatedAt = now;
+        this.appendTaskEvent(task, now, "attention_required", {
+          status: "waiting_for_human",
+          message: task.openQuestion.question,
+        });
         this.bumpGroupUpdated(state, task.groupId, now);
       }
 
@@ -1755,6 +1899,10 @@ export class OrchestrationService {
           packageId: input.packageId,
         };
         task.updatedAt = now;
+        this.appendTaskEvent(task, now, "attention_required", {
+          status: "waiting_for_human",
+          message: task.openQuestion.question,
+        });
         this.bumpGroupUpdated(state, task.groupId, now);
       }
 
@@ -2002,6 +2150,10 @@ export class OrchestrationService {
         task.summary = "";
         task.resultText = "";
         task.openQuestion = this.buildReplacementOpenQuestion(task, replacementQuestionId, now, packageId);
+        this.appendTaskEvent(task, now, "attention_required", {
+          status: task.status,
+          message: task.openQuestion.question,
+        });
       } else if (
         (task.status === "completed" || task.status === "failed") &&
         task.chatKey &&
@@ -2013,6 +2165,12 @@ export class OrchestrationService {
       }
 
       task.updatedAt = now;
+      if (input.decision === "accept") {
+        this.appendTaskEvent(task, now, "status_changed", {
+          status: task.status,
+          message: "Contested result accepted",
+        });
+      }
       this.bumpGroupUpdated(state, task.groupId, now);
       await this.deps.saveState(state);
 
@@ -2549,7 +2707,16 @@ export class OrchestrationService {
         const cleaned = sanitizeProgressSummary(summary);
         if (cleaned.length > 0) {
           task.lastProgressSummary = cleaned;
+          this.appendTaskEvent(task, task.lastProgressAt, "progress", {
+            status: task.status,
+            summary: cleaned,
+          });
         }
+      } else {
+        this.appendTaskEvent(task, task.lastProgressAt, "progress", {
+          status: task.status,
+          message: "heartbeat",
+        });
       }
       task.updatedAt = task.lastProgressAt;
       await this.deps.saveState(state);
@@ -2615,6 +2782,12 @@ export class OrchestrationService {
         const shouldPropagate = task.cancelRequestedAt === undefined;
         task.cancelRequestedAt = task.cancelRequestedAt ?? now;
         task.updatedAt = now;
+        if (shouldPropagate) {
+          this.appendTaskEvent(task, now, "cancel_requested", {
+            status: task.status,
+            message: "Cancellation requested",
+          });
+        }
         this.bumpGroupUpdated(state, task.groupId, now);
         await this.deps.saveState(state);
         return { task: { ...task }, shouldPropagate, closedPackageId: undefined as string | undefined };
@@ -2627,6 +2800,10 @@ export class OrchestrationService {
       task.cancelCompletedAt = now;
       task.lastCancelError = undefined;
       task.updatedAt = now;
+      this.appendTaskEvent(task, now, "status_changed", {
+        status: "cancelled",
+        message: "Task cancelled",
+      });
       this.bumpGroupUpdated(state, task.groupId, now);
       await this.deps.saveState(state);
       return { task: { ...task }, shouldPropagate: false, closedPackageId };
@@ -2671,10 +2848,18 @@ export class OrchestrationService {
         task.cancelRequestedAt = undefined;
         task.cancelCompletedAt = undefined;
         task.lastCancelError = undefined;
+        this.appendTaskEvent(task, now, "attention_required", {
+          status: task.status,
+          message: task.openQuestion.question,
+        });
       } else {
         task.status = "cancelled";
         task.cancelCompletedAt = now;
         task.lastCancelError = undefined;
+        this.appendTaskEvent(task, now, "status_changed", {
+          status: "cancelled",
+          message: "Task cancelled",
+        });
       }
       task.updatedAt = now;
       this.bumpGroupUpdated(state, task.groupId, now);
@@ -2730,6 +2915,10 @@ export class OrchestrationService {
 
       task.lastCancelError = errorMessage;
       task.updatedAt = this.deps.now().toISOString();
+      this.appendTaskEvent(task, task.updatedAt, "progress", {
+        status: task.status,
+        message: `Cancellation failed: ${errorMessage}`,
+      });
       await this.deps.saveState(state);
       return { ...task };
     });
@@ -2804,6 +2993,10 @@ export class OrchestrationService {
         task.workerSession = ensuredWorkerSession;
         task.status = "running";
         task.updatedAt = this.deps.now().toISOString();
+        this.appendTaskEvent(task, task.updatedAt, "status_changed", {
+          status: "running",
+          message: "Task approved",
+        });
         state.orchestration.workerBindings[ensuredWorkerSession] = {
           sourceHandle: ensuredWorkerSession,
           coordinatorSession: task.coordinatorSession,
@@ -2882,6 +3075,11 @@ export class OrchestrationService {
       task.status = "cancelled";
       task.summary = "rejected";
       task.updatedAt = this.deps.now().toISOString();
+      this.appendTaskEvent(task, task.updatedAt, "status_changed", {
+        status: "cancelled",
+        summary: "rejected",
+        message: "Task rejected",
+      });
 
       await this.deps.saveState(state);
 
@@ -4170,6 +4368,30 @@ export class OrchestrationService {
         await this.failTaskCancellation(task.taskId, error instanceof Error ? error.message : String(error));
       }
     })();
+  }
+
+  private appendTaskEvent(
+    task: OrchestrationTaskRecord,
+    at: string,
+    type: OrchestrationTaskEventType,
+    details: {
+      status?: OrchestrationTaskStatus;
+      summary?: string;
+      message?: string;
+    } = {},
+  ): void {
+    const nextSeq = (task.eventSeq ?? 0) + 1;
+    task.eventSeq = nextSeq;
+    const events = task.events ?? [];
+    events.push({
+      seq: nextSeq,
+      at,
+      type,
+      ...(details.status ? { status: details.status } : {}),
+      ...(details.summary ? { summary: details.summary } : {}),
+      ...(details.message ? { message: details.message } : {}),
+    });
+    task.events = events.slice(-MAX_TASK_EVENTS_PER_TASK);
   }
 }
 
