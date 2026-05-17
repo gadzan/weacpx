@@ -591,7 +591,7 @@ test("bridge-server allows empty prompt text for any media type", async () => {
   expect(calls[0]?.media).toEqual({ type: "audio", filePath: "/tmp/audio.wav", mimeType: "audio/wav" });
 });
 
-test("returns the final agent message from json-strict prompt output", async () => {
+test("returns the full agent message, including text split by a tool call", async () => {
   const runtime = new BridgeRuntime("acpx", async (_command, args) => {
     if (args.includes("prompt")) {
       return {
@@ -645,7 +645,8 @@ test("returns the final agent message from json-strict prompt output", async () 
       name: "demo",
       text: "hello",
     }),
-  ).resolves.toEqual({ text: "Final chunk" });
+    // Chunks before and after the tool call are concatenated verbatim.
+  ).resolves.toEqual({ text: "First chunkFinal chunk" });
 });
 
 test("streams prompt segments from the runtime prompt runner", async () => {
@@ -779,7 +780,8 @@ test("keeps the extracted agent reply when prompt exits non-zero without a struc
       name: "demo",
       text: "hello",
     }),
-  ).resolves.toEqual({ text: "Final chunk" });
+    // Chunks before and after the tool call are concatenated verbatim.
+  ).resolves.toEqual({ text: "First chunkFinal chunk" });
 });
 
 test("surfaces helper failures when final session creation still fails", async () => {

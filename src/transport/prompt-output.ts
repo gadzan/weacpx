@@ -84,59 +84,47 @@ function extractPromptOutput(output: string): ExtractedPromptOutput {
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
 
-  const messageSegments: string[] = [];
-  let currentSegment = "";
+  // Concatenate every agent_message_chunk into the full reply. Interleaved
+  // events (tool calls, thoughts, mode updates) and non-JSON noise lines are
+  // ignored — they must not split the message, otherwise a tool call
+  // mid-answer drops everything but the trailing fragment.
+  let text = "";
   let hasAgentMessage = false;
 
   for (const line of lines) {
-    try {
-      const event = JSON.parse(line) as {
-        method?: string;
-        params?: {
-          update?: {
-            sessionUpdate?: string;
-            content?: {
-              type?: string;
-              text?: string;
-            };
+    let event: {
+      method?: string;
+      params?: {
+        update?: {
+          sessionUpdate?: string;
+          content?: {
+            type?: string;
+            text?: string;
           };
         };
       };
-
-      const isMessageChunk =
-        event.method === "session/update" &&
-        event.params?.update?.sessionUpdate === "agent_message_chunk" &&
-        event.params.update.content?.type === "text" &&
-        typeof event.params.update.content.text === "string";
-
-      if (isMessageChunk) {
-        hasAgentMessage = true;
-        const chunk = event.params!.update!.content!.text ?? "";
-        if (chunk.length > 0) {
-          currentSegment += chunk;
-        }
-        continue;
-      }
-
-      if (currentSegment.trim().length > 0) {
-        messageSegments.push(currentSegment.trim());
-      }
-      currentSegment = "";
+    };
+    try {
+      event = JSON.parse(line);
     } catch {
-      if (currentSegment.trim().length > 0) {
-        messageSegments.push(currentSegment.trim());
-        currentSegment = "";
-      }
+      continue;
+    }
+
+    const isMessageChunk =
+      event.method === "session/update" &&
+      event.params?.update?.sessionUpdate === "agent_message_chunk" &&
+      event.params.update.content?.type === "text" &&
+      typeof event.params.update.content.text === "string";
+
+    if (isMessageChunk) {
+      hasAgentMessage = true;
+      text += event.params!.update!.content!.text ?? "";
     }
   }
 
-  if (currentSegment.trim().length > 0) {
-    messageSegments.push(currentSegment.trim());
-  }
-
-  if (messageSegments.length > 0) {
+  if (hasAgentMessage && text.trim().length > 0) {
     return {
-      text: messageSegments[messageSegments.length - 1]!,
+      text: text.trim(),
       hasAgentMessage,
     };
   }

@@ -397,7 +397,7 @@ process.stdout.write(lines.join("\\n") + "\\n");
       });
 
       expect(observed).toEqual(["progress update", "🔧 Read file", "Final answer"]);
-      expect(result).toEqual({ text: "Final answer" });
+      expect(result).toEqual({ text: "progress update\n\nFinal answer" });
     },
   );
 });
@@ -623,7 +623,7 @@ test("returns false when a named session does not exist", async () => {
   await expect(transport.hasSession(session)).resolves.toBe(false);
 });
 
-test("returns only the last non-empty agent message segment after a non-message boundary", async () => {
+test("concatenates agent message chunks across thought and tool-call boundaries", async () => {
   const run = mock(async () => ({
     code: 0,
     stdout: [
@@ -733,8 +733,10 @@ test("returns only the last non-empty agent message segment after a non-message 
   }));
   const transport = new AcpxCliTransport({ command: "acpx" }, run);
 
+  // Thought chunks and tool calls are skipped; every agent_message_chunk is
+  // concatenated verbatim, so no part of the reply is dropped.
   await expect(transport.prompt(session, "hello")).resolves.toEqual({
-    text: "ok",
+    text: "doneUsing `using-superpowers` because the repo instructions require a skill check.ok",
   });
 
   expect(run).toHaveBeenCalledWith("acpx", [
@@ -755,7 +757,7 @@ test("returns only the last non-empty agent message segment after a non-message 
   ]);
 });
 
-test("assembles the last segment from multiple consecutive message chunks", async () => {
+test("concatenates message chunks split by a tool call", async () => {
   const run = mock(async () => ({
     code: 0,
     stdout: [
@@ -811,7 +813,7 @@ test("assembles the last segment from multiple consecutive message chunks", asyn
   const transport = new AcpxCliTransport({ command: "acpx" }, run);
 
   await expect(transport.prompt(session, "hello")).resolves.toEqual({
-    text: "line 1\nline 2",
+    text: "Checking instructions.line 1\nline 2",
   });
 });
 
@@ -988,8 +990,10 @@ test("keeps the extracted agent reply when prompt exits non-zero without a struc
   }));
   const transport = new AcpxCliTransport({ command: "acpx" }, run);
 
+  // The full reply is preserved: chunks before and after the tool call are
+  // concatenated, not truncated to the trailing fragment.
   await expect(transport.prompt(session, "hello")).resolves.toEqual({
-    text: "让我更新任务状态并继续执行测试验证。",
+    text: "先做检查。让我更新任务状态并继续执行测试验证。",
   });
 });
 
