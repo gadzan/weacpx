@@ -135,6 +135,7 @@ Session 是你在微信里操作的逻辑会话。每个会话绑定一个 agent
 | 命令 | 说明 |
 |------|------|
 | `/status` | 查看当前会话状态 |
+| `/session tail [N]` | 补拉当前会话最近 N 行历史（默认 50，上限 500） |
 | `/session reset` | 重置当前会话上下文 |
 | `/clear` | `/session reset` 的别名 |
 | `/cancel` | 取消当前会话里正在执行的任务 |
@@ -205,6 +206,7 @@ Session 是你在微信里操作的逻辑会话。每个会话绑定一个 agent
 - `transport.sessionInitTimeoutMs`
 - `transport.permissionMode`
 - `transport.nonInteractivePermissions`
+- `transport.permissionPolicy`
 - `logging.level`
 - `logging.maxSizeBytes`
 - `logging.maxFiles`

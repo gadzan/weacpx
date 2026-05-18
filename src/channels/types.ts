@@ -97,6 +97,10 @@ export interface ToolUseEvent {
   kind: ToolUseKind;
   /** Best-effort one-line summary derived from `rawInput`. */
   summary?: string;
+  rawInput?: unknown;
+  content?: unknown;
+  rawOutput?: unknown;
+  locations?: unknown;
   status: ToolUseStatus;
   /** Set when status transitions out of "running". */
   durationMs?: number;

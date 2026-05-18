@@ -158,6 +158,11 @@ export function parseConfig(
   ) {
     throw new Error("transport.nonInteractivePermissions must be deny or fail");
   }
+  if ("permissionPolicy" in transport && transport.permissionPolicy !== undefined) {
+    if (typeof transport.permissionPolicy !== "string" || transport.permissionPolicy.trim().length === 0) {
+      throw new Error("transport.permissionPolicy must be a non-empty string");
+    }
+  }
 
   if (!isRecord(raw.agents)) {
     throw new Error("agents must be an object");
@@ -290,6 +295,7 @@ export function parseConfig(
       ...(typeof transport.sessionInitTimeoutMs === "number"
         ? { sessionInitTimeoutMs: transport.sessionInitTimeoutMs }
         : {}),
+      ...(typeof transport.permissionPolicy === "string" ? { permissionPolicy: transport.permissionPolicy } : {}),
       type: transportType,
       permissionMode,
       nonInteractivePermissions,

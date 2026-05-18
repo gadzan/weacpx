@@ -6,9 +6,11 @@ export function collectTests(rootDir, listEntries = defaultListEntries) {
 }
 
 export function buildTestPlan(rootDir, collect = collectTests) {
-  const npxCommand = process.platform === "win32" ? "npx.cmd" : "npx";
   return [
-    { command: npxCommand, args: ["tsc", "--noEmit"] },
+    {
+      command: "node",
+      args: ["./node_modules/typescript/bin/tsc", "--noEmit"],
+    },
     ...collect(rootDir).map((file) => ({
       command: "bun",
       args: ["test", file],

@@ -56,6 +56,18 @@ test("proxies hasSession through the bridge client", async () => {
   await expect(transport.hasSession(session)).resolves.toBe(true);
 });
 
+test("proxies tailSessionHistory through the bridge client", async () => {
+  const request = mock(async () => ({ text: "history" }));
+  const transport = new AcpxBridgeTransport({ request });
+
+  await expect(transport.tailSessionHistory(session, 12)).resolves.toEqual({ text: "history" });
+
+  expect(request).toHaveBeenCalledWith("tailSessionHistory", expect.objectContaining({
+    name: "backend:api-fix",
+    lines: 12,
+  }));
+});
+
 test("proxies prompt through the bridge client", async () => {
   const request = mock(async () => ({ text: "ok" }));
   const transport = new AcpxBridgeTransport({

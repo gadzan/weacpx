@@ -160,6 +160,63 @@ test("loads explicit transport permission policy", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test("loads optional transport.permissionPolicy", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: {
+        type: "acpx-bridge",
+        command: "acpx",
+        permissionMode: "approve-all",
+        nonInteractivePermissions: "deny",
+        permissionPolicy: "C:/policies/weacpx-policy.json",
+      },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+        },
+      },
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect((config.transport as unknown as { permissionPolicy?: string }).permissionPolicy).toBe("C:/policies/weacpx-policy.json");
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("rejects empty transport.permissionPolicy", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: {
+        type: "acpx-bridge",
+        command: "acpx",
+        permissionMode: "approve-all",
+        nonInteractivePermissions: "deny",
+        permissionPolicy: "   ",
+      },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+        },
+      },
+    }),
+  );
+
+  await expect(loadConfig(path)).rejects.toThrow("transport.permissionPolicy must be a non-empty string");
+
+  await rm(dir, { recursive: true, force: true });
+});
+
 test("rejects allow for explicit non-interactive permissions", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
   const path = join(dir, "config.json");

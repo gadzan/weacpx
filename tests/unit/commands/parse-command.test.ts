@@ -178,6 +178,39 @@ test("parses session reset and clear aliases", () => {
   });
 });
 
+test("parses /session tail [N]", () => {
+  expect(parseCommand("/session tail")).toEqual({
+    kind: "session.tail",
+  });
+  expect(parseCommand("/ss tail 20")).toEqual({
+    kind: "session.tail",
+    lines: 20,
+  });
+});
+
+test("rejects /session tail when N is invalid", () => {
+  expect(parseCommand("/session tail 0")).toEqual({
+    kind: "invalid",
+    text: "/session tail 0",
+    recognizedCommand: "/session",
+  });
+  expect(parseCommand("/session tail -1")).toEqual({
+    kind: "invalid",
+    text: "/session tail -1",
+    recognizedCommand: "/session",
+  });
+  expect(parseCommand("/session tail foo")).toEqual({
+    kind: "invalid",
+    text: "/session tail foo",
+    recognizedCommand: "/session",
+  });
+  expect(parseCommand("/session tail 10 extra")).toEqual({
+    kind: "invalid",
+    text: "/session tail 10 extra",
+    recognizedCommand: "/session",
+  });
+});
+
 test("parses orchestration delegate commands", () => {
   expect(parseCommand("/delegate claude 审查当前方案")).toEqual({
     kind: "delegate.request",

@@ -28,6 +28,7 @@ interface AcpxCliTransportOptions {
   sessionInitTimeoutMs?: number;
   permissionMode?: PermissionMode;
   nonInteractivePermissions?: NonInteractivePermissions;
+  permissionPolicy?: string;
 }
 
 interface CommandResult {
@@ -154,6 +155,7 @@ export class AcpxCliTransport implements SessionTransport {
   private readonly sessionInitTimeoutMs: number;
   private permissionMode: PermissionMode;
   private nonInteractivePermissions: NonInteractivePermissions;
+  private permissionPolicy: string | undefined;
   private readonly runCommand: CommandRunner;
   private readonly runPtyCommand: PtyRunner;
   private readonly queueOwnerLauncher: Pick<AcpxQueueOwnerLauncher, "launch">;
@@ -170,6 +172,7 @@ export class AcpxCliTransport implements SessionTransport {
     this.sessionInitTimeoutMs = options.sessionInitTimeoutMs ?? 120_000;
     this.permissionMode = options.permissionMode ?? "approve-all";
     this.nonInteractivePermissions = options.nonInteractivePermissions ?? "deny";
+    this.permissionPolicy = options.permissionPolicy;
     this.runCommand = runCommand;
     this.runPtyCommand = runPtyCommand;
     this.queueOwnerLauncher = queueOwnerLauncher ?? new AcpxQueueOwnerLauncher({
@@ -192,6 +195,29 @@ export class AcpxCliTransport implements SessionTransport {
     await runEnsure.call(this, args, {
       timeoutMs: this.sessionInitTimeoutMs,
     });
+  }
+
+  async tailSessionHistory(session: ResolvedSession, lines: number): Promise<{ text: string }> {
+    const candidates = [
+      ["sessions", "history", "quiet", "-s", session.transportSession, String(lines)],
+      ["sessions", "history", "quiet", session.transportSession, String(lines)],
+      ["sessions", "history", "-s", session.transportSession, "--tail", String(lines)],
+      ["sessions", "history", session.transportSession, "--tail", String(lines)],
+      ["sessions", "history", "--name", session.transportSession, "--tail", String(lines)],
+    ];
+
+    let lastResult: CommandResult | undefined;
+    for (const tail of candidates) {
+      const args = this.buildArgs(session, tail);
+      const result = await this.runCommandWithTimeout(this.runCommand, args);
+      if (result.code === 0) {
+        return { text: result.stdout.trimEnd() };
+      }
+      lastResult = result;
+    }
+
+    const detail = lastResult ? normalizeCommandError(lastResult) ?? `command failed with exit code ${lastResult.code}` : "command failed";
+    throw new Error(detail);
   }
 
   async prompt(
@@ -272,6 +298,7 @@ export class AcpxCliTransport implements SessionTransport {
   async updatePermissionPolicy(policy: PermissionPolicy): Promise<void> {
     this.permissionMode = policy.permissionMode;
     this.nonInteractivePermissions = policy.nonInteractivePermissions;
+    this.permissionPolicy = policy.permissionPolicy;
   }
 
   async removeSession(session: ResolvedSession): Promise<void> {
@@ -571,7 +598,11 @@ export class AcpxCliTransport implements SessionTransport {
   private buildPermissionArgs(): string[] {
     const modeFlag = permissionModeToFlag(this.permissionMode);
 
-    return [modeFlag, "--non-interactive-permissions", this.nonInteractivePermissions];
+    const args = [modeFlag, "--non-interactive-permissions", this.nonInteractivePermissions];
+    if (typeof this.permissionPolicy === "string" && this.permissionPolicy.trim().length > 0) {
+      args.push("--permission-policy", this.permissionPolicy);
+    }
+    return args;
   }
 }
 

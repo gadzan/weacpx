@@ -63,6 +63,35 @@ test("ensures a session with raw agent command by invoking acpx with the normal 
   expect(runPty).not.toHaveBeenCalled();
 });
 
+test("injects --permission-policy when configured", async () => {
+  const run = mock(async () => ({ code: 0, stdout: "", stderr: "" }));
+  const runPty = mock(async () => ({ code: 0, stdout: "", stderr: "" }));
+  const transport = new AcpxCliTransport({ command: "acpx", permissionPolicy: "C:/policies/weacpx-policy.json" } as never, run, runPty);
+
+  await transport.ensureSession(session);
+
+  expect(run).toHaveBeenCalledWith("acpx", [
+    "--format",
+    "quiet",
+    "--cwd",
+    "/tmp/backend",
+    "--approve-all",
+    "--non-interactive-permissions",
+    "deny",
+    "--permission-policy",
+    "C:/policies/weacpx-policy.json",
+    "--agent",
+    "./node_modules/.bin/codex-acp",
+    "sessions",
+    "new",
+    "--name",
+    "backend:api-fix",
+  ], expect.objectContaining({
+    timeoutMs: 120_000,
+  }));
+  expect(runPty).not.toHaveBeenCalled();
+});
+
 test("runs a resolved JavaScript acpx entry with the current node executable", async () => {
   const run = mock(async () => ({ code: 0, stdout: "", stderr: "" }));
   const runPty = mock(async () => ({ code: 0, stdout: "", stderr: "" }));
@@ -220,6 +249,31 @@ test("uses the normal command runner for setMode", async () => {
     "plan",
   ], undefined);
   expect(runPty).not.toHaveBeenCalled();
+});
+
+test("tails session history by invoking sessions history quiet", async () => {
+  const run = mock(async () => ({ code: 0, stdout: "history", stderr: "" }));
+  const transport = new AcpxCliTransport({ command: "acpx" }, run);
+
+  await expect(transport.tailSessionHistory(session, 20)).resolves.toEqual({ text: "history" });
+
+  expect(run).toHaveBeenCalledWith("acpx", [
+    "--format",
+    "quiet",
+    "--cwd",
+    "/tmp/backend",
+    "--approve-all",
+    "--non-interactive-permissions",
+    "deny",
+    "--agent",
+    "./node_modules/.bin/codex-acp",
+    "sessions",
+    "history",
+    "quiet",
+    "-s",
+    "backend:api-fix",
+    "20",
+  ], undefined);
 });
 
 test("passes default permission policy flags to prompt", async () => {

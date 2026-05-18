@@ -1,4 +1,4 @@
-﻿import { expect, mock, test } from "bun:test";
+import { expect, mock, test } from "bun:test";
 
 import {
   buildWeacpxMcpServerSpec,
@@ -52,6 +52,36 @@ test("builds queue owner payload with MCP servers", () => {
     nonInteractivePermissions: "deny",
     ttlMs: 300_000,
     maxQueueDepth: 16,
+    mcpServers: [{ name: "weacpx-orchestration", type: "stdio", command: "node", args: ["cli.js"] }],
+  });
+});
+
+test("builds queue owner payload with prompt retries and session options", () => {
+  expect(buildQueueOwnerPayload({
+    sessionId: "acpx-record-1",
+    permissionMode: "approve-all",
+    nonInteractivePermissions: "deny",
+    promptRetries: 2,
+    sessionOptions: {
+      model: "gpt-5",
+      allowedTools: ["delegate_request"],
+      maxTurns: 20,
+      systemPrompt: { append: "You are a helpful assistant." },
+    },
+    mcpServers: [{ name: "weacpx-orchestration", type: "stdio", command: "node", args: ["cli.js"] }],
+  })).toEqual({
+    sessionId: "acpx-record-1",
+    permissionMode: "approve-all",
+    nonInteractivePermissions: "deny",
+    ttlMs: 300_000,
+    maxQueueDepth: 16,
+    promptRetries: 2,
+    sessionOptions: {
+      model: "gpt-5",
+      allowedTools: ["delegate_request"],
+      maxTurns: 20,
+      systemPrompt: { append: "You are a helpful assistant." },
+    },
     mcpServers: [{ name: "weacpx-orchestration", type: "stdio", command: "node", args: ["cli.js"] }],
   });
 });

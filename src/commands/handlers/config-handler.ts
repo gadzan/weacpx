@@ -15,6 +15,7 @@ const SUPPORTED_CONFIG_PATHS = [
   "transport.sessionInitTimeoutMs",
   "transport.permissionMode",
   "transport.nonInteractivePermissions",
+  "transport.permissionPolicy",
   "logging.level",
   "logging.maxSizeBytes",
   "logging.maxFiles",
@@ -72,7 +73,7 @@ export async function handleConfigSet(
   }
 
   await context.configStore.save(updated);
-  if (path === "transport.permissionMode" || path === "transport.nonInteractivePermissions") {
+  if (path === "transport.permissionMode" || path === "transport.nonInteractivePermissions" || path === "transport.permissionPolicy") {
     try {
       await context.transport.updatePermissionPolicy?.(updated.transport);
     } catch (error) {
@@ -119,6 +120,10 @@ function applySupportedConfigUpdate(
       config.transport.nonInteractivePermissions = parsed;
       return { renderedValue: parsed };
     }
+    case "transport.permissionPolicy":
+      if (!rawValue.trim()) return { error: "transport.permissionPolicy 不能为空。" };
+      config.transport.permissionPolicy = rawValue;
+      return { renderedValue: rawValue };
     case "logging.level": {
       const parsed = parseEnum<LoggingLevel>(rawValue, ["error", "info", "debug"]);
       if (!parsed) return { error: "logging.level 只支持：error、info、debug" };

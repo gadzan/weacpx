@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.7] - 2026-05-18
+
+### Added
+
+- **`/session tail [N]` 命令：** 补拉当前会话的历史输出，用于 in-flight checkpoint 可视化。acpx-cli 与 acpx-bridge 两种 transport 均支持，默认 50 行，上限 500 行。
+- **acpx 0.8.0 升级：** `acpx` 依赖从 `^0.6.1` 升级到 `^0.8.0`。
+- **transport.permissionPolicy 支持：** 配置中新增 `transport.permissionPolicy` 字段，用于透传 `--permission-policy` 到 acpx 命令行。acpx-cli 与 acpx-bridge 两种 transport 均支持。`/config set transport.permissionPolicy` 可热更新。
+- **tool_call_update 结构化事件增强：** `ToolUseEvent` 新增 `locations`、`rawOutput`、`content` 可选字段，streaming prompt 解析层从 acpx `tool_call_update` 事件中透传。
+- **queue-owner payload 增强：** `QueueOwnerPayload` 新增 `promptRetries` 与 `sessionOptions`（含 `model`、`allowedTools`、`maxTurns`、`systemPrompt`）字段，支持更细粒度的 queue owner 会话配置。
+
+### Changed
+
+- **acpx 升级后 transport 命令参数适配：** `acpx-cli` 与 `acpx-bridge` 两个 transport 在生成 acpx 命令行参数时，条件注入 `--permission-policy` flag；当值为非空字符串时才注入。
+- **bridge runtime permissionPolicy 透传：** `BridgeRuntimeOptions` 扩展 `permissionPolicy` 字段；`updatePermissionPolicy` 接口同步扩展；`buildPermissionArgs` 在 bridge 侧注入 `--permission-policy`。
+
 ## [0.4.6] - 2026-05-18
 
 ### Changed

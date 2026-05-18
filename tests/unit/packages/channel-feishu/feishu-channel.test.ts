@@ -1,4 +1,6 @@
 import { beforeAll, expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
 
 import feishuPlugin from "../../../../packages/channel-feishu/src/index";
 import { createFeishuLarkClient } from "../../../../packages/channel-feishu/src/lark-client";
@@ -482,64 +484,71 @@ test("createMessageChannelFromRuntimeConfig rejects mismatched id and type", () 
 test("FeishuChannel downloads inbound image and forwards media to agent", async () => {
   let handlers: Record<string, (data: unknown) => Promise<void> | void> = {};
   const sent: unknown[] = [];
-  const mediaStore = new RuntimeMediaStore({ rootDir: "/tmp/weacpx-test-media-" + Date.now() });
-  const channel = new FeishuChannel(
-    defaultFeishuConfig,
-    {
-      createClient: () => ({
-        sdk: {
-          im: {
-            message: {
-              reply: async (payload: unknown) => {
-                sent.push(payload);
-                return { data: { message_id: "om_reply", chat_id: "oc_chat" } };
+  const tmpBase = join(process.cwd(), ".test-tmp");
+  await mkdir(tmpBase, { recursive: true });
+  const mediaRootDir = await mkdtemp(join(tmpBase, "weacpx-test-media-"));
+  const mediaStore = new RuntimeMediaStore({ rootDir: mediaRootDir });
+  try {
+    const channel = new FeishuChannel(
+      defaultFeishuConfig,
+      {
+        createClient: () => ({
+          sdk: {
+            im: {
+              message: {
+                reply: async (payload: unknown) => {
+                  sent.push(payload);
+                  return { data: { message_id: "om_reply", chat_id: "oc_chat" } };
+                },
+                create: async () => {
+                  throw new Error("create should not be called");
+                },
               },
-              create: async () => {
-                throw new Error("create should not be called");
+              messageResource: {
+                get: async () => Buffer.from("fake-image-data"),
               },
-            },
-            messageResource: {
-              get: async () => Buffer.from("fake-image-data"),
             },
           },
-        },
-        probeBot: async () => ({ botOpenId: "ou_bot" }),
-        startWS: async (input: { handlers: Record<string, (data: unknown) => Promise<void> | void> }) => {
-          handlers = input.handlers;
-        },
-      }),
-      mediaStore,
-    },
-  );
-  const requests: unknown[] = [];
-  const agent: ChatAgent = {
-    async chat(request) {
-      requests.push(request);
-      return { text: "got it" };
-    },
-  };
+          probeBot: async () => ({ botOpenId: "ou_bot" }),
+          startWS: async (input: { handlers: Record<string, (data: unknown) => Promise<void> | void> }) => {
+            handlers = input.handlers;
+          },
+        }),
+        mediaStore,
+      },
+    );
+    const requests: unknown[] = [];
+    const agent: ChatAgent = {
+      async chat(request) {
+        requests.push(request);
+        return { text: "got it" };
+      },
+    };
 
-  await channel.start({ agent, abortSignal: new AbortController().signal, quota: createNoopQuota(), logger: createNoopLogger() });
+    await channel.start({ agent, abortSignal: new AbortController().signal, quota: createNoopQuota(), logger: createNoopLogger() });
 
-  const event: FeishuMessageEvent = {
-    sender: { sender_id: { open_id: "ou_sender" } },
-    message: {
-      message_id: "om_img",
-      chat_id: "oc_chat",
-      chat_type: "p2p",
-      message_type: "image",
-      content: JSON.stringify({ image_key: "img_v2_test" }),
-      create_time: String(Date.now()),
-    },
-  };
-  await handlers["im.message.receive_v1"]!(event);
+    const event: FeishuMessageEvent = {
+      sender: { sender_id: { open_id: "ou_sender" } },
+      message: {
+        message_id: "om_img",
+        chat_id: "oc_chat",
+        chat_type: "p2p",
+        message_type: "image",
+        content: JSON.stringify({ image_key: "img_v2_test" }),
+        create_time: String(Date.now()),
+      },
+    };
+    await handlers["im.message.receive_v1"]!(event);
 
-  expect(requests).toHaveLength(1);
-  const request = requests[0] as { text: string; media?: Array<{ kind: string }> };
-  expect(request.text).toContain("img_v2_test");
-  expect(request.media).toBeDefined();
-  expect(request.media!.length).toBe(1);
-  expect(request.media![0].kind).toBe("image");
+    expect(requests).toHaveLength(1);
+    const request = requests[0] as { text: string; media?: Array<{ kind: string }> };
+    expect(request.text).toContain("img_v2_test");
+    expect(request.media).toBeDefined();
+    expect(request.media!.length).toBe(1);
+    expect(request.media![0].kind).toBe("image");
+  } finally {
+    await rm(mediaRootDir, { recursive: true, force: true });
+  }
 });
 
 test("FeishuChannel rejects outbound remote media URLs before sending", async () => {

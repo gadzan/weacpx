@@ -20,6 +20,8 @@ export interface SessionHandlerContext extends CommandRouterContext {
 }
 
 const NO_CURRENT_SESSION_TEXT = "当前还没有选中的会话。请先执行 /session new ... 或 /use <alias>。";
+const DEFAULT_SESSION_TAIL_LINES = 50;
+const MAX_SESSION_TAIL_LINES = 500;
 
 export const sessionHelp: HelpTopicMetadata = {
   topic: "session",
@@ -32,6 +34,7 @@ export const sessionHelp: HelpTopicMetadata = {
     { usage: "/ss new <agent> (-d <path> | --ws <name>)", description: "强制新建会话" },
     { usage: "/ss new <alias> -a <name> --ws <name>", description: "按指定配置新建会话" },
     { usage: "/ss attach <alias> -a <name> --ws <name> --name <transport-session>", description: "绑定已有会话" },
+    { usage: "/session tail [N]", description: "补拉当前会话的历史输出（默认 50 行）" },
     { usage: "/session rm <alias>", description: "删除逻辑会话" },
     { usage: "/use <alias>", description: "切换当前会话" },
     { usage: "/session reset 或 /clear", description: "重置当前会话上下文" },
@@ -341,6 +344,24 @@ export async function handleCancel(context: SessionHandlerContext, chatKey: stri
 
 export async function handleSessionReset(context: SessionHandlerContext, chatKey: string): Promise<RouterResponse> {
   return await context.lifecycle.resetCurrentSession(chatKey);
+}
+
+export async function handleSessionTail(
+  context: SessionHandlerContext,
+  chatKey: string,
+  lines?: number,
+): Promise<RouterResponse> {
+  const session = await context.sessions.getCurrentSession(chatKey);
+  if (!session) {
+    return { text: NO_CURRENT_SESSION_TEXT };
+  }
+
+  const resolvedLines = Math.min(
+    Math.max(lines ?? DEFAULT_SESSION_TAIL_LINES, 1),
+    MAX_SESSION_TAIL_LINES,
+  );
+  const result = await context.transport.tailSessionHistory(session, resolvedLines);
+  return { text: result.text };
 }
 
 export async function handleSessionRemove(

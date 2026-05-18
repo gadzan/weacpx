@@ -8,6 +8,7 @@ const GROUP_PUBLIC_COMMAND_KINDS = new Set<ParsedCommand["kind"]>([
   "agents",
   "workspaces",
   "sessions",
+  "session.tail",
   "status",
   "mode.show",
   "replymode.show",
@@ -44,6 +45,7 @@ export function authorizeCommandForChat(command: ParsedCommand, metadata?: ChatR
 const COMMAND_KIND_TO_LABEL: Record<string, string> = {
   "session.reset": "/clear",
   "session.rm": "/session rm",
+  "session.tail": "/session tail",
   "replymode.set": "/replymode",
   "replymode.reset": "/replymode reset",
   "mode.set": "/mode",

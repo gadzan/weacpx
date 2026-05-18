@@ -163,6 +163,7 @@ test("shows supported config paths", async () => {
 
   expect(reply.text).toContain("支持修改的配置字段：");
   expect(reply.text).toContain("- transport.permissionMode");
+  expect(reply.text).toContain("- transport.permissionPolicy");
   expect(reply.text).toContain("- agents.<name>.driver");
   expect(reply.text).toContain("- workspaces.<name>.description");
 });
@@ -519,6 +520,21 @@ test("updates the live transport policy after /config set transport.permissionMo
   expect(getUpdatePermissionPolicyMock(transport)).toHaveBeenCalledWith(expect.objectContaining({
     permissionMode: "approve-reads",
     nonInteractivePermissions: "deny",
+  }));
+});
+
+test("updates the live transport policy after /config set transport.permissionPolicy", async () => {
+  const config = createConfig();
+  const transport = createTransport();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  await router.handle("wx:user", "/config set transport.permissionPolicy C:/policies/weacpx-policy.json");
+
+  expect(getUpdatePermissionPolicyMock(transport)).toHaveBeenCalledWith(expect.objectContaining({
+    permissionMode: "approve-all",
+    nonInteractivePermissions: "deny",
+    permissionPolicy: "C:/policies/weacpx-policy.json",
   }));
 });
 

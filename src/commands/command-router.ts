@@ -27,6 +27,7 @@ import {
   handleSessionNew,
   handleSessionRemove,
   handleSessionReset,
+  handleSessionTail,
   handleSessions,
   handleSessionShortcut,
   handleSessionUse,
@@ -223,6 +224,8 @@ export class CommandRouter {
           return await handleCancel(this.createSessionHandlerContext(undefined, perfSpan), chatKey);
         case "session.reset":
           return await handleSessionReset(this.createSessionHandlerContext(reply, perfSpan), chatKey);
+        case "session.tail":
+          return await handleSessionTail(this.createSessionHandlerContext(undefined, perfSpan), chatKey, command.lines);
         case "session.rm":
           return await handleSessionRemove(this.createSessionHandlerContext(undefined, perfSpan), chatKey, command.alias);
         case "groups":

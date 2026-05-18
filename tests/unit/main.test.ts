@@ -4,6 +4,7 @@ import { join, normalize } from "node:path";
 import { tmpdir } from "node:os";
 
 import { buildApp as buildAppRaw, resolveRuntimePaths } from "../../src/main";
+import { sameWorkspacePath } from "../../src/commands/workspace-path";
 
 type BuildAppArgs = Parameters<typeof buildAppRaw>;
 const buildApp = (paths: BuildAppArgs[0], deps: BuildAppArgs[1] = {}): ReturnType<typeof buildAppRaw> =>
@@ -191,13 +192,13 @@ test("external coordinator delegation sees agents added after daemon startup", a
   expect(ensureSession.mock.calls.at(0)?.[0]).toMatchObject({
     agent: "opencode",
     agentCommand: undefined,
-    cwd: "/tmp/backend",
   });
   expect(prompt.mock.calls.at(0)?.[0]).toMatchObject({
     agent: "opencode",
     agentCommand: undefined,
-    cwd: "/tmp/backend",
   });
+  expect(sameWorkspacePath(ensureSession.mock.calls.at(0)?.[0]?.cwd, "/tmp/backend")).toBe(true);
+  expect(sameWorkspacePath(prompt.mock.calls.at(0)?.[0]?.cwd, "/tmp/backend")).toBe(true);
 
   await runtime.dispose();
   await rm(dir, { recursive: true, force: true });
@@ -1845,9 +1846,13 @@ test("falls back to the OS home directory when HOME is unset", () => {
   try {
     const paths = resolveRuntimePaths();
 
-    expect(paths.configPath.endsWith("/.weacpx/config.json")).toBe(true);
-    expect(paths.statePath.endsWith("/.weacpx/state.json")).toBe(true);
-    expect(paths.perfLogPath?.endsWith("/.weacpx/runtime/perf.log")).toBe(true);
+    const normalizedConfigPath = paths.configPath.replace(/\\/g, "/");
+    const normalizedStatePath = paths.statePath.replace(/\\/g, "/");
+    const normalizedPerfPath = (paths.perfLogPath ?? "").replace(/\\/g, "/");
+
+    expect(normalizedConfigPath.endsWith("/.weacpx/config.json")).toBe(true);
+    expect(normalizedStatePath.endsWith("/.weacpx/state.json")).toBe(true);
+    expect(normalizedPerfPath.endsWith("/.weacpx/runtime/perf.log")).toBe(true);
     if (process.platform === "win32") {
       expect(paths.orchestrationSocketPath.startsWith("\\\\.\\pipe\\weacpx-orchestration-")).toBe(true);
     } else {

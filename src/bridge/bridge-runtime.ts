@@ -94,6 +94,7 @@ interface PromptStreamProcess {
 interface BridgeRuntimeOptions {
   permissionMode?: PermissionMode;
   nonInteractivePermissions?: NonInteractivePermissions;
+  permissionPolicy?: string;
 }
 
 export class BridgeRuntime {
@@ -118,9 +119,11 @@ export class BridgeRuntime {
   async updatePermissionPolicy(policy: {
     permissionMode: PermissionMode;
     nonInteractivePermissions: NonInteractivePermissions;
+    permissionPolicy?: string;
   }): Promise<Record<string, never>> {
     this.options.permissionMode = policy.permissionMode;
     this.options.nonInteractivePermissions = policy.nonInteractivePermissions;
+    this.options.permissionPolicy = policy.permissionPolicy;
     return {};
   }
 
@@ -138,6 +141,35 @@ export class BridgeRuntime {
     const result = await this.run(spawnSpec.command, spawnSpec.args);
 
     return { exists: result.code === 0 };
+  }
+
+  async tailSessionHistory(input: {
+    agent: string;
+    agentCommand?: string;
+    cwd: string;
+    name: string;
+    lines: number;
+  }): Promise<{ text: string }> {
+    const candidates = [
+      ["sessions", "history", "quiet", "-s", input.name, String(input.lines)],
+      ["sessions", "history", "quiet", input.name, String(input.lines)],
+      ["sessions", "history", "-s", input.name, "--tail", String(input.lines)],
+      ["sessions", "history", input.name, "--tail", String(input.lines)],
+      ["sessions", "history", "--name", input.name, "--tail", String(input.lines)],
+    ];
+
+    let lastResult: CommandResult | undefined;
+    for (const tailArgs of candidates) {
+      const spawnSpec = resolveSpawnCommand(this.command, this.buildSessionArgs(input, tailArgs));
+      const result = await this.run(spawnSpec.command, spawnSpec.args);
+      if (result.code === 0) {
+        return { text: result.stdout.trimEnd() };
+      }
+      lastResult = result;
+    }
+
+    const message = lastResult?.stderr || lastResult?.stdout || "sessions history failed";
+    throw new Error(message);
   }
 
   async ensureSession(
@@ -454,7 +486,11 @@ export class BridgeRuntime {
     const nonInteractivePermissions = this.options.nonInteractivePermissions ?? "deny";
     const modeFlag = permissionModeToFlag(permissionMode);
 
-    return [modeFlag, "--non-interactive-permissions", nonInteractivePermissions];
+    const args = [modeFlag, "--non-interactive-permissions", nonInteractivePermissions];
+    if (typeof this.options.permissionPolicy === "string" && this.options.permissionPolicy.trim().length > 0) {
+      args.push("--permission-policy", this.options.permissionPolicy);
+    }
+    return args;
   }
 }
 

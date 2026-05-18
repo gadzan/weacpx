@@ -1,6 +1,16 @@
 import type { ToolUseEvent } from "../../channels/types.js";
 
-export type BridgeMethod = "ping" | "shutdown" | "updatePermissionPolicy" | "ensureSession" | "hasSession" | "prompt" | "setMode" | "cancel" | "removeSession";
+export type BridgeMethod =
+  | "ping"
+  | "shutdown"
+  | "updatePermissionPolicy"
+  | "ensureSession"
+  | "hasSession"
+  | "tailSessionHistory"
+  | "prompt"
+  | "setMode"
+  | "cancel"
+  | "removeSession";
 
 export interface BridgeRequest {
   id: string;

@@ -152,6 +152,41 @@ test("renders status for the current session", async () => {
   );
 });
 
+test("rejects /session tail when no session is selected", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport);
+
+  const reply = await router.handle("wx:user", "/session tail");
+
+  expect(reply.text).toContain("当前还没有选中的会话");
+  expect(reply.text).toContain("/session new");
+  expect(reply.text).toContain("/use");
+});
+
+test("proxies /session tail [N] to the transport for the current session", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const tailSessionHistory = mock(async (_session: unknown, lines: number) => ({ text: `history:${lines}` }));
+  (transport as unknown as { tailSessionHistory: unknown }).tailSessionHistory = tailSessionHistory;
+  const router = new CommandRouter(sessions, transport);
+
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
+  const defaultReply = await router.handle("wx:user", "/session tail");
+  const limitedReply = await router.handle("wx:user", "/session tail 10");
+
+  expect(defaultReply.text).toBe("history:50");
+  expect(limitedReply.text).toBe("history:10");
+  expect(tailSessionHistory).toHaveBeenCalledWith(
+    expect.objectContaining({ alias: "api-fix", transportSession: "backend:api-fix" }),
+    50,
+  );
+  expect(tailSessionHistory).toHaveBeenCalledWith(
+    expect.objectContaining({ alias: "api-fix", transportSession: "backend:api-fix" }),
+    10,
+  );
+});
+
 test("renders sessions list in Chinese", async () => {
   const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
   const transport = createTransport();

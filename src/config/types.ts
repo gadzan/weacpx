@@ -21,6 +21,7 @@ export interface TransportConfig {
   sessionInitTimeoutMs?: number;
   permissionMode: PermissionMode;
   nonInteractivePermissions: NonInteractivePermissions;
+  permissionPolicy?: string;
 }
 
 export type LoggingLevel = "error" | "info" | "debug";

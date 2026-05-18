@@ -33,6 +33,7 @@ export type ParsedCommand =
   | { kind: "status" }
   | { kind: "cancel" }
   | { kind: "session.reset" }
+  | { kind: "session.tail"; lines?: number }
   | { kind: "session.rm"; alias: string }
   | { kind: "delegate.request"; targetAgent: string; role?: string; groupId?: string; task: string }
   | { kind: "groups"; filter?: GroupListFilter }
@@ -103,6 +104,18 @@ export function parseCommand(input: string): ParsedCommand {
   if (command === "/session" && parts.length === 1) return { kind: "sessions" };
   if (command === "/workspace" && parts.length === 1) return { kind: "workspaces" };
   if (command === "/session" && parts[1] === "reset" && parts.length === 2) return { kind: "session.reset" };
+  if (command === "/session" && parts[1] === "tail") {
+    if (parts.length === 2) {
+      return { kind: "session.tail" };
+    }
+    if (parts.length === 3) {
+      const lines = parsePositiveInt(parts[2]);
+      if (lines !== null) {
+        return { kind: "session.tail", lines };
+      }
+    }
+    return { kind: "invalid", text: trimmed, recognizedCommand: "/session" };
+  }
   if (command === "/session" && parts[1] === "rm" && parts[2] && parts.length === 3) {
     return { kind: "session.rm", alias: parts[2] };
   }
@@ -477,6 +490,14 @@ function tokenizeCommand(input: string): string[] {
   }
 
   return tokens;
+}
+
+function parsePositiveInt(value: string | undefined): number | null {
+  if (!value) return null;
+  if (!/^\d+$/.test(value)) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
 }
 
 const TASK_STATUS_VALUES = [

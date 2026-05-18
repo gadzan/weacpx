@@ -22,6 +22,61 @@ test("returns whether a named session exists", async () => {
   ).resolves.toEqual({ exists: true });
 });
 
+test("tails session history via sessions history quiet in bridge runtime", async () => {
+  const calls: string[][] = [];
+  const runtime = new BridgeRuntime("acpx", async (_command, args) => {
+    calls.push(args);
+    return { code: 0, stdout: "history", stderr: "" };
+  });
+
+  await expect(runtime.tailSessionHistory({
+    agent: "codex",
+    cwd: "/repo",
+    name: "demo",
+    lines: 10,
+  })).resolves.toEqual({ text: "history" });
+
+  expect(calls).toEqual([[
+    "--format",
+    "quiet",
+    "--cwd",
+    "/repo",
+    "--approve-all",
+    "--non-interactive-permissions",
+    "deny",
+    "codex",
+    "sessions",
+    "history",
+    "quiet",
+    "-s",
+    "demo",
+    "10",
+  ]]);
+});
+
+test("handles tailSessionHistory over ndjson", async () => {
+  const runtime = {
+    shutdown: async () => ({}),
+    updatePermissionPolicy: async () => ({}),
+    hasSession: async () => ({ exists: true }),
+    ensureSession: async () => ({}),
+    tailSessionHistory: async (input: Record<string, unknown>) => ({
+      text: `ok:${input.lines}`,
+    }),
+    prompt: async () => ({ text: "ok" }),
+    setMode: async () => ({}),
+    cancel: async () => ({ cancelled: true, message: "cancelled" }),
+    removeSession: async () => ({}),
+  } as unknown as BridgeRuntime;
+  const server = new BridgeServer(runtime);
+
+  await expect(server.handleLine(JSON.stringify({
+    id: "tail-1",
+    method: "tailSessionHistory",
+    params: { agent: "codex", cwd: "/repo", name: "demo", lines: 5 },
+  }))).resolves.toBe('{"id":"tail-1","ok":true,"result":{"text":"ok:5"}}\n');
+});
+
 test("reuses an existing session when ensure fails but status probe finds it", async () => {
   const calls: string[][] = [];
   const runtime = new BridgeRuntime("acpx", async (_command, args) => {

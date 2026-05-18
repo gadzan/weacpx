@@ -35,6 +35,13 @@ export class AcpxBridgeTransport implements SessionTransport {
       : undefined);
   }
 
+  async tailSessionHistory(session: ResolvedSession, lines: number): Promise<{ text: string }> {
+    return await this.client.request("tailSessionHistory", {
+      ...this.toParams(session),
+      lines,
+    });
+  }
+
   async prompt(
     session: ResolvedSession,
     text: string,

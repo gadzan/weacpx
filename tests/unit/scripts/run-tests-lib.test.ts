@@ -25,12 +25,11 @@ test("collects test files recursively in sorted order", () => {
 });
 
 test("builds a test plan with typecheck before unit tests", () => {
-  const npxCommand = process.platform === "win32" ? "npx.cmd" : "npx";
   expect(buildTestPlan("tests/unit", () => [
     resolve("tests/unit/a.test.ts"),
     resolve("tests/unit/b.test.ts"),
   ])).toEqual([
-    { command: npxCommand, args: ["tsc", "--noEmit"] },
+    { command: "node", args: ["./node_modules/typescript/bin/tsc", "--noEmit"] },
     { command: "bun", args: ["test", resolve("tests/unit/a.test.ts")] },
     { command: "bun", args: ["test", resolve("tests/unit/b.test.ts")] },
   ]);

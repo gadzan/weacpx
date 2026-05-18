@@ -128,6 +128,7 @@ export class MemoryConfigStore
 export function createTransport(): SessionTransport {
   return {
     ensureSession: mock(async (_session: ResolvedSession) => {}),
+    tailSessionHistory: mock(async (_session: ResolvedSession, _lines: number) => ({ text: "" })),
     prompt: mock(async (session: ResolvedSession, text: string) => ({
       text: `agent:${session.alias}:${text}`,
     })),

@@ -20,6 +20,7 @@ export interface PromptMedia {
 export interface PermissionPolicy {
   permissionMode: PermissionMode;
   nonInteractivePermissions: NonInteractivePermissions;
+  permissionPolicy?: string;
 }
 
 export interface ResolvedSession {
@@ -72,6 +73,7 @@ export interface SessionTransport {
     session: ResolvedSession,
     onProgress?: (progress: EnsureSessionProgress) => void,
   ): Promise<void>;
+  tailSessionHistory(session: ResolvedSession, lines: number): Promise<{ text: string }>;
   prompt(
     session: ResolvedSession,
     text: string,

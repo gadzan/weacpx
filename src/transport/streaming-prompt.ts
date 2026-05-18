@@ -24,10 +24,12 @@ interface StreamEvent {
         type?: string;
         text?: string;
       };
+      locations?: unknown;
       kind?: string;
       title?: string;
       toolCallId?: string;
       rawInput?: unknown;
+      rawOutput?: unknown;
     };
   };
 }
@@ -203,11 +205,19 @@ function buildToolUseEvent(update: NonNullable<StreamEvent["params"]>["update"])
     statusRaw === "completed" || statusRaw === "success" ? "success"
     : statusRaw === "failed" || statusRaw === "error" ? "error"
     : "running";
+  const rawInput = update.rawInput;
+  const content = update.content;
+  const rawOutput = update.rawOutput;
+  const locations = update.locations;
   return {
     toolCallId,
     toolName,
     kind,
     ...(summary ? { summary } : {}),
+    ...(rawInput !== undefined ? { rawInput } : {}),
+    ...(content !== undefined ? { content } : {}),
+    ...(rawOutput !== undefined ? { rawOutput } : {}),
+    ...(locations !== undefined ? { locations } : {}),
     status,
   };
 }

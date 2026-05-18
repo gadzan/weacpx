@@ -11,7 +11,9 @@
   "transport": {
     "type": "acpx-bridge",
     "command": "acpx",
-    "sessionInitTimeoutMs": 120000
+    "sessionInitTimeoutMs": 120000,
+    "permissionMode": "approve-all",
+    "nonInteractivePermissions": "deny"
   },
   "logging": {
     "level": "info",
@@ -66,6 +68,9 @@
 | `type` | `"acpx-cli"` \| `"acpx-bridge"` | 是 | 通信方式。详见下方说明 |
 | `command` | `string` | 否 | 显式指定 acpx 二进制路径。不填则按优先级自动查找 |
 | `sessionInitTimeoutMs` | `number` | 否 | session 初始化超时时间（毫秒），默认 `120000`（2分钟） |
+| `permissionMode` | `"approve-all"` \| `"approve-reads"` \| `"deny-all"` | 否 | 权限模式，默认 `"approve-all"` |
+| `nonInteractivePermissions` | `"deny"` \| `"fail"` | 否 | 非交互场景权限策略，默认 `"deny"` |
+| `permissionPolicy` | `string` | 否 | acpx permission policy 文件路径（透传为 `acpx --permission-policy <value>`）；不填则不启用 |
 
 ### `type` 可选值
 

@@ -189,6 +189,7 @@ test("runStreamingPrompt emits structured tool events when toolEventMode is 'str
         toolName: "Bash",
         kind: "execute",
         summary: "npm test",
+        rawInput: { command: "npm", args: ["test"] },
         status: "running",
       },
     },
@@ -288,6 +289,29 @@ test("prompt starts queue owner with orchestration MCP identity", async () => {
     permissionMode: "approve-all",
     nonInteractivePermissions: "deny",
   }]);
+});
+
+test("ensureSession forwards --permission-policy when configured", async () => {
+  const calls: string[][] = [];
+  const run = async (_command: string, args: string[]) => {
+    calls.push(args);
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const runtime = new BridgeRuntime(
+    "acpx",
+    run,
+    async () => ({ code: 0, stdout: "", stderr: "" }),
+    { permissionPolicy: "C:/policies/weacpx-policy.json" } as never,
+  );
+
+  await runtime.ensureSession({ agent: "codex", cwd: "/repo", name: "demo" });
+
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toContain("--approve-all");
+  expect(calls[0]).toContain("--non-interactive-permissions");
+  expect(calls[0]).toContain("deny");
+  expect(calls[0]).toContain("--permission-policy");
+  expect(calls[0]).toContain("C:/policies/weacpx-policy.json");
 });
 
 test("ensureSession emits spawn/initializing/ready when EPERM repair succeeds", async () => {

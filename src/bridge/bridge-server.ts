@@ -25,6 +25,7 @@ const BRIDGE_METHODS = new Set<BridgeMethod>([
   "updatePermissionPolicy",
   "hasSession",
   "ensureSession",
+  "tailSessionHistory",
   "prompt",
   "setMode",
   "cancel",
@@ -34,6 +35,7 @@ const BRIDGE_METHODS = new Set<BridgeMethod>([
 const SESSION_SCOPED_METHODS = new Set<BridgeMethod>([
   "hasSession",
   "ensureSession",
+  "tailSessionHistory",
   "prompt",
   "setMode",
   "cancel",
@@ -125,6 +127,14 @@ export class BridgeServer {
           agentCommand: asOptionalString(params.agentCommand),
           cwd: requireString(params, "cwd"),
           name: requireString(params, "name"),
+        });
+      case "tailSessionHistory":
+        return await this.runtime.tailSessionHistory({
+          agent: requireString(params, "agent"),
+          agentCommand: asOptionalString(params.agentCommand),
+          cwd: requireString(params, "cwd"),
+          name: requireString(params, "name"),
+          lines: requirePositiveInt(params, "lines"),
         });
       case "ensureSession":
         return await this.runtime.ensureSession({
@@ -290,6 +300,14 @@ function requireString(params: Record<string, unknown>, key: string): string {
     throw new BridgeInvalidRequestError(`${key} must be a non-empty string`);
   }
 
+  return value;
+}
+
+function requirePositiveInt(params: Record<string, unknown>, key: string): number {
+  const value = params[key];
+  if (typeof value !== "number" || !Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
+    throw new BridgeInvalidRequestError(`${key} must be a positive integer`);
+  }
   return value;
 }
 

@@ -21,6 +21,13 @@ export interface QueueOwnerPayload {
   nonInteractivePermissions: NonInteractivePermissions;
   ttlMs: number;
   maxQueueDepth: number;
+  promptRetries?: number;
+  sessionOptions?: {
+    model?: string;
+    allowedTools?: string[];
+    maxTurns?: number;
+    systemPrompt?: string | { append: string };
+  };
   mcpServers: AcpxMcpServerSpec[];
 }
 
@@ -77,6 +84,8 @@ export function buildQueueOwnerPayload(input: {
   mcpServers: AcpxMcpServerSpec[];
   ttlMs?: number;
   maxQueueDepth?: number;
+  promptRetries?: number;
+  sessionOptions?: QueueOwnerPayload["sessionOptions"];
 }): QueueOwnerPayload {
   return {
     sessionId: input.sessionId,
@@ -84,6 +93,8 @@ export function buildQueueOwnerPayload(input: {
     nonInteractivePermissions: input.nonInteractivePermissions,
     ttlMs: input.ttlMs ?? 300_000,
     maxQueueDepth: input.maxQueueDepth ?? 16,
+    ...(Number.isFinite(input.promptRetries) ? { promptRetries: input.promptRetries } : {}),
+    ...(input.sessionOptions ? { sessionOptions: input.sessionOptions } : {}),
     mcpServers: input.mcpServers,
   };
 }
