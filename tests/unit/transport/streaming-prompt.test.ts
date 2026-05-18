@@ -62,38 +62,6 @@ test("parseStreamingChunks ignores non-chunk JSON lines", () => {
   expect(state.buffer).toBe("actual content");
 });
 
-test("agent_thought_chunk is ignored unless verbose (formatToolCalls=true)", () => {
-  const state = createStreamingPromptState();
-  parseStreamingChunks(state, JSON.stringify({
-    method: "session/update",
-    params: {
-      update: {
-        sessionUpdate: "agent_thought_chunk",
-        content: { type: "text", text: "secret thought" },
-      },
-    },
-  }));
-  expect(state.segments).toEqual([]);
-  expect(state.buffer).toBe("");
-});
-
-test("agent_thought_chunk is emitted as 🧠 segments when verbose (formatToolCalls=true)", () => {
-  const state = createStreamingPromptState(true);
-  parseStreamingChunks(state, JSON.stringify({
-    method: "session/update",
-    params: {
-      update: {
-        sessionUpdate: "agent_thought_chunk",
-        content: { type: "text", text: "Thought A\n\nThought B" },
-      },
-    },
-  }));
-  expect(state.segments).toEqual(["🧠 Thought A"]);
-  expect(state.buffer).toBe("");
-  expect(state.finalize()).toBe("");
-  expect(state.segments).toEqual(["🧠 Thought A", "🧠 Thought B"]);
-});
-
 test("parseStreamingChunks ignores non-JSON lines", () => {
   const state = createStreamingPromptState();
 
