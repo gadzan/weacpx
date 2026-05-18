@@ -9,7 +9,7 @@ import { loadConfig } from "./config/load-config";
 import { ensureConfigExists } from "./config/ensure-config";
 import { getAgentTemplate, listAgentTemplates, sameAgentConfig } from "./config/agent-templates";
 import { createDaemonController } from "./daemon/create-daemon-controller";
-import { resolveDaemonPaths } from "./daemon/daemon-files";
+import { resolveDaemonPaths, resolveRuntimeDirFromConfigPath } from "./daemon/daemon-files";
 import type { DaemonController } from "./daemon/daemon-controller";
 import { DaemonRuntime } from "./daemon/daemon-runtime";
 import type { DaemonStatus } from "./daemon/daemon-status";
@@ -234,6 +234,7 @@ interface CliDeps {
   isInteractive?: () => boolean;
   promptText?: (message: string) => Promise<string>;
   promptSecret?: (message: string) => Promise<string>;
+  isProcessRunning?: (pid: number) => boolean;
 }
 
 const HELP_LINES = [
@@ -382,7 +383,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
     case "mcp-stdio":
       return await (deps.mcpStdio ?? ((subArgs) => defaultMcpStdio(subArgs, { stderr: deps.stderr })))(args.slice(1));
     case "start": {
-      const controller = deps.controller ?? createDefaultController();
+      const controller = deps.controller ?? createDefaultController(deps);
       try {
         const isInteractive = deps.isInteractive ?? defaultIsInteractive;
         const status = await controller.getStatus();
@@ -428,7 +429,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       }
     }
     case "status": {
-      const controller = deps.controller ?? createDefaultController();
+      const controller = deps.controller ?? createDefaultController(deps);
       const status = await controller.getStatus();
       if (status.state === "indeterminate") {
         print("weacpx 进程仍在运行，但状态元数据缺失");
@@ -453,7 +454,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       return 0;
     }
     case "stop": {
-      const controller = deps.controller ?? createDefaultController();
+      const controller = deps.controller ?? createDefaultController(deps);
       const result = await controller.stop();
       if (result.detail === "not-running") {
         print("weacpx 未运行");
@@ -463,7 +464,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       return 0;
     }
     case "restart": {
-      const controller = deps.controller ?? createDefaultController();
+      const controller = deps.controller ?? createDefaultController(deps);
       try {
         return await restartDaemonCli(controller, print);
       } catch (error) {
@@ -727,8 +728,20 @@ async function agentRemove(rawName: string, print: (line: string) => void): Prom
   return 0;
 }
 
+function resolveConfigPathForCurrentEnv(): string {
+  return process.env.WEACPX_CONFIG ?? `${requireHome()}/.weacpx/config.json`;
+}
+
+function resolveDaemonPathsForCurrentConfig() {
+  const configPath = resolveConfigPathForCurrentEnv();
+  return resolveDaemonPaths({
+    home: requireHome(),
+    runtimeDir: resolveRuntimeDirFromConfigPath(configPath),
+  });
+}
+
 async function createCliConfigStore(): Promise<ConfigStore> {
-  const configPath = process.env.WEACPX_CONFIG ?? `${requireHome()}/.weacpx/config.json`;
+  const configPath = resolveConfigPathForCurrentEnv();
   await ensureConfigExists(configPath);
   return new ConfigStore(configPath);
 }
@@ -769,7 +782,7 @@ async function defaultRun(options: { firstRunOnboarding?: FirstRunOnboardingPlan
   await loadConfiguredPlugins({ plugins: config.plugins });
   const { createMessageChannels } = await import("./channels/create-channel.js");
   const { MessageChannelRegistry } = await import("./channels/channel-registry.js");
-  const daemonPaths = resolveDaemonPaths({ home: requireHome() });
+  const daemonPaths = resolveDaemonPathsForCurrentConfig();
   const daemonRuntime = new DaemonRuntime(daemonPaths, { pid: process.pid });
   const { channelDeps } = await prepareChannelMedia(runtimePaths.configPath, config);
   const channelRegistry = new MessageChannelRegistry(createMessageChannels(config.channels, channelDeps));
@@ -1065,13 +1078,14 @@ async function defaultPromptSecret(message: string): Promise<string> {
   });
 }
 
-function createDefaultController(): CliController {
-  const daemonPaths = resolveDaemonPaths({ home: requireHome() });
+function createDefaultController(deps: Pick<CliDeps, "isProcessRunning"> = {}): CliController {
+  const daemonPaths = resolveDaemonPathsForCurrentConfig();
   const controller = createDaemonController(daemonPaths, {
     processExecPath: process.execPath,
     cliEntryPath: resolveCliEntryPath(),
     cwd: process.cwd(),
     env: process.env,
+    ...(deps.isProcessRunning ? { isProcessRunning: deps.isProcessRunning } : {}),
   });
   return {
     getStatus: () => controller.getStatus(),
@@ -1134,8 +1148,8 @@ function printDaemonLogHints(print: (line: string) => void): void {
 
 function safeDaemonLogPaths(): { appLog: string; stderrLog: string } | null {
   try {
-    const configPath = process.env.WEACPX_CONFIG ?? `${requireHome()}/.weacpx/config.json`;
-    const paths = resolveDaemonPaths({ home: requireHome() });
+    const configPath = resolveConfigPathForCurrentEnv();
+    const paths = resolveDaemonPathsForCurrentConfig();
     return {
       appLog: join(dirname(configPath), "runtime", "app.log"),
       stderrLog: paths.stderrLog,

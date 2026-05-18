@@ -46,6 +46,37 @@ function resolveAccountIndexPath(): string {
   return path.join(resolveWeixinStateDir(), "accounts.json");
 }
 
+
+function listAccountFileIds(): string[] {
+  const dir = resolveAccountsDir();
+  try {
+    if (!fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+      .map((entry) => ({
+        id: entry.name.slice(0, -5),
+        data: readAccountFile(path.join(dir, entry.name)),
+      }))
+      .filter((entry) => entry.id.trim() !== "" && Boolean(entry.data?.token?.trim()))
+      .map((entry) => entry.id)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+function uniqueAccountIds(ids: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const raw of ids) {
+    const id = raw.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    result.push(id);
+  }
+  return result;
+}
+
 /** Returns all accountIds registered via QR login. */
 export function listIndexedWeixinAccountIds(): string[] {
   const filePath = resolveAccountIndexPath();
@@ -54,7 +85,7 @@ export function listIndexedWeixinAccountIds(): string[] {
     const raw = fs.readFileSync(filePath, "utf-8");
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((id): id is string => typeof id === "string" && id.trim() !== "");
+    return uniqueAccountIds(parsed.filter((id): id is string => typeof id === "string" && id.trim() !== ""));
   } catch {
     return [];
   }
@@ -184,7 +215,10 @@ export function clearWeixinAccount(accountId: string): void {
 
 /** Remove all account data files and clear the account index. */
 export function clearAllWeixinAccounts(): void {
-  const ids = listIndexedWeixinAccountIds();
+  const ids = uniqueAccountIds([
+    ...listIndexedWeixinAccountIds(),
+    ...listAccountFileIds(),
+  ]);
   for (const id of ids) {
     clearWeixinAccount(id);
   }
@@ -253,9 +287,11 @@ export type ResolvedWeixinAccount = {
   configured: boolean;
 };
 
-/** List accountIds from the index file (written at QR login). */
+/** List accountIds from the index file (written at QR login), with a credential-file fallback for legacy/broken indexes. */
 export function listWeixinAccountIds(): string[] {
-  return listIndexedWeixinAccountIds();
+  const indexed = listIndexedWeixinAccountIds();
+  if (indexed.length > 0) return indexed;
+  return listAccountFileIds();
 }
 
 /** Resolve a weixin account by ID, reading stored credentials. */

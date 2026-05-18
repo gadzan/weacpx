@@ -52,11 +52,13 @@ export async function runDoctor(options: DoctorRunOptions = {}, deps: DoctorDeps
   checks.push(
     await (deps.checkRuntime ?? checkRuntime)({
       home,
+      configPath: runtimePaths.configPath,
     }),
   );
   checks.push(
     await (deps.checkDaemon ?? checkDaemon)({
       home,
+      configPath: runtimePaths.configPath,
     }),
   );
   checks.push(

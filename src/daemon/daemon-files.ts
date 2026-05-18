@@ -14,10 +14,11 @@ export interface DaemonPaths {
 interface ResolveDaemonPathsOptions {
   home: string;
   runtimeDir?: string;
+  configPath?: string;
 }
 
 export function resolveDaemonPaths(options: ResolveDaemonPathsOptions): DaemonPaths {
-  const runtimeDir = options.runtimeDir ?? join(options.home, ".weacpx", "runtime");
+  const runtimeDir = options.runtimeDir ?? (options.configPath ? resolveRuntimeDirFromConfigPath(options.configPath) : join(options.home, ".weacpx", "runtime"));
 
   return {
     runtimeDir,

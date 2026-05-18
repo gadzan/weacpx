@@ -191,6 +191,55 @@ test("start surfaces stderr log hint when daemon dies before ready (missing plug
   expect(lines.some((line) => line.startsWith("请查看 Stderr: ") && line.includes("stderr.log"))).toBe(true);
 });
 
+test("start/status use daemon runtime next to custom WEACPX_CONFIG", async () => {
+  await withTempHome(async () => {
+    const configRoot = await mkdtemp(join(tmpdir(), "weacpx-cli-config-"));
+    const previousConfig = process.env.WEACPX_CONFIG;
+    process.env.WEACPX_CONFIG = join(configRoot, "config.json");
+    const runtimeDir = join(configRoot, "runtime");
+    const pid = 43210;
+
+    try {
+      await mkdir(runtimeDir, { recursive: true });
+      await writeFile(join(runtimeDir, "daemon.pid"), `${pid}\n`, "utf8");
+      await writeFile(
+        join(runtimeDir, "status.json"),
+        JSON.stringify({
+          pid,
+          started_at: "2026-05-19T00:00:00.000Z",
+          heartbeat_at: "2026-05-19T00:01:00.000Z",
+          config_path: process.env.WEACPX_CONFIG,
+          state_path: "/state",
+          app_log: join(runtimeDir, "app.log"),
+          stdout_log: join(runtimeDir, "stdout.log"),
+          stderr_log: join(runtimeDir, "stderr.log"),
+        }),
+        "utf8",
+      );
+
+      const lines: string[] = [];
+      await expect(
+        runCli(["status"], {
+          print: (line) => {
+            lines.push(line);
+          },
+          isProcessRunning: (currentPid) => currentPid === pid,
+        }),
+      ).resolves.toBe(0);
+
+      expect(lines).toContain("weacpx 正在运行");
+      expect(lines).toContain(`App Log: ${join(runtimeDir, "app.log")}`);
+    } finally {
+      if (previousConfig === undefined) {
+        delete process.env.WEACPX_CONFIG;
+      } else {
+        process.env.WEACPX_CONFIG = previousConfig;
+      }
+      await rm(configRoot, { recursive: true, force: true });
+    }
+  });
+});
+
 test("start surfaces app log hint next to custom WEACPX_CONFIG", async () => {
   const lines: string[] = [];
   await withTempHome(async () => {

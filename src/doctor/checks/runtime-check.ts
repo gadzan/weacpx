@@ -3,21 +3,26 @@ import { access, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import { homedir } from "node:os";
 
-import { resolveDaemonPaths, type DaemonPaths } from "../../daemon/daemon-files";
+import { resolveDaemonPaths, resolveRuntimeDirFromConfigPath, type DaemonPaths } from "../../daemon/daemon-files";
 import type { DoctorCheckResult } from "../doctor-types";
 
 const DIRECTORY_USABLE = constants.W_OK | constants.X_OK;
 
 export interface RuntimeCheckOptions {
   home?: string;
-  resolveDaemonPaths?: (options: { home: string }) => DaemonPaths;
+  resolveDaemonPaths?: (options: { home: string; runtimeDir?: string }) => DaemonPaths;
+  configPath?: string;
   probe?: RuntimeFsProbe;
   platform?: NodeJS.Platform;
 }
 
 export async function checkRuntime(options: RuntimeCheckOptions = {}): Promise<DoctorCheckResult> {
   const home = options.home ?? process.env.HOME ?? homedir();
-  const paths = (options.resolveDaemonPaths ?? resolveDaemonPaths)({ home });
+  const runtimeDir = options.configPath ? resolveRuntimeDirFromConfigPath(options.configPath) : undefined;
+  const paths = (options.resolveDaemonPaths ?? resolveDaemonPaths)({
+    home,
+    ...(runtimeDir ? { runtimeDir } : {}),
+  });
   const probe = options.probe ?? createRuntimeFsProbe();
   const platform = options.platform ?? process.platform;
   const checks = [

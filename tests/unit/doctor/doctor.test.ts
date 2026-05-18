@@ -232,6 +232,11 @@ test("wechat check passes when at least one account is logged in", async () => {
       JSON.stringify({ token: "test-token", baseUrl: "https://example.com" }, null, 2),
       "utf8",
     );
+    await writeFile(
+      join(accountStoreDir, `${accountId}.sync.json`),
+      JSON.stringify({ get_updates_buf: "not-an-account-token" }, null, 2),
+      "utf8",
+    );
 
     const previousStateDir = process.env.OPENCLAW_STATE_DIR;
     process.env.OPENCLAW_STATE_DIR = stateDir;
@@ -278,6 +283,45 @@ test("wechat check passes when a later account is configured even if the first i
     try {
       const result = await checkWechat();
       expect(result.severity).toBe("pass");
+    } finally {
+      if (previousStateDir === undefined) {
+        delete process.env.OPENCLAW_STATE_DIR;
+      } else {
+        process.env.OPENCLAW_STATE_DIR = previousStateDir;
+      }
+    }
+  } finally {
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
+test("wechat check falls back to account credential files when the index is empty", async () => {
+  const stateDir = await createTempHome();
+  const accountId = "wx-fallback";
+  const accountsDir = join(stateDir, "openclaw-weixin");
+  const accountStoreDir = join(accountsDir, "accounts");
+
+  try {
+    await mkdir(accountStoreDir, { recursive: true });
+    await writeFile(join(accountsDir, "accounts.json"), JSON.stringify([], null, 2), "utf8");
+    await writeFile(
+      join(accountStoreDir, `${accountId}.json`),
+      JSON.stringify({ token: "test-token", baseUrl: "https://example.com" }, null, 2),
+      "utf8",
+    );
+    await writeFile(
+      join(accountStoreDir, `${accountId}.sync.json`),
+      JSON.stringify({ get_updates_buf: "not-an-account-token" }, null, 2),
+      "utf8",
+    );
+
+    const previousStateDir = process.env.OPENCLAW_STATE_DIR;
+    process.env.OPENCLAW_STATE_DIR = stateDir;
+
+    try {
+      const result = await checkWechat({ verbose: true });
+      expect(result.severity).toBe("pass");
+      expect(result.details?.join("\n") ?? "").toContain(`accountIds: ${accountId}`);
     } finally {
       if (previousStateDir === undefined) {
         delete process.env.OPENCLAW_STATE_DIR;
@@ -533,7 +577,9 @@ test("doctor orchestrator uses injected home coherently for runtime and config-b
   const seen = {
     configPath: undefined as string | undefined,
     runtimeHome: undefined as string | undefined,
+    runtimeConfigPath: undefined as string | undefined,
     daemonHome: undefined as string | undefined,
+    daemonConfigPath: undefined as string | undefined,
     acpxPath: undefined as string | undefined,
     bridgePath: undefined as string | undefined,
   };
@@ -548,10 +594,12 @@ test("doctor orchestrator uses injected home coherently for runtime and config-b
       },
       checkRuntime: async (options) => {
         seen.runtimeHome = options.home;
+        seen.runtimeConfigPath = options.configPath;
         return { id: "runtime", label: "Runtime", severity: "pass", summary: "ok" };
       },
       checkDaemon: async (options) => {
         seen.daemonHome = options.home;
+        seen.daemonConfigPath = options.configPath;
         return { id: "daemon", label: "Daemon", severity: "pass", summary: "ok" };
       },
       checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
@@ -570,6 +618,8 @@ test("doctor orchestrator uses injected home coherently for runtime and config-b
   expect(seen.runtimeHome).toBe(home);
   expect(seen.daemonHome).toBe(home);
   const expectedConfigPath = join(home, ".weacpx", "config.json");
+  expect(seen.runtimeConfigPath).toBe(expectedConfigPath);
+  expect(seen.daemonConfigPath).toBe(expectedConfigPath);
   expect(seen.configPath).toBe(expectedConfigPath);
   expect(seen.acpxPath).toBe(expectedConfigPath);
   expect(seen.bridgePath).toBe(expectedConfigPath);

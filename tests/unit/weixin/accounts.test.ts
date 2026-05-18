@@ -1,11 +1,11 @@
 import fs from "node:fs";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { expect, test } from "bun:test";
 
-import { registerWeixinAccountId } from "../../../src/weixin/auth/accounts";
+import { clearAllWeixinAccounts, listWeixinAccountIds, registerWeixinAccountId } from "../../../src/weixin/auth/accounts";
 
 async function withTempStateDir<T>(fn: (stateDir: string) => Promise<T>): Promise<T> {
   const stateDir = await mkdtemp(path.join(tmpdir(), "weacpx-openclaw-"));
@@ -50,5 +50,30 @@ test("registerWeixinAccountId tolerates EPERM when the state directory already e
 
     const raw = await readFile(path.join(weixinDir, "accounts.json"), "utf-8");
     expect(JSON.parse(raw)).toEqual(["e33867cf4ec7-im-bot"]);
+  });
+});
+
+
+test("clearAllWeixinAccounts clears credential files even when the account index is empty", async () => {
+  await withTempStateDir(async (stateDir) => {
+    const weixinDir = path.join(stateDir, "openclaw-weixin");
+    const accountsDir = path.join(weixinDir, "accounts");
+    const accountId = "e33867cf4ec7-im-bot";
+    const accountFile = path.join(accountsDir, `${accountId}.json`);
+    const syncFile = path.join(accountsDir, `${accountId}.sync.json`);
+
+    await mkdir(accountsDir, { recursive: true });
+    await writeFile(path.join(weixinDir, "accounts.json"), "[]", "utf-8");
+    await writeFile(accountFile, JSON.stringify({ token: "token", baseUrl: "https://example.com" }), "utf-8");
+    await writeFile(syncFile, JSON.stringify({ get_updates_buf: "buf" }), "utf-8");
+
+    expect(listWeixinAccountIds()).toEqual([accountId]);
+
+    clearAllWeixinAccounts();
+
+    expect(fs.existsSync(accountFile)).toBe(false);
+    expect(fs.existsSync(syncFile)).toBe(true);
+    expect(JSON.parse(await readFile(path.join(weixinDir, "accounts.json"), "utf-8"))).toEqual([]);
+    expect(listWeixinAccountIds()).toEqual([]);
   });
 });

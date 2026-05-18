@@ -2,12 +2,13 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
 import { createDaemonController } from "../../daemon/create-daemon-controller";
-import { resolveDaemonPaths, type DaemonPaths } from "../../daemon/daemon-files";
+import { resolveDaemonPaths, resolveRuntimeDirFromConfigPath, type DaemonPaths } from "../../daemon/daemon-files";
 import type { DoctorCheckResult } from "../doctor-types";
 
 export interface DaemonCheckOptions {
   home?: string;
-  resolveDaemonPaths?: (options: { home: string }) => DaemonPaths;
+  resolveDaemonPaths?: (options: { home: string; runtimeDir?: string }) => DaemonPaths;
+  configPath?: string;
   isProcessRunning?: (pid: number) => boolean;
   processExecPath?: string;
   cliEntryPath?: string;
@@ -17,7 +18,11 @@ export interface DaemonCheckOptions {
 
 export async function checkDaemon(options: DaemonCheckOptions = {}): Promise<DoctorCheckResult> {
   const home = options.home ?? process.env.HOME ?? homedir();
-  const paths = (options.resolveDaemonPaths ?? resolveDaemonPaths)({ home });
+  const runtimeDir = options.configPath ? resolveRuntimeDirFromConfigPath(options.configPath) : undefined;
+  const paths = (options.resolveDaemonPaths ?? resolveDaemonPaths)({
+    home,
+    ...(runtimeDir ? { runtimeDir } : {}),
+  });
   const controller = createDaemonController(paths, {
     processExecPath: options.processExecPath ?? process.execPath,
     cliEntryPath: options.cliEntryPath ?? resolveCliEntryPath(),
