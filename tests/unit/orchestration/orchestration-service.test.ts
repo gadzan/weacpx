@@ -2088,7 +2088,7 @@ test("task_watch returns new task events and advances afterSeq", async () => {
   });
 });
 
-test("clampWatchTimeout collapses invalid input to an immediate watch like clampWaitTimeout", () => {
+test("clampWatchTimeout collapses invalid input to an immediate watch", () => {
   expect(clampWatchTimeout(undefined)).toBe(DEFAULT_TASK_WATCH_TIMEOUT_MS);
   // Invalid values must not silently become a 60s long-poll.
   expect(clampWatchTimeout(-1)).toBe(0);
