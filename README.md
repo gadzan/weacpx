@@ -169,7 +169,7 @@ weacpx restart
 | `weacpx status` | 查看后台状态、PID、配置路径、日志路径 |
 | `weacpx stop` | 停止后台实例 |
 | `weacpx restart` | 重启后台实例，让频道配置变更生效 |
-| `weacpx update [--all|<name>]` | 检查并更新 weacpx 与已安装插件；安装了插件时会交互式选择更新项 |
+| `weacpx update [--all\|<name>]` | 检查并更新 weacpx 与已安装插件；安装了插件时会交互式选择更新项 |
 | `weacpx channel list` | 查看已配置的消息频道 |
 | `weacpx plugin known` | 查看官方插件清单（飞书/元宝包名） |
 | `weacpx plugin add @ganglion/weacpx-channel-feishu && weacpx channel add feishu` | 安装并添加飞书频道，会提示输入飞书应用凭据 |
