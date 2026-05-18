@@ -4,7 +4,7 @@ import { buildWeacpxMcpToolRegistry } from "../../../src/mcp/weacpx-mcp-tools";
 import { createMemoryTransport } from "../../../src/mcp/weacpx-mcp-transport";
 import { QuotaDeferredError } from "../../../src/weixin/messaging/quota-errors";
 
-test("builds 14 MCP tools and appends blocker-loop actions after the original orchestration tools", async () => {
+test("builds 11 MCP tools and appends blocker-loop actions after the original orchestration tools", async () => {
   const calls: unknown[] = [];
   const transport = createMemoryTransport(
     async (input) => {
@@ -33,13 +33,10 @@ test("builds 14 MCP tools and appends blocker-loop actions after the original or
     sourceHandle: "backend:worker",
   });
 
-  expect(registry).toHaveLength(14);
+  expect(registry).toHaveLength(11);
   expect(registry.map((tool) => tool.name)).toEqual([
     "delegate_request",
-    "group_new",
-    "group_get",
-    "group_list",
-    "group_cancel",
+    "delegate_batch",
     "task_get",
     "task_list",
     "task_approve",
@@ -403,12 +400,122 @@ test("registry hides human-input package tools when the coordinator is external"
   expect(externalNames).toContain("task_watch");
   expect(externalNames).toContain("coordinator_answer_question");
   expect(externalNames).toContain("coordinator_review_contested_result");
-  expect(externalRegistry).toHaveLength(13);
+  expect(externalRegistry).toHaveLength(10);
 
   const internalRegistry = buildWeacpxMcpToolRegistry({
     transport,
     coordinatorSession: "backend:main",
   });
-  expect(internalRegistry).toHaveLength(14);
+  expect(internalRegistry).toHaveLength(11);
   expect(internalRegistry.map((tool) => tool.name)).toContain("coordinator_request_human_input");
+});
+
+test("delegate_batch creates one group and delegates every task into it", async () => {
+  const calls: unknown[] = [];
+  let groupSeq = 0;
+  const registry = buildWeacpxMcpToolRegistry({
+    transport: createMemoryTransport(
+      async (input) => {
+        calls.push({ method: "delegateRequest", input });
+        return { taskId: `task-${calls.length}`, status: "running" as const };
+      },
+      {
+        createGroup: async (input) => {
+          calls.push({ method: "createGroup", input });
+          groupSeq += 1;
+          return {
+            groupId: `group-${groupSeq}`,
+            coordinatorSession: "backend:main",
+            title: (input as { title: string }).title,
+            createdAt: "2026-05-18T00:00:00.000Z",
+            updatedAt: "2026-05-18T00:00:00.000Z",
+          };
+        },
+      },
+    ),
+    coordinatorSession: "backend:main",
+  });
+
+  const tool = registry.find((entry) => entry.name === "delegate_batch");
+  expect(tool).toBeDefined();
+
+  const result = await tool!.handler({
+    tasks: [
+      { targetAgent: "claude", task: "review module A" },
+      { targetAgent: "codex", task: "review module B" },
+    ],
+  });
+
+  expect(calls).toEqual([
+    { method: "createGroup", input: { coordinatorSession: "backend:main", title: "Batch delegation (2 tasks)" } },
+    { method: "delegateRequest", input: { coordinatorSession: "backend:main", targetAgent: "claude", task: "review module A", groupId: "group-1" } },
+    { method: "delegateRequest", input: { coordinatorSession: "backend:main", targetAgent: "codex", task: "review module B", groupId: "group-1" } },
+  ]);
+  expect(result.structuredContent).toEqual({
+    groupId: "group-1",
+    tasks: [
+      { index: 0, taskId: "task-2", status: "running" },
+      { index: 1, taskId: "task-3", status: "running" },
+    ],
+  });
+});
+
+test("delegate_batch with a single task skips group creation", async () => {
+  const calls: unknown[] = [];
+  const registry = buildWeacpxMcpToolRegistry({
+    transport: createMemoryTransport(async (input) => {
+      calls.push({ method: "delegateRequest", input });
+      return { taskId: "task-1", status: "running" as const };
+    }),
+    coordinatorSession: "backend:main",
+  });
+
+  const tool = registry.find((entry) => entry.name === "delegate_batch");
+  await tool!.handler({ tasks: [{ targetAgent: "claude", task: "solo task" }] });
+
+  expect(calls).toEqual([
+    { method: "delegateRequest", input: { coordinatorSession: "backend:main", targetAgent: "claude", task: "solo task" } },
+  ]);
+});
+
+test("delegate_batch reports a per-task error without aborting the rest of the batch", async () => {
+  let n = 0;
+  const registry = buildWeacpxMcpToolRegistry({
+    transport: createMemoryTransport(
+      async () => {
+        n += 1;
+        if (n === 2) throw new Error("unknown agent");
+        return { taskId: `task-${n}`, status: "running" as const };
+      },
+      {
+        createGroup: async () => ({
+          groupId: "group-1",
+          coordinatorSession: "backend:main",
+          title: "Batch delegation (3 tasks)",
+          createdAt: "2026-05-18T00:00:00.000Z",
+          updatedAt: "2026-05-18T00:00:00.000Z",
+        }),
+      },
+    ),
+    coordinatorSession: "backend:main",
+  });
+
+  const tool = registry.find((entry) => entry.name === "delegate_batch");
+  const result = await tool!.handler({
+    tasks: [
+      { targetAgent: "claude", task: "a" },
+      { targetAgent: "bogus", task: "b" },
+      { targetAgent: "codex", task: "c" },
+    ],
+  });
+
+  expect(result.isError).toBeUndefined();
+  expect(result.structuredContent).toEqual({
+    groupId: "group-1",
+    tasks: [
+      { index: 0, taskId: "task-1", status: "running" },
+      { index: 1, error: "unknown agent" },
+      { index: 2, taskId: "task-3", status: "running" },
+    ],
+  });
 });

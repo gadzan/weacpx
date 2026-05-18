@@ -63,29 +63,6 @@ function makeServerHandlers(overrides: Partial<Record<string, unknown>> = {}) {
       createdAt: "2026-04-18T00:00:00.000Z",
       updatedAt: "2026-04-18T00:00:00.000Z",
     }),
-    getGroupSummary: async () => null,
-    listGroupSummaries: async () => [],
-    cancelGroup: async () => ({
-      summary: {
-        group: {
-          groupId: "g-1",
-          coordinatorSession: "backend:main",
-          title: "review batch",
-          createdAt: "2026-04-18T00:00:00.000Z",
-          updatedAt: "2026-04-18T00:00:00.000Z",
-        },
-        tasks: [],
-        totalTasks: 0,
-        pendingApprovalTasks: 0,
-        runningTasks: 0,
-        completedTasks: 0,
-        failedTasks: 0,
-        cancelledTasks: 0,
-        terminal: true,
-      },
-      cancelledTaskIds: [],
-      skippedTaskIds: [],
-    }),
     ...overrides,
   } as unknown as ConstructorParameters<typeof OrchestrationServer>[1];
 }
@@ -640,7 +617,7 @@ test("refuses to start when a live unix socket listener already owns the path", 
   }
 });
 
-test("forwards group lifecycle RPC methods to handlers", async () => {
+test("forwards group.new RPC to handler", async () => {
   // Requires node:net listen; sandboxed runners may deny local IPC with EPERM.
   if (await skipIfLocalIpcUnavailable("orchestration-server socket integration tests")) return;
 
@@ -653,28 +630,10 @@ test("forwards group lifecycle RPC methods to handlers", async () => {
     createdAt: "2026-04-18T00:00:00.000Z",
     updatedAt: "2026-04-18T00:00:00.000Z",
   };
-  const summary = {
-    group: groupRecord,
-    tasks: [],
-    totalTasks: 0,
-    pendingApprovalTasks: 0,
-    runningTasks: 0,
-    completedTasks: 0,
-    failedTasks: 0,
-    cancelledTasks: 0,
-    terminal: true,
-  };
   const createGroup = mock(async () => groupRecord);
-  const getGroupSummary = mock(async () => summary);
-  const listGroupSummaries = mock(async (input: Record<string, unknown>) => [summary]);
-  const cancelGroup = mock(async () => ({
-    summary,
-    cancelledTaskIds: ["task-1"],
-    skippedTaskIds: ["task-2"],
-  }));
   const server = new OrchestrationServer(
     endpoint,
-    makeServerHandlers({ createGroup, getGroupSummary, listGroupSummaries, cancelGroup }),
+    makeServerHandlers({ createGroup }),
   );
 
   try {
@@ -688,50 +647,7 @@ test("forwards group lifecycle RPC methods to handlers", async () => {
       }),
     ).resolves.toEqual({ id: "req-group-new", ok: true, result: groupRecord });
 
-    await expect(
-      sendRequest(endpoint.path, {
-        id: "req-group-get",
-        method: "group.get",
-        params: { coordinatorSession: "backend:main", groupId: "g-1" },
-      }),
-    ).resolves.toEqual({ id: "req-group-get", ok: true, result: summary });
-
-    await expect(
-      sendRequest(endpoint.path, {
-        id: "req-group-list",
-        method: "group.list",
-        params: {
-          coordinatorSession: "backend:main",
-          status: "running",
-          stuck: true,
-          sort: "createdAt",
-          order: "asc",
-        },
-      }),
-    ).resolves.toEqual({ id: "req-group-list", ok: true, result: [summary] });
-
-    await expect(
-      sendRequest(endpoint.path, {
-        id: "req-group-cancel",
-        method: "group.cancel",
-        params: { coordinatorSession: "backend:main", groupId: "g-1" },
-      }),
-    ).resolves.toEqual({
-      id: "req-group-cancel",
-      ok: true,
-      result: { summary, cancelledTaskIds: ["task-1"], skippedTaskIds: ["task-2"] },
-    });
-
     expect(createGroup).toHaveBeenCalledWith({ coordinatorSession: "backend:main", title: "parallel review" });
-    expect(getGroupSummary).toHaveBeenCalledWith({ coordinatorSession: "backend:main", groupId: "g-1" });
-    expect(listGroupSummaries).toHaveBeenCalledWith({
-      coordinatorSession: "backend:main",
-      status: "running",
-      stuck: true,
-      sort: "createdAt",
-      order: "asc",
-    });
-    expect(cancelGroup).toHaveBeenCalledWith({ coordinatorSession: "backend:main", groupId: "g-1" });
   } finally {
     await server.stop();
     await rm(dir, { recursive: true, force: true });
@@ -760,18 +676,6 @@ test("group RPC methods reject missing required params", async () => {
       ok: false,
       error: { code: "ORCHESTRATION_INVALID_REQUEST", message: "title must be a non-empty string" },
     });
-
-    await expect(
-      sendRequest(endpoint.path, {
-        id: "req-group-get-bad",
-        method: "group.get",
-        params: { coordinatorSession: "backend:main" },
-      }),
-    ).resolves.toEqual({
-      id: "req-group-get-bad",
-      ok: false,
-        error: { code: "ORCHESTRATION_INVALID_REQUEST", message: "groupId must be a non-empty string" },
-      });
 
     await expect(
       sendRequest(endpoint.path, {

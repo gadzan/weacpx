@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 
 import type {
-  CancelGroupResult,
   CancelTaskInput,
   CoordinatorRequestHumanInputResult,
   CoordinatorTaskQuestionRef,
@@ -18,7 +17,6 @@ import type {
 import type {
   ExternalCoordinatorRecord,
   OrchestrationGroupRecord,
-  OrchestrationGroupSummary,
   OrchestrationTaskRecord,
 } from "./orchestration-types";
 
@@ -36,10 +34,7 @@ export type OrchestrationRpcMethod =
   | "coordinator.retract_answer"
   | "coordinator.request_human_input"
   | "coordinator.review_contested_result"
-  | "group.new"
-  | "group.get"
-  | "group.list"
-  | "group.cancel";
+  | "group.new";
 
 export interface OrchestrationIpcEndpoint {
   kind: "unix" | "named-pipe";
@@ -107,15 +102,6 @@ export interface OrchestrationRpcHandlers {
     decision: "accept" | "discard";
   }) => Promise<OrchestrationTaskRecord>;
   createGroup: (input: { coordinatorSession: string; title: string }) => Promise<OrchestrationGroupRecord>;
-  getGroupSummary: (input: { coordinatorSession: string; groupId: string }) => Promise<OrchestrationGroupSummary | null>;
-  listGroupSummaries: (input: {
-    coordinatorSession: string;
-    status?: "pending" | "running" | "terminal";
-    stuck?: boolean;
-    sort?: "updatedAt" | "createdAt";
-    order?: "asc" | "desc";
-  }) => Promise<OrchestrationGroupSummary[]>;
-  cancelGroup: (input: { coordinatorSession: string; groupId: string }) => Promise<CancelGroupResult>;
 }
 
 export function resolveOrchestrationEndpoint(

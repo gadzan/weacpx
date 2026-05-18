@@ -16,40 +16,10 @@ import {
 import { createMemoryTransport } from "../../../src/mcp/weacpx-mcp-transport";
 import type { OrchestrationTaskRecord } from "../../../src/orchestration/orchestration-types";
 
-test("lists 17 MCP tools and hides coordinator/source identity from input schemas", async () => {
+test("lists 11 MCP tools and hides coordinator/source identity from input schemas", async () => {
   const transport = createMemoryTransport(
     async () => ({ taskId: "task-1", status: "needs_confirmation" }),
     {
-      createGroup: async () => ({
-        groupId: "g-1",
-        coordinatorSession: "backend:main",
-        title: "parallel review",
-        createdAt: "a",
-        updatedAt: "a",
-      }),
-      getGroup: async () => null,
-      listGroups: async () => [],
-      cancelGroup: async () => ({
-        summary: {
-          group: {
-            groupId: "g-1",
-            coordinatorSession: "backend:main",
-            title: "parallel review",
-            createdAt: "a",
-            updatedAt: "a",
-          },
-          tasks: [],
-          totalTasks: 0,
-          pendingApprovalTasks: 0,
-          runningTasks: 0,
-          completedTasks: 0,
-          failedTasks: 0,
-          cancelledTasks: 0,
-          terminal: true,
-        },
-        cancelledTaskIds: [],
-        skippedTaskIds: [],
-      }),
       getTask: async () => null,
       listTasks: async () => [],
       approveTask: async () => {
@@ -83,7 +53,7 @@ test("lists 17 MCP tools and hides coordinator/source identity from input schema
     await client.connect(clientTransport);
 
     const list = await client.listTools();
-    expect(list.tools).toHaveLength(14);
+    expect(list.tools).toHaveLength(11);
     const delegate = list.tools.find((tool) => tool.name === "delegate_request");
     const workerRaiseQuestion = list.tools.find((tool) => tool.name === "worker_raise_question");
     const coordinatorAnswerQuestion = list.tools.find((tool) => tool.name === "coordinator_answer_question");
@@ -524,7 +494,7 @@ test("hides coordinator human-input package tools when resolveIdentity reports a
 
     const list = await client.listTools();
     const names = list.tools.map((tool) => tool.name);
-    expect(list.tools).toHaveLength(13);
+    expect(list.tools).toHaveLength(10);
     expect(names).not.toContain("coordinator_request_human_input");
     expect(names).toContain("coordinator_answer_question");
     expect(names).toContain("coordinator_review_contested_result");
@@ -560,7 +530,7 @@ test("infers MCP identity from client roots before listing tools", async () => {
     await client.connect(clientTransport);
 
     const list = await client.listTools();
-    expect(list.tools).toHaveLength(14);
+    expect(list.tools).toHaveLength(11);
     expect(resolved).toEqual([
       {
         clientName: "Claude Code",
@@ -592,7 +562,7 @@ test("uses resolveIdentity when both static and lazy MCP identities are configur
     await client.connect(clientTransport);
 
     const list = await client.listTools();
-    expect(list.tools).toHaveLength(14);
+    expect(list.tools).toHaveLength(11);
     expect(resolved).toEqual([{ clientName: "Claude Code" }]);
   } finally {
     await client.close();
@@ -664,8 +634,8 @@ test("memoizes in-flight lazy MCP identity resolution across concurrent first re
     releaseResolve();
 
     const [first, second] = await Promise.all([firstList, secondList]);
-    expect(first.tools).toHaveLength(14);
-    expect(second.tools).toHaveLength(14);
+    expect(first.tools).toHaveLength(11);
+    expect(second.tools).toHaveLength(11);
     expect(resolveCalls).toBe(1);
   } finally {
     await client.close();
@@ -679,14 +649,6 @@ test("worker_raise_question uses host-bound sourceHandle and still rejects spoof
     transport: createMemoryTransport(
       async () => ({ taskId: "task-9", status: "needs_confirmation" }),
       {
-        createGroup: async () => {
-          throw new Error("unused");
-        },
-        getGroup: async () => null,
-        listGroups: async () => [],
-        cancelGroup: async () => {
-          throw new Error("unused");
-        },
         getTask: async () => null,
         listTasks: async () => [],
         approveTask: async () => {
@@ -760,14 +722,6 @@ test("worker_raise_question fails clearly when the MCP host did not bind a sourc
     transport: createMemoryTransport(
       async () => ({ taskId: "task-9", status: "needs_confirmation" }),
       {
-        createGroup: async () => {
-          throw new Error("unused");
-        },
-        getGroup: async () => null,
-        listGroups: async () => [],
-        cancelGroup: async () => {
-          throw new Error("unused");
-        },
         getTask: async () => null,
         listTasks: async () => [],
         approveTask: async () => {
@@ -826,14 +780,6 @@ test("delegates through the MCP server and rejects spoofed sourceHandle params",
         return { taskId: "task-9", status: "needs_confirmation" };
       },
       {
-        createGroup: async () => {
-          throw new Error("unused");
-        },
-        getGroup: async () => null,
-        listGroups: async () => [],
-        cancelGroup: async () => {
-          throw new Error("unused");
-        },
         getTask: async () => null,
         listTasks: async () => [],
         approveTask: async () => {
@@ -906,14 +852,6 @@ test("returns tool-level business errors as isError text results", async () => {
         throw new Error("worker-originated delegation is disabled by orchestration policy");
       },
       {
-        createGroup: async () => {
-          throw new Error("unused");
-        },
-        getGroup: async () => null,
-        listGroups: async () => [],
-        cancelGroup: async () => {
-          throw new Error("unused");
-        },
         getTask: async () => null,
         listTasks: async () => [],
         approveTask: async () => {

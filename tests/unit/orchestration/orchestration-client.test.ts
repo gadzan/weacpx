@@ -164,7 +164,7 @@ test("sends orchestration RPC requests through the client", async () => {
   }
 });
 
-test("sends group lifecycle RPC requests through the client", async () => {
+test("sends group.new RPC request through the client", async () => {
   // Requires node:net listen; sandboxed runners may deny local IPC with EPERM.
   if (await skipIfLocalIpcUnavailable("orchestration-client socket integration tests")) return;
 
@@ -177,21 +177,7 @@ test("sends group lifecycle RPC requests through the client", async () => {
     createdAt: "2026-04-18T00:00:00.000Z",
     updatedAt: "2026-04-18T00:00:00.000Z",
   };
-  const summary = {
-    group: groupRecord,
-    tasks: [],
-    totalTasks: 0,
-    pendingApprovalTasks: 0,
-    runningTasks: 0,
-    completedTasks: 0,
-    failedTasks: 0,
-    cancelledTasks: 0,
-    terminal: true,
-  };
   let lastCreateGroup: unknown;
-  let lastGetGroup: unknown;
-  let lastListGroups: unknown;
-  let lastCancelGroup: unknown;
   const server = new OrchestrationServer(endpoint, {
     requestDelegate: async () => ({ taskId: "task-1", status: "needs_confirmation" }),
     getTask: async () => null,
@@ -242,18 +228,6 @@ test("sends group lifecycle RPC requests through the client", async () => {
       lastCreateGroup = input;
       return groupRecord;
     },
-    getGroupSummary: async (input) => {
-      lastGetGroup = input;
-      return summary;
-    },
-    listGroupSummaries: async (input) => {
-      lastListGroups = input;
-      return [summary];
-    },
-    cancelGroup: async (input) => {
-      lastCancelGroup = input;
-      return { summary, cancelledTaskIds: ["task-1"], skippedTaskIds: [] };
-    },
   });
   const client = new OrchestrationClient(endpoint, { createId: () => "req-1" });
 
@@ -264,25 +238,6 @@ test("sends group lifecycle RPC requests through the client", async () => {
       client.createGroup({ coordinatorSession: "backend:main", title: "parallel review" }),
     ).resolves.toEqual(groupRecord);
     expect(lastCreateGroup).toEqual({ coordinatorSession: "backend:main", title: "parallel review" });
-
-    await expect(client.getGroup({ coordinatorSession: "backend:main", groupId: "g-1" })).resolves.toEqual(summary);
-    expect(lastGetGroup).toEqual({ coordinatorSession: "backend:main", groupId: "g-1" });
-
-    await expect(
-      client.listGroups({ coordinatorSession: "backend:main", status: "running", stuck: true, sort: "createdAt", order: "asc" }),
-    ).resolves.toEqual([summary]);
-    expect(lastListGroups).toEqual({
-      coordinatorSession: "backend:main",
-      status: "running",
-      stuck: true,
-      sort: "createdAt",
-      order: "asc",
-    });
-
-    await expect(
-      client.cancelGroup({ coordinatorSession: "backend:main", groupId: "g-1" }),
-    ).resolves.toEqual({ summary, cancelledTaskIds: ["task-1"], skippedTaskIds: [] });
-    expect(lastCancelGroup).toEqual({ coordinatorSession: "backend:main", groupId: "g-1" });
   } finally {
     await server.stop();
     await rm(dir, { recursive: true, force: true });

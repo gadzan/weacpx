@@ -87,9 +87,9 @@ export const WEACPX_MCP_SERVER_INSTRUCTIONS = [
   "   - status=timeout: the task is still running. Call task_watch again with afterSeq=nextAfterSeq to keep watching, or task_get for a one-off snapshot.",
   "3. The task is terminal. Call task_get(taskId) to read the worker's final result, then summarize it for the user. Do not invent results that did not come from task_get.",
   "",
-  "Batching: use group_new before a wave of delegate_request calls and pass groupId on each, then group_get / group_list / group_cancel to manage the batch.",
-  "Cancellation: task_cancel aborts a single running task; group_cancel aborts the whole batch.",
-  "Discovery: task_list / group_list recover taskIds and groupIds from earlier in the session.",
+  "Batching: use delegate_batch to send multiple subtasks at once; it creates one group automatically when there are 2+ tasks, so their results are reported back together.",
+  "Cancellation: task_cancel aborts a single running task.",
+  "Discovery: task_list recovers taskIds from earlier in the session.",
   "",
   "worker_raise_question is worker-side only — call it from inside a delegated task when you are blocked, not from the coordinator that is waiting on a delegation.",
 ].join("\n");

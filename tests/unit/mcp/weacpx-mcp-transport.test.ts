@@ -107,38 +107,6 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
         updatedAt: "a",
       };
     },
-    getGroup: async (input: unknown) => {
-      calls.push({ method: "getGroup", input });
-      return null;
-    },
-    listGroups: async (input: unknown) => {
-      calls.push({ method: "listGroups", input });
-      return [];
-    },
-    cancelGroup: async (input: unknown) => {
-      calls.push({ method: "cancelGroup", input });
-      return {
-        summary: {
-          group: {
-            groupId: "g-1",
-            coordinatorSession: "backend:main",
-            title: "parallel review",
-            createdAt: "a",
-            updatedAt: "a",
-          },
-          tasks: [],
-          totalTasks: 0,
-          pendingApprovalTasks: 0,
-          runningTasks: 0,
-          completedTasks: 0,
-          failedTasks: 0,
-          cancelledTasks: 0,
-          terminal: true,
-        },
-        cancelledTaskIds: [],
-        skippedTaskIds: [],
-      };
-    },
     getTaskForCoordinator: async (input: unknown) => {
       calls.push({ method: "getTaskForCoordinator", input });
       return taskRecord;
@@ -191,13 +159,6 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
     workingDirectory: "/repo/weacpx",
     role: "reviewer",
   });
-  await transport.listGroups({
-    coordinatorSession: "backend:main",
-    status: "running",
-    stuck: true,
-    sort: "createdAt",
-    order: "asc",
-  });
   await transport.getTask(taskArgs);
   await transport.listTasks({
     coordinatorSession: "backend:main",
@@ -249,16 +210,6 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
         task: "review",
         cwd: "/repo/weacpx",
         role: "reviewer",
-      },
-    },
-    {
-      method: "listGroups",
-      input: {
-        coordinatorSession: "backend:main",
-        status: "running",
-        stuck: true,
-        sort: "createdAt",
-        order: "asc",
       },
     },
     { method: "getTaskForCoordinator", input: taskArgs },
@@ -333,29 +284,6 @@ test("createOrchestrationTransport workerRaiseQuestion fails clearly when no inj
       title: "parallel review",
       createdAt: "a",
       updatedAt: "a",
-    }),
-    getGroup: async () => null,
-    listGroups: async () => [],
-    cancelGroup: async () => ({
-      summary: {
-        group: {
-          groupId: "g-1",
-          coordinatorSession: "backend:main",
-          title: "parallel review",
-          createdAt: "a",
-          updatedAt: "a",
-        },
-        tasks: [],
-        totalTasks: 0,
-        pendingApprovalTasks: 0,
-        runningTasks: 0,
-        completedTasks: 0,
-        failedTasks: 0,
-        cancelledTasks: 0,
-        terminal: true,
-      },
-      cancelledTaskIds: [],
-      skippedTaskIds: [],
     }),
     getTaskForCoordinator: async () => null,
     listTasks: async () => [],

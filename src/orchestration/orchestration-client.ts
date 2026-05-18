@@ -8,7 +8,6 @@ import {
   type OrchestrationRpcResponse,
 } from "./orchestration-ipc";
 import type {
-  CancelGroupResult,
   CancelTaskInput,
   CoordinatorRequestHumanInputResult,
   CoordinatorTaskQuestionRef,
@@ -24,7 +23,6 @@ import type {
 import type {
   ExternalCoordinatorRecord,
   OrchestrationGroupRecord,
-  OrchestrationGroupSummary,
   OrchestrationTaskRecord,
 } from "./orchestration-types";
 import {
@@ -166,33 +164,6 @@ export class OrchestrationClient {
 
   async createGroup(input: { coordinatorSession: string; title: string }): Promise<OrchestrationGroupRecord> {
     return await this.request<OrchestrationGroupRecord>("group.new", input);
-  }
-
-  async getGroup(input: {
-    coordinatorSession: string;
-    groupId: string;
-  }): Promise<OrchestrationGroupSummary | null> {
-    return await this.request<OrchestrationGroupSummary | null>(
-      "group.get",
-      input,
-    );
-  }
-
-  async listGroups(input: {
-    coordinatorSession: string;
-    status?: "pending" | "running" | "terminal";
-    stuck?: boolean;
-    sort?: "updatedAt" | "createdAt";
-    order?: "asc" | "desc";
-  }): Promise<OrchestrationGroupSummary[]> {
-    return await this.request<OrchestrationGroupSummary[]>(
-      "group.list",
-      input,
-    );
-  }
-
-  async cancelGroup(input: { coordinatorSession: string; groupId: string }): Promise<CancelGroupResult> {
-    return await this.request<CancelGroupResult>("group.cancel", input);
   }
 
   async request<Result>(method: OrchestrationRpcMethod, params: unknown, timeoutMs = this.timeoutMs): Promise<Result> {

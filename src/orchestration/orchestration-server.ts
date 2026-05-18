@@ -11,7 +11,6 @@ import {
 import type {
   CancelTaskInput,
   CoordinatorTaskQuestionRef,
-  OrchestrationGroupListFilter,
   OrchestrationTaskFilter,
   RecordWorkerReplyInput,
   RegisterExternalCoordinatorInput,
@@ -41,9 +40,6 @@ const ORCHESTRATION_RPC_METHODS = new Set<OrchestrationRpcMethod>([
   "coordinator.request_human_input",
   "coordinator.review_contested_result",
   "group.new",
-  "group.get",
-  "group.list",
-  "group.cancel",
 ]);
 
 interface OrchestrationServerDeps {
@@ -227,20 +223,6 @@ export class OrchestrationServer {
           coordinatorSession: requireString(params, "coordinatorSession"),
           title: requireString(params, "title"),
         });
-      case "group.get":
-        requireOnlyKeys(params, ["coordinatorSession", "groupId"], "params");
-        return await this.handlers.getGroupSummary({
-          coordinatorSession: requireString(params, "coordinatorSession"),
-          groupId: requireString(params, "groupId"),
-        });
-      case "group.list":
-        return await this.handlers.listGroupSummaries(this.parseGroupListFilter(params));
-      case "group.cancel":
-        requireOnlyKeys(params, ["coordinatorSession", "groupId"], "params");
-        return await this.handlers.cancelGroup({
-          coordinatorSession: requireString(params, "coordinatorSession"),
-          groupId: requireString(params, "groupId"),
-        });
       default:
         throw new OrchestrationInvalidRequestError(`unsupported orchestration method: ${method}`);
     }
@@ -370,21 +352,6 @@ export class OrchestrationServer {
       question: requireString(params, "question"),
       whyBlocked: requireString(params, "whyBlocked"),
       whatIsNeeded: requireString(params, "whatIsNeeded"),
-    };
-  }
-
-  private parseGroupListFilter(params: Record<string, unknown>): OrchestrationGroupListFilter {
-    requireOnlyKeys(params, ["coordinatorSession", "status", "stuck", "sort", "order"], "params");
-    const status = requireOptionalEnum(params, "status", ["pending", "running", "terminal"]);
-    const stuck = requireOptionalBoolean(params, "stuck");
-    const sort = requireOptionalEnum(params, "sort", ["updatedAt", "createdAt"]);
-    const order = requireOptionalEnum(params, "order", ["asc", "desc"]);
-    return {
-      coordinatorSession: requireString(params, "coordinatorSession"),
-      ...(status !== undefined ? { status } : {}),
-      ...(stuck !== undefined ? { stuck } : {}),
-      ...(sort !== undefined ? { sort } : {}),
-      ...(order !== undefined ? { order } : {}),
     };
   }
 

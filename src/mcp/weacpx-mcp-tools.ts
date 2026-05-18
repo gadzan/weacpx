@@ -9,7 +9,6 @@ import {
 import { isQuotaDeferredError } from "../weixin/messaging/quota-errors";
 import { z } from "zod";
 
-const groupStatusSchema = z.enum(["pending", "running", "terminal"]);
 const taskStatusSchema = z.enum([
   "needs_confirmation",
   "running",
@@ -86,78 +85,58 @@ export function buildWeacpxMcpToolRegistry(input: {
         }),
     },
     {
-      name: "group_new",
-      description: "Create a new task group under the current coordinator. Use to batch multiple delegate_request calls together; pass the resulting groupId on each delegate so they share lifecycle and cancellation.",
+      name: "delegate_batch",
+      description: `Delegate several subtasks at once. Pass a "tasks" array; when it holds 2+ tasks they are bound to one auto-created group, so their results are reported back to you together when the whole batch finishes — one handoff instead of one interruption per task. Use this whenever you have multiple parallel delegations. Returns one result per task in input order; a task that fails to start carries an "error" field and does not abort the rest. Legacy-style only: it does not support MCP task execution — use delegate_request for a single native task handle.`,
       inputSchema: z
         .object({
-          title: z.string().min(1),
+          title: z.string().min(1).optional(),
+          tasks: z
+            .array(
+              z
+                .object({
+                  targetAgent: z.string().min(1),
+                  task: z.string().min(1),
+                  workingDirectory: z.string().min(1).optional(),
+                  role: z.string().min(1).optional(),
+                })
+                .strict(),
+            )
+            .min(1),
         })
         .strict(),
       handler: async (args) =>
         await asToolResult(async () => {
-          const group = await transport.createGroup({
-            coordinatorSession,
-            title: (args as { title: string }).title,
-          });
-          return createSuccessResult(renderGroupCreated(group), group);
-        }),
-    },
-    {
-      name: "group_get",
-      description: "Fetch a single task-group summary under the current coordinator. Use to check aggregate progress when waiting on a batch of delegations.",
-      inputSchema: z
-        .object({
-          groupId: z.string().min(1),
-        })
-        .strict(),
-      handler: async (args) =>
-        await asToolResult(async () => {
-          const summary = await transport.getGroup({
-            coordinatorSession,
-            groupId: (args as { groupId: string }).groupId,
-          });
-          return createSuccessResult(summary ? renderGroupSummary(summary) : "Group not found.", { group: summary });
-        }),
-    },
-    {
-      name: "group_list",
-      description: "List task groups under the current coordinator. Use to recover groupIds for an earlier batch.",
-      inputSchema: z
-        .object({
-          status: groupStatusSchema.optional(),
-          stuck: z.boolean().optional(),
-          sort: sortSchema.optional(),
-          order: orderSchema.optional(),
-        })
-        .strict(),
-      handler: async (args) =>
-        await asToolResult(async () => {
-          const { status, stuck, sort, order } = args as { status?: "pending" | "running" | "terminal"; stuck?: boolean; sort?: "updatedAt" | "createdAt"; order?: "asc" | "desc" };
-          const summaries = await transport.listGroups({
-            coordinatorSession,
-            ...(status !== undefined ? { status } : {}),
-            ...(stuck !== undefined ? { stuck } : {}),
-            ...(sort !== undefined ? { sort } : {}),
-            ...(order !== undefined ? { order } : {}),
-          });
-          return createSuccessResult(renderGroupList(summaries), { groups: summaries });
-        }),
-    },
-    {
-      name: "group_cancel",
-      description: "Cancel all unfinished tasks in a task group under the current coordinator. Use to abort a batch started via group_new + delegate_request.",
-      inputSchema: z
-        .object({
-          groupId: z.string().min(1),
-        })
-        .strict(),
-      handler: async (args) =>
-        await asToolResult(async () => {
-          const result = await transport.cancelGroup({
-            coordinatorSession,
-            groupId: (args as { groupId: string }).groupId,
-          });
-          return createSuccessResult(renderGroupCancelSuccess(result), result);
+          const { title, tasks } = args as {
+            title?: string;
+            tasks: Array<{ targetAgent: string; task: string; workingDirectory?: string; role?: string }>;
+          };
+          const groupId =
+            tasks.length >= 2
+              ? (
+                  await transport.createGroup({
+                    coordinatorSession,
+                    title: title ?? `Batch delegation (${tasks.length} tasks)`,
+                  })
+                ).groupId
+              : undefined;
+          const results: Array<{ index: number; taskId?: string; status?: string; error?: string }> = [];
+          for (const [index, entry] of tasks.entries()) {
+            try {
+              const result = await transport.delegateRequest({
+                coordinatorSession,
+                ...(sourceHandle ? { sourceHandle } : {}),
+                targetAgent: entry.targetAgent,
+                task: entry.task,
+                ...(entry.workingDirectory ? { workingDirectory: entry.workingDirectory } : {}),
+                ...(entry.role ? { role: entry.role } : {}),
+                ...(groupId ? { groupId } : {}),
+              });
+              results.push({ index, taskId: result.taskId, status: result.status });
+            } catch (error) {
+              results.push({ index, error: formatToolError(error) });
+            }
+          }
+          return createSuccessResult(renderDelegateBatchSuccess(groupId, results), { ...(groupId ? { groupId } : {}), tasks: results });
         }),
     },
     {
@@ -475,99 +454,24 @@ function renderDelegateSuccess(result: { taskId: string; status: string }): stri
   return [`Delegation task "${result.taskId}" created.`, `- Status: ${result.status}`, next].join("\n");
 }
 
-function renderGroupCreated(group: { groupId: string; title: string }): string {
-  return [`Task group "${group.groupId}" created.`, `- Title: ${group.title}`].join("\n");
-}
-
-function renderGroupSummary(summary: {
-  group: { groupId: string; title: string; coordinatorSession: string; injectionPending?: boolean; injectionAppliedAt?: string; lastInjectionError?: string };
-  totalTasks: number;
-  pendingApprovalTasks: number;
-  runningTasks: number;
-  completedTasks: number;
-  failedTasks: number;
-  cancelledTasks: number;
-  terminal: boolean;
-  tasks: Array<{ taskId: string; status: string; targetAgent: string }>;
-}): string {
-  const { group, tasks } = summary;
-  const lines = [
-    `Task group "${group.groupId}"`,
-    `- Title: ${group.title}`,
-    `- Coordinator session: ${group.coordinatorSession}`,
-    `- Total tasks: ${summary.totalTasks}`,
-    `- Pending approval: ${summary.pendingApprovalTasks}`,
-    `- Running: ${summary.runningTasks}`,
-    `- Completed: ${summary.completedTasks}`,
-    `- Failed: ${summary.failedTasks}`,
-    `- Cancelled: ${summary.cancelledTasks}`,
-    `- Terminal: ${summary.terminal ? "yes" : "no"}`,
-  ];
-  if (group.injectionPending !== undefined) {
-    lines.push(`- Injection pending: ${group.injectionPending ? "yes" : "no"}`);
-  }
-  if (group.injectionAppliedAt) {
-    lines.push(`- Injection completed at: ${group.injectionAppliedAt}`);
-  }
-  if (group.lastInjectionError) {
-    lines.push(`- Last injection error: ${group.lastInjectionError}`);
-  }
-  if (tasks.length > 0) {
-    lines.push("- Members:");
-    for (const task of tasks) {
-      lines.push(`  - ${task.taskId} [${task.status}] ${task.targetAgent}`);
-    }
-  }
-  return lines.join("\n");
-}
-
-function renderGroupList(groups: Array<{
-  group: { groupId: string; title: string; injectionPending?: boolean };
-  totalTasks: number;
-  pendingApprovalTasks: number;
-  runningTasks: number;
-  completedTasks: number;
-  failedTasks: number;
-  cancelledTasks: number;
-}>): string {
-  if (groups.length === 0) {
-    return "There are no task groups under the current coordinator.";
-  }
-  return ["Task groups for the current coordinator:", ...groups.map((group) => renderGroupListItem(group))].join("\n");
-}
-
-function renderGroupListItem(group: {
-  group: { groupId: string; title: string; injectionPending?: boolean };
-  totalTasks: number;
-  pendingApprovalTasks: number;
-  runningTasks: number;
-  completedTasks: number;
-  failedTasks: number;
-  cancelledTasks: number;
-}): string {
-  const reliability = group.group.injectionPending ? " | injection pending" : "";
-  return [
-    `- ${group.group.groupId}`,
-    group.group.title,
-    `total ${group.totalTasks}`,
-    `pending ${group.pendingApprovalTasks}`,
-    `running ${group.runningTasks}`,
-    `completed ${group.completedTasks}`,
-    `failed ${group.failedTasks}`,
-    `cancelled ${group.cancelledTasks}${reliability}`,
-  ].join(" | ");
-}
-
-function renderGroupCancelSuccess(input: {
-  summary: { group: { groupId: string } };
-  cancelledTaskIds: string[];
-  skippedTaskIds: string[];
-}): string {
-  return [
-    `Task group "${input.summary.group.groupId}" cancellation requested.`,
-    `- Cancel requested: ${input.cancelledTaskIds.length}`,
-    `- Skipped terminal tasks: ${input.skippedTaskIds.length}`,
-  ].join("\n");
+function renderDelegateBatchSuccess(
+  groupId: string | undefined,
+  results: Array<{ index: number; taskId?: string; status?: string; error?: string }>,
+): string {
+  const lines = results.map((entry) =>
+    entry.error
+      ? `  - #${entry.index}: failed to start — ${entry.error}`
+      : `  - #${entry.index}: task "${entry.taskId}" (${entry.status})`,
+  );
+  const started = results.filter((entry) => entry.taskId).length;
+  const header = groupId
+    ? `Batch delegation created group "${groupId}" with ${started}/${results.length} tasks started.`
+    : `Delegation: ${started}/${results.length} task started.`;
+  const next =
+    started > 0
+      ? "Next: track the started tasks with task_get/task_list, or task_watch to long-poll. The group reports all results back together once every task is terminal."
+      : "Next: every task failed to start — fix the errors above and retry.";
+  return [header, "- Tasks:", ...lines, next].join("\n");
 }
 
 function renderTaskList(tasks: Array<{ taskId: string; status: string; targetAgent: string; workerSession?: string; role?: string; groupId?: string; summary: string; noticePending?: boolean; injectionPending?: boolean; cancelRequestedAt?: string | undefined; cancelCompletedAt?: string | undefined }>): string {

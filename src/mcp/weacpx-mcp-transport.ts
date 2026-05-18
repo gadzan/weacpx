@@ -1,17 +1,14 @@
 import { OrchestrationClient } from "../orchestration/orchestration-client";
 import type { OrchestrationIpcEndpoint } from "../orchestration/orchestration-ipc";
 import type {
-  CancelGroupResult,
   CoordinatorRequestHumanInputResult,
   CoordinatorTaskQuestionRef,
-  OrchestrationGroupListFilter,
   OrchestrationTaskFilter,
   RequestDelegateRpcResult,
   WatchTaskResult,
 } from "../orchestration/orchestration-service";
 import type {
   OrchestrationGroupRecord,
-  OrchestrationGroupSummary,
   OrchestrationTaskRecord,
 } from "../orchestration/orchestration-types";
 
@@ -47,21 +44,9 @@ export interface WeacpxMcpTaskListArgs extends Pick<
   coordinatorSession: string;
 }
 
-export interface WeacpxMcpGroupIdArgs {
-  coordinatorSession: string;
-  groupId: string;
-}
-
 export interface WeacpxMcpGroupNewArgs {
   coordinatorSession: string;
   title: string;
-}
-
-export interface WeacpxMcpGroupListArgs extends Pick<
-  OrchestrationGroupListFilter,
-  "status" | "stuck" | "sort" | "order"
-> {
-  coordinatorSession: string;
 }
 
 export interface WeacpxMcpTaskQuestionRef extends CoordinatorTaskQuestionRef {}
@@ -98,9 +83,6 @@ export interface WeacpxMcpCoordinatorReviewContestedResultArgs {
 export interface WeacpxMcpTransport {
   delegateRequest: (input: WeacpxMcpDelegateRequest) => Promise<RequestDelegateRpcResult>;
   createGroup: (input: WeacpxMcpGroupNewArgs) => Promise<OrchestrationGroupRecord>;
-  getGroup: (input: WeacpxMcpGroupIdArgs) => Promise<OrchestrationGroupSummary | null>;
-  listGroups: (input: WeacpxMcpGroupListArgs) => Promise<OrchestrationGroupSummary[]>;
-  cancelGroup: (input: WeacpxMcpGroupIdArgs) => Promise<CancelGroupResult>;
   getTask: (input: WeacpxMcpTaskIdArgs) => Promise<OrchestrationTaskRecord | null>;
   listTasks: (input: WeacpxMcpTaskListArgs) => Promise<OrchestrationTaskRecord[]>;
   approveTask: (input: WeacpxMcpTaskIdArgs) => Promise<OrchestrationTaskRecord>;
@@ -124,9 +106,6 @@ interface OrchestrationClientLike {
   registerExternalCoordinator?: OrchestrationClient["registerExternalCoordinator"];
   delegateRequest: OrchestrationClient["delegateRequest"];
   createGroup: OrchestrationClient["createGroup"];
-  getGroup: OrchestrationClient["getGroup"];
-  listGroups: OrchestrationClient["listGroups"];
-  cancelGroup: OrchestrationClient["cancelGroup"];
   getTaskForCoordinator: OrchestrationClient["getTaskForCoordinator"];
   listTasks: OrchestrationClient["listTasks"];
   approveTask: OrchestrationClient["approveTask"];
@@ -159,9 +138,6 @@ export function createOrchestrationTransport(
         ...(input.groupId !== undefined ? { groupId: input.groupId } : {}),
       }),
     createGroup: async (input) => await client.createGroup(input),
-    getGroup: async (input) => await client.getGroup(input),
-    listGroups: async (input) => await client.listGroups(input),
-    cancelGroup: async (input) => await client.cancelGroup(input),
     getTask: async (input) => await client.getTaskForCoordinator(input),
     listTasks: async (input) =>
       await client.listTasks({
@@ -206,9 +182,6 @@ export function createMemoryTransport(
   return {
     delegateRequest: async (input) => await delegateRequest(input),
     createGroup: overrides.createGroup ?? (unimplemented("createGroup") as WeacpxMcpTransport["createGroup"]),
-    getGroup: overrides.getGroup ?? (unimplemented("getGroup") as WeacpxMcpTransport["getGroup"]),
-    listGroups: overrides.listGroups ?? (unimplemented("listGroups") as WeacpxMcpTransport["listGroups"]),
-    cancelGroup: overrides.cancelGroup ?? (unimplemented("cancelGroup") as WeacpxMcpTransport["cancelGroup"]),
     getTask: overrides.getTask ?? (unimplemented("getTask") as WeacpxMcpTransport["getTask"]),
     listTasks: overrides.listTasks ?? (unimplemented("listTasks") as WeacpxMcpTransport["listTasks"]),
     approveTask: overrides.approveTask ?? (unimplemented("approveTask") as WeacpxMcpTransport["approveTask"]),
