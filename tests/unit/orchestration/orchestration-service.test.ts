@@ -6485,6 +6485,26 @@ test("cancelling the last waiting_for_human task closes the active package and h
   expect(harness.wakeCoordinatorCalls).toEqual([{ coordinatorSession: "backend:main" }]);
 });
 
+test("cancelTask on a needs_confirmation task records it as rejected", async () => {
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        ...createEmptyState().orchestration,
+        tasks: {
+          "task-1": { ...makeCompletedTask("task-1"), status: "needs_confirmation", summary: "", resultText: "" },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const task = await service.cancelTask({ coordinatorSession: "backend:main", taskId: "task-1" });
+
+  expect(task.status).toBe("cancelled");
+  expect(task.summary).toBe("rejected");
+});
+
 test("completes a running task cancellation when transport cancellation succeeds", async () => {
   const harness = makeDeps({
     initialState: {
@@ -7327,7 +7347,7 @@ test("rejects a worker-chained needs_confirmation task without assigning a worke
     task: "review the design",
   });
 
-  const rejected = await service.rejectTask({
+  const rejected = await service.cancelTask({
     taskId: "task-reject-1",
     coordinatorSession: "backend:main",
   });
@@ -7338,7 +7358,6 @@ test("rejects a worker-chained needs_confirmation task without assigning a worke
     taskId: "task-reject-1",
     status: "cancelled",
     summary: "rejected",
-    updatedAt: "2026-04-13T10:05:00.000Z",
   });
   expect(rejected.workerSession).toBe("backend:codex:backend:main");
 });
@@ -7375,12 +7394,6 @@ test("rejects approval and rejection when the coordinator session does not own t
     }),
   ).rejects.toThrow('task "task-owned" belongs to coordinator "backend:main", not "backend:other"');
 
-  await expect(
-    service.rejectTask({
-      taskId: "task-owned",
-      coordinatorSession: "backend:other",
-    }),
-  ).rejects.toThrow('task "task-owned" belongs to coordinator "backend:main", not "backend:other"');
 });
 
 test("does not persist a human delegate task when worker dispatch fails", async () => {

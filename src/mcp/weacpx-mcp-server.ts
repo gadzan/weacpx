@@ -76,11 +76,11 @@ export const WEACPX_MCP_SERVER_INSTRUCTIONS = [
   "Legacy tool lifecycle for clients without MCP Tasks support:",
   "1. delegate_request → returns { taskId, status }.",
   "   - status=running: the worker has started. Return the taskId to the user, then use task_get / task_list for non-blocking snapshots, or task_watch to long-poll for the next event, attention-required state, or terminal state.",
-  "   - status=needs_confirmation: tell the user, then call task_approve or task_reject based on their response. After task_approve, use task_get / task_list snapshots or task_watch to keep following the task.",
+  "   - status=needs_confirmation: tell the user, then call task_approve or task_cancel based on their response. After task_approve, use task_get / task_list snapshots or task_watch to keep following the task.",
   "2. Follow the task with task_watch(taskId): it long-polls until the next event (mode=next_event) or until the task needs attention or is terminal (mode=until_attention_or_terminal), then returns the events plus a nextAfterSeq cursor. It is single-shot — call it again with afterSeq=nextAfterSeq to keep watching. Do not poll in a tight loop when the user asked to delegate and continue.",
   "   - status=terminal: go to step 3.",
   "   - status=attention_required: the task is in needs_confirmation / blocked / waiting_for_human, or has reviewPending set. Call task_get(taskId) to read the actual status and any openQuestion / reviewPending fields, then branch:",
-  "       * needs_confirmation -> task_approve or task_reject",
+  "       * needs_confirmation -> task_approve or task_cancel",
   "       * blocked or waiting_for_human -> coordinator_answer_question (the answer can come from you or be relayed from a human you consulted)",
   "       * reviewPending set -> coordinator_review_contested_result with accept or discard",
   "     After resolving, use task_get / task_list snapshots, or task_watch to keep following the task.",
@@ -620,7 +620,7 @@ function renderInputRequiredTaskResult(task: OrchestrationTaskRecord): Result {
 function inputRequiredActions(task: OrchestrationTaskRecord): string[] {
   const actions: string[] = [];
   if (task.status === "needs_confirmation") {
-    actions.push("task_approve", "task_reject");
+    actions.push("task_approve", "task_cancel");
   }
   if (task.status === "blocked" || task.status === "waiting_for_human" || task.openQuestion) {
     actions.push("coordinator_answer_question");

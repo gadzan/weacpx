@@ -26,7 +26,7 @@ import {
   getListContestedCoordinatorResultsMock,
   getMarkTaskInjectionAppliedMock,
   getMarkTaskInjectionFailedMock,
-  getRejectTaskMock,
+  getDirectCancelTaskMock,
   getPromptMock,
   getRemoveSessionMock,
   getRequestDelegateMock,
@@ -1104,11 +1104,10 @@ test("rejects a needs_confirmation task through the current coordinator session"
   await router.handle("wx:user", "/session new coordinator --agent codex --ws backend");
   const reply = await router.handle("wx:user", "/task reject task-reject-1");
 
-  expect(getRejectTaskMock(orchestration).mock.calls.at(-1)?.[0]).toEqual({
+  expect(getDirectCancelTaskMock(orchestration).mock.calls.at(-1)?.[0]).toMatchObject({
     taskId: "task-reject-1",
     coordinatorSession: "backend:coordinator",
   });
-  expect(reply.text).toContain("已拒绝任务");
   expect(reply.text).toContain("task-reject-1");
   expect(reply.text).toContain("cancelled");
 });
@@ -1141,7 +1140,7 @@ test("returns a stable hint when rejecting a non-confirmation task", async () =>
   await router.handle("wx:user", "/session new coordinator --agent codex --ws backend");
   const reply = await router.handle("wx:user", "/task reject task-running-2");
 
-  expect(getRejectTaskMock(orchestration).mock.calls).toHaveLength(0);
+  expect(getDirectCancelTaskMock(orchestration).mock.calls).toHaveLength(0);
   expect(reply.text).toContain("不是待确认状态");
 });
 

@@ -33,7 +33,6 @@ const ORCHESTRATION_RPC_METHODS = new Set<OrchestrationRpcMethod>([
   "task.list",
   "task.watch",
   "task.approve",
-  "task.reject",
   "task.cancel",
   "worker.reply",
   "worker.raise_question",
@@ -175,12 +174,6 @@ export class OrchestrationServer {
       case "task.approve":
         requireOnlyKeys(params, ["taskId", "coordinatorSession"], "params");
         return await this.handlers.approveTask({
-          taskId: requireString(params, "taskId"),
-          coordinatorSession: requireString(params, "coordinatorSession"),
-        });
-      case "task.reject":
-        requireOnlyKeys(params, ["taskId", "coordinatorSession"], "params");
-        return await this.handlers.rejectTask({
           taskId: requireString(params, "taskId"),
           coordinatorSession: requireString(params, "coordinatorSession"),
         });

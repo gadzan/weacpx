@@ -49,12 +49,6 @@ function makeServerHandlers(overrides: Partial<Record<string, unknown>> = {}) {
       coordinatorSession: input.coordinatorSession,
       status: "running",
     }),
-    rejectTask: async (input: Record<string, unknown>) => ({
-      taskId: input.taskId,
-      coordinatorSession: input.coordinatorSession,
-      status: "cancelled",
-      summary: "rejected",
-    }),
     cancelTask: async (input: Record<string, unknown>) => ({ taskId: input.taskId, status: "cancelled" }),
     recordWorkerReply: async (input: Record<string, unknown>) => ({ taskId: input.taskId, status: "completed" }),
     workerRaiseQuestion: async () => ({ taskId: "task-1", questionId: "question-1", status: "blocked" }),
@@ -368,12 +362,6 @@ test("forwards supported orchestration RPC methods to handlers", async () => {
     coordinatorSession: input.coordinatorSession,
     status: "running",
   }));
-  const rejectTask = mock(async (input: Record<string, unknown>) => ({
-    taskId: input.taskId,
-    coordinatorSession: input.coordinatorSession,
-    status: "cancelled",
-    summary: "rejected",
-  }));
   const cancelTask = mock(async (input: Record<string, unknown>) => ({ taskId: input.taskId, status: "cancelled" }));
   const recordWorkerReply = mock(async (input: Record<string, unknown>) => ({ taskId: input.taskId, status: "completed" }));
   const server = new OrchestrationServer(
@@ -383,7 +371,6 @@ test("forwards supported orchestration RPC methods to handlers", async () => {
       getTask,
       listTasks,
       approveTask,
-      rejectTask,
       cancelTask,
       recordWorkerReply,
     }),
@@ -466,23 +453,6 @@ test("forwards supported orchestration RPC methods to handlers", async () => {
 
     await expect(
       sendRequest(endpoint.path, {
-        id: "req-4c",
-        method: "task.reject",
-        params: { taskId: "task-1", coordinatorSession: "backend:main" },
-      }),
-    ).resolves.toEqual({
-      id: "req-4c",
-      ok: true,
-      result: {
-        taskId: "task-1",
-        coordinatorSession: "backend:main",
-        status: "cancelled",
-        summary: "rejected",
-      },
-    });
-
-    await expect(
-      sendRequest(endpoint.path, {
         id: "req-5",
         method: "worker.reply",
         params: { taskId: "task-1", sourceHandle: "worker-1", resultText: "done" },
@@ -501,7 +471,6 @@ test("forwards supported orchestration RPC methods to handlers", async () => {
     expect(getTask).toHaveBeenCalledWith("task-1");
     expect(listTasks).toHaveBeenCalledWith({ coordinatorSession: "backend:main" });
     expect(approveTask).toHaveBeenCalledWith({ taskId: "task-1", coordinatorSession: "backend:main" });
-    expect(rejectTask).toHaveBeenCalledWith({ taskId: "task-1", coordinatorSession: "backend:main" });
     expect(cancelTask).toHaveBeenCalledWith({ taskId: "task-1", sourceHandle: "wx:user" });
     expect(recordWorkerReply).toHaveBeenCalledWith({
       taskId: "task-1",

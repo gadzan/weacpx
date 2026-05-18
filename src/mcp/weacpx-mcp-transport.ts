@@ -113,7 +113,6 @@ export interface WeacpxMcpTransport {
   getTask: (input: WeacpxMcpTaskIdArgs) => Promise<OrchestrationTaskRecord | null>;
   listTasks: (input: WeacpxMcpTaskListArgs) => Promise<OrchestrationTaskRecord[]>;
   approveTask: (input: WeacpxMcpTaskIdArgs) => Promise<OrchestrationTaskRecord>;
-  rejectTask: (input: WeacpxMcpTaskIdArgs) => Promise<OrchestrationTaskRecord>;
   cancelTask: (input: WeacpxMcpTaskIdArgs) => Promise<OrchestrationTaskRecord>;
   watchTask: (input: WeacpxMcpTaskWatchArgs) => Promise<WatchTaskResult>;
   workerRaiseQuestion: (
@@ -143,7 +142,6 @@ interface OrchestrationClientLike {
   getTaskForCoordinator: OrchestrationClient["getTaskForCoordinator"];
   listTasks: OrchestrationClient["listTasks"];
   approveTask: OrchestrationClient["approveTask"];
-  rejectTask: OrchestrationClient["rejectTask"];
   cancelTaskForCoordinator: OrchestrationClient["cancelTaskForCoordinator"];
   watchTask: OrchestrationClient["watchTask"];
   workerRaiseQuestion: OrchestrationClient["workerRaiseQuestion"];
@@ -187,7 +185,6 @@ export function createOrchestrationTransport(
         ...(input.order !== undefined ? { order: input.order } : {}),
       }),
     approveTask: async (input) => await client.approveTask(input),
-    rejectTask: async (input) => await client.rejectTask(input),
     cancelTask: async (input) => await client.cancelTaskForCoordinator(input),
     watchTask: async (input) => await client.watchTask(input),
     workerRaiseQuestion: async (input) => {
@@ -229,7 +226,6 @@ export function createMemoryTransport(
     getTask: overrides.getTask ?? (unimplemented("getTask") as WeacpxMcpTransport["getTask"]),
     listTasks: overrides.listTasks ?? (unimplemented("listTasks") as WeacpxMcpTransport["listTasks"]),
     approveTask: overrides.approveTask ?? (unimplemented("approveTask") as WeacpxMcpTransport["approveTask"]),
-    rejectTask: overrides.rejectTask ?? (unimplemented("rejectTask") as WeacpxMcpTransport["rejectTask"]),
     cancelTask: overrides.cancelTask ?? (unimplemented("cancelTask") as WeacpxMcpTransport["cancelTask"]),
     watchTask: overrides.watchTask ?? (unimplemented("watchTask") as WeacpxMcpTransport["watchTask"]),
     workerRaiseQuestion:

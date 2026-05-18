@@ -58,7 +58,7 @@ export function buildWeacpxMcpToolRegistry(input: {
   const tools: WeacpxMcpToolDefinition<unknown>[] = [
     {
       name: "delegate_request",
-      description: `Delegate a subtask to another agent under the current coordinator. Pass an absolute workingDirectory for the worker. Supports MCP Tasks when the client requests task execution: the tool can return a native task handle immediately, then clients can use tasks/get, tasks/result, tasks/list, and tasks/cancel. For legacy clients, after this returns status=running, keep the returned taskId and use task_get/task_list for non-blocking progress snapshots, or task_watch to long-poll for the next event or terminal state. If status=needs_confirmation, wait for the user to approve (task_approve / task_reject) first.${availableAgents && availableAgents.length > 0 ? ` Available agents: ${availableAgents.join(", ")}.` : ""}`,
+      description: `Delegate a subtask to another agent under the current coordinator. Pass an absolute workingDirectory for the worker. Supports MCP Tasks when the client requests task execution: the tool can return a native task handle immediately, then clients can use tasks/get, tasks/result, tasks/list, and tasks/cancel. For legacy clients, after this returns status=running, keep the returned taskId and use task_get/task_list for non-blocking progress snapshots, or task_watch to long-poll for the next event or terminal state. If status=needs_confirmation, wait for the user to approve or cancel (task_approve / task_cancel) first.${availableAgents && availableAgents.length > 0 ? ` Available agents: ${availableAgents.join(", ")}.` : ""}`,
       execution: { taskSupport: "optional" },
       inputSchema: z
         .object({
@@ -232,25 +232,8 @@ export function buildWeacpxMcpToolRegistry(input: {
         }),
     },
     {
-      name: "task_reject",
-      description: "Reject a pending task under the current coordinator. Use when delegate_request returned status=needs_confirmation and the user declined; nothing else is needed afterwards.",
-      inputSchema: z
-        .object({
-          taskId: z.string().min(1),
-        })
-        .strict(),
-      handler: async (args) =>
-        await asToolResult(async () => {
-          const task = await transport.rejectTask({
-            coordinatorSession,
-            taskId: (args as { taskId: string }).taskId,
-          });
-          return createSuccessResult(renderTaskRejectionSuccess(task), task);
-        }),
-    },
-    {
       name: "task_cancel",
-      description: "Request cancellation for a task under the current coordinator. Use to abort a running delegation; the task transitions to a terminal state shortly after.",
+      description: "Cancel a task under the current coordinator. Works in any non-terminal state: a running delegation is aborted, and a task still waiting for approval (needs_confirmation) is rejected. The task transitions to a terminal state shortly after.",
       inputSchema: z
         .object({
           taskId: z.string().min(1),
@@ -514,7 +497,7 @@ function createErrorResult(message: string): WeacpxMcpToolResult {
 
 function renderDelegateSuccess(result: { taskId: string; status: string }): string {
   const next = result.status === "needs_confirmation"
-    ? `Next: this delegation requires user approval. Tell the user, then call task_approve or task_reject based on their response.`
+    ? `Next: this delegation requires user approval. Tell the user, then call task_approve or task_cancel based on their response.`
     : `Next: task "${result.taskId}" is running. Return this taskId to the user, call task_get/task_list for non-blocking progress snapshots, or task_watch to long-poll for the next event or terminal state.`;
   return [`Delegation task "${result.taskId}" created.`, `- Status: ${result.status}`, next].join("\n");
 }
@@ -728,10 +711,6 @@ function renderTaskApprovalSuccess(task: { taskId: string; status: string }): st
     `- Current status: ${task.status}`,
     `Next: use task_get/task_list for non-blocking progress snapshots, or task_watch to long-poll until the worker finishes; then task_get to read the final result.`,
   ].join("\n");
-}
-
-function renderTaskRejectionSuccess(task: { taskId: string; status: string }): string {
-  return [`Task "${task.taskId}" rejected.`, `- Current status: ${task.status}`].join("\n");
 }
 
 function renderWorkerRaiseQuestionSuccess(task: { taskId: string; questionId: string }): string {

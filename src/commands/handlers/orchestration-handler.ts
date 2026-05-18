@@ -10,7 +10,6 @@ import {
   renderTaskApprovalSuccess,
   renderTaskCancelSuccess,
   renderTaskList,
-  renderTaskRejectionSuccess,
   renderTaskSummary,
   renderTasksCleanResult,
 } from "../../formatting/render-text";
@@ -331,12 +330,12 @@ export async function handleTaskReject(
     return { text: renderTaskConfirmationUnavailable(task) };
   }
 
-  const rejected = await orchestration.rejectTask({
+  const rejected = await orchestration.cancelTask({
     taskId,
     coordinatorSession: session.transportSession,
   });
 
-  return { text: renderTaskRejectionSuccess(rejected) };
+  return { text: renderTaskCancelSuccess(rejected) };
 }
 
 export async function handleTaskCancel(

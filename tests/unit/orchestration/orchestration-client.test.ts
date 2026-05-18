@@ -109,20 +109,6 @@ test("sends orchestration RPC requests through the client", async () => {
       createdAt: "2026-04-13T00:00:00.000Z",
       updatedAt: "2026-04-13T00:00:00.000Z",
     }),
-    rejectTask: async (input) => ({
-      taskId: input.taskId,
-      sourceHandle: "backend:main",
-      sourceKind: "coordinator",
-      coordinatorSession: input.coordinatorSession,
-      workspace: "backend",
-      targetAgent: "claude",
-      task: "review",
-      status: "cancelled",
-      summary: "rejected",
-      resultText: "",
-      createdAt: "2026-04-13T00:00:00.000Z",
-      updatedAt: "2026-04-13T00:00:00.000Z",
-    }),
   });
   const client = new OrchestrationClient(endpoint, { createId: () => "req-1" });
 
@@ -169,9 +155,6 @@ test("sends orchestration RPC requests through the client", async () => {
     await expect(
       client.approveTask({ coordinatorSession: "backend:main", taskId: "task-1" }),
     ).resolves.toMatchObject({ taskId: "task-1", status: "running" });
-    await expect(
-      client.rejectTask({ coordinatorSession: "backend:main", taskId: "task-1" }),
-    ).resolves.toMatchObject({ taskId: "task-1", status: "cancelled", summary: "rejected" });
     await expect(
       client.workerReply({ taskId: "task-1", sourceHandle: "backend:claude:worker", resultText: "done" }),
     ).resolves.toEqual({ accepted: true });
@@ -251,20 +234,6 @@ test("sends group lifecycle RPC requests through the client", async () => {
       task: "t",
       status: "running",
       summary: "",
-      resultText: "",
-      createdAt: "a",
-      updatedAt: "a",
-    }),
-    rejectTask: async () => ({
-      taskId: "task-1",
-      sourceHandle: "backend:main",
-      sourceKind: "coordinator",
-      coordinatorSession: "backend:main",
-      workspace: "backend",
-      targetAgent: "claude",
-      task: "t",
-      status: "cancelled",
-      summary: "rejected",
       resultText: "",
       createdAt: "a",
       updatedAt: "a",
@@ -380,7 +349,6 @@ test("sends blocker-loop RPC requests through the client", async () => {
     }),
     recordWorkerReply: async () => blockerTask,
     approveTask: async () => reviewedTask,
-    rejectTask: async () => ({ ...reviewedTask, status: "cancelled" as const, summary: "rejected" }),
     workerRaiseQuestion: async (input) => {
       lastWorkerRaiseQuestion = input;
       return { taskId: input.taskId, questionId: "question-1", status: "blocked" as const };
@@ -542,7 +510,6 @@ test("client methods pass all input fields through to the server", async () => {
     getTask: async () => null,
     listTasks: async () => [],
     approveTask: async (input) => ({ taskId: input.taskId }) as any,
-    rejectTask: async (input) => ({ taskId: input.taskId }) as any,
     cancelTask: async (input) => ({ taskId: input.taskId }) as any,
     recordWorkerReply: async () => ({ taskId: "task-1" }) as any,
     workerRaiseQuestion: async () => ({ taskId: "task-1", questionId: "q-1", status: "blocked" }),
@@ -593,9 +560,6 @@ test("surfaces server-side RPC errors from the client", async () => {
     },
     approveTask: async () => {
       throw new Error("approve failed");
-    },
-    rejectTask: async () => {
-      throw new Error("reject failed");
     },
   });
   const client = new OrchestrationClient(endpoint, { createId: () => "req-1" });

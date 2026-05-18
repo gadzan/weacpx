@@ -2750,7 +2750,11 @@ export class OrchestrationService {
       }
 
       const closedPackageId = this.detachTaskFromQuestionFlows(state, task, now);
+      const wasNeedsConfirmation = task.status === "needs_confirmation";
       task.status = "cancelled";
+      if (wasNeedsConfirmation && task.summary.trim().length === 0) {
+        task.summary = "rejected";
+      }
       task.openQuestion = undefined;
       task.cancelRequestedAt = task.cancelRequestedAt ?? now;
       task.cancelCompletedAt = now;
@@ -3015,36 +3019,6 @@ export class OrchestrationService {
     this.logEvent("orchestration.task.approved", "task approved", this.taskContext(prepared.task));
 
     return prepared.task;
-  }
-
-  async rejectTask(input: ConfirmTaskInput): Promise<OrchestrationTaskRecord> {
-    const task = await this.mutate(async () => {
-      const state = await this.deps.loadState();
-      const task = state.orchestration.tasks[input.taskId];
-      if (!task) {
-        throw new Error(`task "${input.taskId}" does not exist`);
-      }
-
-      this.assertCoordinatorOwnership(task, input.coordinatorSession);
-      this.assertNeedsConfirmation(task);
-
-      task.status = "cancelled";
-      task.summary = "rejected";
-      task.updatedAt = this.deps.now().toISOString();
-      this.appendTaskEvent(task, task.updatedAt, "status_changed", {
-        status: "cancelled",
-        summary: "rejected",
-        message: "Task rejected",
-      });
-
-      await this.deps.saveState(state);
-
-      return { ...task };
-    });
-
-    this.logEvent("orchestration.task.rejected", "task rejected", this.taskContext(task));
-
-    return task;
   }
 
   private async resolveWorkerSession(input: RequestDelegateInput): Promise<string> {

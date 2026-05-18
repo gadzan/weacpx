@@ -30,7 +30,6 @@ export type OrchestrationRpcMethod =
   | "task.list"
   | "task.watch"
   | "task.approve"
-  | "task.reject"
   | "task.cancel"
   | "worker.reply"
   | "worker.raise_question"
@@ -81,7 +80,6 @@ export interface OrchestrationRpcHandlers {
   listTasks: (filter?: OrchestrationTaskFilter) => Promise<OrchestrationTaskRecord[]>;
   watchTask: (input: WatchTaskInput) => Promise<WatchTaskResult>;
   approveTask: (input: { taskId: string; coordinatorSession: string }) => Promise<OrchestrationTaskRecord>;
-  rejectTask: (input: { taskId: string; coordinatorSession: string }) => Promise<OrchestrationTaskRecord>;
   cancelTask: (input: CancelTaskInput) => Promise<OrchestrationTaskRecord>;
   recordWorkerReply: (input: RecordWorkerReplyInput) => Promise<OrchestrationTaskRecord>;
   workerRaiseQuestion: (

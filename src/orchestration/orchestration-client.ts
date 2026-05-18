@@ -91,16 +91,6 @@ export class OrchestrationClient {
     );
   }
 
-  async rejectTask(input: {
-    coordinatorSession: string;
-    taskId: string;
-  }): Promise<OrchestrationTaskRecord> {
-    return await this.request<OrchestrationTaskRecord>(
-      "task.reject",
-      input,
-    );
-  }
-
   async cancelTask(input: CancelTaskInput): Promise<OrchestrationTaskRecord> {
     return await this.request<OrchestrationTaskRecord>("task.cancel", input);
   }

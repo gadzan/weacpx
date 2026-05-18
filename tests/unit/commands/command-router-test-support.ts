@@ -385,13 +385,19 @@ export function createOrchestrationService(options?: {
     },
   );
 
-  const cancelTask = mock(async ({ taskId, sourceHandle }: { taskId: string; sourceHandle?: string }) => {
+  const cancelTask = mock(async ({ taskId, sourceHandle, coordinatorSession }: { taskId: string; sourceHandle?: string; coordinatorSession?: string }) => {
     const task = tasks.find((item) => item.taskId === taskId);
     if (!task) {
       throw new Error(`task "${taskId}" does not exist`);
     }
     if (sourceHandle !== undefined && task.sourceHandle !== sourceHandle) {
       throw new Error(`task "${taskId}" belongs to source "${task.sourceHandle}", not "${sourceHandle}"`);
+    }
+    if (coordinatorSession !== undefined && task.coordinatorSession !== coordinatorSession) {
+      throw new Error(`task "${taskId}" belongs to coordinator "${task.coordinatorSession}", not "${coordinatorSession}"`);
+    }
+    if (task.status === "needs_confirmation" && task.summary.trim().length === 0) {
+      task.summary = "rejected";
     }
     task.status = "cancelled";
     task.updatedAt = "2026-04-13T10:00:00.000Z";
@@ -411,23 +417,6 @@ export function createOrchestrationService(options?: {
     }
     task.workerSession = task.workerSession ?? `${task.workspace}:${task.targetAgent}:${task.coordinatorSession}`;
     task.status = "running";
-    task.updatedAt = "2026-04-13T10:00:00.000Z";
-    return cloneTask(task);
-  });
-
-  const rejectTask = mock(async ({ taskId, coordinatorSession }: { taskId: string; coordinatorSession: string }) => {
-    const task = tasks.find((item) => item.taskId === taskId);
-    if (!task) {
-      throw new Error(`task "${taskId}" does not exist`);
-    }
-    if (task.coordinatorSession !== coordinatorSession) {
-      throw new Error(`task "${taskId}" belongs to coordinator "${task.coordinatorSession}", not "${coordinatorSession}"`);
-    }
-    if (task.status !== "needs_confirmation") {
-      throw new Error(`task "${taskId}" is ${task.status}, not needs_confirmation`);
-    }
-    task.status = "cancelled";
-    task.summary = "rejected";
     task.updatedAt = "2026-04-13T10:00:00.000Z";
     return cloneTask(task);
   });
@@ -754,7 +743,6 @@ export function createOrchestrationService(options?: {
     requestTaskCancellation,
     cancelTask,
     approveTask,
-    rejectTask,
     cleanTasks,
     listSessionBlockingTasks,
     purgeSessionReferences,
@@ -784,7 +772,6 @@ export function createOrchestrationService(options?: {
     requestTaskCancellation: ReturnType<typeof mock>;
     cancelTask: ReturnType<typeof mock>;
     approveTask: ReturnType<typeof mock>;
-    rejectTask: ReturnType<typeof mock>;
     cleanTasks: ReturnType<typeof mock>;
     listSessionBlockingTasks: ReturnType<typeof mock>;
     purgeSessionReferences: ReturnType<typeof mock>;
@@ -866,12 +853,12 @@ export function getCancelTaskMock(orchestration: ReturnType<typeof createOrchest
   return orchestration.requestTaskCancellation as ReturnType<typeof mock>;
 }
 
-export function getApproveTaskMock(orchestration: ReturnType<typeof createOrchestrationService>) {
-  return orchestration.approveTask as ReturnType<typeof mock>;
+export function getDirectCancelTaskMock(orchestration: ReturnType<typeof createOrchestrationService>) {
+  return orchestration.cancelTask as ReturnType<typeof mock>;
 }
 
-export function getRejectTaskMock(orchestration: ReturnType<typeof createOrchestrationService>) {
-  return orchestration.rejectTask as ReturnType<typeof mock>;
+export function getApproveTaskMock(orchestration: ReturnType<typeof createOrchestrationService>) {
+  return orchestration.approveTask as ReturnType<typeof mock>;
 }
 
 export function getListPendingCoordinatorResultsMock(orchestration: ReturnType<typeof createOrchestrationService>) {

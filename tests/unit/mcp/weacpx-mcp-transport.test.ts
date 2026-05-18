@@ -151,10 +151,6 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
       calls.push({ method: "approveTask", input });
       return taskRecord;
     },
-    rejectTask: async (input: unknown) => {
-      calls.push({ method: "rejectTask", input });
-      return { ...taskRecord, status: "cancelled" as const, summary: "rejected" };
-    },
     cancelTaskForCoordinator: async (input: unknown) => {
       calls.push({ method: "cancelTaskForCoordinator", input });
       return { ...taskRecord, status: "cancelled" as const };
@@ -215,7 +211,6 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
     order: "asc",
   });
   await transport.approveTask(taskArgs);
-  await transport.rejectTask(taskArgs);
   await transport.cancelTask(taskArgs);
   await transport.watchTask({
     coordinatorSession: "backend:main",
@@ -289,7 +284,6 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
       },
     },
     { method: "approveTask", input: taskArgs },
-    { method: "rejectTask", input: taskArgs },
     { method: "cancelTaskForCoordinator", input: taskArgs },
     {
       method: "watchTask",
@@ -387,9 +381,6 @@ test("createOrchestrationTransport workerRaiseQuestion fails clearly when no inj
     getTaskForCoordinator: async () => null,
     listTasks: async () => [],
     approveTask: async () => {
-      throw new Error("unused");
-    },
-    rejectTask: async () => {
       throw new Error("unused");
     },
     cancelTaskForCoordinator: async () => {

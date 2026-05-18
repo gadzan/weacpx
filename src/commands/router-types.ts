@@ -73,7 +73,6 @@ export interface OrchestrationRouterOps {
   requestTaskCancellation: OrchestrationService["requestTaskCancellation"];
   cancelTask: OrchestrationService["cancelTask"];
   approveTask: OrchestrationService["approveTask"];
-  rejectTask: OrchestrationService["rejectTask"];
   cleanTasks: OrchestrationService["cleanTasks"];
   listSessionBlockingTasks: OrchestrationService["listSessionBlockingTasks"];
   purgeSessionReferences: OrchestrationService["purgeSessionReferences"];

@@ -55,9 +55,6 @@ test("lists 17 MCP tools and hides coordinator/source identity from input schema
       approveTask: async () => {
         throw new Error("approve not implemented");
       },
-      rejectTask: async () => {
-        throw new Error("reject not implemented");
-      },
       cancelTask: async () => {
         throw new Error("cancel not implemented");
       },
@@ -89,7 +86,7 @@ test("lists 17 MCP tools and hides coordinator/source identity from input schema
     await client.connect(clientTransport);
 
     const list = await client.listTools();
-    expect(list.tools).toHaveLength(16);
+    expect(list.tools).toHaveLength(15);
     const delegate = list.tools.find((tool) => tool.name === "delegate_request");
     const workerRaiseQuestion = list.tools.find((tool) => tool.name === "worker_raise_question");
     const coordinatorAnswerQuestion = list.tools.find((tool) => tool.name === "coordinator_answer_question");
@@ -380,7 +377,7 @@ test("native MCP tasks expose pending approval as input_required", async () => {
       nextAction: {
         kind: "input_required",
         taskId: "task-approval",
-        recommendedTools: ["task_approve", "task_reject"],
+        recommendedTools: ["task_approve", "task_cancel"],
       },
     });
   } finally {
@@ -530,7 +527,7 @@ test("hides coordinator human-input package tools when resolveIdentity reports a
 
     const list = await client.listTools();
     const names = list.tools.map((tool) => tool.name);
-    expect(list.tools).toHaveLength(14);
+    expect(list.tools).toHaveLength(13);
     expect(names).not.toContain("coordinator_request_human_input");
     expect(names).not.toContain("coordinator_follow_up_human_package");
     expect(names).toContain("coordinator_answer_question");
@@ -567,7 +564,7 @@ test("infers MCP identity from client roots before listing tools", async () => {
     await client.connect(clientTransport);
 
     const list = await client.listTools();
-    expect(list.tools).toHaveLength(16);
+    expect(list.tools).toHaveLength(15);
     expect(resolved).toEqual([
       {
         clientName: "Claude Code",
@@ -599,7 +596,7 @@ test("uses resolveIdentity when both static and lazy MCP identities are configur
     await client.connect(clientTransport);
 
     const list = await client.listTools();
-    expect(list.tools).toHaveLength(16);
+    expect(list.tools).toHaveLength(15);
     expect(resolved).toEqual([{ clientName: "Claude Code" }]);
   } finally {
     await client.close();
@@ -671,8 +668,8 @@ test("memoizes in-flight lazy MCP identity resolution across concurrent first re
     releaseResolve();
 
     const [first, second] = await Promise.all([firstList, secondList]);
-    expect(first.tools).toHaveLength(16);
-    expect(second.tools).toHaveLength(16);
+    expect(first.tools).toHaveLength(15);
+    expect(second.tools).toHaveLength(15);
     expect(resolveCalls).toBe(1);
   } finally {
     await client.close();
@@ -697,9 +694,6 @@ test("worker_raise_question uses host-bound sourceHandle and still rejects spoof
         getTask: async () => null,
         listTasks: async () => [],
         approveTask: async () => {
-          throw new Error("unused");
-        },
-        rejectTask: async () => {
           throw new Error("unused");
         },
         cancelTask: async () => {
@@ -783,9 +777,6 @@ test("worker_raise_question fails clearly when the MCP host did not bind a sourc
         approveTask: async () => {
           throw new Error("unused");
         },
-        rejectTask: async () => {
-          throw new Error("unused");
-        },
         cancelTask: async () => {
           throw new Error("unused");
         },
@@ -852,9 +843,6 @@ test("delegates through the MCP server and rejects spoofed sourceHandle params",
         approveTask: async () => {
           throw new Error("unused");
         },
-        rejectTask: async () => {
-          throw new Error("unused");
-        },
         cancelTask: async () => {
           throw new Error("unused");
         },
@@ -893,7 +881,7 @@ test("delegates through the MCP server and rejects spoofed sourceHandle params",
           text:
             "Delegation task \"task-9\" created.\n- Status: needs_confirmation\n"
             + "Next: this delegation requires user approval. "
-            + "Tell the user, then call task_approve or task_reject based on their response.",
+            + "Tell the user, then call task_approve or task_cancel based on their response.",
         },
       ],
       structuredContent: { taskId: "task-9", status: "needs_confirmation" },
@@ -933,9 +921,6 @@ test("returns tool-level business errors as isError text results", async () => {
         getTask: async () => null,
         listTasks: async () => [],
         approveTask: async () => {
-          throw new Error("unused");
-        },
-        rejectTask: async () => {
           throw new Error("unused");
         },
         cancelTask: async () => {

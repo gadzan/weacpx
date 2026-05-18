@@ -4,7 +4,7 @@ import { buildWeacpxMcpToolRegistry } from "../../../src/mcp/weacpx-mcp-tools";
 import { createMemoryTransport } from "../../../src/mcp/weacpx-mcp-transport";
 import { QuotaDeferredError } from "../../../src/weixin/messaging/quota-errors";
 
-test("builds 17 MCP tools and appends blocker-loop actions after the original orchestration tools", async () => {
+test("builds 16 MCP tools and appends blocker-loop actions after the original orchestration tools", async () => {
   const calls: unknown[] = [];
   const transport = createMemoryTransport(
     async (input) => {
@@ -16,9 +16,6 @@ test("builds 17 MCP tools and appends blocker-loop actions after the original or
       listTasks: async () => [],
       approveTask: async () => {
         throw new Error("approve not implemented");
-      },
-      rejectTask: async () => {
-        throw new Error("reject not implemented");
       },
       cancelTask: async () => {
         throw new Error("cancel not implemented");
@@ -36,7 +33,7 @@ test("builds 17 MCP tools and appends blocker-loop actions after the original or
     sourceHandle: "backend:worker",
   });
 
-  expect(registry).toHaveLength(16);
+  expect(registry).toHaveLength(15);
   expect(registry.map((tool) => tool.name)).toEqual([
     "delegate_request",
     "group_new",
@@ -46,7 +43,6 @@ test("builds 17 MCP tools and appends blocker-loop actions after the original or
     "task_get",
     "task_list",
     "task_approve",
-    "task_reject",
     "task_cancel",
     "task_watch",
     "worker_raise_question",
@@ -127,7 +123,7 @@ test("builds 17 MCP tools and appends blocker-loop actions after the original or
         text:
           "Delegation task \"task-9\" created.\n- Status: needs_confirmation\n"
           + "Next: this delegation requires user approval. "
-          + "Tell the user, then call task_approve or task_reject based on their response.",
+          + "Tell the user, then call task_approve or task_cancel based on their response.",
       },
     ],
     structuredContent: { taskId: "task-9", status: "needs_confirmation" },
@@ -148,9 +144,6 @@ test("worker_raise_question fails clearly when no host sourceHandle is bound", a
         listTasks: async () => [],
         approveTask: async () => {
           throw new Error("approve not implemented");
-        },
-        rejectTask: async () => {
-          throw new Error("reject not implemented");
         },
         cancelTask: async () => {
           throw new Error("cancel not implemented");
@@ -193,9 +186,6 @@ test("QuotaDeferredError from coordinator_request_human_input becomes a soft def
         listTasks: async () => [],
         approveTask: async () => {
           throw new Error("approve not implemented");
-        },
-        rejectTask: async () => {
-          throw new Error("reject not implemented");
         },
         cancelTask: async () => {
           throw new Error("cancel not implemented");
@@ -251,9 +241,6 @@ test("generic Error remains a hard error result (backward compatible)", async ()
         approveTask: async () => {
           throw new Error("approve not implemented");
         },
-        rejectTask: async () => {
-          throw new Error("reject not implemented");
-        },
         cancelTask: async () => {
           throw new Error("cancel not implemented");
         },
@@ -283,9 +270,6 @@ test("task_get renders not-found as text plus structured null wrapper", async ()
         approveTask: async () => {
           throw new Error("approve not implemented");
         },
-        rejectTask: async () => {
-          throw new Error("reject not implemented");
-        },
         cancelTask: async () => {
           throw new Error("cancel not implemented");
         },
@@ -312,9 +296,6 @@ test("delegate_request running result appends a non-blocking Next hint", async (
         listTasks: async () => [],
         approveTask: async () => {
           throw new Error("approve not implemented");
-        },
-        rejectTask: async () => {
-          throw new Error("reject not implemented");
         },
         cancelTask: async () => {
           throw new Error("cancel not implemented");
@@ -361,9 +342,6 @@ test("tool descriptions reference the next step in the lifecycle", () => {
         approveTask: async () => {
           throw new Error("approve not implemented");
         },
-        rejectTask: async () => {
-          throw new Error("reject not implemented");
-        },
         cancelTask: async () => {
           throw new Error("cancel not implemented");
         },
@@ -392,9 +370,6 @@ test("task_approve result text points the coordinator back to task_watch", async
         getTask: async () => null,
         listTasks: async () => [],
         approveTask: async () => ({ taskId: "task-approved", status: "running" }),
-        rejectTask: async () => {
-          throw new Error("reject not implemented");
-        },
         cancelTask: async () => {
           throw new Error("cancel not implemented");
         },
@@ -423,9 +398,6 @@ test("registry hides human-input package tools when the coordinator is external"
       approveTask: async () => {
         throw new Error("approve not implemented");
       },
-      rejectTask: async () => {
-        throw new Error("reject not implemented");
-      },
       cancelTask: async () => {
         throw new Error("cancel not implemented");
       },
@@ -448,13 +420,13 @@ test("registry hides human-input package tools when the coordinator is external"
   expect(externalNames).toContain("task_watch");
   expect(externalNames).toContain("coordinator_answer_question");
   expect(externalNames).toContain("coordinator_review_contested_result");
-  expect(externalRegistry).toHaveLength(14);
+  expect(externalRegistry).toHaveLength(13);
 
   const internalRegistry = buildWeacpxMcpToolRegistry({
     transport,
     coordinatorSession: "backend:main",
   });
-  expect(internalRegistry).toHaveLength(16);
+  expect(internalRegistry).toHaveLength(15);
   expect(internalRegistry.map((tool) => tool.name)).toContain("coordinator_request_human_input");
   expect(internalRegistry.map((tool) => tool.name)).toContain("coordinator_follow_up_human_package");
 });
