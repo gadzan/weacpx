@@ -69,7 +69,7 @@ export const WEACPX_MCP_SERVER_INSTRUCTIONS = [
   "Delegate with delegate_request (one task) or delegate_batch (several at once). Each returns a taskId and a status.",
   "Then follow the task: clients that support MCP Tasks should request task execution on delegate_request / task_watch and poll with tasks/get / tasks/list / tasks/result; other clients use task_get / task_list for snapshots or task_watch to long-poll.",
   "",
-  "Every tool's result ends with a 'Next:' line telling you the concrete next step — follow it. In short: status=needs_confirmation needs task_approve or task_cancel; a task that needs attention (blocked / waiting_for_human / a contested review) is resolved with coordinator_answer_question or coordinator_review_contested_result; a terminal task is read with task_get. Never report a result you did not read from task_get.",
+  "Most tool results end with a 'Next:' line telling you the concrete next step — follow it when present. In short: status=needs_confirmation needs task_approve or task_cancel; a task that needs attention (blocked / waiting_for_human / a contested review) is resolved with coordinator_answer_question or coordinator_review_contested_result; a terminal task is read with task_get. Never report a result you did not read from task_get.",
   "",
   "worker_raise_question is worker-side only — call it from inside a delegated task when you are blocked, not from the coordinator waiting on a delegation.",
 ].join("\n");

@@ -575,7 +575,9 @@ function renderTaskSummary(task: {
   const timeline = events.length > 0
     ? ["- Timeline:", ...events.map((e) => `  - [${e.at}] ${e.event}${e.detail ? `: ${e.detail}` : ""}`)]
     : [];
-  return [...header, ...timeline].join("\n");
+  const isTerminal = task.status === "completed" || task.status === "failed" || task.status === "cancelled";
+  const next = isTerminal ? ["Next: summarize this result for the user."] : [];
+  return [...header, ...timeline, ...next].join("\n");
 }
 
 function renderTaskCancelRequest(task: { taskId: string; status: string }): string {
