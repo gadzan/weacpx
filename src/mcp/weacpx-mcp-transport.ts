@@ -2,7 +2,6 @@ import { OrchestrationClient } from "../orchestration/orchestration-client";
 import type { OrchestrationIpcEndpoint } from "../orchestration/orchestration-ipc";
 import type {
   CancelGroupResult,
-  CoordinatorFollowUpHumanPackageResult,
   CoordinatorRequestHumanInputResult,
   CoordinatorTaskQuestionRef,
   OrchestrationGroupListFilter,
@@ -89,14 +88,6 @@ export interface WeacpxMcpCoordinatorRequestHumanInputArgs {
   expectedActivePackageId?: string;
 }
 
-export interface WeacpxMcpCoordinatorFollowUpHumanPackageArgs {
-  coordinatorSession: string;
-  packageId: string;
-  priorMessageId: string;
-  taskQuestions: WeacpxMcpTaskQuestionRef[];
-  promptText: string;
-}
-
 export interface WeacpxMcpCoordinatorReviewContestedResultArgs {
   coordinatorSession: string;
   taskId: string;
@@ -124,9 +115,6 @@ export interface WeacpxMcpTransport {
   coordinatorRequestHumanInput: (
     input: WeacpxMcpCoordinatorRequestHumanInputArgs,
   ) => Promise<CoordinatorRequestHumanInputResult>;
-  coordinatorFollowUpHumanPackage: (
-    input: WeacpxMcpCoordinatorFollowUpHumanPackageArgs,
-  ) => Promise<CoordinatorFollowUpHumanPackageResult>;
   coordinatorReviewContestedResult: (
     input: WeacpxMcpCoordinatorReviewContestedResultArgs,
   ) => Promise<OrchestrationTaskRecord>;
@@ -147,7 +135,6 @@ interface OrchestrationClientLike {
   workerRaiseQuestion: OrchestrationClient["workerRaiseQuestion"];
   coordinatorAnswerQuestion: OrchestrationClient["coordinatorAnswerQuestion"];
   coordinatorRequestHumanInput: OrchestrationClient["coordinatorRequestHumanInput"];
-  coordinatorFollowUpHumanPackage: OrchestrationClient["coordinatorFollowUpHumanPackage"];
   coordinatorReviewContestedResult: OrchestrationClient["coordinatorReviewContestedResult"];
 }
 
@@ -204,7 +191,6 @@ export function createOrchestrationTransport(
     },
     coordinatorAnswerQuestion: async (input) => await client.coordinatorAnswerQuestion(input),
     coordinatorRequestHumanInput: async (input) => await client.coordinatorRequestHumanInput(input),
-    coordinatorFollowUpHumanPackage: async (input) => await client.coordinatorFollowUpHumanPackage(input),
     coordinatorReviewContestedResult: async (input) => await client.coordinatorReviewContestedResult(input),
   };
 }
@@ -236,9 +222,6 @@ export function createMemoryTransport(
     coordinatorRequestHumanInput:
       overrides.coordinatorRequestHumanInput
       ?? (unimplemented("coordinatorRequestHumanInput") as WeacpxMcpTransport["coordinatorRequestHumanInput"]),
-    coordinatorFollowUpHumanPackage:
-      overrides.coordinatorFollowUpHumanPackage
-      ?? (unimplemented("coordinatorFollowUpHumanPackage") as WeacpxMcpTransport["coordinatorFollowUpHumanPackage"]),
     coordinatorReviewContestedResult:
       overrides.coordinatorReviewContestedResult
       ?? (unimplemented("coordinatorReviewContestedResult") as WeacpxMcpTransport["coordinatorReviewContestedResult"]),

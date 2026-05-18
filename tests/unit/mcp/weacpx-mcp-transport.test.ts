@@ -171,10 +171,6 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
       calls.push({ method: "coordinatorRequestHumanInput", input });
       return { packageId: "package-1", queuedTaskIds: ["task-2"] };
     },
-    coordinatorFollowUpHumanPackage: async (input: unknown) => {
-      calls.push({ method: "coordinatorFollowUpHumanPackage", input });
-      return { packageId: "package-1", messageId: "message-2" };
-    },
     coordinatorReviewContestedResult: async (input: unknown) => {
       calls.push({ method: "coordinatorReviewContestedResult", input });
       return { ...taskRecord, status: "blocked" as const };
@@ -236,13 +232,6 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
     taskQuestions: [{ taskId: "task-1", questionId: "question-1" }],
     promptText: "Please confirm the target environment.",
     expectedActivePackageId: "package-0",
-  });
-  await transport.coordinatorFollowUpHumanPackage({
-    coordinatorSession: "backend:main",
-    packageId: "package-1",
-    priorMessageId: "message-1",
-    taskQuestions: [{ taskId: "task-1", questionId: "question-1" }],
-    promptText: "We still need the deployment window.",
   });
   await transport.coordinatorReviewContestedResult({
     coordinatorSession: "backend:main",
@@ -323,16 +312,6 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
       },
     },
     {
-      method: "coordinatorFollowUpHumanPackage",
-      input: {
-        coordinatorSession: "backend:main",
-        packageId: "package-1",
-        priorMessageId: "message-1",
-        taskQuestions: [{ taskId: "task-1", questionId: "question-1" }],
-        promptText: "We still need the deployment window.",
-      },
-    },
-    {
       method: "coordinatorReviewContestedResult",
       input: {
         coordinatorSession: "backend:main",
@@ -394,9 +373,6 @@ test("createOrchestrationTransport workerRaiseQuestion fails clearly when no inj
       throw new Error("unused");
     },
     coordinatorRequestHumanInput: async () => {
-      throw new Error("unused");
-    },
-    coordinatorFollowUpHumanPackage: async () => {
       throw new Error("unused");
     },
     coordinatorReviewContestedResult: async () => {

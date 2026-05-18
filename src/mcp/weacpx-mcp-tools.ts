@@ -46,10 +46,9 @@ export function buildWeacpxMcpToolRegistry(input: {
   sourceHandle?: string;
   // External coordinators (Claude Code / Codex / OpenCode connecting via mcp-stdio)
   // cannot route through human-input packages — orchestration-service throws
-  // "human input routing is not configured for external coordinator" for both
-  // coordinator_request_human_input and coordinator_follow_up_human_package.
-  // We filter those tools out of the registry instead of advertising calls that
-  // would always fail.
+  // "human input routing is not configured for external coordinator" for
+  // coordinator_request_human_input. We filter that tool out of the registry
+  // instead of advertising calls that would always fail.
   isExternalCoordinator?: boolean;
   availableAgents?: string[];
 }): WeacpxMcpToolDefinition<unknown>[] {
@@ -351,31 +350,6 @@ export function buildWeacpxMcpToolRegistry(input: {
         }),
     },
     {
-      name: "coordinator_follow_up_human_package",
-      description: "Append a follow-up message to the active human question package under the current coordinator. Use to clarify or add context to an in-flight package created via coordinator_request_human_input.",
-      inputSchema: z
-        .object({
-          packageId: z.string().min(1),
-          priorMessageId: z.string().min(1),
-          taskQuestions: z.array(taskQuestionSchema).min(1),
-          promptText: z.string().min(1),
-        })
-        .strict(),
-      handler: async (args) =>
-        await asToolResult(async () => {
-          const result = await transport.coordinatorFollowUpHumanPackage({
-            coordinatorSession,
-            ...(args as {
-              packageId: string;
-              priorMessageId: string;
-              taskQuestions: Array<{ taskId: string; questionId: string }>;
-              promptText: string;
-            }),
-          });
-          return createSuccessResult(renderCoordinatorFollowUpHumanPackageSuccess(result), result);
-        }),
-    },
-    {
       name: "coordinator_review_contested_result",
       description: "Review a contested result under the current coordinator. Use when a worker's result has been challenged and the coordinator must decide accept or discard.",
       inputSchema: z
@@ -405,7 +379,6 @@ export function buildWeacpxMcpToolRegistry(input: {
   if (isExternalCoordinator) {
     const externalCoordinatorIncompatibleTools = new Set([
       "coordinator_request_human_input",
-      "coordinator_follow_up_human_package",
     ]);
     return tools.filter((tool) => !externalCoordinatorIncompatibleTools.has(tool.name));
   }
@@ -725,10 +698,6 @@ function renderCoordinatorRequestHumanInputSuccess(result: { packageId?: string;
   return result.packageId
     ? [`Created human question package "${result.packageId}".`, `- Queued tasks: ${result.queuedTaskIds.length}`].join("\n")
     : [`Queued the question in the current human question queue.`, `- Queued tasks: ${result.queuedTaskIds.length}`].join("\n");
-}
-
-function renderCoordinatorFollowUpHumanPackageSuccess(result: { packageId: string; messageId: string }): string {
-  return [`Appended follow-up to human package "${result.packageId}".`, `- messageId: ${result.messageId}`].join("\n");
 }
 
 function renderCoordinatorReviewContestedResultSuccess(task: { taskId: string; status: string }, decision: "accept" | "discard"): string {

@@ -327,7 +327,6 @@ test("sends blocker-loop RPC requests through the client", async () => {
   let lastCoordinatorAnswerQuestion: unknown;
   let lastCoordinatorRetractAnswer: unknown;
   let lastCoordinatorRequestHumanInput: unknown;
-  let lastCoordinatorFollowUpHumanPackage: unknown;
   let lastCoordinatorReviewContestedResult: unknown;
   const server = new OrchestrationServer(endpoint, {
     requestDelegate: async () => ({ taskId: "task-1", status: "needs_confirmation" }),
@@ -364,10 +363,6 @@ test("sends blocker-loop RPC requests through the client", async () => {
     coordinatorRequestHumanInput: async (input) => {
       lastCoordinatorRequestHumanInput = input;
       return { packageId: "package-1", queuedTaskIds: ["task-2"] };
-    },
-    coordinatorFollowUpHumanPackage: async (input) => {
-      lastCoordinatorFollowUpHumanPackage = input;
-      return { packageId: input.packageId, messageId: "message-2" };
     },
     coordinatorReviewContestedResult: async (input) => {
       lastCoordinatorReviewContestedResult = input;
@@ -453,26 +448,6 @@ test("sends blocker-loop RPC requests through the client", async () => {
     });
 
     await expect(
-      client.coordinatorFollowUpHumanPackage({
-        coordinatorSession: "backend:main",
-        packageId: "package-1",
-        priorMessageId: "message-1",
-        taskQuestions: [{ taskId: "task-1", questionId: "question-1" }],
-        promptText: "We still need the deployment window.",
-      }),
-    ).resolves.toEqual({
-      packageId: "package-1",
-      messageId: "message-2",
-    });
-    expect(lastCoordinatorFollowUpHumanPackage).toEqual({
-      coordinatorSession: "backend:main",
-      packageId: "package-1",
-      priorMessageId: "message-1",
-      taskQuestions: [{ taskId: "task-1", questionId: "question-1" }],
-      promptText: "We still need the deployment window.",
-    });
-
-    await expect(
       client.coordinatorReviewContestedResult({
         coordinatorSession: "backend:main",
         taskId: "task-1",
@@ -516,7 +491,6 @@ test("client methods pass all input fields through to the server", async () => {
     coordinatorAnswerQuestion: async (input) => ({ taskId: input.taskId }) as any,
     coordinatorRetractAnswer: async (input) => ({ taskId: input.taskId }) as any,
     coordinatorRequestHumanInput: async () => ({ packageId: "pkg-1", queuedTaskIds: [] }),
-    coordinatorFollowUpHumanPackage: async () => ({ packageId: "pkg-1", messageId: "msg-1" }),
     coordinatorReviewContestedResult: async (input) => ({ taskId: input.taskId }) as any,
     createGroup: async () => ({ groupId: "g-1" }) as any,
     getGroupSummary: async () => null,

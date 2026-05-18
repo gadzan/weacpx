@@ -10,7 +10,6 @@ import {
 import type {
   CancelGroupResult,
   CancelTaskInput,
-  CoordinatorFollowUpHumanPackageResult,
   CoordinatorRequestHumanInputResult,
   CoordinatorTaskQuestionRef,
   OrchestrationTaskFilter,
@@ -149,19 +148,6 @@ export class OrchestrationClient {
   }): Promise<CoordinatorRequestHumanInputResult> {
     return await this.request<CoordinatorRequestHumanInputResult>(
       "coordinator.request_human_input",
-      input,
-    );
-  }
-
-  async coordinatorFollowUpHumanPackage(input: {
-    coordinatorSession: string;
-    packageId: string;
-    priorMessageId: string;
-    taskQuestions: CoordinatorTaskQuestionRef[];
-    promptText: string;
-  }): Promise<CoordinatorFollowUpHumanPackageResult> {
-    return await this.request<CoordinatorFollowUpHumanPackageResult>(
-      "coordinator.follow_up_human_package",
       input,
     );
   }

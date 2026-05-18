@@ -55,7 +55,6 @@ function makeServerHandlers(overrides: Partial<Record<string, unknown>> = {}) {
     coordinatorAnswerQuestion: async (input: Record<string, unknown>) => ({ taskId: input.taskId, status: "running" }),
     coordinatorRetractAnswer: async (input: Record<string, unknown>) => ({ taskId: input.taskId, status: "waiting_for_human" }),
     coordinatorRequestHumanInput: async () => ({ packageId: "pkg-1", queuedTaskIds: [] }),
-    coordinatorFollowUpHumanPackage: async () => ({ packageId: "pkg-1", messageId: "msg-1" }),
     coordinatorReviewContestedResult: async (input: Record<string, unknown>) => ({ taskId: input.taskId, status: "completed" }),
     createGroup: async () => ({
       groupId: "g-1",

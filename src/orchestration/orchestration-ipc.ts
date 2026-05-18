@@ -4,7 +4,6 @@ import { join } from "node:path";
 import type {
   CancelGroupResult,
   CancelTaskInput,
-  CoordinatorFollowUpHumanPackageResult,
   CoordinatorRequestHumanInputResult,
   CoordinatorTaskQuestionRef,
   OrchestrationTaskFilter,
@@ -36,7 +35,6 @@ export type OrchestrationRpcMethod =
   | "coordinator.answer_question"
   | "coordinator.retract_answer"
   | "coordinator.request_human_input"
-  | "coordinator.follow_up_human_package"
   | "coordinator.review_contested_result"
   | "group.new"
   | "group.get"
@@ -102,13 +100,6 @@ export interface OrchestrationRpcHandlers {
     promptText: string;
     expectedActivePackageId?: string;
   }) => Promise<CoordinatorRequestHumanInputResult>;
-  coordinatorFollowUpHumanPackage: (input: {
-    coordinatorSession: string;
-    packageId: string;
-    priorMessageId: string;
-    taskQuestions: CoordinatorTaskQuestionRef[];
-    promptText: string;
-  }) => Promise<CoordinatorFollowUpHumanPackageResult>;
   coordinatorReviewContestedResult: (input: {
     coordinatorSession: string;
     taskId: string;

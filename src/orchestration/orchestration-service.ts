@@ -155,11 +155,6 @@ export interface CoordinatorRequestHumanInputResult {
   queuedTaskIds: string[];
 }
 
-export interface CoordinatorFollowUpHumanPackageResult {
-  packageId: string;
-  messageId: string;
-}
-
 export interface RetryHumanQuestionPackageDeliveryResult {
   packageId: string;
   messageId: string;
@@ -1775,108 +1770,6 @@ export class OrchestrationService {
     return {
       packageId: prepared.packageId,
       queuedTaskIds: prepared.queuedTaskIds,
-    };
-  }
-
-  async coordinatorFollowUpHumanPackage(input: {
-    coordinatorSession: string;
-    packageId: string;
-    priorMessageId: string;
-    taskQuestions: CoordinatorTaskQuestionRef[];
-    promptText: string;
-  }): Promise<CoordinatorFollowUpHumanPackageResult> {
-    const promptText = input.promptText.trim();
-    if (promptText.length === 0) {
-      throw new Error("promptText must be a non-empty string");
-    }
-    if (input.taskQuestions.length === 0) {
-      throw new Error("taskQuestions must contain at least one question");
-    }
-
-    const prepared = await this.mutate(async () => {
-      const state = await this.deps.loadState();
-      if (this.isExternalCoordinatorSession(state, input.coordinatorSession)) {
-        throw new Error("human input routing is not configured for external coordinator");
-      }
-      const coordinatorState = this.ensureCoordinatorQuestionState(state, input.coordinatorSession);
-      if (coordinatorState.activePackageId !== input.packageId) {
-        throw new Error(
-          `package "${input.packageId}" is not the active package for coordinator "${input.coordinatorSession}"`,
-        );
-      }
-
-      const packageRecord = this.ensureHumanQuestionPackages(state)[input.packageId];
-      if (!packageRecord || packageRecord.status !== "active") {
-        throw new Error(`package "${input.packageId}" is not active`);
-      }
-
-      const latestMessage = packageRecord.messages.at(-1);
-      if (!latestMessage || latestMessage.messageId !== input.priorMessageId) {
-        throw new Error(
-          `package "${input.packageId}" latest message is "${latestMessage?.messageId ?? ""}", not "${input.priorMessageId}"`,
-        );
-      }
-      if (!latestMessage.deliveredAt) {
-        throw new Error(`package "${input.packageId}" latest message "${latestMessage.messageId}" is not delivered yet`);
-      }
-
-      const tasks = input.taskQuestions.map(({ taskId, questionId }) => {
-        const task = state.orchestration.tasks[taskId];
-        if (!task) {
-          throw new Error(`task "${taskId}" does not exist`);
-        }
-        this.assertCoordinatorOwnership(task, input.coordinatorSession);
-        if (!packageRecord.openTaskIds.includes(taskId)) {
-          throw new Error(`task "${taskId}" does not belong to active package "${input.packageId}"`);
-        }
-        this.assertCoordinatorQuestionMatch(task, questionId);
-        return task;
-      });
-
-      const now = this.deps.now().toISOString();
-      const route = this.resolveFrozenPackageMessageRoute(latestMessage);
-      const messageId = this.deps.createId();
-      const message: OrchestrationHumanQuestionPackageMessageRecord = {
-        messageId,
-        kind: "follow_up",
-        promptText,
-        createdAt: now,
-        taskQuestions: input.taskQuestions.map((entry) => ({ ...entry })),
-        ...(route ? this.serializeFrozenDeliveryRoute(route) : {}),
-      };
-      packageRecord.messages.push(message);
-      packageRecord.awaitingReplyMessageId = undefined;
-      packageRecord.updatedAt = now;
-
-      for (const task of tasks) {
-        task.status = "waiting_for_human";
-        task.openQuestion = {
-          ...task.openQuestion!,
-          packageId: input.packageId,
-        };
-        task.updatedAt = now;
-        this.appendTaskEvent(task, now, "attention_required", {
-          status: "waiting_for_human",
-          message: task.openQuestion.question,
-        });
-        this.bumpGroupUpdated(state, task.groupId, now);
-      }
-
-      await this.deps.saveState(state);
-
-      return {
-        coordinatorSession: input.coordinatorSession,
-        packageId: input.packageId,
-        messageId,
-        promptText,
-        route,
-      };
-    });
-
-    await this.deliverHumanQuestionPackageMessage(prepared);
-    return {
-      packageId: prepared.packageId,
-      messageId: prepared.messageId,
     };
   }
 
@@ -3838,8 +3731,8 @@ export class OrchestrationService {
         // Quota deferred is not a delivery failure: leave the package's
         // delivery state pending so the next wake retries cleanly after the
         // user's next inbound resets the quota window. Upstream callers
-        // (coordinatorRequestHumanInput, coordinatorFollowUpHumanPackage,
-        // retryHumanQuestionPackageDelivery) will receive the deferred error
+        // (coordinatorRequestHumanInput, retryHumanQuestionPackageDelivery)
+        // will receive the deferred error
         // and may need their own propagation handling — see follow-up TODO.
         throw error;
       }

@@ -4,7 +4,7 @@ import { buildWeacpxMcpToolRegistry } from "../../../src/mcp/weacpx-mcp-tools";
 import { createMemoryTransport } from "../../../src/mcp/weacpx-mcp-transport";
 import { QuotaDeferredError } from "../../../src/weixin/messaging/quota-errors";
 
-test("builds 15 MCP tools and appends blocker-loop actions after the original orchestration tools", async () => {
+test("builds 14 MCP tools and appends blocker-loop actions after the original orchestration tools", async () => {
   const calls: unknown[] = [];
   const transport = createMemoryTransport(
     async (input) => {
@@ -33,7 +33,7 @@ test("builds 15 MCP tools and appends blocker-loop actions after the original or
     sourceHandle: "backend:worker",
   });
 
-  expect(registry).toHaveLength(15);
+  expect(registry).toHaveLength(14);
   expect(registry.map((tool) => tool.name)).toEqual([
     "delegate_request",
     "group_new",
@@ -48,7 +48,6 @@ test("builds 15 MCP tools and appends blocker-loop actions after the original or
     "worker_raise_question",
     "coordinator_answer_question",
     "coordinator_request_human_input",
-    "coordinator_follow_up_human_package",
     "coordinator_review_contested_result",
   ]);
 
@@ -193,9 +192,6 @@ test("QuotaDeferredError from coordinator_request_human_input becomes a soft def
         coordinatorRequestHumanInput: async () => {
           throw new QuotaDeferredError({ chatKey: "wx:user-deferred", reason: "exhausted" });
         },
-        coordinatorFollowUpHumanPackage: async () => {
-          throw new QuotaDeferredError({ chatKey: "wx:user-deferred", reason: "exhausted" });
-        },
       },
     ),
     coordinatorSession: "backend:main",
@@ -215,18 +211,6 @@ test("QuotaDeferredError from coordinator_request_human_input becomes a soft def
   });
   expect(requestResult?.content[0]).toMatchObject({ type: "text" });
   expect((requestResult?.content[0] as { text: string }).text).toContain("Outbound budget exhausted");
-
-  const followUpTool = registry.find((tool) => tool.name === "coordinator_follow_up_human_package");
-  const followUpResult = await followUpTool?.handler({
-    packageId: "pkg-1",
-    priorMessageId: "msg-1",
-    taskQuestions: [{ taskId: "task-1", questionId: "q-1" }],
-    promptText: "follow-up",
-  });
-  expect(followUpResult?.isError).toBe(false);
-  expect(followUpResult?.structuredContent).toEqual({
-    status: "deferred_quota",
-  });
 });
 
 test("generic Error remains a hard error result (backward compatible)", async () => {
@@ -410,10 +394,9 @@ test("registry hides human-input package tools when the coordinator is external"
     isExternalCoordinator: true,
   });
   const externalNames = externalRegistry.map((tool) => tool.name);
-  // Both human-input package tools hard-throw "human input routing is not configured for
+  // coordinator_request_human_input hard-throws "human input routing is not configured for
   // external coordinator" in orchestration-service.ts. Don't advertise dead tools.
   expect(externalNames).not.toContain("coordinator_request_human_input");
-  expect(externalNames).not.toContain("coordinator_follow_up_human_package");
   // Other coordinator-side tools must remain available — answering questions, reviewing
   // contested results, approving / rejecting / cancelling all work for external coordinators.
   expect(externalNames).toContain("delegate_request");
@@ -426,7 +409,6 @@ test("registry hides human-input package tools when the coordinator is external"
     transport,
     coordinatorSession: "backend:main",
   });
-  expect(internalRegistry).toHaveLength(15);
+  expect(internalRegistry).toHaveLength(14);
   expect(internalRegistry.map((tool) => tool.name)).toContain("coordinator_request_human_input");
-  expect(internalRegistry.map((tool) => tool.name)).toContain("coordinator_follow_up_human_package");
 });

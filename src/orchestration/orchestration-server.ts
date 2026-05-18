@@ -39,7 +39,6 @@ const ORCHESTRATION_RPC_METHODS = new Set<OrchestrationRpcMethod>([
   "coordinator.answer_question",
   "coordinator.retract_answer",
   "coordinator.request_human_input",
-  "coordinator.follow_up_human_package",
   "coordinator.review_contested_result",
   "group.new",
   "group.get",
@@ -214,15 +213,6 @@ export class OrchestrationServer {
           ...(expectedActivePackageId !== undefined ? { expectedActivePackageId } : {}),
         });
         }
-      case "coordinator.follow_up_human_package":
-        requireOnlyKeys(params, ["coordinatorSession", "packageId", "priorMessageId", "taskQuestions", "promptText"], "params");
-        return await this.handlers.coordinatorFollowUpHumanPackage({
-          coordinatorSession: requireString(params, "coordinatorSession"),
-          packageId: requireString(params, "packageId"),
-          priorMessageId: requireString(params, "priorMessageId"),
-          taskQuestions: requireTaskQuestions(params, "taskQuestions"),
-          promptText: requireString(params, "promptText"),
-        });
       case "coordinator.review_contested_result":
         requireOnlyKeys(params, ["coordinatorSession", "taskId", "reviewId", "decision"], "params");
         return await this.handlers.coordinatorReviewContestedResult({
