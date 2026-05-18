@@ -520,6 +520,9 @@ export class AcpxCliTransport implements SessionTransport {
       child.on("close", (code) => {
         clearIntervalFn(timer);
         const remaining = state.finalize();
+        for (const segment of state.segments.splice(0)) {
+          feedSegment(segment);
+        }
         if (remaining.length > 0) {
           feedSegment(remaining);
         }

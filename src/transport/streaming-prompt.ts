@@ -5,6 +5,7 @@ import { TOOL_KIND_EMOJI, DEFAULT_TOOL_EMOJI } from "./tool-kind-emoji.js";
 
 export interface StreamingPromptState {
   buffer: string;
+  thoughtBuffer: string;
   segments: string[];
   hasAgentMessage: boolean;
   pendingLine: string;
@@ -65,6 +66,7 @@ export function createStreamingPromptState(
 
   return {
     buffer: "",
+    thoughtBuffer: "",
     segments: [],
     hasAgentMessage: false,
     pendingLine: "",
@@ -76,8 +78,13 @@ export function createStreamingPromptState(
       if (this.pendingLine.trim().length > 0) {
         parseStreamingChunks(this, this.pendingLine);
       }
+      const remainingThought = this.thoughtBuffer.trim();
+      if (remainingThought.length > 0) {
+        this.segments.push(`🧠 ${remainingThought}`);
+      }
       const remaining = this.buffer.trim();
       this.buffer = "";
+      this.thoughtBuffer = "";
       this.pendingLine = "";
       return remaining;
     },
@@ -110,6 +117,26 @@ export function parseStreamingChunks(state: StreamingPromptState, line: string):
 
   const update = event.params?.update;
   if (!update) return;
+
+  const isThoughtChunk =
+    state.formatToolCalls &&
+    update.sessionUpdate === "agent_thought_chunk" &&
+    update.content?.type === "text" &&
+    typeof update.content.text === "string";
+  if (isThoughtChunk) {
+    const chunk = update.content!.text ?? "";
+    if (chunk.length === 0) return;
+    state.thoughtBuffer += chunk;
+    let boundary: number;
+    while ((boundary = state.thoughtBuffer.indexOf("\n\n")) !== -1) {
+      const segment = state.thoughtBuffer.slice(0, boundary).trim();
+      state.thoughtBuffer = state.thoughtBuffer.slice(boundary + 2);
+      if (segment.length > 0) {
+        state.segments.push(`🧠 ${segment}`);
+      }
+    }
+    return;
+  }
 
   if (state.formatToolCalls && (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update")) {
     const wantsStructured = state.toolEventMode === "structured" || state.toolEventMode === "both";

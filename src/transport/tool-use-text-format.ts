@@ -17,6 +17,20 @@ function truncateToolDisplay(text: string): string {
   return text.length > 60 ? `${text.slice(0, 57)}...` : text;
 }
 
+function isGenericToolName(kind: ToolUseEvent["kind"], toolName: string): boolean {
+  const normalized = toolName.trim().toLowerCase();
+  if (kind === "execute" && ["bash", "shell", "sh", "powershell", "cmd", "terminal"].includes(normalized)) {
+    return true;
+  }
+  if (kind === "search" && ["search", "grep", "rg"].includes(normalized)) {
+    return true;
+  }
+  if (kind === "read" && ["read file", "read", "cat"].includes(normalized)) {
+    return true;
+  }
+  return false;
+}
+
 /**
  * Best-effort adapter that renders a {@link ToolUseEvent} as a single
  * emoji-prefixed text segment, for downstream channels that consume the
@@ -33,10 +47,6 @@ function truncateToolDisplay(text: string): string {
  *    than the raw acpx values (`"pending"` / `"completed"` / `"failed"`).
  * 2. Status is always present in the suffix; the legacy formatter omitted
  *    status when the raw value was empty.
- * 3. Generic-pending placeholders are NOT skipped. The placeholder-skip
- *    heuristic in the parser needs `update.status === "pending"` which is
- *    not preserved on `ToolUseEvent`. Callers that want this behavior
- *    must filter before invoking the helper.
  *
  * Dedup: returns `null` for any `toolCallId` already in `state.emittedToolCallIds`.
  * Returns `null` for events with an empty/whitespace `toolName`.
@@ -48,14 +58,18 @@ export function formatToolUseEventForText(
   const toolName = event.toolName.trim();
   if (toolName.length === 0) return null;
 
+  const summary = event.summary?.trim();
+  const hasSummary = !!summary && summary !== toolName;
+  if (!hasSummary && event.status === "running" && isGenericToolName(event.kind, toolName)) return null;
+
   if (state.emittedToolCallIds.has(event.toolCallId)) return null;
   state.emittedToolCallIds.add(event.toolCallId);
 
   const emoji = TOOL_KIND_EMOJI[event.kind] ?? DEFAULT_TOOL_EMOJI;
   const statusText = ` (${event.status})`;
   const summaryText =
-    event.summary && event.summary !== toolName
-      ? `: ${truncateToolDisplay(event.summary)}`
+    hasSummary
+      ? `: ${truncateToolDisplay(summary)}`
       : "";
 
   return `${emoji} ${toolName}${statusText}${summaryText}`;

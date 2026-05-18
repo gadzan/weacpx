@@ -207,8 +207,6 @@ describe("formatToolUseEventForText", () => {
     // Parser produces no segment — the placeholder-skip heuristic suppressed it.
     expect(parserState.segments).toHaveLength(0);
 
-    // The helper has no access to update.status === "pending", so it cannot skip.
-    // A caller would need to pre-filter before invoking the helper.
     const helperState = createToolUseTextRenderState();
     const helperOutput = formatToolUseEventForText({
       toolCallId: "tc-pending",
@@ -216,8 +214,25 @@ describe("formatToolUseEventForText", () => {
       kind: "read",
       status: "running", // normalized form of "pending"
     }, helperState);
-    // Helper does NOT skip — it renders the event.
-    expect(helperOutput).not.toBeNull();
-    expect(helperOutput).toContain("Read File");
+    expect(helperOutput).toBeNull();
+  });
+
+  test("generic execute placeholder is skipped so later tool_call_update can render", () => {
+    const state = createToolUseTextRenderState();
+    const first = formatToolUseEventForText({
+      toolCallId: "tc-terminal",
+      toolName: "Terminal",
+      kind: "execute",
+      status: "running",
+    }, state);
+    expect(first).toBeNull();
+
+    const second = formatToolUseEventForText({
+      toolCallId: "tc-terminal",
+      toolName: "git status --short",
+      kind: "execute",
+      status: "running",
+    }, state);
+    expect(second).toBe("💻 git status --short (running)");
   });
 });
