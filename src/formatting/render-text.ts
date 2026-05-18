@@ -159,10 +159,6 @@ export function renderTaskApprovalSuccess(task: OrchestrationTaskRecord): string
   return [`已批准任务「${task.taskId}」。`, `- 当前状态：${task.status}`].join("\n");
 }
 
-export function renderTaskRejectionSuccess(task: OrchestrationTaskRecord): string {
-  return [`已拒绝任务「${task.taskId}」。`, `- 当前状态：${task.status}`].join("\n");
-}
-
 export function renderTaskConfirmationUnavailable(task: OrchestrationTaskRecord): string {
   return [`任务「${task.taskId}」当前不是待确认状态。`, `- 当前状态：${task.status}`].join("\n");
 }
