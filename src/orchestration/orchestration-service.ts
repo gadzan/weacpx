@@ -432,20 +432,6 @@ export class OrchestrationService {
     return group;
   }
 
-  async getGroup(groupId: string): Promise<OrchestrationGroupRecord | null> {
-    const state = await this.deps.loadState();
-    const group = this.ensureGroups(state)[groupId];
-    return group ? { ...group } : null;
-  }
-
-  async listGroups(coordinatorSession?: string): Promise<OrchestrationGroupRecord[]> {
-    const state = await this.deps.loadState();
-    return Object.values(this.ensureGroups(state))
-      .filter((group) => coordinatorSession === undefined || group.coordinatorSession === coordinatorSession)
-      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-      .map((group) => ({ ...group }));
-  }
-
   async getGroupSummary(input: {
     groupId: string;
     coordinatorSession: string;

@@ -478,6 +478,41 @@ test("delegate_batch with a single task skips group creation", async () => {
   ]);
 });
 
+test("delegate_batch passes an explicit title to createGroup verbatim", async () => {
+  const createGroupCalls: unknown[] = [];
+  const registry = buildWeacpxMcpToolRegistry({
+    transport: createMemoryTransport(
+      async () => ({ taskId: "task-1", status: "running" as const }),
+      {
+        createGroup: async (input) => {
+          createGroupCalls.push(input);
+          return {
+            groupId: "group-title-test",
+            coordinatorSession: "backend:main",
+            title: (input as { title: string }).title,
+            createdAt: "2026-05-18T00:00:00.000Z",
+            updatedAt: "2026-05-18T00:00:00.000Z",
+          };
+        },
+      },
+    ),
+    coordinatorSession: "backend:main",
+  });
+
+  const tool = registry.find((entry) => entry.name === "delegate_batch");
+  await tool!.handler({
+    title: "My custom batch title",
+    tasks: [
+      { targetAgent: "claude", task: "task A" },
+      { targetAgent: "codex", task: "task B" },
+    ],
+  });
+
+  expect(createGroupCalls).toEqual([
+    { coordinatorSession: "backend:main", title: "My custom batch title" },
+  ]);
+});
+
 test("delegate_batch reports a per-task error without aborting the rest of the batch", async () => {
   let n = 0;
   const registry = buildWeacpxMcpToolRegistry({

@@ -110,6 +110,9 @@ export function buildWeacpxMcpToolRegistry(input: {
             title?: string;
             tasks: Array<{ targetAgent: string; task: string; workingDirectory?: string; role?: string }>;
           };
+          // If every subsequent delegateRequest fails, the group is created but stays
+          // empty — which is harmless: an empty group has no terminal members so it
+          // never triggers coordinator injection.
           const groupId =
             tasks.length >= 2
               ? (

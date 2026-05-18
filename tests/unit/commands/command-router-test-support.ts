@@ -270,17 +270,6 @@ export function createOrchestrationService(options?: {
     return { ...group };
   });
 
-  const getGroup = mock(async (groupId: string) => {
-    const group = groups.find((item) => item.groupId === groupId);
-    return group ? { ...group } : null;
-  });
-
-  const listGroups = mock(async (coordinatorSession?: string) => {
-    return groups
-      .filter((group) => coordinatorSession === undefined || group.coordinatorSession === coordinatorSession)
-      .map((group) => ({ ...group }));
-  });
-
   const getGroupSummary = mock(
     async ({ groupId, coordinatorSession }: { groupId: string; coordinatorSession: string }) => {
       const group = groups.find(
