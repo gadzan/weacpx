@@ -196,7 +196,10 @@ function formatToolCallEvent(update: NonNullable<StreamEvent["params"]>["update"
   if (title.length === 0) return null;
 
   const emoji = TOOL_KIND_EMOJI[kind as ToolUseKind] ?? DEFAULT_TOOL_EMOJI;
-  const inputSummary = summarizeToolInput(update.rawInput, title);
+  // For tool_call_update, the useful payload is often in rawOutput rather
+  // than rawInput (e.g. terminal command stdout). Fall back to rawOutput
+  // when rawInput yields nothing actionable.
+  const inputSummary = summarizeToolInput(update.rawInput, title) || summarizeToolInput(update.rawOutput, title);
   const status = readString(update, "status");
 
   // Some agents first emit a placeholder pending tool_call (for example
@@ -225,7 +228,10 @@ function buildToolUseEvent(update: NonNullable<StreamEvent["params"]>["update"])
   const title = (update.title ?? "").trim();
   const toolName = title || "Tool";
   // Reuse the existing summarizer (it has the title-vs-summary dedup logic baked in).
-  const summaryRaw = summarizeToolInput(update.rawInput, title);
+  // For tool_call_update, the useful payload is often in rawOutput rather
+  // than rawInput (e.g. terminal command stdout). Fall back to rawOutput
+  // when rawInput yields nothing actionable.
+  const summaryRaw = summarizeToolInput(update.rawInput, title) || summarizeToolInput(update.rawOutput, title);
   const summary = summaryRaw && summaryRaw !== title ? summaryRaw : undefined;
   const statusRaw = readString(update, "status");
   const status: ToolUseStatus =
