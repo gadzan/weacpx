@@ -56,7 +56,7 @@ export function buildWeacpxMcpToolRegistry(input: {
   const tools: WeacpxMcpToolDefinition<unknown>[] = [
     {
       name: "delegate_request",
-      description: `Delegate a subtask to another agent under the current coordinator. Pass an absolute workingDirectory for the worker. Supports MCP Tasks when the client requests task execution: the tool can return a native task handle immediately, then clients can use tasks/get, tasks/result, tasks/list, and tasks/cancel. For legacy clients, after this returns status=running, keep the returned taskId and use task_get/task_list for non-blocking progress snapshots, or task_watch to long-poll for the next event or terminal state. If status=needs_confirmation, wait for the user to approve or cancel (task_approve / task_cancel) first.${availableAgents && availableAgents.length > 0 ? ` Available agents: ${availableAgents.join(", ")}.` : ""}`,
+      description: `Delegate a subtask to another agent under the current coordinator. Pass an absolute workingDirectory for the worker. Supports MCP Tasks when the client requests task execution: the tool can return a native task handle immediately, then clients can use tasks/get, tasks/result, tasks/list, and tasks/cancel.${availableAgents && availableAgents.length > 0 ? ` Available agents: ${availableAgents.join(", ")}.` : ""}`,
       execution: { taskSupport: "optional" },
       inputSchema: z
         .object({
@@ -197,7 +197,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "task_approve",
-      description: "Approve a pending task under the current coordinator. Use when delegate_request returned status=needs_confirmation and the user has authorized it; after approval, use task_get/task_list for snapshots or task_watch to long-poll.",
+      description: "Approve a task that delegate_request returned as needs_confirmation, once the user has authorized it. The task then starts running.",
       inputSchema: z
         .object({
           taskId: z.string().min(1),
@@ -231,7 +231,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "task_watch",
-      description: `Long-poll a task for the next event, attention-required state, or terminal state. This is the recommended way for legacy clients to watch a delegated task without busy-polling task_get. For MCP-task-capable clients, request task execution for this tool to create a background watcher: the call returns a native task handle immediately, and tasks/result returns when the watch condition is met. The native watcher is single-shot: it runs one watch cycle then terminates, so to keep watching start another task_watch with afterSeq set to the returned nextAfterSeq. Defaults: timeout ${DEFAULT_TASK_WATCH_TIMEOUT_MS} ms, poll interval ${DEFAULT_TASK_WATCH_POLL_INTERVAL_MS} ms. Maximums: timeout ${MAX_TASK_WATCH_TIMEOUT_MS} ms, poll interval ${MAX_TASK_WATCH_POLL_INTERVAL_MS} ms.`,
+      description: `Long-poll a task for the next event, attention-required state, or terminal state. For MCP-task-capable clients, request task execution for this tool to create a background watcher: the call returns a native task handle immediately, and tasks/result returns when the watch condition is met. The native watcher is single-shot: it runs one watch cycle then terminates, so to keep watching start another task_watch with afterSeq set to the returned nextAfterSeq. Defaults: timeout ${DEFAULT_TASK_WATCH_TIMEOUT_MS} ms, poll interval ${DEFAULT_TASK_WATCH_POLL_INTERVAL_MS} ms. Maximums: timeout ${MAX_TASK_WATCH_TIMEOUT_MS} ms, poll interval ${MAX_TASK_WATCH_POLL_INTERVAL_MS} ms.`,
       execution: { taskSupport: "optional" },
       inputSchema: z
         .object({
@@ -261,7 +261,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "worker_raise_question",
-      description: "Raise a blocker question for the current bound worker session. Worker-side only: call this from inside a delegated task when you are blocked and need the coordinator's input. Coordinators waiting on a delegation should not call this; use task_get/task_list for snapshots, or task_watch to long-poll.",
+      description: "Raise a blocker question for the current bound worker session. Worker-side only: call this from inside a delegated task when you are blocked and need the coordinator's input.",
       inputSchema: z
         .object({
           taskId: z.string().min(1),
@@ -291,7 +291,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "coordinator_answer_question",
-      description: "Answer a blocked worker question under the current coordinator. Use when task_get shows a pending question; after answering, use task_get/task_list for snapshots or task_watch to long-poll for the worker to finish.",
+      description: "Answer a blocked worker question under the current coordinator. Use when task_get shows a pending question.",
       inputSchema: z
         .object({
           taskId: z.string().min(1),

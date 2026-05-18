@@ -333,13 +333,13 @@ test("tool descriptions reference the next step in the lifecycle", () => {
   });
   const byName = new Map(registry.map((tool) => [tool.name, tool]));
 
-  expect(byName.get("delegate_request")?.description).toContain("task_get/task_list for non-blocking progress snapshots");
-  expect(byName.get("delegate_request")?.description).toContain("task_watch to long-poll");
+  expect(byName.get("delegate_request")?.description).toContain("Delegate a subtask");
+  expect(byName.get("delegate_request")?.description).toContain("Supports MCP Tasks");
   expect(byName.get("task_watch")?.description).toContain("Long-poll a task");
   expect(byName.get("task_watch")?.description).toContain("single-shot");
   expect(byName.get("task_get")?.description).toContain("inspect a task snapshot non-blockingly");
   expect(byName.get("task_approve")?.description).toContain("needs_confirmation");
-  expect(byName.get("coordinator_answer_question")?.description).toContain("task_get/task_list for snapshots");
+  expect(byName.get("coordinator_answer_question")?.description).toContain("task_get shows a pending question");
   expect(byName.get("worker_raise_question")?.description).toContain("Worker-side only");
 });
 

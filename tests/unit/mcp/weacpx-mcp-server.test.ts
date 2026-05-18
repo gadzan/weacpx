@@ -584,22 +584,18 @@ test("exposes the orchestration lifecycle as server instructions to the client",
 
     const instructions = client.getInstructions();
     expect(instructions).toBe(WEACPX_MCP_SERVER_INSTRUCTIONS);
-    expect(instructions ?? "").toContain("Typical lifecycle");
     expect(instructions ?? "").toContain("delegate_request");
-    // task_watch is the long-poll mechanism for the legacy lifecycle.
-    expect(instructions ?? "").toContain("task_watch to long-poll for the next event");
-    expect(instructions ?? "").toContain("Do not poll in a tight loop when the user asked to delegate and continue");
-    expect(instructions ?? "").toContain("status=attention_required");
-    // Each attention_required sub-case must be wired to a different tool so the LLM
+    expect(instructions ?? "").toContain("delegate_batch");
+    // task_watch must be mentioned as the long-poll mechanism.
+    expect(instructions ?? "").toContain("task_watch");
+    // Each attention-required sub-case must be wired to a different tool so the LLM
     // does not blindly call coordinator_answer_question on a needs_confirmation task.
-    expect(instructions ?? "").toContain("needs_confirmation -> task_approve");
-    expect(instructions ?? "").toContain("blocked or waiting_for_human -> coordinator_answer_question");
-    expect(instructions ?? "").toContain("reviewPending set -> coordinator_review_contested_result");
-    // External coordinators (the MCP server's main client population) cannot use
-    // coordinator_request_human_input — keep it out of the attention_required guidance.
-    expect(instructions ?? "").not.toContain("blocked -> coordinator_answer_question if you can answer");
-    // Approval must point at a follow tool, otherwise the coordinator hangs after approving.
-    expect(instructions ?? "").toContain("After task_approve, use task_get / task_list snapshots");
+    expect(instructions ?? "").toContain("needs_confirmation needs task_approve or task_cancel");
+    expect(instructions ?? "").toContain("coordinator_answer_question");
+    expect(instructions ?? "").toContain("coordinator_review_contested_result");
+    // Every tool result carries a Next: hint — the instructions reference that contract.
+    expect(instructions ?? "").toContain("Never report a result you did not read from task_get");
+    // worker_raise_question is worker-side only — this must be explicit.
     expect(instructions ?? "").toContain("worker_raise_question is worker-side only");
   } finally {
     await client.close();
