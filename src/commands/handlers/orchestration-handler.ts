@@ -9,6 +9,7 @@ import {
   renderOrchestrationUnavailable,
   renderTaskApprovalSuccess,
   renderTaskCancelSuccess,
+  renderTaskRejectSuccess,
   renderTaskList,
   renderTaskSummary,
   renderTasksCleanResult,
@@ -335,7 +336,7 @@ export async function handleTaskReject(
     coordinatorSession: session.transportSession,
   });
 
-  return { text: renderTaskCancelSuccess(rejected) };
+  return { text: renderTaskRejectSuccess(rejected) };
 }
 
 export async function handleTaskCancel(

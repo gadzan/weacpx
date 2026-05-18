@@ -1109,6 +1109,7 @@ test("rejects a needs_confirmation task through the current coordinator session"
     coordinatorSession: "backend:coordinator",
   });
   expect(reply.text).toContain("task-reject-1");
+  expect(reply.text).toContain("已拒绝");
   expect(reply.text).toContain("cancelled");
 });
 
