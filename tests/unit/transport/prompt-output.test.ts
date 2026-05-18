@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { getPromptText } from "../../../src/transport/prompt-output";
+import { getPromptText, normalizeCommandError } from "../../../src/transport/prompt-output";
 
 function messageChunk(text: string): string {
   return JSON.stringify({
@@ -71,4 +71,51 @@ test("extracts the full agent reply when prompt exits non-zero without a structu
       stderr: "",
     }),
   ).toBe("先做检查。让我更新任务状态并继续执行测试验证。");
+});
+
+test("prefers error.data.message over error.message when more specific", () => {
+  const stdout = JSON.stringify({
+    jsonrpc: "2.0",
+    id: 3,
+    error: {
+      code: -32603,
+      message: "Internal error",
+      data: {
+        message: "stream disconnected before completion: error sending request for url (http://127.0.0.1:4010/responses)",
+        codex_error_info: "other",
+      },
+    },
+  });
+
+  try {
+    getPromptText({ code: 1, stdout, stderr: "" });
+  } catch (err: any) {
+    expect(err.message).toBe(
+      "stream disconnected before completion: error sending request for url (http://127.0.0.1:4010/responses)",
+    );
+  }
+});
+
+test("uses error.message when error.data.message is identical", () => {
+  const stdout = JSON.stringify({
+    jsonrpc: "2.0",
+    id: 1,
+    error: { code: -1, message: "Resource not found", data: { message: "Resource not found" } },
+  });
+
+  expect(normalizeCommandError({ stdout, stderr: "" })).toBe("Resource not found");
+});
+
+test("uses error.message when error.data.message is absent", () => {
+  const stdout = JSON.stringify({
+    jsonrpc: "2.0",
+    id: 1,
+    error: { code: -32603, message: "Internal error" },
+  });
+
+  try {
+    getPromptText({ code: 1, stdout, stderr: "" });
+  } catch (err: any) {
+    expect(err.message).toBe("Internal error");
+  }
 });

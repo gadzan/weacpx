@@ -597,7 +597,7 @@ export async function handleWeixinMessageTurn(
       void sendWeixinErrorNotice({
         to,
         contextToken,
-        message: `⚠️ 过程失败：${err instanceof Error ? err.message : JSON.stringify(err)}`,
+        message: `⚠️ 执行出错：${err instanceof Error ? err.message : JSON.stringify(err)}`,
         baseUrl: deps.baseUrl,
         token: deps.token,
         errLog: deps.errLog,

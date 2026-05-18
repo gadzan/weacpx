@@ -174,11 +174,22 @@ function extractJsonRpcErrorMessages(output: string): string[] {
         const payload = JSON.parse(line) as {
           error?: {
             message?: string;
+            data?: { message?: string };
           };
         };
 
-        if (typeof payload.error?.message === "string" && payload.error.message.length > 0) {
-          return [payload.error.message];
+        const err = payload.error;
+        const dataMsg = typeof err?.data?.message === "string" && err.data.message.length > 0
+          ? err.data.message
+          : undefined;
+        const baseMsg = typeof err?.message === "string" && err.message.length > 0
+          ? err.message
+          : undefined;
+
+        // Prefer error.data.message when it's more specific than error.message
+        const chosen = dataMsg && dataMsg !== baseMsg ? dataMsg : baseMsg;
+        if (chosen) {
+          return [chosen];
         }
       } catch {
         return [];
