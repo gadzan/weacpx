@@ -28,7 +28,7 @@ flowchart LR
 
 1. `delegate_request` 立即返回 native task handle。
 2. 用 `tasks/get` 或 `tasks/list` 轮询；`statusMessage` 会包含任务摘要，以及 worker 输出的最新 `[PROGRESS] ...` 进展。也可以用 task-augmented `task_watch` 创建一个后台 watcher：watcher 自己是一个 native MCP task，达到下一条事件、需处理状态或 terminal 后，通过 `tasks/result` 取回 watch 结果。
-3. 任务进入 `input_required` 时，调用 `tasks/result` 会立即返回一个下一步操作包并结束本次 result stream，不会一直阻塞等待 terminal。client 应按包里的建议调用 `task_get` 查看详情，再调用 `task_approve` / `task_reject`、`coordinator_answer_question` 或 `coordinator_review_contested_result`；处理后继续 `tasks/get` / `tasks/result`。
+3. 任务进入 `input_required` 时，调用 `tasks/result` 会立即返回一个下一步操作包并结束本次 result stream，不会一直阻塞等待 terminal。client 应按包里的建议调用 `task_get` 查看详情，再调用 `task_approve` / `task_cancel`（取消一个尚未批准的任务即拒绝）、`coordinator_answer_question` 或 `coordinator_review_contested_result`；处理后继续 `tasks/get` / `tasks/result`。
 4. 任务进入 `completed` / `failed` / `cancelled` 后，再调用 `tasks/result` 获取最终结果。
 
 不支持 MCP Tasks 的 host 使用兼容工具：`delegate_request` → `task_get` / `task_list` / `task_watch` / `task_cancel`。`task_watch` 是推荐的长轮询入口：它会阻塞到下一条事件、任务需要处理、任务结束或超时，并返回 `events` 和 `nextAfterSeq`；用返回的 `nextAfterSeq` 作为下一次 `afterSeq` 继续监听。`task_watch` 超时只表示“仍在运行”，再次调用即可继续等待，也可改用 `task_get` 查看一次性快照。
@@ -263,8 +263,8 @@ sequenceDiagram
 - `task_get`：查看单个任务。
 - `task_list`：列出当前 coordinator 的任务。
 - `task_watch`：长轮询一个任务，直到出现下一条事件、任务需要处理、任务结束或超时。返回 `events` 和 `nextAfterSeq`；继续监听时把 `nextAfterSeq` 作为下一次 `afterSeq`。默认最多等待 1 分钟；可传 `timeoutMs` 调整，最大 20 分钟。支持 MCP Tasks 的 host 可以对 `task_watch` 请求 task execution，让 watcher 作为后台 native MCP task 运行，之后用 `tasks/get` / `tasks/result` 取结果。
-- `task_cancel`：取消任务。
-- `group_new` / `group_list` / `group_cancel`：管理任务组。
+- `task_cancel`：取消任务。取消一个尚未批准的任务（状态为 `needs_confirmation`）等同于拒绝。
+- `delegate_batch`：一次派发多个子任务。传入一个 `tasks` 数组（每个条目含 `targetAgent`、`task`、`workingDirectory`），2 个及以上任务自动归入同一个组，所有任务达到终态后结果一并回注，无需手动维护 groupId 状态机。单个任务失败时带 `error` 字段返回，不影响其余任务。
 
 `task_get` / `task_list` / `task_watch` 不需要 `workingDirectory`，因为它们查的是 coordinator 名下的任务，不是新开 worker。
 

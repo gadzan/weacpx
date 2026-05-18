@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.6] - 2026-05-18
+
+### Changed
+
+- **MCP 工具面收敛 16 → 11。** `task_wait` 并入 `task_watch`(见下);`task_reject` 并入 `task_cancel` —— `task_cancel` 现在能取消任何非终态任务,取消一个尚未批准的任务等同于拒绝;`group_new` / `group_get` / `group_list` / `group_cancel` 四个工具替换为单个 `delegate_batch`:传一个任务数组即可,底层自动建组,整批结果一次性回注,无需协调者手工维护 groupId 状态机。
+- **MCP 提示词三层去重。** 流程指引此前在 server instructions、工具 `description`、结果 `Next:` 文本里各讲一遍;现在以结果 `Next:` 文本为唯一权威来源,instructions 与 description 收敛为"做什么 + 何时用"。
+
+### Removed
+
+- **`task_wait` 工具。** 它是 `task_watch(mode=until_attention_or_terminal)` 的真子集 —— 后者同样阻塞到 attention/terminal,并额外内联返回事件流与任务快照。迁移:用 `task_watch` 替代;阻塞等待用 `until_attention_or_terminal` 模式,超时后以 `afterSeq=nextAfterSeq` 续轮询。注意默认超时由 5 分钟变为 1 分钟(可用 `timeoutMs` 调整,上限 20 分钟)。
+- **`coordinator_follow_up_human_package` 工具。** 多轮人工问询改为:解决当前问询包后,用 `coordinator_request_human_input` 重新发起。
+
+### Added
+
+- **`delegate_batch` 工具。** 一次派发多个子任务;2 个及以上自动归入一个组,整批终态后结果一并回注。单个失败的任务带 `error` 字段返回,不影响其余任务。
+
 ## [0.4.5] - 2026-05-17
 
 ### Added

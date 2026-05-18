@@ -351,22 +351,15 @@ README 里只保留用户视角的最常用命令。
 | 命令 | 说明 |
 |------|------|
 | `/dg <agent> <task>` | 快速委派一个子任务 |
-| `/group new <title>` | 创建任务组 |
-| `/group add <groupId> <agent> <task>` | 往任务组里加子任务 |
-| `/groups` | 查看任务组列表 |
-| `/group <id>` | 查看单个任务组 |
-| `/group cancel <groupId>` | 取消组内未结束任务 |
 | `/tasks` | 查看当前主线下的任务 |
 | `/task <id>` | 查看单个任务详情 |
 | `/task approve <id>` | 批准 `needs_confirmation` 任务 |
-| `/task cancel <id>` | 取消任务 |
+| `/task cancel <id>` | 取消任务；取消一个尚未批准的任务等同于拒绝 |
 
 最常见例子：
 
 ```text
 /dg claude 审查当前方案的 3 个高风险点
-/group new review
-/group add review claude 审查接口设计
 /tasks
 /task approve task_123
 ```
@@ -376,9 +369,9 @@ README 里只保留用户视角的最常用命令。
 - 当前会话就是主控会话
 - 被委派出去的是独立子任务会话
 - agent 发起的委派请求默认需要人工确认
-- group 适合把 2~3 个独立子任务并行派出去，再把结果汇总回主线
+- 如果你在用外部 MCP host（Codex / Claude Code），用 `delegate_batch` 一次派发多个并行子任务：传一个 `tasks` 数组，底层自动建组，全部结果一次性回注，无需手动维护 groupId
 
-如果你想先理解什么时候该用 delegate、什么时候该开 group，请看：
+如果你想先理解什么时候该用 delegate、什么时候应该并行派出多个子任务，请看：
 
 - [docs/weacpx-group-usage-guide.md](./docs/weacpx-group-usage-guide.md)
 
