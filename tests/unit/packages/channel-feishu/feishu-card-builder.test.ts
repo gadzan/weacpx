@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import {
   CARD_BODY_MAX_CHARS,
+  REASONING_ELEMENT_ID,
   STREAMING_ELEMENT_ID,
   buildCard,
   buildCardMessageContent,
@@ -200,4 +201,42 @@ test("buildCard caps visible tool panel rows while preserving total count", () =
   expect(serialized).toContain("Tool 49");
   expect(serialized).not.toContain("Tool 50");
   expect(serialized).toContain("还有 5 个工具调用未显示");
+});
+
+test("buildCard renders reasoningText as an always-collapsed collapsible_panel", () => {
+  const card = buildCard({ state: "streaming", text: "the answer", reasoningText: "step one\nstep two" });
+  const elements = (card.body as { elements: Array<Record<string, unknown>> }).elements;
+  const panel = elements.find((el) => el.tag === "collapsible_panel");
+  expect(panel).toBeDefined();
+  expect(panel!.expanded).toBe(false);
+  const json = JSON.stringify(panel);
+  expect(json).toContain("思考");
+  expect(json).toContain("step one");
+  expect(json).toContain("step two");
+  // Inner markdown element keeps the reasoning element id.
+  const inner = (panel!.elements as Array<Record<string, unknown>>)[0];
+  expect(inner.element_id).toBe(REASONING_ELEMENT_ID);
+});
+
+test("buildCard reasoning header shows elapsed when reasoningElapsedMs is provided", () => {
+  const card = buildCard({
+    state: "streaming",
+    text: "the answer",
+    reasoningText: "thinking",
+    reasoningElapsedMs: 8_400,
+  });
+  const elements = (card.body as { elements: Array<Record<string, unknown>> }).elements;
+  const panel = elements.find((el) => el.tag === "collapsible_panel")!;
+  const headerJson = JSON.stringify(panel.header);
+  expect(headerJson).toContain("已思考");
+  expect(headerJson).toContain("8.4s");
+});
+
+test("buildCard reasoning header omits elapsed when reasoningElapsedMs is absent", () => {
+  const card = buildCard({ state: "streaming", text: "the answer", reasoningText: "thinking" });
+  const elements = (card.body as { elements: Array<Record<string, unknown>> }).elements;
+  const panel = elements.find((el) => el.tag === "collapsible_panel")!;
+  const headerJson = JSON.stringify(panel.header);
+  expect(headerJson).toContain("思考过程");
+  expect(headerJson).not.toContain("已思考");
 });

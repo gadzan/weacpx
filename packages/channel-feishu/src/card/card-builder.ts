@@ -26,6 +26,7 @@ export interface BuildCardInput {
   text: string;
   elapsedMs?: number;
   reasoningText?: string;
+  reasoningElapsedMs?: number;
   toolSteps?: ToolUseStep[];
   /** Per-call override of {@link CARD_BODY_MAX_CHARS}. */
   maxBodyChars?: number;
@@ -51,12 +52,27 @@ export function buildCard(input: BuildCardInput): Record<string, unknown> {
 
   const reasoning = input.reasoningText?.trim();
   if (reasoning) {
+    const elapsedLabel =
+      input.reasoningElapsedMs !== undefined ? formatElapsedMs(input.reasoningElapsedMs) : "";
+    const reasoningHeaderTitle = elapsedLabel ? `🧠 已思考 ${elapsedLabel}` : "🧠 思考过程";
     elements.push({
-      tag: "markdown",
-      element_id: REASONING_ELEMENT_ID,
-      content: `**🧠 思考过程**\n\n${truncateForCardBody(reasoning, maxChars)}`,
-      text_align: "left",
-      text_size: "notation",
+      tag: "collapsible_panel",
+      expanded: false,
+      header: {
+        title: {
+          tag: "markdown",
+          content: reasoningHeaderTitle,
+        },
+      },
+      elements: [
+        {
+          tag: "markdown",
+          element_id: REASONING_ELEMENT_ID,
+          content: truncateForCardBody(reasoning, maxChars),
+          text_align: "left",
+          text_size: "notation",
+        },
+      ],
     });
     elements.push({ tag: "hr" });
   }
