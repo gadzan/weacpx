@@ -14,7 +14,10 @@ function createRuntime() {
     quota: {} as never,
     orchestration: {
       server: { start: async () => {}, stop: async () => {} },
-      service: { purgeExpiredResetCoordinators: async () => {} },
+      service: {
+        purgeExpiredResetCoordinators: async () => {},
+        reconcileParallelSlots: async () => {},
+      },
       endpoint: {} as never,
     },
     dispose: async () => {},
@@ -74,6 +77,7 @@ test("runs the foreground service with daemon lifecycle hooks", async () => {
               purgeCalls += 1;
               purgeInput = input;
             },
+            reconcileParallelSlots: async () => {},
           },
         },
         dispose: async () => {
@@ -158,6 +162,10 @@ test("best-effort channel startup keeps running when all channels fail until shu
             stop: async () => {
               events.push("orchestration:stop");
             },
+          },
+          service: {
+            purgeExpiredResetCoordinators: async () => {},
+            reconcileParallelSlots: async () => {},
           },
         },
         dispose: async () => {
@@ -333,6 +341,7 @@ test("swallows heartbeat failures inside the timer callback", async () => {
           },
           service: {
             purgeExpiredResetCoordinators: async () => {},
+            reconcileParallelSlots: async () => {},
           },
         },
         dispose: async () => {},
@@ -383,6 +392,7 @@ test("does not register gc interval in foreground mode", async () => {
           },
           service: {
             purgeExpiredResetCoordinators: async () => {},
+            reconcileParallelSlots: async () => {},
           },
         },
         dispose: async () => {},
@@ -429,6 +439,7 @@ test("still stops daemon runtime when dispose fails", async () => {
             },
           service: {
             purgeExpiredResetCoordinators: async () => {},
+            reconcileParallelSlots: async () => {},
           },
           },
           dispose: async () => {
@@ -485,6 +496,7 @@ test("handles SIGINT by aborting the sdk start and running cleanup", async () =>
           },
           service: {
             purgeExpiredResetCoordinators: async () => {},
+            reconcileParallelSlots: async () => {},
           },
         },
         dispose: async () => {
