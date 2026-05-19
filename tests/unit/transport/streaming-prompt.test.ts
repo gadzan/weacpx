@@ -31,6 +31,18 @@ function makeToolCallLine(title: string, kind = "read", extra?: Record<string, u
   });
 }
 
+function makeThoughtLine(text: string): string {
+  return JSON.stringify({
+    method: "session/update",
+    params: {
+      update: {
+        sessionUpdate: "agent_thought_chunk",
+        content: { type: "text", text },
+      },
+    },
+  });
+}
+
 test("parseStreamingChunks accumulates text and detects paragraph boundary", () => {
   const state = createStreamingPromptState();
 
@@ -537,4 +549,61 @@ test("toolEventMode 'both' calls structured per event but dedupes text by toolCa
   expect(events.length).toBe(2);
   // Text side dedupes — only one segment for the same toolCallId.
   expect(state.segments.length).toBe(1);
+});
+
+test("onThought receives raw agent_thought_chunk text in order", () => {
+  const chunks: string[] = [];
+  const state = createStreamingPromptState(false, {
+    onThought: (c) => {
+      chunks.push(c);
+    },
+  });
+
+  parseStreamingChunks(state, makeThoughtLine("Let me "));
+  parseStreamingChunks(state, makeThoughtLine("think about"));
+  parseStreamingChunks(state, makeThoughtLine(" this\n\nstep two"));
+
+  // Raw chunks — no \n\n splitting, no buffering, no segment emission.
+  expect(chunks).toEqual(["Let me ", "think about", " this\n\nstep two"]);
+  expect(state.segments).toEqual([]);
+  expect(state.buffer).toBe("");
+  expect(state.hasAgentMessage).toBe(false);
+});
+
+test("thought chunks are dropped when no onThought is registered", () => {
+  const state = createStreamingPromptState();
+
+  parseStreamingChunks(state, makeThoughtLine("internal reasoning"));
+  parseStreamingChunks(state, makeChunkLine("real answer"));
+
+  expect(state.segments).toEqual([]);
+  expect(state.buffer).toBe("real answer");
+  expect(state.hasAgentMessage).toBe(true);
+  expect(state.finalize()).toBe("real answer");
+});
+
+test("thought chunks reach onThought regardless of formatToolCalls", () => {
+  const chunks: string[] = [];
+  const state = createStreamingPromptState(false, {
+    onThought: (c) => {
+      chunks.push(c);
+    },
+  });
+
+  parseStreamingChunks(state, makeThoughtLine("reasoning"));
+
+  expect(chunks).toEqual(["reasoning"]);
+});
+
+test("empty thought chunk does not invoke onThought", () => {
+  let calls = 0;
+  const state = createStreamingPromptState(false, {
+    onThought: () => {
+      calls += 1;
+    },
+  });
+
+  parseStreamingChunks(state, makeThoughtLine(""));
+
+  expect(calls).toBe(0);
 });

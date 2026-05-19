@@ -12,6 +12,7 @@ export interface StreamingPromptState {
   emittedToolCallIds: Set<string>;
   toolEventMode: ToolEventMode;
   onToolEvent?: (event: ToolUseEvent) => void | Promise<void>;
+  onThought?: (chunk: string) => void | Promise<void>;
   finalize: () => string;
 }
 
@@ -39,6 +40,7 @@ export type CreateStreamingPromptStateOptions =
   | {
       mode?: ToolEventMode;
       onToolEvent?: (event: ToolUseEvent) => void | Promise<void>;
+      onThought?: (chunk: string) => void | Promise<void>;
     };
 
 export function createStreamingPromptState(
@@ -47,6 +49,7 @@ export function createStreamingPromptState(
 ): StreamingPromptState {
   let toolEventMode: ToolEventMode;
   let onToolEvent: ((event: ToolUseEvent) => void | Promise<void>) | undefined;
+  let onThought: ((chunk: string) => void | Promise<void>) | undefined;
 
   if (options === undefined) {
     toolEventMode = "text";
@@ -57,6 +60,7 @@ export function createStreamingPromptState(
     toolEventMode = "structured";
   } else {
     onToolEvent = options.onToolEvent;
+    onThought = options.onThought;
     toolEventMode = resolveToolEventMode({
       toolEventMode: options.mode,
       onToolEvent,
@@ -72,6 +76,7 @@ export function createStreamingPromptState(
     emittedToolCallIds: new Set(),
     toolEventMode,
     onToolEvent,
+    onThought,
     finalize(): string {
       if (this.pendingLine.trim().length > 0) {
         parseStreamingChunks(this, this.pendingLine);
@@ -134,6 +139,20 @@ export function parseStreamingChunks(state: StreamingPromptState, line: string):
         }
         state.segments.push(formatted);
       }
+    }
+    return;
+  }
+
+  const isThoughtChunk =
+    update.sessionUpdate === "agent_thought_chunk" &&
+    update.content?.type === "text" &&
+    typeof update.content.text === "string";
+  if (isThoughtChunk) {
+    const chunk = update.content!.text ?? "";
+    if (chunk.length > 0) {
+      // Fire-and-forget at the state level — transports that need serialized
+      // awaiting wrap the user callback before passing it in (mirrors onToolEvent).
+      void state.onThought?.(chunk);
     }
     return;
   }
