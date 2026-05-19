@@ -61,10 +61,11 @@ export async function sendTextFeishu(input: {
 }): Promise<FeishuSendResult> {
   const content = JSON.stringify({ text: normalizeFeishuOutboundMentionTags(input.text) });
 
-  if (input.replyToMessageId) {
+  const replyToMessageId = input.replyToMessageId;
+  if (replyToMessageId) {
     const response = await withFeishuTransientRetry(
       () => input.client.im.message.reply({
-        path: { message_id: input.replyToMessageId },
+        path: { message_id: replyToMessageId },
         data: { msg_type: "text", content },
       }),
       "feishu.message.reply(text)",
