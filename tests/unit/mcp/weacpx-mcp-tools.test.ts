@@ -629,3 +629,38 @@ test("delegate_request omits parallel when not provided", async () => {
   expect(capturedInputs).toHaveLength(1);
   expect("parallel" in (capturedInputs[0] as Record<string, unknown>)).toBe(false);
 });
+
+test("delegate_batch forwards per-task parallel and omits it when not provided", async () => {
+  const calls: unknown[] = [];
+  const registry = buildWeacpxMcpToolRegistry({
+    transport: createMemoryTransport(
+      async (input) => {
+        calls.push({ method: "delegateRequest", input });
+        return { taskId: `task-${calls.length}`, status: "running" as const };
+      },
+      {
+        createGroup: async () => ({
+          groupId: "group-1",
+          coordinatorSession: "backend:main",
+          title: "Batch delegation (2 tasks)",
+          createdAt: "2026-05-18T00:00:00.000Z",
+          updatedAt: "2026-05-18T00:00:00.000Z",
+        }),
+      },
+    ),
+    coordinatorSession: "backend:main",
+  });
+
+  const tool = registry.find((entry) => entry.name === "delegate_batch");
+  await tool!.handler({
+    tasks: [
+      { targetAgent: "claude", task: "review module A", parallel: true },
+      { targetAgent: "codex", task: "review module B" },
+    ],
+  });
+
+  expect(calls).toEqual([
+    { method: "delegateRequest", input: { coordinatorSession: "backend:main", targetAgent: "claude", task: "review module A", groupId: "group-1", parallel: true } },
+    { method: "delegateRequest", input: { coordinatorSession: "backend:main", targetAgent: "codex", task: "review module B", groupId: "group-1" } },
+  ]);
+});

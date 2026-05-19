@@ -65,7 +65,12 @@ export function buildWeacpxMcpToolRegistry(input: {
           workingDirectory: z.string().min(1).optional(),
           role: z.string().min(1).optional(),
           groupId: z.string().min(1).optional(),
-          parallel: z.boolean().optional(),
+          parallel: z
+            .boolean()
+            .describe(
+              "Set to true to run this task in its own ephemeral session, concurrently with other in-flight tasks for the same agent.",
+            )
+            .optional(),
         })
         .strict(),
       handler: async (args) =>
@@ -100,7 +105,12 @@ export function buildWeacpxMcpToolRegistry(input: {
                   task: z.string().min(1),
                   workingDirectory: z.string().min(1).optional(),
                   role: z.string().min(1).optional(),
-                  parallel: z.boolean().optional(),
+                  parallel: z
+                    .boolean()
+                    .describe(
+                      "Set to true to run this task in its own ephemeral session, concurrently with other in-flight tasks for the same agent.",
+                    )
+                    .optional(),
                 })
                 .strict(),
             )
@@ -136,7 +146,7 @@ export function buildWeacpxMcpToolRegistry(input: {
                 ...(entry.workingDirectory ? { workingDirectory: entry.workingDirectory } : {}),
                 ...(entry.role ? { role: entry.role } : {}),
                 ...(groupId ? { groupId } : {}),
-                ...(entry.parallel ? { parallel: true } : {}),
+                ...(entry.parallel !== undefined ? { parallel: entry.parallel } : {}),
               });
               results.push({ index, taskId: result.taskId, status: result.status });
             } catch (error) {
