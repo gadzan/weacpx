@@ -43,6 +43,7 @@ function makeDeps(
     reusableWorkerSession?: string | null;
     initialState?: AppState;
     config?: AppConfig;
+    closeWorkerSession?: NonNullable<OrchestrationServiceDeps["closeWorkerSession"]>;
   },
 ) {
   let state = cloneState(overrides?.initialState ?? createEmptyState());
@@ -50,6 +51,7 @@ function makeDeps(
   const savedStates: AppState[] = [];
   const ensureCalls: Array<Parameters<OrchestrationServiceDeps["ensureWorkerSession"]>[0]> = [];
   const dispatchCalls: Array<Parameters<OrchestrationServiceDeps["dispatchWorkerTask"]>[0]> = [];
+  const closeCalls: Array<Parameters<NonNullable<OrchestrationServiceDeps["closeWorkerSession"]>>[0]> = [];
   const lookupCalls: Array<
     NonNullable<OrchestrationServiceDeps["findReusableWorkerSession"]> extends (
       request: infer Request,
@@ -102,6 +104,14 @@ function makeDeps(
     dispatchWorkerTask: async (request) => {
       dispatchCalls.push(request);
     },
+    closeWorkerSession: overrides?.closeWorkerSession
+      ? async (request) => {
+          closeCalls.push(request);
+          return overrides.closeWorkerSession!(request);
+        }
+      : async (request) => {
+          closeCalls.push(request);
+        },
     findReusableWorkerSession: async (request) => {
       lookupCalls.push(request);
       return overrides?.reusableWorkerSession ?? null;
@@ -127,6 +137,7 @@ function makeDeps(
     savedStates,
     ensureCalls,
     dispatchCalls,
+    closeCalls,
     lookupCalls,
     wakeCoordinatorCalls,
     resumeCalls,
@@ -9306,4 +9317,114 @@ test("approveTask on parallel needs_confirmation task starts it when agent has f
   expect(approved.status).toBe("running");
   expect(harness.ensureCalls.length).toBe(1);
   expect(harness.dispatchCalls.length).toBe(1);
+});
+
+// ---------------------------------------------------------------------------
+// Task 8: reconcileParallelSlots — slot teardown and queue draining
+// ---------------------------------------------------------------------------
+
+test("reconcileParallelSlots closes finished slots and drains the queue", async () => {
+  let idCounter = 0;
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 1;
+  const closedSessions: string[] = [];
+  const harness = makeDeps({
+    config,
+    createId: () => `id-${++idCounter}`,
+    closeWorkerSession: async ({ workerSession }) => {
+      closedSessions.push(workerSession);
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const mkDelegate = (task: string) =>
+    service.requestDelegate({
+      sourceHandle: "wx:user-1",
+      sourceKind: "human",
+      coordinatorSession: "backend:main",
+      workspace: "backend",
+      targetAgent: "codex",
+      task,
+      parallel: true,
+    });
+
+  // r1 -> running (slot occupied), r2 -> queued (cap = 1)
+  const r1 = await mkDelegate("A");
+  const r2 = await mkDelegate("B");
+  expect(r1.status).toBe("running");
+  expect(r2.status).toBe("queued");
+
+  // Drive r1 to completed using the real mechanism: recordWorkerReply with
+  // sourceHandle = the task's workerSession (which is how the service identifies the worker)
+  await service.recordWorkerReply({
+    taskId: r1.taskId,
+    sourceHandle: r1.workerSession,
+    status: "completed",
+    summary: "done",
+    resultText: "result",
+  });
+
+  // Verify r1 is now completed before reconcile
+  const r1Task = await service.getTask(r1.taskId);
+  expect(r1Task?.status).toBe("completed");
+
+  // reconcile
+  harness.dispatchCalls.length = 0;
+  harness.ensureCalls.length = 0;
+  await service.reconcileParallelSlots();
+
+  // r1's ephemeral session must have been closed
+  expect(closedSessions).toContain(r1.workerSession);
+
+  // r2 must have been drained into running
+  const r2Task = await service.getTask(r2.taskId);
+  expect(r2Task?.status).toBe("running");
+
+  // ensure and dispatch must have been called for r2
+  expect(harness.ensureCalls.some((c) => c.workerSession === r2.workerSession)).toBe(true);
+  expect(harness.dispatchCalls.some((c) => c.taskId === r2.taskId)).toBe(true);
+});
+
+test("reconcileParallelSlots is idempotent and survives closeWorkerSession errors", async () => {
+  let idCounter = 0;
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 1;
+  let closeCount = 0;
+  const harness = makeDeps({
+    config,
+    createId: () => `id-${++idCounter}`,
+    closeWorkerSession: async () => {
+      closeCount += 1;
+      throw new Error("close failed");
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const r1 = await service.requestDelegate({
+    sourceHandle: "wx:user-1",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "codex",
+    task: "A",
+    parallel: true,
+  });
+  expect(r1.status).toBe("running");
+
+  // Drive r1 to completed
+  await service.recordWorkerReply({
+    taskId: r1.taskId,
+    sourceHandle: r1.workerSession,
+    status: "completed",
+    summary: "done",
+    resultText: "result",
+  });
+
+  // First reconcile: close throws, but reconcileParallelSlots must NOT rethrow
+  await expect(service.reconcileParallelSlots()).resolves.toBeUndefined();
+  expect(closeCount).toBe(1);
+
+  // Second reconcile: ephemeralWorkerSessionClosed is already set, so must NOT close again
+  await service.reconcileParallelSlots();
+  expect(closeCount).toBe(1);
 });

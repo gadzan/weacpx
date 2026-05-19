@@ -206,6 +206,14 @@ export interface OrchestrationServiceDeps {
   dispatchWorkerTask: (request: DispatchWorkerTaskRequest) => Promise<void>;
   cancelWorkerTask?: (request: CancelWorkerTaskRequest) => Promise<void>;
   resumeWorkerTask?: (request: ResumeWorkerTaskRequest) => Promise<void>;
+  closeWorkerSession?: (request: {
+    workerSession: string;
+    coordinatorSession: string;
+    workspace: string;
+    cwd?: string;
+    targetAgent: string;
+    role?: string;
+  }) => Promise<void>;
   wakeCoordinatorSession?: (request: WakeCoordinatorRequest) => Promise<void>;
   deliverCoordinatorMessage?: (
     request: DeliverCoordinatorMessageRequest,
@@ -3583,6 +3591,116 @@ export class OrchestrationService {
   private canStartParallelTask(state: AppState, targetAgent: string): boolean {
     const cap = this.deps.config.orchestration.maxParallelTasksPerAgent;
     return this.countActiveParallelSlots(state, targetAgent) < cap;
+  }
+
+  /**
+   * Idempotent reconciliation for parallel slots:
+   *  1. close acpx sessions of ephemeral parallel tasks that have terminated
+   *     (terminal status, no pending review), and drop their worker bindings;
+   *  2. drain `queued` parallel tasks into running, up to the per-agent cap.
+   * Safe to call repeatedly; close failures are logged and never block draining.
+   */
+  async reconcileParallelSlots(): Promise<void> {
+    // Phase 1: collect + mark sessions to close (mutex-guarded state change).
+    const toClose = await this.mutate(async () => {
+      const state = await this.deps.loadState();
+      const collected: Array<{
+        workerSession: string;
+        coordinatorSession: string;
+        workspace: string;
+        cwd?: string;
+        targetAgent: string;
+        role?: string;
+      }> = [];
+      for (const task of Object.values(state.orchestration.tasks)) {
+        if (
+          task.ephemeralWorkerSession === true &&
+          task.ephemeralWorkerSessionClosed !== true &&
+          task.workerSession &&
+          task.reviewPending === undefined &&
+          this.isTerminalStatus(task.status)
+        ) {
+          task.ephemeralWorkerSessionClosed = true;
+          delete state.orchestration.workerBindings[task.workerSession];
+          collected.push({
+            workerSession: task.workerSession,
+            coordinatorSession: task.coordinatorSession,
+            workspace: task.workspace,
+            ...(task.cwd ? { cwd: task.cwd } : {}),
+            targetAgent: task.targetAgent,
+            ...(task.role ? { role: task.role } : {}),
+          });
+        }
+      }
+      if (collected.length > 0) {
+        await this.deps.saveState(state);
+      }
+      return collected;
+    });
+
+    // Phase 2: best-effort close (outside the mutex — it is network/process I/O).
+    for (const req of toClose) {
+      try {
+        await this.deps.closeWorkerSession?.(req);
+      } catch (error) {
+        this.logEvent("orchestration.parallel.close_failed", "failed to close ephemeral worker session", {
+          workerSession: req.workerSession,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    // Phase 3: drain queued parallel tasks, oldest first, up to capacity.
+    for (;;) {
+      const next = await this.mutate(async () => {
+        const state = await this.deps.loadState();
+        const queued = Object.values(state.orchestration.tasks)
+          .filter((t) => t.status === "queued" && t.ephemeralWorkerSession === true)
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        for (const task of queued) {
+          if (!this.canStartParallelTask(state, task.targetAgent)) {
+            continue; // this agent is full — try other agents' queued tasks
+          }
+          task.status = "running";
+          task.updatedAt = this.deps.now().toISOString();
+          state.orchestration.workerBindings[task.workerSession!] = {
+            sourceHandle: task.workerSession!,
+            coordinatorSession: task.coordinatorSession,
+            workspace: task.workspace,
+            ...(task.cwd ? { cwd: task.cwd } : {}),
+            targetAgent: task.targetAgent,
+            role: task.role,
+            ephemeral: true,
+          };
+          await this.deps.saveState(state);
+          return { ...task };
+        }
+        return null;
+      });
+      if (!next) {
+        break;
+      }
+      await this.ensureReservedWorkerSession({
+        workerSession: next.workerSession!,
+        sourceHandle: next.sourceHandle,
+        sourceKind: next.sourceKind,
+        coordinatorSession: next.coordinatorSession,
+        workspace: next.workspace,
+        ...(next.cwd ? { cwd: next.cwd } : {}),
+        targetAgent: next.targetAgent,
+        ...(next.role ? { role: next.role } : {}),
+      });
+      await this.deps.dispatchWorkerTask({
+        taskId: next.taskId,
+        workerSession: next.workerSession!,
+        coordinatorSession: next.coordinatorSession,
+        workspace: next.workspace,
+        ...(next.cwd ? { cwd: next.cwd } : {}),
+        targetAgent: next.targetAgent,
+        ...(next.role ? { role: next.role } : {}),
+        task: next.task,
+      });
+    }
   }
 
   private async assertProposedWorkerSessionDoesNotConflictExternalCoordinator(workerSession: string): Promise<void> {
