@@ -106,3 +106,28 @@ test("downloadFeishuMessageResource forwards maxBytes to extraction", async () =
     }),
   ).rejects.toThrow("exceeds 100 bytes");
 });
+
+test("downloadFeishuMessageResource retries transient Feishu errors", async () => {
+  let attempts = 0;
+  const client = {
+    im: {
+      messageResource: {
+        get: async () => {
+          attempts++;
+          if (attempts === 1) throw { response: { status: 502 }, message: "bad gateway" };
+          return Buffer.from("ok");
+        },
+      },
+    },
+  };
+
+  const result = await downloadFeishuMessageResource({
+    client,
+    messageId: "om_1",
+    fileKey: "f_1",
+    resourceType: "file",
+  });
+
+  expect(result.buffer.toString()).toBe("ok");
+  expect(attempts).toBe(2);
+});

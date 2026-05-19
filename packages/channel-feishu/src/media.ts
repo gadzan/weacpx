@@ -2,6 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
 
+const RETRYABLE_FEISHU_STATUS_CODES = new Set([502, 503, 504]);
+const FEISHU_TRANSIENT_RETRY_MAX = 2;
+const FEISHU_TRANSIENT_RETRY_DELAY_MS = 100;
+
 export type FeishuResourceApiType = "image" | "file";
 export type FeishuFileType = "opus" | "mp4" | "pdf" | "doc" | "xls" | "ppt" | "stream";
 
@@ -17,6 +21,27 @@ export interface FeishuMediaClient {
       create(input: { params: { receive_id_type: "chat_id" | "open_id" | "user_id" }; data: { receive_id: string; msg_type: "image" | "file" | "audio" | "media"; content: string } }): Promise<{ data?: { message_id?: string; chat_id?: string } }>;
     };
   };
+}
+
+export async function withFeishuTransientRetry<T>(
+  fn: () => Promise<T>,
+  _label: string,
+  maxRetries = FEISHU_TRANSIENT_RETRY_MAX,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      const status = extractHttpStatus(error);
+      if (status === undefined || !RETRYABLE_FEISHU_STATUS_CODES.has(status) || attempt >= maxRetries) {
+        throw error;
+      }
+      await delay(FEISHU_TRANSIENT_RETRY_DELAY_MS * (attempt + 1));
+    }
+  }
+  throw lastError;
 }
 
 export async function extractBufferFromFeishuResponse(response: unknown, maxBytes?: number): Promise<{ buffer: Buffer; contentType?: string; fileName?: string }> {
@@ -63,10 +88,13 @@ export async function downloadFeishuMessageResource(input: {
   resourceType: FeishuResourceApiType;
   maxBytes?: number;
 }): Promise<{ buffer: Buffer; contentType?: string; fileName?: string }> {
-  const response = await input.client.im.messageResource.get({
-    path: { message_id: input.messageId, file_key: input.fileKey },
-    params: { type: input.resourceType },
-  });
+  const response = await withFeishuTransientRetry(
+    () => input.client.im.messageResource.get({
+      path: { message_id: input.messageId, file_key: input.fileKey },
+      params: { type: input.resourceType },
+    }),
+    "feishu.messageResource.get",
+  );
   return await extractBufferFromFeishuResponse(response, input.maxBytes);
 }
 
@@ -85,6 +113,24 @@ function checkSize(byteLength: number, maxBytes: number | undefined): void {
   if (maxBytes !== undefined && byteLength > maxBytes) {
     throw new Error(`Feishu media download exceeds ${maxBytes} bytes`);
   }
+}
+
+function extractHttpStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const record = error as Record<string, unknown>;
+  if (typeof record.status === "number") return record.status;
+  if (typeof record.statusCode === "number") return record.statusCode;
+  const response = record.response as Record<string, unknown> | undefined;
+  if (response && typeof response.status === "number") return response.status;
+  if (typeof record.message === "string") {
+    const match = record.message.match(/\b(50[2-4])\b/);
+    if (match?.[1]) return Number(match[1]);
+  }
+  return undefined;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function filenameFromDisposition(value?: string): string | undefined {

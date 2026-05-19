@@ -1,11 +1,22 @@
 import { expect, test } from "bun:test";
 
-import { resolveFeishuReceiveIdType, sendTextFeishu, sendMediaFeishu } from "../../../../packages/channel-feishu/src/send";
+import {
+  normalizeFeishuOutboundMentionTags,
+  resolveFeishuReceiveIdType,
+  sendTextFeishu,
+  sendMediaFeishu,
+} from "../../../../packages/channel-feishu/src/send";
 
 test("resolveFeishuReceiveIdType detects chat and open ids", () => {
   expect(resolveFeishuReceiveIdType("oc_chat")).toBe("chat_id");
   expect(resolveFeishuReceiveIdType("ou_user")).toBe("open_id");
   expect(resolveFeishuReceiveIdType("unknown")).toBe("open_id");
+});
+
+test("normalizeFeishuOutboundMentionTags canonicalizes common at-tag variants", () => {
+  expect(normalizeFeishuOutboundMentionTags("<at id=all></at>")).toBe('<at user_id="all">Everyone</at>');
+  expect(normalizeFeishuOutboundMentionTags("<at open_id='ou_abc-123'>Alice</at>")).toBe('<at user_id="ou_abc-123">Alice</at>');
+  expect(normalizeFeishuOutboundMentionTags('@<at id="ou_abc">Alice</at>')).toBe('<at user_id="ou_abc">Alice</at>');
 });
 
 test("sendTextFeishu replies when replyToMessageId exists", async () => {
@@ -60,6 +71,29 @@ test("sendTextFeishu creates a message without replyToMessageId", async () => {
       data: { receive_id: "oc_chat", msg_type: "text", content: JSON.stringify({ text: "hello" }) },
     },
   ]);
+});
+
+test("sendTextFeishu normalizes outbound mention tags before sending", async () => {
+  const calls: unknown[] = [];
+  const client = {
+    im: {
+      message: {
+        reply: async () => {
+          throw new Error("reply should not be called");
+        },
+        create: async (payload: unknown) => {
+          calls.push(payload);
+          return { data: { message_id: "om_new", chat_id: "oc_chat" } };
+        },
+      },
+    },
+  };
+
+  await sendTextFeishu({ client, to: "oc_chat", text: "hi <at open_id=ou_user>Alice</at>" });
+
+  expect((calls[0] as { data: { content: string } }).data.content).toBe(JSON.stringify({
+    text: 'hi <at user_id="ou_user">Alice</at>',
+  }));
 });
 
 test("sendMediaFeishu uploads and replies with image", async () => {
@@ -155,4 +189,29 @@ test("sendMediaFeishu sends audio with audio msg_type", async () => {
 
   expect((calls[0][1] as { data: { file_type: string } }).data.file_type).toBe("opus");
   expect((calls[1][1] as { data: { msg_type: string } }).data.msg_type).toBe("audio");
+});
+
+test("sendMediaFeishu retries transient upload failures", async () => {
+  let attempts = 0;
+  const client = {
+    im: {
+      image: {
+        create: async () => {
+          attempts++;
+          if (attempts === 1) throw { status: 503, message: "temporary unavailable" };
+          return { data: { image_key: "img_uploaded" } };
+        },
+      },
+      message: { create: async () => ({ data: { message_id: "om_out", chat_id: "oc" } }) },
+    },
+  } as never;
+
+  const result = await sendMediaFeishu({
+    client,
+    to: "oc_1",
+    media: { kind: "image", filePath: __filename, mimeType: "image/png", fileName: "a.png" },
+  });
+
+  expect(result.messageId).toBe("om_out");
+  expect(attempts).toBe(2);
 });
