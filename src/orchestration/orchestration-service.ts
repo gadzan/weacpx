@@ -547,6 +547,51 @@ export class OrchestrationService {
     const normalizedGroupId = this.normalizeGroupId(input.groupId);
     const taskId = this.deps.createId();
     const workerSession = await this.resolveWorkerSession(input);
+
+    // Parallel gate: when parallel is requested, check if a slot is available.
+    // If at capacity, persist the task as "queued" and return immediately — no
+    // session reservation, no ensureReservedWorkerSession, no dispatchWorkerTask.
+    if (input.parallel) {
+      const queuedResult = await this.mutate(async () => {
+        const state = await this.deps.loadState();
+        if (this.canStartParallelTask(state, input.targetAgent)) {
+          return null; // capacity available — fall through to normal start
+        }
+        const now = this.deps.now().toISOString();
+        const queuedTask: OrchestrationTaskRecord = {
+          taskId,
+          sourceHandle: input.sourceHandle,
+          sourceKind: input.sourceKind,
+          coordinatorSession: input.coordinatorSession,
+          workerSession,
+          workspace: input.workspace,
+          ...(input.cwd ? { cwd: input.cwd } : {}),
+          targetAgent: input.targetAgent,
+          ...(role ? { role } : {}),
+          ...(normalizedGroupId ? { groupId: normalizedGroupId } : {}),
+          task: input.task,
+          status: "queued",
+          ephemeralWorkerSession: true,
+          summary: "",
+          resultText: "",
+          createdAt: now,
+          updatedAt: now,
+          eventSeq: 1,
+          events: [{ seq: 1, at: now, type: "created", status: "queued", message: "Task queued at parallel capacity" }],
+          ...(input.chatKey ? { chatKey: input.chatKey } : {}),
+          ...(input.replyContextToken ? { replyContextToken: input.replyContextToken } : {}),
+          ...(input.accountId ? { accountId: input.accountId } : {}),
+        };
+        state.orchestration.tasks[taskId] = queuedTask;
+        await this.deps.saveState(state);
+        return { taskId, status: "queued" as const, workerSession };
+      });
+      if (queuedResult) {
+        this.logEvent("orchestration.task.queued", "parallel task queued at capacity", { taskId, targetAgent: input.targetAgent });
+        return queuedResult;
+      }
+    }
+
     const releaseWorkerReservation = await this.reserveProposedWorkerSession(workerSession);
     let ensuredWorkerSession = workerSession;
     let prepared: {
@@ -594,6 +639,7 @@ export class OrchestrationService {
           ...(input.chatKey ? { chatKey: input.chatKey } : {}),
           ...(input.replyContextToken ? { replyContextToken: input.replyContextToken } : {}),
           ...(input.accountId ? { accountId: input.accountId } : {}),
+          ...(input.parallel ? { ephemeralWorkerSession: true } : {}),
         };
 
         let previousGroup: OrchestrationGroupRecord | undefined;
@@ -617,6 +663,7 @@ export class OrchestrationService {
           ...(input.cwd ? { cwd: input.cwd } : {}),
           targetAgent: input.targetAgent,
           role,
+          ...(input.parallel ? { ephemeral: true } : {}),
         };
 
         await this.deps.saveState(state);

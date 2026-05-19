@@ -8906,3 +8906,91 @@ test("non-parallel delegation still reuses the worker session", async () => {
   });
   expect(r.workerSession).toBe("backend:codex:reused");
 });
+
+test("parallel delegations beyond the cap are queued", async () => {
+  let idCounter = 0;
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 2;
+  const deps = makeDeps({ config, createId: () => `id-${++idCounter}` });
+  const service = new OrchestrationService(deps.deps);
+  const mk = (task: string) =>
+    service.requestDelegate({
+      sourceHandle: "wx:user-1",
+      sourceKind: "human",
+      coordinatorSession: "backend:main",
+      workspace: "backend",
+      targetAgent: "codex",
+      task,
+      parallel: true,
+    });
+  const r1 = await mk("A");
+  const r2 = await mk("B");
+  const r3 = await mk("C");
+  expect(r1.status).toBe("running");
+  expect(r2.status).toBe("running");
+  expect(r3.status).toBe("queued");
+});
+
+test("a queued parallel task neither ensures a session nor dispatches", async () => {
+  let idCounter = 0;
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 1;
+  const deps = makeDeps({ config, createId: () => `id-${++idCounter}` });
+  const service = new OrchestrationService(deps.deps);
+  await service.requestDelegate({
+    sourceHandle: "wx:user-1",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "codex",
+    task: "A",
+    parallel: true,
+  });
+  deps.ensureCalls.length = 0;
+  deps.dispatchCalls.length = 0;
+  const r2 = await service.requestDelegate({
+    sourceHandle: "wx:user-1",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "codex",
+    task: "B",
+    parallel: true,
+  });
+  expect(r2.status).toBe("queued");
+  expect(deps.ensureCalls.length).toBe(0);
+  expect(deps.dispatchCalls.length).toBe(0);
+});
+
+test("a queued parallel task is persisted and retrievable with status queued", async () => {
+  let idCounter = 0;
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 1;
+  const deps = makeDeps({ config, createId: () => `id-${++idCounter}` });
+  const service = new OrchestrationService(deps.deps);
+  await service.requestDelegate({
+    sourceHandle: "wx:user-1",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "codex",
+    task: "A",
+    parallel: true,
+  });
+  const r2 = await service.requestDelegate({
+    sourceHandle: "wx:user-1",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "codex",
+    task: "B",
+    parallel: true,
+  });
+  expect(r2.status).toBe("queued");
+  const task = await service.getTask(r2.taskId);
+  expect(task).not.toBeNull();
+  expect(task!.status).toBe("queued");
+  expect(task!.targetAgent).toBe("codex");
+  expect(task!.task).toBe("B");
+  expect(task!.ephemeralWorkerSession).toBe(true);
+});
