@@ -1613,18 +1613,21 @@ test("R2: onToolEvent-only caller still gets the correct final text from the str
 
 // --- onThought wiring tests ---
 
-test("onThought: callback receives text from agent_thought_chunk lines", async () => {
-  const thoughts: string[] = [];
-
-  const thoughtLine = JSON.stringify({
+function makeThoughtChunkLine(text: string): string {
+  return JSON.stringify({
     method: "session/update",
     params: {
       update: {
         sessionUpdate: "agent_thought_chunk",
-        content: { type: "text", text: "weighing options" },
+        content: { type: "text", text },
       },
     },
   });
+}
+
+test("onThought: callback receives thought text without bleeding into the reply stream", async () => {
+  const thoughts: string[] = [];
+  const segments: string[] = [];
 
   const transport = new AcpxCliTransport(
     { command: "acpx" },
@@ -1632,17 +1635,79 @@ test("onThought: callback receives text from agent_thought_chunk lines", async (
     undefined,
     undefined,
     {
-      spawnPrompt: () => makeFakeSpawn([thoughtLine]),
+      spawnPrompt: () => makeFakeSpawn([
+        makeThoughtChunkLine("weighing options"),
+        makeAgentChunkLine("final answer"),
+      ]),
       setIntervalFn: () => 0,
       clearIntervalFn: () => {},
     },
   );
 
-  await transport.prompt(session, "hi", undefined, undefined, {
+  await transport.prompt(session, "hi", async (text) => {
+    segments.push(text);
+  }, undefined, {
     onThought: (chunk) => {
       thoughts.push(chunk);
     },
   });
 
+  // Thought text reaches onThought only; the agent message goes to reply().
   expect(thoughts).toEqual(["weighing options"]);
+  expect(segments).toEqual(["final answer"]);
+  expect(segments.every((s) => !s.includes("weighing options"))).toBe(true);
+});
+
+test("onThought: handler error rejects the prompt", async () => {
+  const transport = new AcpxCliTransport(
+    { command: "acpx" },
+    undefined,
+    undefined,
+    undefined,
+    {
+      spawnPrompt: () => makeFakeSpawn([
+        makeThoughtChunkLine("weighing options"),
+        makeAgentChunkLine("done"),
+      ]),
+      setIntervalFn: () => 0,
+      clearIntervalFn: () => {},
+    },
+  );
+
+  await expect(
+    transport.prompt(session, "hi", undefined, undefined, {
+      onThought: () => {
+        throw new Error("thought handler boom");
+      },
+    }),
+  ).rejects.toThrow("thought handler boom");
+});
+
+test("onThought: only the first handler error is surfaced", async () => {
+  let callIndex = 0;
+
+  const transport = new AcpxCliTransport(
+    { command: "acpx" },
+    undefined,
+    undefined,
+    undefined,
+    {
+      spawnPrompt: () => makeFakeSpawn([
+        makeThoughtChunkLine("first thought"),
+        makeThoughtChunkLine("second thought"),
+        makeAgentChunkLine("done"),
+      ]),
+      setIntervalFn: () => 0,
+      clearIntervalFn: () => {},
+    },
+  );
+
+  await expect(
+    transport.prompt(session, "hi", undefined, undefined, {
+      onThought: () => {
+        callIndex += 1;
+        throw new Error(`thought error ${callIndex}`);
+      },
+    }),
+  ).rejects.toThrow("thought error 1");
 });
