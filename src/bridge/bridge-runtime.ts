@@ -566,6 +566,10 @@ export async function runStreamingPrompt(
       ...(onEvent && (toolEventMode === "structured" || toolEventMode === "both")
         ? { onToolEvent: (toolEvent) => onEvent({ type: "prompt.tool_event", event: toolEvent }) }
         : {}),
+      // `onEvent` here is the synchronous `writeLine` path in bridge-server —
+      // it emits a `prompt.thought` NDJSON line and returns immediately. The
+      // async `onThought` chain lives on the client side (acpx-bridge-transport),
+      // so this side has no callback to await before resolving the prompt.
       ...(onEvent
         ? { onThought: (chunk) => onEvent({ type: "prompt.thought", text: chunk }) }
         : {}),
