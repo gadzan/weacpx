@@ -1,11 +1,37 @@
 # Changelog
 
-## [0.4.8] - 2026-05-19
+## [channel-feishu 0.1.2] - 2026-05-19
+
+> `@ganglion/weacpx-channel-feishu` 单独发布；weacpx 本体保持 `0.4.8` 不变。
+
+### Added
+
+- **飞书卡片思考过程展示：** 飞书 channel 现在把 acpx 的 `agent_thought_chunk`（经 0.4.8 引入的 `onThought` 侧通道）渲染进流式卡片里一个**始终折叠**的 `🧠` 面板，header 显示「已思考 N 秒」（首个到最近一个思考片之间的活动跨度）。`onThought` 为优先数据源，回答文本内嵌的 `<think>` / `<thinking>` / `<thought>` 标签解析作为回落，兼顾走侧通道的 acpx 与内嵌标签的 agent。static（非卡片）模式不展示思考，与 `onToolEvent` 行为一致。
 
 ### Changed
 
-- **Feishu outbound send hardening：** 统一 outbound mention tag 变体，并对飞书消息发送/媒体下载的临时 5xx 错误增加有限重试。
-- **Yuanbao 流式出站修复：** 强化 Markdown 片段拼接与表格修复，减少 block streaming 导致的断表、断 fence 问题。
+- **思考面板形态：** 思考面板从常驻展开的普通 markdown 元素改为始终折叠的 `collapsible_panel`，与工具调用面板形态一致；思考内容变化时强制走全量 `card.update`，确保折叠面板内容刷新。
+
+## [0.4.8] - 2026-05-19
+
+### Added
+
+- **`onThought` 思考侧通道：** 新增结构化的 `onThought` 侧通道，把 acpx 的 `agent_thought_chunk`（代理推理）作为原始 chunk 透传给注册了 `ChatRequest.onThought` 的 channel / 插件；`acpx-cli` 与 `acpx-bridge` 两种 transport 均支持。思考与回答文本分流，内置微信 channel 不展示思考，channel 可按需消费。
+- **bridge 协议 `prompt.thought` 事件：** bridge 协议新增 `prompt.thought` 流式事件，bridge-runtime / bridge-server / bridge-client 一路转发，使 bridge 模式会话也能把推理 chunk 透传给 channel runtime。
+
+### Changed
+
+- **tool_call_update 渲染回落 `rawOutput`：** 工具调用更新摘要在 `rawInput` 没有可展示文本时回落到 `rawOutput`，避免 verbose 模式下工具调用细节为空。
+- **daemon/runtime 路径尊重 `WEACPX_CONFIG`：** daemon 与 runtime 路径解析现在跟随 `WEACPX_CONFIG`，使用替代 config 路径时，daemon 状态、日志与 doctor 检查都落到对应的 `runtime/` 目录。
+- **微信账号发现回落已有凭证：** 二维码登录的账号索引缺失或过期时，微信账号发现回落到已有的凭证文件。
+- **版本升级：** `weacpx` 升至 `0.4.8`，`@ganglion/weacpx-channel-feishu` 与 `@ganglion/weacpx-channel-yuanbao` 升至 `0.1.1`。
+
+### Fixed
+
+- **飞书出站 mention 归一化：** 发送前统一 `<at id=...>` / `<at open_id=...>` 等 mention tag 变体，修复飞书出站 @ 处理。
+- **飞书瞬时错误有限重试：** 飞书消息发送、媒体上传、媒体下载遇到 502 / 503 / 504 瞬时错误时增加有限重试。
+- **元宝流式 Markdown 修复：** 修复元宝流式 Markdown 拼接——修复断裂的管道表格、保留代码/数学块、拆掉只含表格的 markdown fence，并避免 flush 不完整的表格/fence 内容。
+- **发布 CI 修复：** 依赖升级后同步 `package-lock.json`，并在根 publish workflow 中统一使用 `npm ci`。
 
 ## [0.4.7] - 2026-05-18
 
