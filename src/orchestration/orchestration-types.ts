@@ -1,5 +1,6 @@
 export type OrchestrationTaskStatus =
   | "needs_confirmation"
+  | "queued"
   | "running"
   | "blocked"
   | "waiting_for_human"
@@ -70,6 +71,10 @@ export interface OrchestrationTaskRecord {
   lastProgressAt?: string;
   lastProgressSummary?: string;
   groupId?: string;
+  /** True when this task owns an ephemeral parallel-slot worker session that must be closed on terminal. */
+  ephemeralWorkerSession?: boolean;
+  /** Idempotency guard: set once the ephemeral worker session has been closed. */
+  ephemeralWorkerSessionClosed?: boolean;
   openQuestion?: OrchestrationOpenQuestionRecord;
   reviewPending?: OrchestrationReviewPendingRecord;
   correctionPending?: OrchestrationCorrectionPendingRecord;
@@ -132,6 +137,8 @@ export interface WorkerBindingRecord {
   cwd?: string;
   targetAgent: string;
   role?: string;
+  /** True for ephemeral parallel-slot sessions; excluded from findReusableWorkerSession matching. */
+  ephemeral?: boolean;
 }
 
 export interface OrchestrationQueuedQuestionRecord {
