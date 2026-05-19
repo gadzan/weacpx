@@ -6,7 +6,7 @@
 
 - **并行 agent 委派（`parallel` opt-in）：** `delegate_request` 和 `delegate_batch` 的每个任务条目新增可选字段 `parallel: boolean`（默认 `false`）。设为 `true` 时，任务在独立的临时 acpx session 中与该 agent 的其他并行任务并发执行；任务到达终态且无待审核项后，该临时 session 自动关闭（`transport.removeSession` → `acpx <agent> sessions close <name>`）。`parallel: false`（默认）行为与以往完全一致，串行复用 agent 现有 session，无任何变化。
 - **`orchestration.maxParallelTasksPerAgent` 配置项：** 新增整数配置字段（≥ 1，默认 `3`），全局限制每个 agent 同时运行的并行 slot 数量，跨所有 coordinator 和工作区计数。
-- **`queued` 任务状态：** 当目标 agent 的并行 slot 已满时，新的 `parallel: true` 任务以 `status: "queued"` 创建，不占用 acpx session；有 slot 释放时自动按创建时间升为 `running` 并开始执行。`queued` 任务计入 `maxPendingAgentRequestsPerCoordinator` 配额，可通过 `task_watch` / `task_get` 正常跟踪直至终态。
+- **`queued` 任务状态：** 当目标 agent 的并行 slot 已满时，新的 `parallel: true` 任务以 `status: "queued"` 创建，不占用 acpx session；有 slot 释放时自动按创建时间顺序升为 `running` 并开始执行。`queued` 任务计入 `maxPendingAgentRequestsPerCoordinator` 配额，可通过 `task_watch` / `task_get` 正常跟踪直至终态。
 
 ## [channel-feishu 0.1.2] - 2026-05-19
 
