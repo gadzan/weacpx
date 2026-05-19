@@ -465,9 +465,12 @@ function createErrorResult(message: string): WeacpxMcpToolResult {
 }
 
 function renderDelegateSuccess(result: { taskId: string; status: string }): string {
-  const next = result.status === "needs_confirmation"
-    ? `Next: this delegation requires user approval. Tell the user, then call task_approve or task_cancel based on their response.`
-    : `Next: task "${result.taskId}" is running. Return this taskId to the user, call task_get/task_list for non-blocking progress snapshots, or task_watch to long-poll for the next event or terminal state.`;
+  const next =
+    result.status === "needs_confirmation"
+      ? `Next: this delegation requires user approval. Tell the user, then call task_approve or task_cancel based on their response.`
+      : result.status === "queued"
+        ? `Next: task "${result.taskId}" is queued (agent at parallel capacity). It will start automatically when a slot frees. Call task_watch to long-poll for the transition to running, or task_get/task_list for non-blocking snapshots.`
+        : `Next: task "${result.taskId}" is running. Return this taskId to the user, call task_get/task_list for non-blocking progress snapshots, or task_watch to long-poll for the next event or terminal state.`;
   return [`Delegation task "${result.taskId}" created.`, `- Status: ${result.status}`, next].join("\n");
 }
 

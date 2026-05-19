@@ -3718,6 +3718,12 @@ export class OrchestrationService {
             task.status = "queued";
             task.updatedAt = this.deps.now().toISOString();
             delete state.orchestration.workerBindings[next.workerSession!];
+            // Audit-trail parity with the success path: record the running→queued
+            // revert as a status_changed event, persisted in this same mutate.
+            this.appendTaskEvent(task, task.updatedAt, "status_changed", {
+              status: "queued",
+              message: "Task re-queued after drain failure",
+            });
             await this.deps.saveState(state);
           }
         });

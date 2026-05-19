@@ -9570,3 +9570,63 @@ test("reconcileParallelSlots drains a free agent's queue while leaving a full ag
   expect((await service.getTask("claude-queued"))?.status).toBe("running");
   expect(harness.dispatchCalls.some((c) => c.taskId === "claude-queued")).toBe(true);
 });
+
+test("reconcileParallelSlots reverts the task to queued when ensureWorkerSession throws", async () => {
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 1;
+  // Pre-seed a single queued ephemeral parallel task and no running task — the
+  // agent has free capacity, so Phase 3 will pick this task up. ensureWorkerSession
+  // is wired to throw, exercising the rollback path.
+  const initialState = createEmptyState();
+  initialState.orchestration.tasks = {
+    "codex-queued": {
+      taskId: "codex-queued",
+      sourceHandle: "wx:user-1",
+      sourceKind: "human",
+      coordinatorSession: "backend:main",
+      workerSession: "backend:codex:p-queued",
+      workspace: "backend",
+      targetAgent: "codex",
+      task: "codex queued",
+      status: "queued",
+      ephemeralWorkerSession: true,
+      summary: "",
+      resultText: "",
+      createdAt: "2026-04-13T10:00:00.000Z",
+      updatedAt: "2026-04-13T10:00:00.000Z",
+      eventSeq: 1,
+      events: [],
+    },
+  };
+  const harness = makeDeps({
+    config,
+    initialState,
+    ensureWorkerSession: async () => {
+      throw new Error("ensure failed");
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  // reconcile must NOT throw out — rollback runs internally.
+  await expect(service.reconcileParallelSlots()).resolves.toBeUndefined();
+
+  // (a) Task ended up back at queued.
+  const task = await service.getTask("codex-queued");
+  expect(task?.status).toBe("queued");
+
+  // (b) Its workerBindings entry is gone.
+  expect(harness.getState().orchestration.workerBindings["backend:codex:p-queued"]).toBeUndefined();
+
+  // (c) dispatchWorkerTask was NOT called for this task.
+  expect(harness.dispatchCalls.some((c) => c.taskId === "codex-queued")).toBe(false);
+
+  // (d) A status_changed → queued event with the re-queued message is present.
+  expect(
+    (task?.events ?? []).some(
+      (e) =>
+        e.type === "status_changed" &&
+        e.status === "queued" &&
+        e.message === "Task re-queued after drain failure",
+    ),
+  ).toBe(true);
+});
