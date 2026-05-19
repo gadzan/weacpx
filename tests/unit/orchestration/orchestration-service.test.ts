@@ -9172,8 +9172,7 @@ test("approveTask on parallel needs_confirmation task queues it when agent is at
 test("approveTask on parallel needs_confirmation task starts it when agent has free capacity", async () => {
   let idCounter = 0;
   const config = createConfig();
-  // Cap of 3 with no running parallel tasks → capacity is free
-  config.orchestration.maxParallelTasksPerAgent = 3;
+  // Default cap (3) with no running parallel tasks → capacity is free
   config.orchestration.allowWorkerChainedRequests = true;
   const harness = makeDeps({
     config,
