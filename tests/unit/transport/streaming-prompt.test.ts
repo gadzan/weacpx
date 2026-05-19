@@ -584,7 +584,7 @@ test("thought chunks are dropped when no onThought is registered", () => {
 
 test("thought chunks reach onThought regardless of formatToolCalls", () => {
   const chunks: string[] = [];
-  const state = createStreamingPromptState(false, {
+  const state = createStreamingPromptState(true, {
     onThought: (c) => {
       chunks.push(c);
     },

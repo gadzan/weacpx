@@ -148,7 +148,7 @@ export function parseStreamingChunks(state: StreamingPromptState, line: string):
     update.content?.type === "text" &&
     typeof update.content.text === "string";
   if (isThoughtChunk) {
-    const chunk = update.content!.text ?? "";
+    const chunk = update.content!.text as string;
     if (chunk.length > 0) {
       // Fire-and-forget at the state level — transports that need serialized
       // awaiting wrap the user callback before passing it in (mirrors onToolEvent).
