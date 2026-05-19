@@ -247,6 +247,10 @@ test("require-one channel startup still rejects when all channels fail", async (
                 events.push("orchestration:stop");
               },
             },
+            service: {
+              purgeExpiredResetCoordinators: async () => {},
+              reconcileParallelSlots: async () => {},
+            },
           },
           dispose: async () => {
             events.push("dispose");
@@ -300,6 +304,10 @@ test("disposes runtime when loading the sdk fails before startup", async () => {
               stop: async () => {
                 events.push("orchestration:stop");
               },
+            },
+            service: {
+              purgeExpiredResetCoordinators: async () => {},
+              reconcileParallelSlots: async () => {},
             },
           },
           dispose: async () => {
