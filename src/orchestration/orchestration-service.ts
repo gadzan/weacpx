@@ -2904,6 +2904,17 @@ export class OrchestrationService {
 
   private async resolveWorkerSession(input: RequestDelegateInput): Promise<string> {
     const role = this.normalizeRole(input.role);
+
+    const baseName = [input.workspace, input.cwd ? this.cwdWorkerSessionPart(input.cwd) : undefined, input.targetAgent, role, input.coordinatorSession]
+      .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+      .map((part) => part.trim())
+      .join(":");
+
+    if (input.parallel) {
+      // Ephemeral parallel slot: never reuse, always a fresh unique session.
+      return `${baseName}:p-${this.deps.createId()}`;
+    }
+
     const reusable = await this.deps.findReusableWorkerSession?.({
       sourceHandle: input.sourceHandle,
       sourceKind: input.sourceKind,
@@ -2918,10 +2929,7 @@ export class OrchestrationService {
       return reusable.trim();
     }
 
-    return [input.workspace, input.cwd ? this.cwdWorkerSessionPart(input.cwd) : undefined, input.targetAgent, role, input.coordinatorSession]
-      .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
-      .map((part) => part.trim())
-      .join(":");
+    return baseName;
   }
 
   private async reserveProposedWorkerSession(workerSession: string, excludingTaskId?: string): Promise<() => Promise<void>> {

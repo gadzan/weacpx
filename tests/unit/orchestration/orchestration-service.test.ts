@@ -8861,3 +8861,48 @@ test("coordinatorRequestHumanInput propagates QuotaDeferredError without recordi
   expect(pkg!.messages[0]!.lastDeliveryError).toBeUndefined();
   expect(pkg!.status).toBe("active");
 });
+
+test("parallel delegation mints a unique worker session and skips reuse", async () => {
+  let idCounter = 0;
+  const deps = makeDeps({
+    createId: () => `id-${++idCounter}`,
+    reusableWorkerSession: "ws:codex:reused",
+  });
+  const service = new OrchestrationService(deps.deps);
+  const a = await service.requestDelegate({
+    sourceHandle: "wx:user-1",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "codex",
+    task: "task A",
+    parallel: true,
+  });
+  const b = await service.requestDelegate({
+    sourceHandle: "wx:user-1",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "codex",
+    task: "task B",
+    parallel: true,
+  });
+  expect(a.workerSession).toContain(":p-");
+  expect(b.workerSession).toContain(":p-");
+  expect(a.workerSession).not.toBe(b.workerSession);
+  expect(a.workerSession).not.toBe("ws:codex:reused");
+});
+
+test("non-parallel delegation still reuses the worker session", async () => {
+  const deps = makeDeps({ reusableWorkerSession: "backend:codex:reused" });
+  const service = new OrchestrationService(deps.deps);
+  const r = await service.requestDelegate({
+    sourceHandle: "wx:user-1",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "codex",
+    task: "task",
+  });
+  expect(r.workerSession).toBe("backend:codex:reused");
+});

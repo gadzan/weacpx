@@ -578,6 +578,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     findReusableWorkerSession: async ({ coordinatorSession, workspace, cwd, targetAgent, role }) => {
       const binding = Object.entries(state.orchestration.workerBindings).find(
         ([, current]) =>
+          current.ephemeral !== true &&
           current.coordinatorSession === coordinatorSession &&
           current.workspace === workspace &&
           current.cwd === cwd &&
