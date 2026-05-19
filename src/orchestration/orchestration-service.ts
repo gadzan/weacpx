@@ -3408,6 +3408,24 @@ export class OrchestrationService {
     );
   }
 
+  /** Count parallel-slot tasks currently holding an acpx session for an agent. */
+  private countActiveParallelSlots(state: AppState, targetAgent: string): number {
+    return Object.values(state.orchestration.tasks).filter(
+      (task) =>
+        task.ephemeralWorkerSession === true &&
+        task.targetAgent === targetAgent &&
+        (task.status === "running" ||
+          task.status === "blocked" ||
+          task.status === "waiting_for_human"),
+    ).length;
+  }
+
+  /** Whether a new parallel task for this agent may start now, or must be queued. */
+  private canStartParallelTask(state: AppState, targetAgent: string): boolean {
+    const cap = this.deps.config.orchestration.maxParallelTasksPerAgent;
+    return this.countActiveParallelSlots(state, targetAgent) < cap;
+  }
+
   private async assertProposedWorkerSessionDoesNotConflictExternalCoordinator(workerSession: string): Promise<void> {
     const state = await this.deps.loadState();
     this.assertWorkerSessionDoesNotConflictExternalCoordinator(state, workerSession);
