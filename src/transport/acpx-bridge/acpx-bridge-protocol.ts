@@ -63,6 +63,12 @@ export interface BridgePromptToolEvent {
   toolEvent: ToolUseEvent;
 }
 
+export interface BridgePromptThoughtEvent {
+  id: string;
+  event: "prompt.thought";
+  text: string;
+}
+
 export interface BridgeSessionProgressEvent {
   id: string;
   event: "session.progress";
@@ -80,6 +86,7 @@ export type BridgeMessage<TResult = unknown> =
   | BridgeErrorResponse
   | BridgePromptSegmentEvent
   | BridgePromptToolEvent
+  | BridgePromptThoughtEvent
   | BridgeSessionProgressEvent
   | BridgeSessionNoteEvent;
 export type BridgeResponse<TResult = unknown> = BridgeSuccessResponse<TResult> | BridgeErrorResponse;
@@ -93,6 +100,10 @@ export function encodeBridgePromptSegmentEvent(event: BridgePromptSegmentEvent):
 }
 
 export function encodeBridgePromptToolEvent(event: BridgePromptToolEvent): string {
+  return `${JSON.stringify(event)}\n`;
+}
+
+export function encodeBridgePromptThoughtEvent(event: BridgePromptThoughtEvent): string {
   return `${JSON.stringify(event)}\n`;
 }
 

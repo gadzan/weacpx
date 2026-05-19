@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  encodeBridgePromptThoughtEvent,
   encodeBridgeSessionProgressEvent,
   type BridgeErrorResponse,
+  type BridgePromptThoughtEvent,
   type BridgeSessionProgressEvent,
   type EnsureSessionErrorKind,
 } from "../../../../src/transport/acpx-bridge/acpx-bridge-protocol";
@@ -30,5 +32,16 @@ describe("bridge protocol progress + structured error", () => {
       },
     };
     expect(response.error.kind).toBe("missing_optional_dep");
+  });
+
+  test("encodes prompt.thought event as NDJSON", () => {
+    const event: BridgePromptThoughtEvent = {
+      id: "7",
+      event: "prompt.thought",
+      text: "weighing the tradeoffs",
+    };
+    expect(encodeBridgePromptThoughtEvent(event)).toBe(
+      `${JSON.stringify(event)}\n`,
+    );
   });
 });
