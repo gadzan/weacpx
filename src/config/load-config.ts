@@ -455,6 +455,9 @@ function parseOrchestrationConfig(raw: unknown): OrchestrationConfig {
     maxParallelTasksPerAgent:
       typeof raw.maxParallelTasksPerAgent === "number" &&
       Number.isFinite(raw.maxParallelTasksPerAgent) &&
+      // Threshold is >= 1 (not > 0 like maxPendingAgentRequestsPerCoordinator):
+      // this is a cap on concurrent task dispatch, and a cap of 0 would disable
+      // parallel dispatch entirely, so sub-1 values fall back to the default.
       raw.maxParallelTasksPerAgent >= 1
         ? Math.floor(raw.maxParallelTasksPerAgent)
         : DEFAULT_ORCHESTRATION_CONFIG.maxParallelTasksPerAgent,

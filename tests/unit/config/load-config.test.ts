@@ -961,27 +961,32 @@ test("orchestration.maxParallelTasksPerAgent accepts a positive override", async
   }
 });
 
-test("orchestration.maxParallelTasksPerAgent rejects non-positive / non-finite values", async () => {
-  const makeConfig = async (maxParallelTasksPerAgent: number) => {
-    const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
-    const path = join(dir, "config.json");
-    await writeFile(
-      path,
-      JSON.stringify({
-        transport: { type: "acpx-cli", command: "acpx" },
-        agents: { codex: { driver: "codex" } },
-        workspaces: {},
-        orchestration: { maxParallelTasksPerAgent },
-      }),
-    );
-    try {
-      return await loadConfig(path);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  };
+async function loadConfigWithMaxParallelTasksPerAgent(maxParallelTasksPerAgent: unknown) {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {},
+      orchestration: { maxParallelTasksPerAgent },
+    }),
+  );
+  try {
+    return await loadConfig(path);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
 
-  expect((await makeConfig(0)).orchestration.maxParallelTasksPerAgent).toBe(3);
-  expect((await makeConfig(-1)).orchestration.maxParallelTasksPerAgent).toBe(3);
-  expect((await makeConfig(2.5)).orchestration.maxParallelTasksPerAgent).toBe(2);
+test("orchestration.maxParallelTasksPerAgent rejects non-positive / non-finite values", async () => {
+  expect((await loadConfigWithMaxParallelTasksPerAgent(0)).orchestration.maxParallelTasksPerAgent).toBe(3);
+  expect((await loadConfigWithMaxParallelTasksPerAgent(-1)).orchestration.maxParallelTasksPerAgent).toBe(3);
+  expect((await loadConfigWithMaxParallelTasksPerAgent(Infinity)).orchestration.maxParallelTasksPerAgent).toBe(3);
+  expect((await loadConfigWithMaxParallelTasksPerAgent(NaN)).orchestration.maxParallelTasksPerAgent).toBe(3);
+});
+
+test("orchestration.maxParallelTasksPerAgent floors a positive float to an integer", async () => {
+  expect((await loadConfigWithMaxParallelTasksPerAgent(2.5)).orchestration.maxParallelTasksPerAgent).toBe(2);
 });
