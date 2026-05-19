@@ -22,7 +22,8 @@ import type { ToolUseEvent } from "../channels/types.js";
 
 type BridgePromptStreamEvent =
   | { type: "prompt.segment"; text: string }
-  | { type: "prompt.tool_event"; event: ToolUseEvent };
+  | { type: "prompt.tool_event"; event: ToolUseEvent }
+  | { type: "prompt.thought"; text: string };
 
 export class EnsureSessionFailedError extends Error {
   readonly kind: "missing_optional_dep" | "generic";
@@ -564,6 +565,9 @@ export async function runStreamingPrompt(
       mode: toolEventMode,
       ...(onEvent && (toolEventMode === "structured" || toolEventMode === "both")
         ? { onToolEvent: (toolEvent) => onEvent({ type: "prompt.tool_event", event: toolEvent }) }
+        : {}),
+      ...(onEvent
+        ? { onThought: (chunk) => onEvent({ type: "prompt.thought", text: chunk }) }
         : {}),
     });
     let lastReplyAt = now();
