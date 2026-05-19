@@ -1979,6 +1979,97 @@ test("rejects rpc requests when the coordinator exceeds the pending agent reques
   expect(harness.getState().orchestration.tasks).toHaveProperty("task-3");
 });
 
+test("queued parallel tasks count toward the coordinator pending agent request quota", async () => {
+  let idCounter = 0;
+  const harness = makeDeps({
+    createId: () => `id-${++idCounter}`,
+    initialState: {
+      ...createEmptyState(),
+      sessions: {
+        main: {
+          alias: "main",
+          agent: "codex",
+          workspace: "backend",
+          transport_session: "backend:main",
+          created_at: "2026-04-13T10:00:00.000Z",
+          last_used_at: "2026-04-13T10:00:00.000Z",
+        },
+      },
+      orchestration: {
+        tasks: {
+          // A queued parallel task from a prior coordinator delegation.
+          "task-queued": {
+            taskId: "task-queued",
+            sourceHandle: "backend:main",
+            sourceKind: "coordinator",
+            coordinatorSession: "backend:main",
+            workerSession: "backend:claude:p-queued",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "queued parallel task",
+            status: "queued",
+            ephemeralWorkerSession: true,
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-13T09:59:00.000Z",
+            updatedAt: "2026-04-13T10:00:00.000Z",
+            eventSeq: 1,
+            events: [],
+          },
+          "task-running": {
+            taskId: "task-running",
+            sourceHandle: "backend:main",
+            sourceKind: "coordinator",
+            coordinatorSession: "backend:main",
+            workerSession: "backend:claude:p-running",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "running parallel task",
+            status: "running",
+            ephemeralWorkerSession: true,
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-13T09:58:00.000Z",
+            updatedAt: "2026-04-13T10:00:00.000Z",
+            eventSeq: 1,
+            events: [],
+          },
+        },
+        workerBindings: {},
+      },
+    },
+    config: {
+      ...createConfig(),
+      orchestration: {
+        maxPendingAgentRequestsPerCoordinator: 2,
+        allowWorkerChainedRequests: true,
+        allowedAgentRequestTargets: [],
+        allowedAgentRequestRoles: [],
+        progressHeartbeatSeconds: 300,
+        maxParallelTasksPerAgent: 3,
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  // Two outstanding tasks (one queued, one running) already hit the cap of 2.
+  // The queued task must count — otherwise this further request would be allowed.
+  await expect(
+    service.requestDelegateFromRpc({
+      sourceHandle: "backend:main",
+      targetAgent: "claude",
+      task: "one more request",
+    }),
+  ).rejects.toThrow("agent-requested delegation quota exceeded for this coordinator");
+
+  expect(harness.ensureCalls).toEqual([]);
+  expect(harness.dispatchCalls).toEqual([]);
+  expect(Object.keys(harness.getState().orchestration.tasks).sort()).toEqual([
+    "task-queued",
+    "task-running",
+  ]);
+});
+
 test("concurrent worker-originated rpc requests recheck quota before persisting", async () => {
   let nextId = 1;
   let lookupCount = 0;

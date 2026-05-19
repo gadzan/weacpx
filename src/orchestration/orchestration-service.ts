@@ -787,6 +787,11 @@ export class OrchestrationService {
           sourceHandle: input.sourceHandle,
           sourceKind: preflight.sourceContext.sourceKind,
           coordinatorSession: preflight.sourceContext.coordinatorSession,
+          // `workerSession` here is the *intended* ephemeral session name only —
+          // it is NOT reserved or ensured yet, and no acpx session exists for it
+          // while the task is queued. The future queue-drain path must call
+          // reserveProposedWorkerSession + ensureReservedWorkerSession on it
+          // before dispatching.
           workerSession: workerSessionName,
           workspace: preflight.targetLocation.workspace,
           ...(preflight.targetLocation.cwd ? { cwd: preflight.targetLocation.cwd } : {}),
@@ -2899,9 +2904,14 @@ export class OrchestrationService {
         ...(currentTask.role ? { role: currentTask.role } : {}),
       }));
 
-    // Parallel gate: if this is a parallel task and the agent is at capacity, queue
-    // it instead of starting it. We check here, before ensureReservedWorkerSession
-    // and dispatch, so those expensive operations are skipped for queued tasks.
+    // Parallel gate: if this is a parallel `needs_confirmation` task and the agent
+    // is at capacity, queue it instead of starting it. This gate covers parallel
+    // tasks regardless of source — both human-initiated and worker-sourced — since
+    // any `needs_confirmation` parallel task funnels through approveTask. It
+    // complements the requestDelegateFromRpc gate, which is coordinator/autoRun-only
+    // (those tasks never enter `needs_confirmation`). We check here, before
+    // ensureReservedWorkerSession and dispatch, so those expensive operations are
+    // skipped for queued tasks.
     if (currentTask.ephemeralWorkerSession === true) {
       const queuedResult = await this.mutate(async () => {
         const state = await this.deps.loadState();
@@ -2915,6 +2925,9 @@ export class OrchestrationService {
           return null; // capacity available — fall through to normal start
         }
         const now = this.deps.now().toISOString();
+        // Defensive no-op: a parallel task's workerSession is already set at
+        // creation time. Re-assigning here future-proofs the path for any caller
+        // that reaches approveTask with an unset workerSession.
         task.workerSession = workerSession;
         task.status = "queued";
         task.updatedAt = now;
@@ -3291,7 +3304,10 @@ export class OrchestrationService {
       (task) =>
         task.coordinatorSession === coordinatorSession &&
         task.sourceKind !== "human" &&
-        (task.status === "needs_confirmation" || task.status === "running"),
+        // `queued` counts: an accepted, persisted, pending delegation. Omitting it
+        // would let a coordinator accumulate unbounded queued tasks at a capped
+        // agent and defeat maxPendingAgentRequestsPerCoordinator.
+        (task.status === "needs_confirmation" || task.status === "running" || task.status === "queued"),
     );
 
     if (outstandingRequests.length >= policy.maxPendingAgentRequestsPerCoordinator) {
