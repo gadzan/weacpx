@@ -266,6 +266,26 @@ sequenceDiagram
 - `task_cancel`：取消任务。取消一个尚未批准的任务（状态为 `needs_confirmation`）等同于拒绝。
 - `delegate_batch`：一次派发多个子任务。传入一个 `tasks` 数组（每个条目含 `targetAgent`、`task`、`workingDirectory`），2 个及以上任务自动归入同一个组，所有任务达到终态后结果一并回注，无需手动维护 groupId 状态机。单个任务失败时带 `error` 字段返回，不影响其余任务。
 
+### `parallel` 字段：并行委派
+
+`delegate_request` 和 `delegate_batch` 的每个任务条目都支持可选的 `parallel: boolean` 字段（默认 `false`）。
+
+- **`parallel: false`（默认）：** 任务复用目标 agent 的现有 session，行为与以往完全一致，多个任务串行执行。
+- **`parallel: true`：** 任务在独立的临时 acpx session 中运行，可与同一 agent 的其他 `parallel: true` 任务并发执行。任务结束后，该临时 session 会自动关闭（`transport.removeSession` → `acpx <agent> sessions close <name>`）。
+
+并行任务受 `orchestration.maxParallelTasksPerAgent`（默认 `3`）约束：当目标 agent 的并行 slot 已满时，新的 `parallel: true` 任务以 `status: "queued"` 创建，不占用 acpx session；有 slot 释放时自动按创建时间升为 `running` 并开始执行。`queued` 状态的任务可通过 `task_watch` / `task_get` 正常跟踪，到达终态的路径与普通任务相同。注意：`queued` 任务仍计入 `maxPendingAgentRequestsPerCoordinator` 配额。
+
+`delegate_batch` 示例（`parallel` 逐条独立设置）：
+
+```json
+{
+  "tasks": [
+    { "targetAgent": "claude", "task": "审查 PR A", "workingDirectory": "/repo/a", "parallel": true },
+    { "targetAgent": "claude", "task": "审查 PR B", "workingDirectory": "/repo/b", "parallel": true }
+  ]
+}
+```
+
 `task_get` / `task_list` / `task_watch` 不需要 `workingDirectory`，因为它们查的是 coordinator 名下的任务，不是新开 worker。
 
 ### MCP Tasks 原生状态映射
