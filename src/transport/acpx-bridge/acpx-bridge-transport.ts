@@ -59,6 +59,8 @@ export class AcpxBridgeTransport implements SessionTransport {
     let segmentChain = Promise.resolve();
     let toolEventError: unknown;
     let toolEventChain = Promise.resolve();
+    let thoughtError: unknown;
+    let thoughtChain = Promise.resolve();
     let toolEventMode = resolveToolEventMode(options);
     // Safety net: structured/both without an onToolEvent handler would
     // silently drop tool calls. Demote to 'text' so verbose tool calls
@@ -102,9 +104,23 @@ export class AcpxBridgeTransport implements SessionTransport {
         }
         return;
       }
+      if (event.type === "prompt.thought") {
+        const onThought = options?.onThought;
+        if (onThought) {
+          const thoughtText = event.text;
+          // Serialize handler invocations; first error wins.
+          thoughtChain = thoughtChain
+            .then(() => onThought(thoughtText))
+            .catch((error) => {
+              thoughtError ??= error;
+            });
+        }
+        return;
+      }
     });
     await segmentChain;
     await toolEventChain;
+    await thoughtChain;
     if (sink) {
       const { overflowCount } = sink.finalize();
       // Drain in-flight reply() promises and propagate any QuotaDeferredError
@@ -128,6 +144,9 @@ export class AcpxBridgeTransport implements SessionTransport {
       if (toolEventError) {
         throw toolEventError;
       }
+      if (thoughtError) {
+        throw thoughtError;
+      }
       return { text: summary ? `${summary}\n\n${result.text}` : "" };
     }
     if (segmentError) {
@@ -135,6 +154,9 @@ export class AcpxBridgeTransport implements SessionTransport {
     }
     if (toolEventError) {
       throw toolEventError;
+    }
+    if (thoughtError) {
+      throw thoughtError;
     }
     return result;
   }

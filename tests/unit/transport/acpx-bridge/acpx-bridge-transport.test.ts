@@ -498,3 +498,20 @@ test("R1: bridge transport demotes toolEventMode:'both' to 'text' when no onTool
   expect(capturedParams.toolEventMode).toBe("text");
   expect(capturedParams).not.toHaveProperty("toolEvents");
 });
+
+// ── onThought chain semantics tests ─────────────────────────────────────────
+
+test("forwards prompt.thought events to options.onThought", async () => {
+  const thoughts: string[] = [];
+  const request = mock(async (_method: string, _params: unknown, onEvent?: (event: { type: string; text?: string }) => void) => {
+    onEvent?.({ type: "prompt.thought", text: "considering edge cases" });
+    return { text: "done" };
+  });
+  const transport = new AcpxBridgeTransport({ request });
+
+  await transport.prompt(session, "hi", undefined, undefined, {
+    onThought: (c) => { thoughts.push(c); },
+  });
+
+  expect(thoughts).toEqual(["considering edge cases"]);
+});
