@@ -88,6 +88,11 @@ function makeDeps(
       : never
   > = [];
 
+  // Pull `closeWorkerSession` out of overrides so the recording wrapper below is
+  // not clobbered by the `...overrides` spread; the wrapper still delegates to it.
+  const closeWorkerSessionOverride = overrides?.closeWorkerSession;
+  const { closeWorkerSession: _ignoredCloseOverride, ...spreadOverrides } = overrides ?? {};
+
   const deps: OrchestrationServiceDeps = {
     now: () => new Date("2026-04-13T10:00:00.000Z"),
     createId: () => "task-1",
@@ -104,14 +109,12 @@ function makeDeps(
     dispatchWorkerTask: async (request) => {
       dispatchCalls.push(request);
     },
-    closeWorkerSession: overrides?.closeWorkerSession
-      ? async (request) => {
-          closeCalls.push(request);
-          return overrides.closeWorkerSession!(request);
-        }
-      : async (request) => {
-          closeCalls.push(request);
-        },
+    closeWorkerSession: async (request) => {
+      closeCalls.push(request);
+      if (closeWorkerSessionOverride) {
+        return closeWorkerSessionOverride(request);
+      }
+    },
     findReusableWorkerSession: async (request) => {
       lookupCalls.push(request);
       return overrides?.reusableWorkerSession ?? null;
@@ -128,7 +131,7 @@ function makeDeps(
     interruptWorkerTask: async (request) => {
       interruptCalls.push(request);
     },
-    ...overrides,
+    ...spreadOverrides,
   };
 
   return {
@@ -9327,13 +9330,9 @@ test("reconcileParallelSlots closes finished slots and drains the queue", async 
   let idCounter = 0;
   const config = createConfig();
   config.orchestration.maxParallelTasksPerAgent = 1;
-  const closedSessions: string[] = [];
   const harness = makeDeps({
     config,
     createId: () => `id-${++idCounter}`,
-    closeWorkerSession: async ({ workerSession }) => {
-      closedSessions.push(workerSession);
-    },
   });
   const service = new OrchestrationService(harness.deps);
 
@@ -9374,11 +9373,16 @@ test("reconcileParallelSlots closes finished slots and drains the queue", async 
   await service.reconcileParallelSlots();
 
   // r1's ephemeral session must have been closed
-  expect(closedSessions).toContain(r1.workerSession);
+  expect(harness.closeCalls.map((c) => c.workerSession)).toContain(r1.workerSession);
 
   // r2 must have been drained into running
   const r2Task = await service.getTask(r2.taskId);
   expect(r2Task?.status).toBe("running");
+
+  // a status_changed event to running must have been appended for r2
+  expect(
+    (r2Task?.events ?? []).some((e) => e.type === "status_changed" && e.status === "running"),
+  ).toBe(true);
 
   // ensure and dispatch must have been called for r2
   expect(harness.ensureCalls.some((c) => c.workerSession === r2.workerSession)).toBe(true);
@@ -9389,12 +9393,10 @@ test("reconcileParallelSlots is idempotent and survives closeWorkerSession error
   let idCounter = 0;
   const config = createConfig();
   config.orchestration.maxParallelTasksPerAgent = 1;
-  let closeCount = 0;
   const harness = makeDeps({
     config,
     createId: () => `id-${++idCounter}`,
     closeWorkerSession: async () => {
-      closeCount += 1;
       throw new Error("close failed");
     },
   });
@@ -9422,9 +9424,149 @@ test("reconcileParallelSlots is idempotent and survives closeWorkerSession error
 
   // First reconcile: close throws, but reconcileParallelSlots must NOT rethrow
   await expect(service.reconcileParallelSlots()).resolves.toBeUndefined();
-  expect(closeCount).toBe(1);
+  expect(harness.closeCalls.length).toBe(1);
 
   // Second reconcile: ephemeralWorkerSessionClosed is already set, so must NOT close again
   await service.reconcileParallelSlots();
-  expect(closeCount).toBe(1);
+  expect(harness.closeCalls.length).toBe(1);
+});
+
+test("reconcileParallelSlots drains multiple queued tasks for one agent in a single call", async () => {
+  let idCounter = 0;
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 2;
+  const harness = makeDeps({
+    config,
+    createId: () => `id-${++idCounter}`,
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const mkDelegate = (task: string) =>
+    service.requestDelegate({
+      sourceHandle: "wx:user-1",
+      sourceKind: "human",
+      coordinatorSession: "backend:main",
+      workspace: "backend",
+      targetAgent: "codex",
+      task,
+      parallel: true,
+    });
+
+  // r1, r2 -> running (cap = 2 filled); r3, r4 -> queued
+  const r1 = await mkDelegate("A");
+  const r2 = await mkDelegate("B");
+  const r3 = await mkDelegate("C");
+  const r4 = await mkDelegate("D");
+  expect(r1.status).toBe("running");
+  expect(r2.status).toBe("running");
+  expect(r3.status).toBe("queued");
+  expect(r4.status).toBe("queued");
+
+  // Free both slots by completing r1 and r2
+  for (const r of [r1, r2]) {
+    await service.recordWorkerReply({
+      taskId: r.taskId,
+      sourceHandle: r.workerSession,
+      status: "completed",
+      summary: "done",
+      resultText: "result",
+    });
+  }
+
+  harness.dispatchCalls.length = 0;
+  await service.reconcileParallelSlots();
+
+  // Both queued tasks must have drained to running in this single call
+  expect((await service.getTask(r3.taskId))?.status).toBe("running");
+  expect((await service.getTask(r4.taskId))?.status).toBe("running");
+  expect(harness.dispatchCalls.some((c) => c.taskId === r3.taskId)).toBe(true);
+  expect(harness.dispatchCalls.some((c) => c.taskId === r4.taskId)).toBe(true);
+});
+
+test("reconcileParallelSlots drains a free agent's queue while leaving a full agent's queue alone", async () => {
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 1;
+  // Pre-seed: agent codex is at capacity (one running parallel task) with a
+  // queued codex task waiting; agent claude has no running task and a queued
+  // claude task — claude has free capacity, codex does not.
+  const initialState = createEmptyState();
+  initialState.orchestration.tasks = {
+    "codex-running": {
+      taskId: "codex-running",
+      sourceHandle: "wx:user-1",
+      sourceKind: "human",
+      coordinatorSession: "backend:main",
+      workerSession: "backend:codex:p-running",
+      workspace: "backend",
+      targetAgent: "codex",
+      task: "codex running",
+      status: "running",
+      ephemeralWorkerSession: true,
+      summary: "",
+      resultText: "",
+      createdAt: "2026-04-13T10:00:00.000Z",
+      updatedAt: "2026-04-13T10:00:00.000Z",
+      eventSeq: 1,
+      events: [],
+    },
+    "codex-queued": {
+      taskId: "codex-queued",
+      sourceHandle: "wx:user-1",
+      sourceKind: "human",
+      coordinatorSession: "backend:main",
+      workerSession: "backend:codex:p-queued",
+      workspace: "backend",
+      targetAgent: "codex",
+      task: "codex queued",
+      status: "queued",
+      ephemeralWorkerSession: true,
+      summary: "",
+      resultText: "",
+      createdAt: "2026-04-13T10:01:00.000Z",
+      updatedAt: "2026-04-13T10:01:00.000Z",
+      eventSeq: 1,
+      events: [],
+    },
+    "claude-queued": {
+      taskId: "claude-queued",
+      sourceHandle: "wx:user-1",
+      sourceKind: "human",
+      coordinatorSession: "backend:main",
+      workerSession: "backend:claude:p-queued",
+      workspace: "backend",
+      targetAgent: "claude",
+      task: "claude queued",
+      status: "queued",
+      ephemeralWorkerSession: true,
+      summary: "",
+      resultText: "",
+      createdAt: "2026-04-13T10:02:00.000Z",
+      updatedAt: "2026-04-13T10:02:00.000Z",
+      eventSeq: 1,
+      events: [],
+    },
+  };
+  initialState.orchestration.workerBindings = {
+    "backend:codex:p-running": {
+      sourceHandle: "backend:codex:p-running",
+      coordinatorSession: "backend:main",
+      workspace: "backend",
+      targetAgent: "codex",
+      ephemeral: true,
+    },
+  };
+  const harness = makeDeps({ config, initialState });
+  const service = new OrchestrationService(harness.deps);
+
+  harness.dispatchCalls.length = 0;
+  await service.reconcileParallelSlots();
+
+  // Agent codex is still at capacity (codex-running never terminated) ->
+  // codex-queued stays queued.
+  expect((await service.getTask("codex-queued"))?.status).toBe("queued");
+  expect(harness.dispatchCalls.some((c) => c.taskId === "codex-queued")).toBe(false);
+
+  // Agent claude has free capacity -> claude-queued is drained to running and dispatched.
+  expect((await service.getTask("claude-queued"))?.status).toBe("running");
+  expect(harness.dispatchCalls.some((c) => c.taskId === "claude-queued")).toBe(true);
 });

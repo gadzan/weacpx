@@ -3663,13 +3663,17 @@ export class OrchestrationService {
           }
           task.status = "running";
           task.updatedAt = this.deps.now().toISOString();
+          // No reserveProposedWorkerSession here (unlike the normal delegate
+          // paths): an ephemeral parallel session name is a globally-unique
+          // `:p-<uuid>`, so there is no pre-existing claim or external-coordinator
+          // collision to guard against.
           state.orchestration.workerBindings[task.workerSession!] = {
             sourceHandle: task.workerSession!,
             coordinatorSession: task.coordinatorSession,
             workspace: task.workspace,
             ...(task.cwd ? { cwd: task.cwd } : {}),
             targetAgent: task.targetAgent,
-            role: task.role,
+            ...(task.role ? { role: task.role } : {}),
             ephemeral: true,
           };
           await this.deps.saveState(state);
@@ -3680,25 +3684,66 @@ export class OrchestrationService {
       if (!next) {
         break;
       }
-      await this.ensureReservedWorkerSession({
-        workerSession: next.workerSession!,
-        sourceHandle: next.sourceHandle,
-        sourceKind: next.sourceKind,
-        coordinatorSession: next.coordinatorSession,
-        workspace: next.workspace,
-        ...(next.cwd ? { cwd: next.cwd } : {}),
-        targetAgent: next.targetAgent,
-        ...(next.role ? { role: next.role } : {}),
+      try {
+        await this.ensureReservedWorkerSession({
+          workerSession: next.workerSession!,
+          sourceHandle: next.sourceHandle,
+          sourceKind: next.sourceKind,
+          coordinatorSession: next.coordinatorSession,
+          workspace: next.workspace,
+          ...(next.cwd ? { cwd: next.cwd } : {}),
+          targetAgent: next.targetAgent,
+          ...(next.role ? { role: next.role } : {}),
+        });
+        await this.deps.dispatchWorkerTask({
+          taskId: next.taskId,
+          workerSession: next.workerSession!,
+          coordinatorSession: next.coordinatorSession,
+          workspace: next.workspace,
+          ...(next.cwd ? { cwd: next.cwd } : {}),
+          targetAgent: next.targetAgent,
+          ...(next.role ? { role: next.role } : {}),
+          task: next.task,
+        });
+      } catch (error) {
+        // Rollback: ensure/dispatch failed after the task was flipped to
+        // `running` and persisted. Revert it to `queued` and drop its binding so
+        // it does not permanently consume a slot with no worker. Break (do NOT
+        // continue) — a re-queued task would be re-picked and loop forever within
+        // this single reconcile call; the next reconcile trigger retries it.
+        await this.mutate(async () => {
+          const state = await this.deps.loadState();
+          const task = state.orchestration.tasks[next.taskId];
+          if (task && task.status === "running") {
+            task.status = "queued";
+            task.updatedAt = this.deps.now().toISOString();
+            delete state.orchestration.workerBindings[next.workerSession!];
+            await this.deps.saveState(state);
+          }
+        });
+        this.logEvent("orchestration.parallel.drain_failed", "failed to drain queued parallel task", {
+          taskId: next.taskId,
+          workerSession: next.workerSession,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        break;
+      }
+      // Dispatch succeeded — persist the queued→running status_changed event
+      // (mirrors approveTask's queued/needs_confirmation→running transition).
+      await this.mutate(async () => {
+        const state = await this.deps.loadState();
+        const task = state.orchestration.tasks[next.taskId];
+        if (task && task.status === "running") {
+          this.appendTaskEvent(task, task.updatedAt, "status_changed", {
+            status: "running",
+            message: "Task drained from parallel queue",
+          });
+          await this.deps.saveState(state);
+        }
       });
-      await this.deps.dispatchWorkerTask({
+      this.logEvent("orchestration.task.drained", "parallel task drained from queue", {
         taskId: next.taskId,
-        workerSession: next.workerSession!,
-        coordinatorSession: next.coordinatorSession,
-        workspace: next.workspace,
-        ...(next.cwd ? { cwd: next.cwd } : {}),
         targetAgent: next.targetAgent,
-        ...(next.role ? { role: next.role } : {}),
-        task: next.task,
       });
     }
   }
