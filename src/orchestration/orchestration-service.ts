@@ -3414,13 +3414,21 @@ export class OrchestrationService {
       (task) =>
         task.ephemeralWorkerSession === true &&
         task.targetAgent === targetAgent &&
+        // Only these three statuses hold a live acpx session. `needs_confirmation`
+        // and `queued` parallel tasks hold no session yet — and counting `queued`
+        // here would deadlock queue draining (a queued task would count against the
+        // very cap that gates its own start). Terminal tasks have released theirs.
+        // Do NOT simplify this to `!isTerminalStatus(...)`.
         (task.status === "running" ||
           task.status === "blocked" ||
           task.status === "waiting_for_human"),
     ).length;
   }
 
-  /** Whether a new parallel task for this agent may start now, or must be queued. */
+  /**
+   * Whether a new parallel task for this agent may start now, or must be queued.
+   * The cap comes from the `orchestration.maxParallelTasksPerAgent` config key.
+   */
   private canStartParallelTask(state: AppState, targetAgent: string): boolean {
     const cap = this.deps.config.orchestration.maxParallelTasksPerAgent;
     return this.countActiveParallelSlots(state, targetAgent) < cap;
