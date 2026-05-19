@@ -313,6 +313,7 @@ test("defaults logging to bounded info mode when omitted", async () => {
     allowedAgentRequestTargets: [],
     allowedAgentRequestRoles: [],
     progressHeartbeatSeconds: 300,
+    maxParallelTasksPerAgent: 3,
   });
 
   await rm(dir, { recursive: true, force: true });
@@ -348,6 +349,7 @@ test("loads explicit orchestration guardrail overrides", async () => {
     allowedAgentRequestTargets: ["claude", "codex"],
     allowedAgentRequestRoles: ["reviewer", "planner"],
     progressHeartbeatSeconds: 300,
+    maxParallelTasksPerAgent: 3,
   });
 
   await rm(dir, { recursive: true, force: true });
@@ -377,6 +379,7 @@ test("defaults orchestration guardrails when omitted", async () => {
     allowedAgentRequestTargets: [],
     allowedAgentRequestRoles: [],
     progressHeartbeatSeconds: 300,
+    maxParallelTasksPerAgent: 3,
   });
 
   await rm(dir, { recursive: true, force: true });
@@ -913,4 +916,72 @@ test("rejects negative logging.perf.maxFiles", async () => {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("orchestration.maxParallelTasksPerAgent defaults to 3", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {},
+    }),
+  );
+
+  try {
+    const config = await loadConfig(path);
+    expect(config.orchestration.maxParallelTasksPerAgent).toBe(3);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("orchestration.maxParallelTasksPerAgent accepts a positive override", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {},
+      orchestration: { maxParallelTasksPerAgent: 5 },
+    }),
+  );
+
+  try {
+    const config = await loadConfig(path);
+    expect(config.orchestration.maxParallelTasksPerAgent).toBe(5);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("orchestration.maxParallelTasksPerAgent rejects non-positive / non-finite values", async () => {
+  const makeConfig = async (maxParallelTasksPerAgent: number) => {
+    const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+    const path = join(dir, "config.json");
+    await writeFile(
+      path,
+      JSON.stringify({
+        transport: { type: "acpx-cli", command: "acpx" },
+        agents: { codex: { driver: "codex" } },
+        workspaces: {},
+        orchestration: { maxParallelTasksPerAgent },
+      }),
+    );
+    try {
+      return await loadConfig(path);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  };
+
+  expect((await makeConfig(0)).orchestration.maxParallelTasksPerAgent).toBe(3);
+  expect((await makeConfig(-1)).orchestration.maxParallelTasksPerAgent).toBe(3);
+  expect((await makeConfig(2.5)).orchestration.maxParallelTasksPerAgent).toBe(2);
 });
