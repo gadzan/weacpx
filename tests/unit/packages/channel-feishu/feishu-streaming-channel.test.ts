@@ -492,5 +492,6 @@ test("FeishuChannel forwards thought chunks into the streaming card reasoning pa
   const elements = (last.cardJson.body as { elements: Array<{ tag: string; content?: string; element_id?: string }> }).elements;
   const panel = elements.find((el) => el.tag === "collapsible_panel");
   expect(panel).toBeDefined();
-  expect(JSON.stringify(panel)).toContain("the agent is thinking hard");
+  const inner = (panel as { elements: Array<{ content?: string }> }).elements?.[0];
+  expect(inner?.content).toContain("the agent is thinking hard");
 });
