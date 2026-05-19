@@ -510,8 +510,43 @@ test("forwards prompt.thought events to options.onThought", async () => {
   const transport = new AcpxBridgeTransport({ request });
 
   await transport.prompt(session, "hi", undefined, undefined, {
-    onThought: (c) => { thoughts.push(c); },
+    onThought: (chunk) => { thoughts.push(chunk); },
   });
 
   expect(thoughts).toEqual(["considering edge cases"]);
+});
+
+test("onThought handler error rejects prompt", async () => {
+  const request = mock(async (_method: string, _params: unknown, onEvent?: (event: { type: string; text?: string }) => void) => {
+    onEvent?.({ type: "prompt.thought", text: "boom" });
+    return { text: "done" };
+  });
+  const transport = new AcpxBridgeTransport({ request });
+
+  await expect(
+    transport.prompt(session, "hello", undefined, undefined, {
+      onThought: () => {
+        throw new Error("handler blew up");
+      },
+    }),
+  ).rejects.toThrow("handler blew up");
+});
+
+test("first onThought handler error wins when multiple handlers throw", async () => {
+  let callCount = 0;
+  const request = mock(async (_method: string, _params: unknown, onEvent?: (event: { type: string; text?: string }) => void) => {
+    onEvent?.({ type: "prompt.thought", text: "e1" });
+    onEvent?.({ type: "prompt.thought", text: "e2" });
+    return { text: "done" };
+  });
+  const transport = new AcpxBridgeTransport({ request });
+
+  await expect(
+    transport.prompt(session, "hello", undefined, undefined, {
+      onThought: () => {
+        callCount += 1;
+        throw new Error(`error-${callCount}`);
+      },
+    }),
+  ).rejects.toThrow("error-1");
 });
