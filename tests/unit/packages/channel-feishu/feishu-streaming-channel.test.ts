@@ -378,11 +378,13 @@ test("FeishuChannel in static mode still folds tool calls into the text reply st
   });
 
   let receivedOnToolEvent: unknown = "unset";
+  let receivedOnThought: unknown = "unset";
   const agent: ChatAgent = {
     async chat(request) {
       // Capture whether the channel passed onToolEvent through. In static
       // mode the channel must NOT pass it, so the field should be undefined.
       receivedOnToolEvent = request.onToolEvent;
+      receivedOnThought = request.onThought;
       await request.reply?.("📖 Read File: foo.ts");
       await request.reply?.("final answer");
       return { text: "" };
@@ -401,6 +403,9 @@ test("FeishuChannel in static mode still folds tool calls into the text reply st
   // when there's no card controller — otherwise tool calls would be silently
   // dropped by the streaming-prompt parser.
   expect(receivedOnToolEvent).toBeUndefined();
+  // Similarly, onThought must NOT be set in static mode — there is no card
+  // reasoning panel to receive the chunks.
+  expect(receivedOnThought).toBeUndefined();
   // No card was seeded in static mode.
   expect(calls.cardCreate).toBe(0);
   // The simulated tool-call line + final answer arrived as text replies.
@@ -451,4 +456,41 @@ test("FeishuChannel forwards tool events into the streaming card panel", async (
   expect(elements.find((el) => el.tag === "collapsible_panel")).toBeDefined();
   const body = elements.find((el) => el.element_id === "streaming_content");
   expect(body?.content).toBe("agent done");
+});
+
+test("FeishuChannel forwards thought chunks into the streaming card reasoning panel", async () => {
+  let handlers: Record<string, (data: unknown) => Promise<void> | void> = {};
+  const calls: CapturedCalls = { cardCreate: 0, messageReply: [], messageCreate: [], cardUpdate: [] };
+  const channel = new FeishuChannel(streamingConfig, {
+    createClient: () => ({
+      sdk: buildSdk(calls),
+      probeBot: async () => ({ botOpenId: "ou_bot" }),
+      startWS: async (input: { handlers: Record<string, (data: unknown) => Promise<void> | void> }) => {
+        handlers = input.handlers;
+      },
+      stop: () => {},
+    }),
+  });
+
+  const agent: ChatAgent = {
+    async chat(request) {
+      await request.onThought?.("the agent is thinking hard");
+      await request.reply?.("agent done");
+      return { text: "" };
+    },
+  };
+
+  await channel.start({
+    agent,
+    abortSignal: new AbortController().signal,
+    quota: createNoopQuota(),
+    logger: createNoopLogger(),
+  });
+  await handlers["im.message.receive_v1"]!(makeTextEvent("om_in", "hi"));
+
+  const last = calls.cardUpdate[calls.cardUpdate.length - 1];
+  const elements = (last.cardJson.body as { elements: Array<{ tag: string; content?: string; element_id?: string }> }).elements;
+  const panel = elements.find((el) => el.tag === "collapsible_panel");
+  expect(panel).toBeDefined();
+  expect(JSON.stringify(panel)).toContain("the agent is thinking hard");
 });

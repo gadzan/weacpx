@@ -463,6 +463,10 @@ export class FeishuChannel implements MessageChannelRuntime {
               if (active.suppressed) return;
               active.cardController?.recordToolEvent(event);
             },
+            onThought: (chunk) => {
+              if (active.suppressed) return;
+              active.cardController?.appendReasoning(chunk);
+            },
           } : {}),
           abortSignal: abortController.signal,
         });
