@@ -177,6 +177,37 @@ test("merge-on-flush sends nothing until flush() (disableBlockStreaming case)", 
   expect(sent).toEqual(["part1part2"]);
 });
 
+test("merge-text restores separators between streamed markdown blocks", async () => {
+  const sent: string[] = [];
+  const session = createOutboundQueueSession({
+    strategy: "merge-text",
+    minChars: 100,
+    maxChars: 1000,
+    idleMs: 0,
+    sendText: async (text) => { sent.push(text); },
+  });
+  await session.push("Intro");
+  await session.push("```ts\nconst x = 1;\n```");
+  await session.flush();
+  expect(sent).toEqual(["Intro\n\n```ts\nconst x = 1;\n```"]);
+});
+
+test("merge-text heals blank-line-fragmented markdown tables before sending", async () => {
+  const sent: string[] = [];
+  const session = createOutboundQueueSession({
+    strategy: "merge-text",
+    minChars: 1,
+    maxChars: 1000,
+    idleMs: 0,
+    sendText: async (text) => { sent.push(text); },
+  });
+  await session.push("| 模型 |");
+  await session.push("得分 |\n|---|---|\n| A |");
+  await session.push("95 |");
+  await session.flush();
+  expect(sent).toEqual(["| 模型 | 得分 |\n|---|---|\n| A | 95 |"]);
+});
+
 test("abort drops buffered text and prevents further sends", async () => {
   const sent: string[] = [];
   const clock = createManualClock();

@@ -14,7 +14,17 @@
  * `flush()` with whatever was already delivered.
  */
 
-import { chunkMarkdownAware, endsWithTableRow, hasUnclosedFence } from "./markdown-chunker.js";
+import {
+  chunkMarkdownAware,
+  endsWithTableRow,
+  hasUnclosedFence,
+  hasUnclosedMathBlock,
+  inferBlockSeparator,
+  isTableInProgress,
+  mergeBlockStreamingFences,
+  sanitizePipeTables,
+  stripOuterMarkdownFence,
+} from "./markdown-chunker.js";
 
 export type OutboundQueueStrategy = "immediate" | "merge-text" | "merge-on-flush";
 
@@ -167,9 +177,15 @@ function createMergeTextSession(opts: OutboundQueueOptions): OutboundQueueSessio
   async function drain(force: boolean): Promise<void> {
     if (aborted || isAborted() || !buffer.length) return;
 
+    if (!force) {
+      if (hasUnclosedMathBlock(buffer)) return;
+      if (isTableInProgress(buffer)) return;
+    }
+
+    const cleanedBuffer = normalizeBuffer(buffer);
     let chunks: string[];
     try {
-      chunks = chunkText(buffer, opts.maxChars);
+      chunks = chunkText(cleanedBuffer, opts.maxChars);
     } catch (error) {
       // Drop the offending buffer so subsequent pushes can recover — otherwise
       // every future drain would re-throw the same chunker error (e.g. when
@@ -204,7 +220,12 @@ function createMergeTextSession(opts: OutboundQueueOptions): OutboundQueueSessio
     push(text) {
       if (aborted || isAborted()) return Promise.resolve();
       if (!text.length) return Promise.resolve();
-      buffer += text;
+      if (buffer) {
+        const separator = inferBlockSeparator(buffer, text);
+        buffer = mergeBlockStreamingFences(separator ? `${buffer}${separator}` : buffer, text);
+      } else {
+        buffer = text;
+      }
       armIdle();
       const next = sendChain.then(() => drain(false));
       sendChain = next.catch(() => {});
@@ -223,4 +244,8 @@ function createMergeTextSession(opts: OutboundQueueOptions): OutboundQueueSessio
       buffer = "";
     },
   };
+}
+
+function normalizeBuffer(text: string): string {
+  return stripOuterMarkdownFence(sanitizePipeTables(text));
 }

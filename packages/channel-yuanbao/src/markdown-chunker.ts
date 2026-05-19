@@ -3,15 +3,15 @@
  *
  * Goals:
  * - Never split inside a fenced code block (```...```).
- * - Never split inside a pipe-table block (consecutive `| ... |` lines, with or
- *   without a separator row).
+ * - Never split inside a pipe-table block (including tables fragmented by
+ *   block streaming blank lines).
+ * - Keep display math blocks and diagram fences intact where possible.
  * - Otherwise prefer paragraph (\n\n) → line (\n) → space boundaries when a
  *   chunk overshoots maxChars, falling back to a hard cut as last resort.
  *
- * What we deliberately do NOT do (kept as future work):
- * - Math block ($$ ... $$) protection
- * - Diagram fences (mermaid/plantuml) as atomic blocks
- * - Pipe-table repair for blank-line-fragmented tables
+ * A few helpers are exported because the outbound queue receives model output
+ * as multiple small blocks and needs to repair block-streaming artifacts before
+ * chunking.
  */
 
 export interface AtomicBlock {
@@ -19,11 +19,19 @@ export interface AtomicBlock {
   start: number;
   /** End offset (exclusive). */
   end: number;
-  kind: "code-fence" | "table";
+  kind: "code-fence" | "table" | "math-block";
 }
 
 const TABLE_LINE_RE = /^\s*\|/;
 const TABLE_SEPARATOR_RE = /^\s*\|[\s|:-]+\|\s*$/;
+const PIPE_TABLE_SEPARATOR_RE = /\|[\s]*:?-{2,}:?[\s]*(?:\|[\s]*:?-{2,}:?[\s]*)+\|/;
+
+export function stripOuterMarkdownFence(text: string): string {
+  const hasTable = /^\s*\|[-:| ]+\|/m;
+  return text.replace(/```(?:markdown|md)?\s*\n([\s\S]*?)\n```\s*$/gm, (fullMatch, inner: string) => (
+    hasTable.test(inner) ? inner : fullMatch
+  ));
+}
 
 /** Returns true when the text has an odd number of ``` fence markers (line-prefix). */
 export function hasUnclosedFence(text: string): boolean {
@@ -34,9 +42,184 @@ export function hasUnclosedFence(text: string): boolean {
   return open;
 }
 
+/** Returns true when the text has an unclosed display math ($$) block outside code fences. */
+export function hasUnclosedMathBlock(text: string): boolean {
+  let inFence = false;
+  let mathOpen = false;
+  for (const line of text.split("\n")) {
+    if (line.trimStart().startsWith("```")) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    let idx = 0;
+    while (idx < line.length - 1) {
+      if (line[idx] === "$" && line[idx + 1] === "$") {
+        mathOpen = !mathOpen;
+        idx += 2;
+      } else {
+        idx++;
+      }
+    }
+  }
+  return mathOpen;
+}
+
+/** Collapse accidental blank paragraphs inside display math blocks. */
+export function normalizeMathBlocks(text: string): string {
+  if (!text.includes("$$")) return text;
+
+  const parts: string[] = [];
+  let inFence = false;
+  let mathOpen = false;
+  let segStart = 0;
+
+  for (let i = 0; i < text.length; i++) {
+    if ((i === 0 || text[i - 1] === "\n") && text.startsWith("```", i)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+
+    if (text[i] === "$" && i + 1 < text.length && text[i + 1] === "$") {
+      if (!mathOpen) {
+        mathOpen = true;
+        parts.push(text.slice(segStart, i + 2));
+        segStart = i + 2;
+        i++;
+      } else {
+        parts.push(text.slice(segStart, i).replace(/\n\n+/g, "\n"));
+        parts.push("$$");
+        segStart = i + 2;
+        mathOpen = false;
+        i++;
+      }
+    }
+  }
+
+  if (segStart < text.length) {
+    const rest = text.slice(segStart);
+    parts.push(mathOpen ? rest.replace(/\n\n+/g, "\n") : rest);
+  }
+  return parts.join("");
+}
+
+export function mergeBlockStreamingFences(buffer: string, incoming: string): string {
+  const closeRe = /\n```\s*$/;
+  const openRe = /^```[^\n]*\n/;
+  const normalized = incoming.replace(/\n```\s*```[^\n]*\n/g, "\n");
+
+  if (closeRe.test(buffer) && openRe.test(normalized)) {
+    return `${buffer.replace(closeRe, "")}\n${normalized.replace(openRe, "")}`;
+  }
+  if (hasUnclosedFence(buffer) && openRe.test(normalized)) {
+    return `${buffer}\n${normalized.replace(openRe, "")}`;
+  }
+  return `${buffer}${normalized}`;
+}
+
+export function startsWithBlockElement(text: string): boolean {
+  const firstLine = (text.trimStart().split("\n")[0] ?? "").trimStart();
+  return (
+    /^#{1,6}\s/.test(firstLine)
+    || firstLine.startsWith("---")
+    || firstLine.startsWith("***")
+    || firstLine.startsWith("___")
+    || firstLine.startsWith("> ")
+    || firstLine.startsWith("```")
+    || /^[*\-+]\s/.test(firstLine)
+    || /^\d+[.)]\s/.test(firstLine)
+    || firstLine.startsWith("|")
+    || firstLine.startsWith("$$")
+  );
+}
+
+export function inferBlockSeparator(buffer: string, incoming: string): string {
+  if (hasUnclosedFence(buffer) || hasUnclosedMathBlock(buffer) || buffer.endsWith("\n\n")) return "";
+
+  const lastLine = (buffer.trimEnd().split("\n").at(-1) ?? "").trim();
+  const firstLine = (incoming.trimStart().split("\n")[0] ?? "").trimStart();
+
+  if (lastLine.startsWith("|") && !lastLine.endsWith("|")) return "";
+  if (lastLine.startsWith("|") && !firstLine.startsWith("|") && firstLine.endsWith("|")) return " ";
+  if (lastLine.startsWith("|") && firstLine.startsWith("|")) return "\n";
+  if (startsWithBlockElement(incoming)) return "\n\n";
+  return "";
+}
+
+interface PipeTableRegion {
+  startLine: number;
+  endLine: number;
+}
+
+function findPipeTableRegions(lines: string[]): PipeTableRegion[] {
+  const regions: PipeTableRegion[] = [];
+  let groupStart = -1;
+  let lastPipeLine = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const hasPipe = line.includes("|");
+    const isBlank = line.trim() === "";
+
+    if (hasPipe) {
+      if (groupStart < 0) groupStart = i;
+      lastPipeLine = i;
+    } else if (!isBlank && groupStart >= 0) {
+      regions.push({ startLine: groupStart, endLine: lastPipeLine });
+      groupStart = -1;
+      lastPipeLine = -1;
+    }
+  }
+
+  if (groupStart >= 0) regions.push({ startLine: groupStart, endLine: lastPipeLine });
+  return regions;
+}
+
+function healPipeTableRegion(regionLines: string[]): string | null {
+  if (!regionLines.some((line) => line.trim() === "")) return null;
+
+  const flat = regionLines.join("").replace(/\n/g, "");
+  if (!PIPE_TABLE_SEPARATOR_RE.test(flat)) return null;
+
+  const nonBlank = regionLines.filter((line) => line.trim() !== "");
+  const result: string[] = [];
+  let acc = "";
+
+  for (const line of nonBlank) {
+    if (!acc) {
+      acc = line;
+    } else if (acc.trimEnd().endsWith("|") && line.trimStart().startsWith("|")) {
+      result.push(acc);
+      acc = line;
+    } else {
+      acc += line;
+    }
+  }
+  if (acc) result.push(acc);
+  return result.join("\n");
+}
+
+export function sanitizePipeTables(text: string): string {
+  if (!text || !text.includes("|") || !text.includes("\n")) return text;
+  if ((text.match(/\|/g) || []).length < 3) return text;
+
+  const lines = text.split("\n");
+  const regions = findPipeTableRegions(lines);
+  for (let i = regions.length - 1; i >= 0; i--) {
+    const region = regions[i]!;
+    const healed = healPipeTableRegion(lines.slice(region.startLine, region.endLine + 1));
+    if (healed !== null) {
+      lines.splice(region.startLine, region.endLine - region.startLine + 1, ...healed.split("\n"));
+    }
+  }
+  return lines.join("\n");
+}
+
 /**
  * Extract atomic regions that must not be split: complete fenced code blocks
- * and contiguous table-line runs. Returns blocks sorted by start offset.
+ * display math blocks, and contiguous table-line runs. Returns blocks sorted by
+ * start offset.
  */
 export function extractAtomicBlocks(text: string): AtomicBlock[] {
   const blocks: AtomicBlock[] = [];
@@ -45,6 +228,8 @@ export function extractAtomicBlocks(text: string): AtomicBlock[] {
 
   let inFence = false;
   let fenceStart = 0;
+  let inMath = false;
+  let mathStart = 0;
   let tableStart = -1;
   let tableEnd = -1;
 
@@ -66,6 +251,24 @@ export function extractAtomicBlocks(text: string): AtomicBlock[] {
       flushTable();
       inFence = true;
       fenceStart = offset;
+      offset = lineEnd;
+      continue;
+    }
+
+    if (line.trimStart().startsWith("$$")) {
+      flushTable();
+      if (inMath) {
+        blocks.push({ start: mathStart, end: lineEnd, kind: "math-block" });
+        inMath = false;
+      } else {
+        inMath = true;
+        mathStart = offset;
+      }
+      offset = lineEnd;
+      continue;
+    }
+
+    if (inMath) {
       offset = lineEnd;
       continue;
     }
@@ -101,19 +304,20 @@ export function extractAtomicBlocks(text: string): AtomicBlock[] {
 export function chunkMarkdownAware(text: string, maxChars: number): string[] {
   if (text.length <= maxChars) return [text];
 
-  const atomic = extractAtomicBlocks(text);
+  const normalized = normalizeMathBlocks(sanitizePipeTables(text));
+  const atomic = extractAtomicBlocks(normalized);
   const chunks: string[] = [];
   let pos = 0;
 
-  while (pos < text.length) {
-    const remaining = text.length - pos;
+  while (pos < normalized.length) {
+    const remaining = normalized.length - pos;
     if (remaining <= maxChars) {
-      chunks.push(text.slice(pos));
+      chunks.push(normalized.slice(pos));
       break;
     }
     const target = pos + maxChars;
-    const cut = pickCut(text, atomic, pos, target);
-    chunks.push(text.slice(pos, cut));
+    const cut = pickCut(normalized, atomic, pos, target);
+    chunks.push(normalized.slice(pos, cut));
     pos = cut;
   }
 
@@ -151,6 +355,14 @@ export function endsWithTableRow(text: string): boolean {
   return TABLE_LINE_RE.test(lastLine) && lastLine.trimEnd().endsWith("|");
 }
 
+export function isTableInProgress(text: string): boolean {
+  const trimmed = text.trimEnd();
+  if (!trimmed) return false;
+  const lastLine = trimmed.split("\n").at(-1) ?? "";
+  return TABLE_LINE_RE.test(lastLine);
+}
+
 export const __testing__ = {
   TABLE_SEPARATOR_RE,
+  PIPE_TABLE_SEPARATOR_RE,
 };

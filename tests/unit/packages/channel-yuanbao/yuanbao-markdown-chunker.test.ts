@@ -5,6 +5,10 @@ import {
   extractAtomicBlocks,
   endsWithTableRow,
   hasUnclosedFence,
+  hasUnclosedMathBlock,
+  inferBlockSeparator,
+  sanitizePipeTables,
+  stripOuterMarkdownFence,
 } from "../../../../packages/channel-yuanbao/src/markdown-chunker";
 
 test("hasUnclosedFence returns true when fence markers are imbalanced", () => {
@@ -99,4 +103,36 @@ test("endsWithTableRow detects buffered partial table flush", () => {
   expect(endsWithTableRow("| a | b |")).toBe(true);
   expect(endsWithTableRow("paragraph")).toBe(false);
   expect(endsWithTableRow("| a | b |\n\n")).toBe(true);
+});
+
+test("sanitizePipeTables heals blank-line fragmented pipe tables", () => {
+  const fragmented = [
+    "| 模型 |",
+    "",
+    " 得分 |",
+    "|---|---|",
+    "| A |",
+    "",
+    " 95 |",
+  ].join("\n");
+  const healed = sanitizePipeTables(fragmented);
+  expect(healed).toContain("| 模型 | 得分 |");
+  expect(healed).toContain("| A | 95 |");
+});
+
+test("inferBlockSeparator restores markdown block boundaries", () => {
+  expect(inferBlockSeparator("heading", "```ts\nx\n```")).toBe("\n\n");
+  expect(inferBlockSeparator("| a | b |", "|---|---|")).toBe("\n");
+  expect(inferBlockSeparator("| a", " | b |")).toBe("");
+});
+
+test("stripOuterMarkdownFence unwraps fenced markdown tables", () => {
+  const wrapped = "```markdown\n| a | b |\n|---|---|\n| 1 | 2 |\n```";
+  expect(stripOuterMarkdownFence(wrapped)).toBe("| a | b |\n|---|---|\n| 1 | 2 |");
+});
+
+test("hasUnclosedMathBlock ignores code fences", () => {
+  expect(hasUnclosedMathBlock("$$\nx=1")).toBe(true);
+  expect(hasUnclosedMathBlock("$$\nx=1\n$$")).toBe(false);
+  expect(hasUnclosedMathBlock("```\n$$\n```")).toBe(false);
 });
