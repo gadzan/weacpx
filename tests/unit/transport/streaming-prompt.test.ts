@@ -607,3 +607,30 @@ test("empty thought chunk does not invoke onThought", () => {
 
   expect(calls).toBe(0);
 });
+
+test("interleaved stream: thoughts reach onThought in order, agent message lands in segments, thoughts do not appear in segments or buffer", () => {
+  const thoughts: string[] = [];
+  const state = createStreamingPromptState(true, {
+    onThought: (c) => {
+      thoughts.push(c);
+    },
+  });
+
+  parseStreamingChunks(state, makeThoughtLine("first thought"));
+  parseStreamingChunks(state, makeToolCallLine("Read file", "read"));
+  parseStreamingChunks(state, makeThoughtLine("second thought"));
+  parseStreamingChunks(state, makeChunkLine("agent answer\n\n"));
+
+  // Both thought chunks must arrive in order.
+  expect(thoughts).toEqual(["first thought", "second thought"]);
+
+  // The agent message text must land in segments (paragraph completed by \n\n).
+  expect(state.segments).toContain("agent answer");
+  // Tool call segment is also present since formatToolCalls is true.
+  expect(state.segments.some((s) => s.includes("Read file"))).toBe(true);
+
+  // Thoughts must NOT appear anywhere in segments or buffer.
+  const allText = [...state.segments, state.buffer].join("");
+  expect(allText).not.toContain("first thought");
+  expect(allText).not.toContain("second thought");
+});

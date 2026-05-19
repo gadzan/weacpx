@@ -704,6 +704,43 @@ test("returns the full agent message, including text split by a tool call", asyn
   ).resolves.toEqual({ text: "First chunkFinal chunk" });
 });
 
+test("bridge-server forwards prompt.thought via writeLine", async () => {
+  const streamed: string[] = [];
+  const runtime = {
+    shutdown: async () => ({}),
+    hasSession: async () => ({ exists: true }),
+    ensureSession: async () => ({}),
+    prompt: async (_input: Record<string, unknown>, onEvent?: (event: { type: string; text: string }) => void) => {
+      onEvent?.({ type: "prompt.thought", text: "weighing" });
+      return { text: "done" };
+    },
+    setMode: async () => ({}),
+    cancel: async () => ({ cancelled: true, message: "cancelled" }),
+  };
+  const server = new BridgeServer(runtime as unknown as BridgeRuntime);
+
+  const response = await server.handleLine(
+    JSON.stringify({
+      id: "thought-1",
+      method: "prompt",
+      params: {
+        agent: "codex",
+        cwd: "/repo",
+        name: "demo",
+        text: "hello",
+      },
+    }),
+    (line) => {
+      streamed.push(line);
+    },
+  );
+
+  expect(streamed).toEqual([
+    '{"id":"thought-1","event":"prompt.thought","text":"weighing"}\n',
+  ]);
+  expect(response).toBe('{"id":"thought-1","ok":true,"result":{"text":"done"}}\n');
+});
+
 test("streams prompt segments from the runtime prompt runner", async () => {
   const segments: string[] = [];
   const runtime = new BridgeRuntime(

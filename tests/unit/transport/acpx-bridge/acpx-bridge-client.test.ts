@@ -197,4 +197,16 @@ describe("AcpxBridgeClient", () => {
     client.handleLine(JSON.stringify({ id: req.id, event: "session.progress", stage: "ready" }));
     expect(events).toHaveLength(0);
   });
+
+  test("delivers prompt.thought events to onEvent", async () => {
+    const writes: string[] = [];
+    const client = new AcpxBridgeClient((line) => { writes.push(line); return true; });
+    const events: Array<{ type: string; text?: string }> = [];
+    const promise = client.request("prompt", {}, (event) => events.push(event));
+    const req = JSON.parse(writes[0]);
+    client.handleLine(JSON.stringify({ id: req.id, event: "prompt.thought", text: "deliberating" }));
+    client.handleLine(JSON.stringify({ id: req.id, ok: true, result: { text: "done" } }));
+    await promise;
+    expect(events).toEqual([{ type: "prompt.thought", text: "deliberating" }]);
+  });
 });
