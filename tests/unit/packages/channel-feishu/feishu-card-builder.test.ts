@@ -210,7 +210,7 @@ test("buildCard renders reasoningText as an always-collapsed collapsible_panel",
   expect(panel).toBeDefined();
   expect(panel!.expanded).toBe(false);
   const json = JSON.stringify(panel);
-  expect(json).toContain("思考");
+  expect(json).toContain("思考过程");
   expect(json).toContain("step one");
   expect(json).toContain("step two");
   // Inner markdown element keeps the reasoning element id.
@@ -234,6 +234,20 @@ test("buildCard reasoning header shows elapsed when reasoningElapsedMs is provid
 
 test("buildCard reasoning header omits elapsed when reasoningElapsedMs is absent", () => {
   const card = buildCard({ state: "streaming", text: "the answer", reasoningText: "thinking" });
+  const elements = (card.body as { elements: Array<Record<string, unknown>> }).elements;
+  const panel = elements.find((el) => el.tag === "collapsible_panel")!;
+  const headerJson = JSON.stringify(panel.header);
+  expect(headerJson).toContain("思考过程");
+  expect(headerJson).not.toContain("已思考");
+});
+
+test("buildCard reasoning header omits elapsed when reasoningElapsedMs is zero", () => {
+  const card = buildCard({
+    state: "streaming",
+    text: "the answer",
+    reasoningText: "thinking",
+    reasoningElapsedMs: 0,
+  });
   const elements = (card.body as { elements: Array<Record<string, unknown>> }).elements;
   const panel = elements.find((el) => el.tag === "collapsible_panel")!;
   const headerJson = JSON.stringify(panel.header);

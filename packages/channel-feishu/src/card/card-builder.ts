@@ -53,7 +53,9 @@ export function buildCard(input: BuildCardInput): Record<string, unknown> {
   const reasoning = input.reasoningText?.trim();
   if (reasoning) {
     const elapsedLabel =
-      input.reasoningElapsedMs !== undefined ? formatElapsedMs(input.reasoningElapsedMs) : "";
+      input.reasoningElapsedMs !== undefined && input.reasoningElapsedMs > 0
+        ? formatElapsedMs(input.reasoningElapsedMs)
+        : "";
     const reasoningHeaderTitle = elapsedLabel ? `🧠 已思考 ${elapsedLabel}` : "🧠 思考过程";
     elements.push({
       tag: "collapsible_panel",
