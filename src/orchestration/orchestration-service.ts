@@ -71,7 +71,7 @@ export interface RegisterExternalCoordinatorInput {
 
 export interface RequestDelegateRpcResult {
   taskId: string;
-  status: Extract<OrchestrationTaskStatus, "needs_confirmation" | "running">;
+  status: Extract<OrchestrationTaskStatus, "needs_confirmation" | "running" | "queued">;
   workerSession?: string;
 }
 
@@ -757,6 +757,7 @@ export class OrchestrationService {
     // explicit approval.
     const autoRun = preflight.sourceContext.sourceKind === "coordinator";
 
+    const taskId = this.deps.createId();
     const workerSessionName = await this.resolveWorkerSession({
       sourceHandle: input.sourceHandle,
       sourceKind: preflight.sourceContext.sourceKind,
@@ -766,7 +767,52 @@ export class OrchestrationService {
       targetAgent: input.targetAgent,
       task: input.task,
       ...(preflight.role ? { role: preflight.role } : {}),
+      ...(input.parallel ? { parallel: true } : {}),
     });
+
+    // Parallel gate (coordinator/autoRun path only): when the agent is at capacity,
+    // persist the task as "queued" and return immediately — no reservation, no
+    // ensureReservedWorkerSession, no dispatchWorkerTask.
+    // Worker-sourced (autoRun === false) parallel tasks are NOT gated here because
+    // they hold no session yet; the gate runs in approveTask instead.
+    if (input.parallel && autoRun) {
+      const queuedResult = await this.mutate(async () => {
+        const state = await this.deps.loadState();
+        if (this.canStartParallelTask(state, input.targetAgent)) {
+          return null; // capacity available — fall through to normal start
+        }
+        const now = this.deps.now().toISOString();
+        const queuedTask: OrchestrationTaskRecord = {
+          taskId,
+          sourceHandle: input.sourceHandle,
+          sourceKind: preflight.sourceContext.sourceKind,
+          coordinatorSession: preflight.sourceContext.coordinatorSession,
+          workerSession: workerSessionName,
+          workspace: preflight.targetLocation.workspace,
+          ...(preflight.targetLocation.cwd ? { cwd: preflight.targetLocation.cwd } : {}),
+          targetAgent: input.targetAgent,
+          ...(preflight.role ? { role: preflight.role } : {}),
+          ...(preflight.normalizedGroupId ? { groupId: preflight.normalizedGroupId } : {}),
+          task: input.task,
+          status: "queued",
+          ephemeralWorkerSession: true,
+          summary: "",
+          resultText: "",
+          createdAt: now,
+          updatedAt: now,
+          eventSeq: 1,
+          events: [{ seq: 1, at: now, type: "created", status: "queued", message: "Task queued at parallel capacity" }],
+        };
+        state.orchestration.tasks[taskId] = queuedTask;
+        await this.deps.saveState(state);
+        return { taskId, status: "queued" as const, workerSession: workerSessionName };
+      });
+      if (queuedResult) {
+        this.logEvent("orchestration.task.queued", "parallel task queued at capacity", { taskId, targetAgent: input.targetAgent });
+        return queuedResult;
+      }
+    }
+
     const releaseWorkerReservation = await this.reserveProposedWorkerSession(workerSessionName);
 
     let prepared: {
@@ -786,7 +832,6 @@ export class OrchestrationService {
           preflight.role,
         );
         const now = this.deps.now().toISOString();
-        const taskId = this.deps.createId();
         const status: OrchestrationTaskStatus = autoRun ? "running" : "needs_confirmation";
         const task: OrchestrationTaskRecord = {
           taskId,
@@ -807,6 +852,7 @@ export class OrchestrationService {
           updatedAt: now,
           eventSeq: 1,
           events: [{ seq: 1, at: now, type: "created", status, message: "Task created" }],
+          ...(input.parallel ? { ephemeralWorkerSession: true } : {}),
         };
 
         if (preflight.normalizedGroupId) {
@@ -830,6 +876,7 @@ export class OrchestrationService {
             ...(preflight.targetLocation.cwd ? { cwd: preflight.targetLocation.cwd } : {}),
             targetAgent: input.targetAgent,
             role: preflight.role,
+            ...(input.parallel ? { ephemeral: true } : {}),
           };
         } else {
           this.assertWorkerSessionDoesNotConflictExternalCoordinator(state, workerSessionName);
@@ -2851,6 +2898,39 @@ export class OrchestrationService {
         task: currentTask.task,
         ...(currentTask.role ? { role: currentTask.role } : {}),
       }));
+
+    // Parallel gate: if this is a parallel task and the agent is at capacity, queue
+    // it instead of starting it. We check here, before ensureReservedWorkerSession
+    // and dispatch, so those expensive operations are skipped for queued tasks.
+    if (currentTask.ephemeralWorkerSession === true) {
+      const queuedResult = await this.mutate(async () => {
+        const state = await this.deps.loadState();
+        const task = state.orchestration.tasks[input.taskId];
+        if (!task) {
+          throw new Error(`task "${input.taskId}" does not exist`);
+        }
+        this.assertCoordinatorOwnership(task, input.coordinatorSession);
+        this.assertNeedsConfirmation(task);
+        if (this.canStartParallelTask(state, task.targetAgent)) {
+          return null; // capacity available — fall through to normal start
+        }
+        const now = this.deps.now().toISOString();
+        task.workerSession = workerSession;
+        task.status = "queued";
+        task.updatedAt = now;
+        this.appendTaskEvent(task, now, "status_changed", {
+          status: "queued",
+          message: "Task queued at parallel capacity",
+        });
+        await this.deps.saveState(state);
+        return { ...task };
+      });
+      if (queuedResult) {
+        this.logEvent("orchestration.task.queued", "parallel task queued at capacity on approve", { taskId: input.taskId, targetAgent: currentTask.targetAgent });
+        return queuedResult;
+      }
+    }
+
     const releaseWorkerReservation = await this.reserveProposedWorkerSession(workerSession, input.taskId);
     let ensuredWorkerSession = workerSession;
     let prepared: {
@@ -2899,6 +2979,7 @@ export class OrchestrationService {
           ...(task.cwd ? { cwd: task.cwd } : {}),
           targetAgent: task.targetAgent,
           role: task.role,
+          ...(task.ephemeralWorkerSession ? { ephemeral: true } : {}),
         };
 
         await this.deps.saveState(state);
