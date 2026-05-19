@@ -136,7 +136,10 @@ export class StreamingCardController {
   private sequence = 1;
   private state: CardState = "thinking";
   private lastPushedState: CardState | null = null;
-  private lastPushedHadReasoning = false;
+  private lastPushedReasoning: string | undefined = undefined;
+  private reasoningBuffer = "";
+  private reasoningStartedAt = 0;
+  private reasoningLastAt = 0;
   private lastFooterText: string | null = null;
   private readonly toolUseStore: ToolUseStore;
   private lastPushedToolRevision = -1;
@@ -274,6 +277,19 @@ export class StreamingCardController {
     // Ensure the next push goes through the full card.update path so the
     // tool-use panel actually renders (the fast-path only touches the
     // streaming_content element).
+    this.flush.requestFlush(() => this.pushUpdate());
+  }
+
+  appendReasoning(chunk: string): void {
+    if (this.terminated) return;
+    const t = this.now();
+    if (this.reasoningStartedAt === 0) this.reasoningStartedAt = t;
+    this.reasoningLastAt = t;
+    this.reasoningBuffer += chunk;
+    if (!this.cardId) return;
+    // Reasoning lives in a separate (collapsible) element, so it can't ride
+    // the streaming_content fast-path — pushUpdate detects the content change
+    // and takes the full card.update path.
     this.flush.requestFlush(() => this.pushUpdate());
   }
 
@@ -430,15 +446,24 @@ export class StreamingCardController {
     // failures and eventually degrade the card.
     const cardBodyMax = this.cardBodyMaxChars ?? CARD_BODY_MAX_CHARS;
     const rendered = truncateForCardBody(renderedRaw, cardBodyMax);
-    // Reasoning text also goes through the optimizer so stray image URLs etc.
-    // don't trigger CardKit error 200570 from the reasoning element.
-    const reasoningRendered = split.reasoningText
-      ? optimizeMarkdownStyle(split.reasoningText).trim() || undefined
+    // Reasoning sources, in priority order: the onThought side-channel buffer
+    // (acpx agent_thought_chunk) wins; fall back to <think>-tag parsing of the
+    // answer text for agents that embed reasoning inline.
+    const accumulatedReasoning = this.reasoningBuffer.trim();
+    const reasoningSource = accumulatedReasoning || split.reasoningText;
+    const reasoningRendered = reasoningSource
+      ? optimizeMarkdownStyle(reasoningSource).trim() || undefined
       : undefined;
-    const hasReasoning = !!reasoningRendered;
-    // Track whether last pushed update included a reasoning panel so element-
-    // content fast-path can detect structural changes that require full update.
-    const reasoningChanged = hasReasoning !== this.lastPushedHadReasoning;
+    // Elapsed applies only to the timed onThought source.
+    const reasoningElapsedMs =
+      accumulatedReasoning && this.reasoningStartedAt > 0
+        ? this.reasoningLastAt - this.reasoningStartedAt
+        : undefined;
+    // Compare rendered reasoning content (not just presence) so a streaming
+    // thought update forces the full card.update path — the element-content
+    // fast-path only touches streaming_content and would never refresh the
+    // collapsed reasoning panel.
+    const reasoningChanged = reasoningRendered !== this.lastPushedReasoning;
 
     const elapsedMs = this.seededAtMs > 0 ? this.now() - this.seededAtMs : undefined;
     const currentFooterText = computeFooterText(this.state, elapsedMs);
@@ -476,6 +501,7 @@ export class StreamingCardController {
       text: rendered,
       ...(elapsedMs !== undefined ? { elapsedMs } : {}),
       ...(reasoningRendered ? { reasoningText: reasoningRendered } : {}),
+      ...(reasoningElapsedMs !== undefined ? { reasoningElapsedMs } : {}),
       ...(toolSteps.length > 0 ? { toolSteps } : {}),
       ...(this.cardBodyMaxChars !== undefined ? { maxBodyChars: this.cardBodyMaxChars } : {}),
     });
@@ -486,7 +512,7 @@ export class StreamingCardController {
         data: { card: { type: "card_json", data: JSON.stringify(card) }, sequence: seq },
       });
       this.lastPushedState = this.state;
-      this.lastPushedHadReasoning = hasReasoning;
+      this.lastPushedReasoning = reasoningRendered;
       this.lastFooterText = currentFooterText;
       this.lastPushedToolRevision = toolRevision;
     } catch (error) {

@@ -445,9 +445,9 @@ test("complete with <think> tags renders reasoning above the answer", async () =
 
   const last = calls.cardUpdate[calls.cardUpdate.length - 1];
   const body = last.cardJson.body as { elements: Array<{ tag: string; element_id?: string; content: string }> };
-  // [reasoning markdown, hr, answer markdown, footer?]
-  expect(body.elements[0].element_id).toBe("reasoning_content");
-  expect(body.elements[0].content).toContain("balancing tradeoffs");
+  // [collapsible_panel (reasoning), hr, answer markdown, footer?]
+  expect(body.elements[0].tag).toBe("collapsible_panel");
+  expect(JSON.stringify(body.elements[0])).toContain("balancing tradeoffs");
   expect(body.elements[1].tag).toBe("hr");
   expect(body.elements[2].element_id).toBe("streaming_content");
   expect(body.elements[2].content).toBe("Use option B.");
@@ -911,4 +911,95 @@ test("shutdown without prior terminal transition aborts a streaming card (regres
   expect(controller.isTerminated()).toBe(true);
   const last = calls.cardUpdate[calls.cardUpdate.length - 1];
   expect((last.cardJson.config as { summary: { content: string } }).summary.content).toBe("Stopped");
+});
+
+test("appendReasoning accumulates thought chunks into the reasoning panel", async () => {
+  const { client, calls } = createFakeClient();
+  const controller = new StreamingCardController({ client, flushIntervalMs: 10 });
+  await controller.seed({ to: "oc_chat" });
+
+  controller.appendReasoning("part one ");
+  controller.appendReasoning("part two");
+  controller.appendStream("the final answer");
+
+  await new Promise((r) => setTimeout(r, 30));
+  await controller.complete();
+
+  const last = calls.cardUpdate[calls.cardUpdate.length - 1];
+  const elements = (last.cardJson.body as { elements: Array<{ tag: string; content?: string; element_id?: string }> }).elements;
+  const panel = elements.find((el) => el.tag === "collapsible_panel");
+  expect(panel).toBeDefined();
+  expect(JSON.stringify(panel)).toContain("part one part two");
+  const body = elements.find((el) => el.element_id === "streaming_content");
+  expect(body?.content).toBe("the final answer");
+});
+
+test("appendReasoning content change forces a full update (not fast-path)", async () => {
+  const { client, calls } = createFakeClient();
+  const controller = new StreamingCardController({ client, flushIntervalMs: 10, now: () => 1_000 });
+  await controller.seed({ to: "oc_chat" });
+  controller.appendStream("first");
+  await new Promise((r) => setTimeout(r, 30));
+  const fullBefore = calls.cardUpdate.length;
+  controller.appendReasoning("a thought");
+  controller.appendStream("second");
+  await new Promise((r) => setTimeout(r, 30));
+  expect(calls.cardUpdate.length).toBeGreaterThan(fullBefore);
+});
+
+test("reasoning falls back to <think> tags when no onThought chunks arrive", async () => {
+  const { client, calls } = createFakeClient();
+  const controller = new StreamingCardController({ client, flushIntervalMs: 10 });
+  await controller.seed({ to: "oc_chat" });
+
+  controller.appendStream("<think>inline reasoning</think>visible answer");
+  await new Promise((r) => setTimeout(r, 30));
+  await controller.complete();
+
+  const last = calls.cardUpdate[calls.cardUpdate.length - 1];
+  const elements = (last.cardJson.body as { elements: Array<{ tag: string; content?: string; element_id?: string }> }).elements;
+  const panel = elements.find((el) => el.tag === "collapsible_panel");
+  expect(panel).toBeDefined();
+  expect(JSON.stringify(panel)).toContain("inline reasoning");
+  const body = elements.find((el) => el.element_id === "streaming_content");
+  expect(body?.content).toContain("visible answer");
+  expect(body?.content).not.toContain("inline reasoning");
+});
+
+test("appendReasoning header reports elapsed from first to last thought chunk", async () => {
+  let nowValue = 1_000;
+  const { client, calls } = createFakeClient();
+  const controller = new StreamingCardController({
+    client,
+    flushIntervalMs: 10,
+    now: () => nowValue,
+  });
+  await controller.seed({ to: "oc_chat" });
+
+  controller.appendReasoning("starting to think");
+  nowValue = 1_000 + 8_400;
+  controller.appendReasoning(" still thinking");
+  controller.appendStream("answer");
+  await new Promise((r) => setTimeout(r, 30));
+  await controller.complete();
+
+  const last = calls.cardUpdate[calls.cardUpdate.length - 1];
+  const elements = (last.cardJson.body as { elements: Array<Record<string, unknown>> }).elements;
+  const panel = elements.find((el) => el.tag === "collapsible_panel")!;
+  expect(JSON.stringify(panel.header)).toContain("已思考");
+  expect(JSON.stringify(panel.header)).toContain("8.4s");
+});
+
+test("appendReasoning after termination does not push a card update", async () => {
+  const { client, calls } = createFakeClient();
+  const controller = new StreamingCardController({ client, flushIntervalMs: 10 });
+  await controller.seed({ to: "oc_chat" });
+  controller.appendStream("answer");
+  await new Promise((r) => setTimeout(r, 30));
+  await controller.complete();
+  const updatesAfterComplete = calls.cardUpdate.length;
+
+  controller.appendReasoning("a late thought");
+  await new Promise((r) => setTimeout(r, 30));
+  expect(calls.cardUpdate.length).toBe(updatesAfterComplete);
 });
