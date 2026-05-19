@@ -65,6 +65,7 @@ export function buildWeacpxMcpToolRegistry(input: {
           workingDirectory: z.string().min(1).optional(),
           role: z.string().min(1).optional(),
           groupId: z.string().min(1).optional(),
+          parallel: z.boolean().optional(),
         })
         .strict(),
       handler: async (args) =>
@@ -75,6 +76,7 @@ export function buildWeacpxMcpToolRegistry(input: {
             workingDirectory?: string;
             role?: string;
             groupId?: string;
+            parallel?: boolean;
           };
           const result = await transport.delegateRequest({
             coordinatorSession,
@@ -98,6 +100,7 @@ export function buildWeacpxMcpToolRegistry(input: {
                   task: z.string().min(1),
                   workingDirectory: z.string().min(1).optional(),
                   role: z.string().min(1).optional(),
+                  parallel: z.boolean().optional(),
                 })
                 .strict(),
             )
@@ -108,7 +111,7 @@ export function buildWeacpxMcpToolRegistry(input: {
         await asToolResult(async () => {
           const { title, tasks } = args as {
             title?: string;
-            tasks: Array<{ targetAgent: string; task: string; workingDirectory?: string; role?: string }>;
+            tasks: Array<{ targetAgent: string; task: string; workingDirectory?: string; role?: string; parallel?: boolean }>;
           };
           // If every subsequent delegateRequest fails, the group is created but stays
           // empty — which is harmless: an empty group has no terminal members so it
@@ -133,6 +136,7 @@ export function buildWeacpxMcpToolRegistry(input: {
                 ...(entry.workingDirectory ? { workingDirectory: entry.workingDirectory } : {}),
                 ...(entry.role ? { role: entry.role } : {}),
                 ...(groupId ? { groupId } : {}),
+                ...(entry.parallel ? { parallel: true } : {}),
               });
               results.push({ index, taskId: result.taskId, status: result.status });
             } catch (error) {

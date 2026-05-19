@@ -44,6 +44,7 @@ export interface RequestDelegateInput {
   chatKey?: string;
   replyContextToken?: string;
   accountId?: string;
+  parallel?: boolean;
 }
 
 export interface RequestDelegateRpcInput {
@@ -53,6 +54,7 @@ export interface RequestDelegateRpcInput {
   cwd?: string;
   role?: string;
   groupId?: string;
+  parallel?: boolean;
 }
 
 export interface RequestDelegateResult {
