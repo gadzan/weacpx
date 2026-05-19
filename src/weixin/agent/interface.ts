@@ -49,6 +49,8 @@ export interface ChatRequest {
   abortSignal?: AbortSignal;
   /** Structured tool-use side-channel; see PromptOptions.onToolEvent. */
   onToolEvent?: (event: ToolUseEvent) => void | Promise<void>;
+  /** Structured thinking side-channel; see PromptOptions.onThought. */
+  onThought?: (chunk: string) => void | Promise<void>;
   /**
    * Optional per-turn performance tracing span. When `logging.perf.enabled` is
    * true, the channel handler attaches a `PerfSpan` so downstream layers can

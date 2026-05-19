@@ -116,6 +116,7 @@ test("emits session.ready when attaching an existing session", async () => {
     undefined,
     undefined,
     undefined,
+    undefined,
     perfSpan,
   );
 

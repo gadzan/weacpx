@@ -133,7 +133,7 @@ test("CommandRouter.handle marks prompt_done aborted when signal is already abor
   controller.abort();
 
   await expect(
-    router.handle("wx:user", "ignored", undefined, undefined, undefined, undefined, undefined, controller.signal, undefined, perfSpan),
+    router.handle("wx:user", "ignored", undefined, undefined, undefined, undefined, undefined, controller.signal, undefined, undefined, perfSpan),
   ).rejects.toThrow();
 
   expect(marks.at(-1)).toEqual({ event: "transport.prompt_done", context: { localOutcome: "aborted" } });
@@ -173,6 +173,7 @@ test("CommandRouter.handle marks prompt_done aborted when abort fires during a p
     undefined,
     undefined,
     controller.signal,
+    undefined,
     undefined,
     perfSpan,
   );

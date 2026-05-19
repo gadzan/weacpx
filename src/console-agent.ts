@@ -18,6 +18,7 @@ interface RouterLike {
     metadata?: ChatRequestMetadata,
     abortSignal?: AbortSignal,
     onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
+    onThought?: (chunk: string) => void | Promise<void>,
     perfSpan?: PerfSpan,
   ): Promise<ChatResponse>;
   clearSession?: (chatKey: string) => Promise<void>;
@@ -61,6 +62,7 @@ export class ConsoleAgent implements WechatAgent {
       request.metadata,
       request.abortSignal,
       request.onToolEvent,
+      request.onThought,
       request.perfSpan,
     );
   }

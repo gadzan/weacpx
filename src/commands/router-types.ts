@@ -130,6 +130,7 @@ export interface SessionInteractionOps {
     media?: PromptMediaInput,
     abortSignal?: AbortSignal,
     onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
+    onThought?: (chunk: string) => void | Promise<void>,
     perfSpan?: PerfSpan,
   ) => Promise<{ text: string }>;
 }

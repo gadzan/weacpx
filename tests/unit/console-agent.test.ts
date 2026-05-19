@@ -189,6 +189,7 @@ test("emits agent.dispatched mark via request.perfSpan before calling router", a
       _metadata?: any,
       _abortSignal?: any,
       _onToolEvent?: any,
+      _onThought?: any,
       perfSpan?: any,
     ) => {
       routerSawPerfSpan = perfSpan === spySpan;
@@ -205,4 +206,36 @@ test("emits agent.dispatched mark via request.perfSpan before calling router", a
 
   expect(events).toContain("agent.dispatched");
   expect(routerSawPerfSpan).toBe(true);
+});
+
+test("passes request.onThought through to the command router", async () => {
+  let routerSawOnThought = false;
+  const myOnThought = (_chunk: string) => {};
+  const agent = new ConsoleAgent({
+    handle: async (
+      _chatKey: string,
+      _input: string,
+      _reply?: any,
+      _replyContextToken?: any,
+      _accountId?: any,
+      _media?: any,
+      _metadata?: any,
+      _abortSignal?: any,
+      _onToolEvent?: any,
+      onThought?: any,
+      _perfSpan?: any,
+    ) => {
+      routerSawOnThought = onThought === myOnThought;
+      return { text: "ok" };
+    },
+  });
+
+  await agent.chat({
+    accountId: "a",
+    conversationId: "k",
+    text: "hello",
+    onThought: myOnThought,
+  });
+
+  expect(routerSawOnThought).toBe(true);
 });

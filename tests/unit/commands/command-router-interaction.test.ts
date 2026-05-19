@@ -51,8 +51,8 @@ test("emits perf marks for prompt transport lifecycle", async () => {
   });
   const router = new CommandRouter(sessions, transport);
 
-  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend", undefined, undefined, undefined, undefined, undefined, undefined, undefined, perfSpan);
-  await router.handle("wx:user", "hello", async () => {}, undefined, undefined, undefined, undefined, undefined, undefined, perfSpan);
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend", undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, perfSpan);
+  await router.handle("wx:user", "hello", async () => {}, undefined, undefined, undefined, undefined, undefined, undefined, undefined, perfSpan);
 
   expect(marks.map((m) => m.event)).toContain("router.authorized");
   expect(marks.map((m) => m.event)).toContain("router.config_refreshed");
@@ -79,7 +79,7 @@ test("emits transport.prompt_done with error outcome", async () => {
   const router = new CommandRouter(sessions, transport);
 
   await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
-  await expect(router.handle("wx:user", "hello", undefined, undefined, undefined, undefined, undefined, undefined, undefined, perfSpan)).rejects.toThrow("boom");
+  await expect(router.handle("wx:user", "hello", undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, perfSpan)).rejects.toThrow("boom");
 
   expect(marks.at(-1)).toEqual({ event: "transport.prompt_done", context: { localOutcome: "error" } });
 });

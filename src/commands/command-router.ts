@@ -118,6 +118,7 @@ export class CommandRouter {
     metadata?: ChatRequestMetadata,
     abortSignal?: AbortSignal,
     onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
+    onThought?: (chunk: string) => void | Promise<void>,
     perfSpan?: PerfSpan,
   ): Promise<RouterResponse> {
     const startedAt = Date.now();
@@ -281,6 +282,7 @@ export class CommandRouter {
             media,
             abortSignal,
             onToolEvent,
+            onThought,
             perfSpan,
           );
       }
@@ -343,8 +345,8 @@ export class CommandRouter {
     return {
       setModeTransportSession: (session, modeId) => this.setModeTransportSession(session, modeId),
       cancelTransportSession: (session) => this.cancelTransportSession(session),
-      promptTransportSession: (session, text, reply, replyContext, media, abortSignal, onToolEvent, perfSpanOverride) =>
-        this.promptTransportSession(session, text, reply, replyContext, media, abortSignal, onToolEvent, perfSpanOverride ?? perfSpan),
+      promptTransportSession: (session, text, reply, replyContext, media, abortSignal, onToolEvent, onThought, perfSpanOverride) =>
+        this.promptTransportSession(session, text, reply, replyContext, media, abortSignal, onToolEvent, onThought, perfSpanOverride ?? perfSpan),
     };
   }
 
@@ -570,6 +572,7 @@ export class CommandRouter {
     media?: PromptMediaInput,
     abortSignal?: AbortSignal,
     onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
+    onThought?: (chunk: string) => void | Promise<void>,
     perfSpan?: PerfSpan,
   ) {
     session.mcpCoordinatorSession ??= session.transportSession;
@@ -636,6 +639,7 @@ export class CommandRouter {
           ...(media ? { media } : {}),
           ...(reply ? { onSegment } : {}),
           ...(onToolEvent ? { onToolEvent } : {}),
+          ...(onThought ? { onThought } : {}),
         }),
       );
     } catch (error) {
