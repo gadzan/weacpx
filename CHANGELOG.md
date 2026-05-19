@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.8] - 2026-05-19
+
+### Changed
+
+- **Feishu outbound send hardening：** 统一 outbound mention tag 变体，并对飞书消息发送/媒体下载的临时 5xx 错误增加有限重试。
+- **Yuanbao 流式出站修复：** 强化 Markdown 片段拼接与表格修复，减少 block streaming 导致的断表、断 fence 问题。
+
 ## [0.4.7] - 2026-05-18
 
 ### Added

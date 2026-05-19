@@ -1,6 +1,6 @@
 {
   "name": "@ganglion/weacpx-channel-yuanbao",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Tencent Yuanbao channel plugin for weacpx.",
   "license": "MIT",
   "keywords": ["weacpx", "yuanbao", "channel", "plugin"],
