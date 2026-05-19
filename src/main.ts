@@ -477,6 +477,19 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
         });
       }
 
+      try {
+        await orchestration.reconcileParallelSlots();
+      } catch (reconcileError) {
+        await logger.error(
+          "orchestration.parallel.reconcile_failed",
+          "failed to reconcile parallel slots after worker turn",
+          {
+            taskId: input.taskId,
+            message: reconcileError instanceof Error ? reconcileError.message : String(reconcileError),
+          },
+        );
+      }
+
       if (taskRecord && shouldNotifyTaskCompletion(taskRecord)) {
         try {
           await sendCompletionNotice(taskRecord);
@@ -550,6 +563,13 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
       if (!result.cancelled) {
         throw new Error(result.message || "worker task cancel was not acknowledged");
       }
+    },
+    closeWorkerSession: async ({ workerSession, targetAgent, workspace, cwd }) => {
+      if (!transport.removeSession) {
+        return;
+      }
+      const session = resolveWorkerRuntimeSession({ workerSession, targetAgent, workspace, ...(cwd ? { cwd } : {}) });
+      await transport.removeSession(session);
     },
     resumeWorkerTask: async ({ taskId, workerSession, coordinatorSession, targetAgent, workspace, cwd, answer }) => {
       launchWorkerTurn({

@@ -2413,6 +2413,137 @@ test("coordinatorAnswerQuestion resumes asynchronously and persists the resumed 
   await rm(dir, { recursive: true, force: true });
 });
 
+test("closeWorkerSession dep calls transport.removeSession with the resolved session", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const removeSession = mock(async () => {});
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: { cwd: "/tmp/backend", allowed_agents: ["codex"] },
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession: async () => {},
+        prompt: async () => ({ text: "ok" }),
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+        listSessions: async () => [],
+        removeSession,
+      }),
+    },
+  );
+
+  // Register an external coordinator so we can delegate a parallel task.
+  await runtime.orchestration.service.registerExternalCoordinator({
+    coordinatorSession: "external:codex",
+    workspace: "backend",
+  });
+
+  const result = await runtime.orchestration.service.requestDelegate({
+    sourceHandle: "external:codex",
+    targetAgent: "codex",
+    task: "do work",
+    cwd: "/tmp/backend",
+    parallel: true,
+  });
+
+  // Wait for the task to reach a terminal state.
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const task = await runtime.orchestration.service.getTask(result.taskId);
+    if (task?.status === "completed" || task?.status === "failed") {
+      break;
+    }
+    await Bun.sleep(10);
+  }
+
+  // Trigger reconcile so it can close the ephemeral session and invoke removeSession.
+  await runtime.orchestration.service.reconcileParallelSlots();
+
+  expect(removeSession.mock.calls.length).toBeGreaterThan(0);
+  const sessionArg = removeSession.mock.calls[0]?.[0];
+  expect(sessionArg).toMatchObject({
+    agent: "codex",
+    workspace: "backend",
+  });
+
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("reconcileParallelSlots is called after a worker turn completes", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const configPath = join(dir, "config.json");
+  const statePath = join(dir, "state.json");
+  const removeSession = mock(async () => {});
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: { cwd: "/tmp/backend", allowed_agents: ["codex"] },
+      },
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession: async () => {},
+        prompt: async () => ({ text: "done" }),
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+        listSessions: async () => [],
+        removeSession,
+      }),
+    },
+  );
+
+  await runtime.orchestration.service.registerExternalCoordinator({
+    coordinatorSession: "external:codex",
+    workspace: "backend",
+  });
+
+  const result = await runtime.orchestration.service.requestDelegate({
+    sourceHandle: "external:codex",
+    targetAgent: "codex",
+    task: "parallel work",
+    cwd: "/tmp/backend",
+    parallel: true,
+  });
+
+  // Wait for the post-worker-turn reconcile to run (launchWorkerTurn calls it).
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (removeSession.mock.calls.length > 0) {
+      break;
+    }
+    await Bun.sleep(10);
+  }
+
+  // The post-turn reconcile should have triggered removeSession for the ephemeral session.
+  expect(removeSession.mock.calls.length).toBeGreaterThan(0);
+  expect(await runtime.orchestration.service.getTask(result.taskId)).toMatchObject({
+    status: "completed",
+    ephemeralWorkerSessionClosed: true,
+  });
+
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
 import { join as joinPath2 } from "node:path";
 import { loadConfiguredPlugins } from "../../src/plugins/plugin-loader";
 import { createMessageChannels } from "../../src/channels/create-channel";
