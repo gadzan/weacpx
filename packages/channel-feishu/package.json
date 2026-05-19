@@ -1,6 +1,6 @@
 {
   "name": "@ganglion/weacpx-channel-feishu",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Feishu channel plugin for weacpx.",
   "license": "MIT",
   "keywords": ["weacpx", "feishu", "channel", "plugin"],
