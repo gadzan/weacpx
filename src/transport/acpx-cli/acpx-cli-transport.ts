@@ -231,7 +231,7 @@ export class AcpxCliTransport implements SessionTransport {
     const structuredPrompt = await createStructuredPromptFile(text, options?.media);
     const args = this.buildPromptArgs(session, text, structuredPrompt?.filePath);
     try {
-      if (reply || options?.onSegment || options?.onToolEvent) {
+      if (reply || options?.onSegment || options?.onToolEvent || options?.onThought) {
         const formatToolCalls = (session.replyMode ?? "verbose") === "verbose";
         let toolEventMode = resolveToolEventMode(options);
         // Safety net: structured/both without an onToolEvent handler would
@@ -249,6 +249,7 @@ export class AcpxCliTransport implements SessionTransport {
           replyContext,
           options?.onSegment,
           options?.onToolEvent,
+          options?.onThought,
         );
         const baseText = getPromptText(result);
         if (!reply) {
@@ -428,6 +429,7 @@ export class AcpxCliTransport implements SessionTransport {
     replyContext?: ReplyQuotaContext,
     onSegment?: (text: string) => void | Promise<void>,
     onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
+    onThought?: (chunk: string) => void | Promise<void>,
   ): Promise<{ result: CommandResult; overflowCount: number }> {
     const hooks = this.streamingHooks;
     const doSpawn = hooks.spawnPrompt
@@ -448,7 +450,10 @@ export class AcpxCliTransport implements SessionTransport {
       let segmentError: unknown;
       let toolEventChain = Promise.resolve();
       let toolEventError: unknown;
+      let thoughtChain = Promise.resolve();
+      let thoughtError: unknown;
       const userOnToolEvent = onToolEvent;
+      const userOnThought = onThought;
 
       const state = createStreamingPromptState(formatToolCalls, {
         mode: toolEventMode,
@@ -460,6 +465,18 @@ export class AcpxCliTransport implements SessionTransport {
                   .then(() => userOnToolEvent(event))
                   .catch((error) => {
                     toolEventError ??= error;
+                  });
+              },
+            }
+          : {}),
+        ...(userOnThought
+          ? {
+              onThought: (chunk) => {
+                // Serialize handler invocations; first error wins.
+                thoughtChain = thoughtChain
+                  .then(() => userOnThought(chunk))
+                  .catch((error) => {
+                    thoughtError ??= error;
                   });
               },
             }
@@ -535,6 +552,7 @@ export class AcpxCliTransport implements SessionTransport {
           sink?.drain({ timeoutMs: 30_000 }) ?? Promise.resolve(),
           segmentChain,
           toolEventChain,
+          thoughtChain,
         ]).then(() => {
           const deferred = sink?.getPendingError();
           if (deferred) {
@@ -547,6 +565,10 @@ export class AcpxCliTransport implements SessionTransport {
           }
           if (toolEventError) {
             reject(toolEventError);
+            return;
+          }
+          if (thoughtError) {
+            reject(thoughtError);
             return;
           }
           resolve({

@@ -1610,3 +1610,39 @@ test("R2: onToolEvent-only caller still gets the correct final text from the str
   expect((toolEvents[0] as { toolName: string }).toolName).toBe("Read config");
   expect(result).toEqual({ text: "Agent reply here" });
 });
+
+// --- onThought wiring tests ---
+
+test("onThought: callback receives text from agent_thought_chunk lines", async () => {
+  const thoughts: string[] = [];
+
+  const thoughtLine = JSON.stringify({
+    method: "session/update",
+    params: {
+      update: {
+        sessionUpdate: "agent_thought_chunk",
+        content: { type: "text", text: "weighing options" },
+      },
+    },
+  });
+
+  const transport = new AcpxCliTransport(
+    { command: "acpx" },
+    undefined,
+    undefined,
+    undefined,
+    {
+      spawnPrompt: () => makeFakeSpawn([thoughtLine]),
+      setIntervalFn: () => 0,
+      clearIntervalFn: () => {},
+    },
+  );
+
+  await transport.prompt(session, "hi", undefined, undefined, {
+    onThought: (chunk) => {
+      thoughts.push(chunk);
+    },
+  });
+
+  expect(thoughts).toEqual(["weighing options"]);
+});
