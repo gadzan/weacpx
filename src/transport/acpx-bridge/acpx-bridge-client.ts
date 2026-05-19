@@ -19,6 +19,7 @@ type WriteLine = (line: string) => boolean | void;
 export type BridgeEvent =
   | { type: "prompt.segment"; text: string }
   | { type: "prompt.tool_event"; event: ToolUseEvent }
+  | { type: "prompt.thought"; text: string }
   | { type: "session.progress"; stage: EnsureSessionProgressStage }
   | { type: "session.note"; text: string };
 
@@ -97,6 +98,11 @@ export class AcpxBridgeClient {
         pending.onEvent?.({
           type: "prompt.tool_event",
           event: message.toolEvent,
+        });
+      } else if (message.event === "prompt.thought") {
+        pending.onEvent?.({
+          type: "prompt.thought",
+          text: message.text,
         });
       } else if (message.event === "session.progress") {
         pending.onEvent?.({
