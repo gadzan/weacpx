@@ -1003,3 +1003,43 @@ test("appendReasoning after termination does not push a card update", async () =
   await new Promise((r) => setTimeout(r, 30));
   expect(calls.cardUpdate.length).toBe(updatesAfterComplete);
 });
+
+test("onThought buffer takes precedence over inline <think> tags", async () => {
+  const { client, calls } = createFakeClient();
+  const controller = new StreamingCardController({ client, flushIntervalMs: 10 });
+  await controller.seed({ to: "oc_chat" });
+
+  controller.appendReasoning("side channel thought");
+  controller.appendStream("<think>inline thought</think>visible answer");
+  await new Promise((r) => setTimeout(r, 30));
+  await controller.complete();
+
+  const last = calls.cardUpdate[calls.cardUpdate.length - 1];
+  const elements = (last.cardJson.body as { elements: Array<{ tag: string; content?: string; element_id?: string }> }).elements;
+  const panel = elements.find((el) => el.tag === "collapsible_panel");
+  expect(panel).toBeDefined();
+  expect(JSON.stringify(panel)).toContain("side channel thought");
+  expect(JSON.stringify(panel)).not.toContain("inline thought");
+  const body = elements.find((el) => el.element_id === "streaming_content");
+  expect(body?.content).toContain("visible answer");
+  expect(body?.content).not.toContain("inline thought");
+});
+
+test("reasoning panel renders while the card is still in the thinking state", async () => {
+  const { client, calls } = createFakeClient();
+  const controller = new StreamingCardController({ client, flushIntervalMs: 10 });
+  await controller.seed({ to: "oc_chat" });
+
+  controller.appendReasoning("thinking before any answer");
+  await new Promise((r) => setTimeout(r, 30));
+
+  const last = calls.cardUpdate[calls.cardUpdate.length - 1];
+  const elements = (last.cardJson.body as { elements: Array<{ tag: string; content?: string; element_id?: string }> }).elements;
+  const panel = elements.find((el) => el.tag === "collapsible_panel");
+  expect(panel).toBeDefined();
+  expect(JSON.stringify(panel)).toContain("thinking before any answer");
+  // No answer streamed yet: buildCard emits streaming_content with empty
+  // content when state is "thinking". Assert the real behavior.
+  const body = elements.find((el) => el.element_id === "streaming_content");
+  expect(body?.content ?? "").toBe("");
+});
