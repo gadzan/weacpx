@@ -563,6 +563,11 @@ export class OrchestrationService {
           sourceHandle: input.sourceHandle,
           sourceKind: input.sourceKind,
           coordinatorSession: input.coordinatorSession,
+          // `workerSession` here is the *intended* ephemeral session name only —
+          // it is NOT reserved or ensured yet, and no acpx session exists for it
+          // while the task is queued. The future queue-drain path must call
+          // reserveProposedWorkerSession + ensureReservedWorkerSession on it
+          // before dispatching.
           workerSession,
           workspace: input.workspace,
           ...(input.cwd ? { cwd: input.cwd } : {}),
@@ -584,6 +589,8 @@ export class OrchestrationService {
         };
         state.orchestration.tasks[taskId] = queuedTask;
         await this.deps.saveState(state);
+        // `workerSession` is the intended ephemeral name; it is not yet reserved
+        // or ensured (see the queuedTask.workerSession comment above).
         return { taskId, status: "queued" as const, workerSession };
       });
       if (queuedResult) {

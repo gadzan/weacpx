@@ -196,7 +196,7 @@ function isWorkerBindingRecord(value: unknown): value is WorkerBindingRecord {
     isOptionalString(value.cwd) &&
     isString(value.targetAgent) &&
     isOptionalString(value.role) &&
-    (value.ephemeral === undefined || typeof value.ephemeral === "boolean")
+    isOptionalBoolean(value.ephemeral)
   );
 }
 
