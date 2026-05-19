@@ -56,6 +56,20 @@ export interface PromptOptions {
    */
   onToolEvent?: (event: ToolUseEvent) => void | Promise<void>;
   /**
+   * Optional structured side-channel for the agent's thinking/reasoning.
+   *
+   * Each acpx `agent_thought_chunk` is forwarded raw (no buffering, no
+   * paragraph splitting). Channels that register this callback opt in to
+   * receiving thoughts and are responsible for their own accumulation /
+   * rendering. When omitted, thought chunks are dropped at the transport
+   * boundary — the built-in WeChat channel does not register it.
+   *
+   * Async semantics match `onSegment`: invocations are serialized and the
+   * transport awaits all of them before resolving the prompt; the first
+   * error observed rejects the prompt.
+   */
+  onThought?: (chunk: string) => void | Promise<void>;
+  /**
    * How tool_call / tool_call_update events are surfaced for this prompt.
    *
    * - "text" (default when no handler): legacy emoji-prefixed segments in the reply stream.
