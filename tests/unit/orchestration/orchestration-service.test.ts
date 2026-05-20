@@ -43,6 +43,7 @@ function makeDeps(
     reusableWorkerSession?: string | null;
     initialState?: AppState;
     config?: AppConfig;
+    closeWorkerSession?: NonNullable<OrchestrationServiceDeps["closeWorkerSession"]>;
   },
 ) {
   let state = cloneState(overrides?.initialState ?? createEmptyState());
@@ -50,6 +51,7 @@ function makeDeps(
   const savedStates: AppState[] = [];
   const ensureCalls: Array<Parameters<OrchestrationServiceDeps["ensureWorkerSession"]>[0]> = [];
   const dispatchCalls: Array<Parameters<OrchestrationServiceDeps["dispatchWorkerTask"]>[0]> = [];
+  const closeCalls: Array<Parameters<NonNullable<OrchestrationServiceDeps["closeWorkerSession"]>>[0]> = [];
   const lookupCalls: Array<
     NonNullable<OrchestrationServiceDeps["findReusableWorkerSession"]> extends (
       request: infer Request,
@@ -86,6 +88,11 @@ function makeDeps(
       : never
   > = [];
 
+  // Pull `closeWorkerSession` out of overrides so the recording wrapper below is
+  // not clobbered by the `...overrides` spread; the wrapper still delegates to it.
+  const closeWorkerSessionOverride = overrides?.closeWorkerSession;
+  const { closeWorkerSession: _ignoredCloseOverride, ...spreadOverrides } = overrides ?? {};
+
   const deps: OrchestrationServiceDeps = {
     now: () => new Date("2026-04-13T10:00:00.000Z"),
     createId: () => "task-1",
@@ -101,6 +108,12 @@ function makeDeps(
     },
     dispatchWorkerTask: async (request) => {
       dispatchCalls.push(request);
+    },
+    closeWorkerSession: async (request) => {
+      closeCalls.push(request);
+      if (closeWorkerSessionOverride) {
+        return closeWorkerSessionOverride(request);
+      }
     },
     findReusableWorkerSession: async (request) => {
       lookupCalls.push(request);
@@ -118,7 +131,7 @@ function makeDeps(
     interruptWorkerTask: async (request) => {
       interruptCalls.push(request);
     },
-    ...overrides,
+    ...spreadOverrides,
   };
 
   return {
@@ -127,6 +140,7 @@ function makeDeps(
     savedStates,
     ensureCalls,
     dispatchCalls,
+    closeCalls,
     lookupCalls,
     wakeCoordinatorCalls,
     resumeCalls,
@@ -1977,6 +1991,97 @@ test("rejects rpc requests when the coordinator exceeds the pending agent reques
   expect(harness.getState().orchestration.tasks).toHaveProperty("task-1");
   expect(harness.getState().orchestration.tasks).toHaveProperty("task-2");
   expect(harness.getState().orchestration.tasks).toHaveProperty("task-3");
+});
+
+test("queued parallel tasks count toward the coordinator pending agent request quota", async () => {
+  let idCounter = 0;
+  const harness = makeDeps({
+    createId: () => `id-${++idCounter}`,
+    initialState: {
+      ...createEmptyState(),
+      sessions: {
+        main: {
+          alias: "main",
+          agent: "codex",
+          workspace: "backend",
+          transport_session: "backend:main",
+          created_at: "2026-04-13T10:00:00.000Z",
+          last_used_at: "2026-04-13T10:00:00.000Z",
+        },
+      },
+      orchestration: {
+        tasks: {
+          // A queued parallel task from a prior coordinator delegation.
+          "task-queued": {
+            taskId: "task-queued",
+            sourceHandle: "backend:main",
+            sourceKind: "coordinator",
+            coordinatorSession: "backend:main",
+            workerSession: "backend:claude:p-queued",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "queued parallel task",
+            status: "queued",
+            ephemeralWorkerSession: true,
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-13T09:59:00.000Z",
+            updatedAt: "2026-04-13T10:00:00.000Z",
+            eventSeq: 1,
+            events: [],
+          },
+          "task-running": {
+            taskId: "task-running",
+            sourceHandle: "backend:main",
+            sourceKind: "coordinator",
+            coordinatorSession: "backend:main",
+            workerSession: "backend:claude:p-running",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "running parallel task",
+            status: "running",
+            ephemeralWorkerSession: true,
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-13T09:58:00.000Z",
+            updatedAt: "2026-04-13T10:00:00.000Z",
+            eventSeq: 1,
+            events: [],
+          },
+        },
+        workerBindings: {},
+      },
+    },
+    config: {
+      ...createConfig(),
+      orchestration: {
+        maxPendingAgentRequestsPerCoordinator: 2,
+        allowWorkerChainedRequests: true,
+        allowedAgentRequestTargets: [],
+        allowedAgentRequestRoles: [],
+        progressHeartbeatSeconds: 300,
+        maxParallelTasksPerAgent: 3,
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  // Two outstanding tasks (one queued, one running) already hit the cap of 2.
+  // The queued task must count — otherwise this further request would be allowed.
+  await expect(
+    service.requestDelegateFromRpc({
+      sourceHandle: "backend:main",
+      targetAgent: "claude",
+      task: "one more request",
+    }),
+  ).rejects.toThrow("agent-requested delegation quota exceeded for this coordinator");
+
+  expect(harness.ensureCalls).toEqual([]);
+  expect(harness.dispatchCalls).toEqual([]);
+  expect(Object.keys(harness.getState().orchestration.tasks).sort()).toEqual([
+    "task-queued",
+    "task-running",
+  ]);
 });
 
 test("concurrent worker-originated rpc requests recheck quota before persisting", async () => {
@@ -8860,4 +8965,668 @@ test("coordinatorRequestHumanInput propagates QuotaDeferredError without recordi
   expect(pkg).toBeDefined();
   expect(pkg!.messages[0]!.lastDeliveryError).toBeUndefined();
   expect(pkg!.status).toBe("active");
+});
+
+test("parallel delegation mints a unique worker session and skips reuse", async () => {
+  let idCounter = 0;
+  const deps = makeDeps({
+    createId: () => `id-${++idCounter}`,
+    reusableWorkerSession: "ws:codex:reused",
+  });
+  const service = new OrchestrationService(deps.deps);
+  const a = await service.requestDelegate({
+    sourceHandle: "wx:user-1",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "codex",
+    task: "task A",
+    parallel: true,
+  });
+  const b = await service.requestDelegate({
+    sourceHandle: "wx:user-1",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "codex",
+    task: "task B",
+    parallel: true,
+  });
+  expect(a.workerSession).toContain(":p-");
+  expect(b.workerSession).toContain(":p-");
+  expect(a.workerSession).not.toBe(b.workerSession);
+  expect(a.workerSession).not.toBe("ws:codex:reused");
+});
+
+test("non-parallel delegation still reuses the worker session", async () => {
+  const deps = makeDeps({ reusableWorkerSession: "backend:codex:reused" });
+  const service = new OrchestrationService(deps.deps);
+  const r = await service.requestDelegate({
+    sourceHandle: "wx:user-1",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "codex",
+    task: "task",
+  });
+  expect(r.workerSession).toBe("backend:codex:reused");
+});
+
+test("parallel delegations beyond the cap are queued", async () => {
+  let idCounter = 0;
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 2;
+  const deps = makeDeps({ config, createId: () => `id-${++idCounter}` });
+  const service = new OrchestrationService(deps.deps);
+  const mk = (task: string) =>
+    service.requestDelegate({
+      sourceHandle: "wx:user-1",
+      sourceKind: "human",
+      coordinatorSession: "backend:main",
+      workspace: "backend",
+      targetAgent: "codex",
+      task,
+      parallel: true,
+    });
+  const r1 = await mk("A");
+  const r2 = await mk("B");
+  const r3 = await mk("C");
+  expect(r1.status).toBe("running");
+  expect(r2.status).toBe("running");
+  expect(r3.status).toBe("queued");
+});
+
+test("a queued parallel task neither ensures a session nor dispatches", async () => {
+  let idCounter = 0;
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 1;
+  const deps = makeDeps({ config, createId: () => `id-${++idCounter}` });
+  const service = new OrchestrationService(deps.deps);
+  await service.requestDelegate({
+    sourceHandle: "wx:user-1",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "codex",
+    task: "A",
+    parallel: true,
+  });
+  deps.ensureCalls.length = 0;
+  deps.dispatchCalls.length = 0;
+  const r2 = await service.requestDelegate({
+    sourceHandle: "wx:user-1",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "codex",
+    task: "B",
+    parallel: true,
+  });
+  expect(r2.status).toBe("queued");
+  expect(deps.ensureCalls.length).toBe(0);
+  expect(deps.dispatchCalls.length).toBe(0);
+});
+
+test("a queued parallel task is persisted and retrievable with status queued", async () => {
+  let idCounter = 0;
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 1;
+  const deps = makeDeps({ config, createId: () => `id-${++idCounter}` });
+  const service = new OrchestrationService(deps.deps);
+  await service.requestDelegate({
+    sourceHandle: "wx:user-1",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "codex",
+    task: "A",
+    parallel: true,
+  });
+  const r2 = await service.requestDelegate({
+    sourceHandle: "wx:user-1",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "codex",
+    task: "B",
+    parallel: true,
+  });
+  expect(r2.status).toBe("queued");
+  const task = await service.getTask(r2.taskId);
+  expect(task).not.toBeNull();
+  expect(task!.status).toBe("queued");
+  expect(task!.targetAgent).toBe("codex");
+  expect(task!.task).toBe("B");
+  expect(task!.ephemeralWorkerSession).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// Task 7: parallel gate for requestDelegateFromRpc and approveTask
+// ---------------------------------------------------------------------------
+
+test("rpc coordinator parallel delegations beyond the cap are queued", async () => {
+  let idCounter = 0;
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 2;
+  const harness = makeDeps({
+    config,
+    createId: () => `id-${++idCounter}`,
+    initialState: {
+      ...createEmptyState(),
+      sessions: {
+        main: {
+          alias: "main",
+          agent: "codex",
+          workspace: "backend",
+          transport_session: "backend:main",
+          created_at: "2026-04-13T10:00:00.000Z",
+          last_used_at: "2026-04-13T10:00:00.000Z",
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const mk = (task: string) =>
+    service.requestDelegateFromRpc({
+      sourceHandle: "backend:main",
+      targetAgent: "claude",
+      task,
+      parallel: true,
+    });
+
+  const r1 = await mk("A");
+  const r2 = await mk("B");
+  // Wait for async ensure/dispatch to settle before r3 so slots are registered
+  for (let attempt = 0; attempt < 20 && harness.dispatchCalls.length < 2; attempt += 1) {
+    await Bun.sleep(0);
+  }
+  const r3 = await mk("C");
+
+  expect(r1.status).toBe("running");
+  expect(r2.status).toBe("running");
+  expect(r3.status).toBe("queued");
+});
+
+test("rpc coordinator queued parallel task triggers no ensure or dispatch", async () => {
+  let idCounter = 0;
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 1;
+  const harness = makeDeps({
+    config,
+    createId: () => `id-${++idCounter}`,
+    initialState: {
+      ...createEmptyState(),
+      sessions: {
+        main: {
+          alias: "main",
+          agent: "codex",
+          workspace: "backend",
+          transport_session: "backend:main",
+          created_at: "2026-04-13T10:00:00.000Z",
+          last_used_at: "2026-04-13T10:00:00.000Z",
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  // Fill the single slot
+  await service.requestDelegateFromRpc({
+    sourceHandle: "backend:main",
+    targetAgent: "claude",
+    task: "A",
+    parallel: true,
+  });
+  for (let attempt = 0; attempt < 20 && harness.dispatchCalls.length < 1; attempt += 1) {
+    await Bun.sleep(0);
+  }
+
+  harness.ensureCalls.length = 0;
+  harness.dispatchCalls.length = 0;
+
+  const r2 = await service.requestDelegateFromRpc({
+    sourceHandle: "backend:main",
+    targetAgent: "claude",
+    task: "B",
+    parallel: true,
+  });
+
+  expect(r2.status).toBe("queued");
+  expect(harness.ensureCalls.length).toBe(0);
+  expect(harness.dispatchCalls.length).toBe(0);
+});
+
+test("approveTask on parallel needs_confirmation task queues it when agent is at capacity", async () => {
+  let idCounter = 0;
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 1;
+  config.orchestration.allowWorkerChainedRequests = true;
+  const harness = makeDeps({
+    config,
+    createId: () => `id-${++idCounter}`,
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        tasks: {
+          // Pre-seed a running parallel task that occupies the single slot
+          "slot-filler": {
+            taskId: "slot-filler",
+            sourceHandle: "wx:user-1",
+            sourceKind: "human" as const,
+            coordinatorSession: "backend:main",
+            workerSession: "backend:codex:p-slot",
+            workspace: "backend",
+            targetAgent: "codex",
+            task: "filling the slot",
+            status: "running" as const,
+            ephemeralWorkerSession: true,
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-13T10:00:00.000Z",
+            updatedAt: "2026-04-13T10:00:00.000Z",
+            eventSeq: 1,
+            events: [],
+          },
+        },
+        workerBindings: {
+          // binding for the slot-filler session
+          "backend:codex:p-slot": {
+            sourceHandle: "backend:codex:p-slot",
+            coordinatorSession: "backend:main",
+            workspace: "backend",
+            targetAgent: "codex",
+            ephemeral: true,
+          },
+          // binding so worker-sourced delegation from claude is allowed
+          "backend:claude:backend:main": {
+            sourceHandle: "backend:claude:backend:main",
+            coordinatorSession: "backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  // Worker-sourced parallel delegation → needs_confirmation (not gated here)
+  const delegated = await service.requestDelegateFromRpc({
+    sourceHandle: "backend:claude:backend:main",
+    targetAgent: "codex",
+    task: "parallel worker task",
+    parallel: true,
+  });
+  expect(delegated.status).toBe("needs_confirmation");
+
+  harness.ensureCalls.length = 0;
+  harness.dispatchCalls.length = 0;
+
+  // Now approve the needs_confirmation task — cap is full (slot-filler running), should become queued
+  const approved = await service.approveTask({
+    taskId: delegated.taskId,
+    coordinatorSession: "backend:main",
+  });
+
+  expect(approved.status).toBe("queued");
+  expect(harness.ensureCalls.length).toBe(0);
+  expect(harness.dispatchCalls.length).toBe(0);
+});
+
+test("approveTask on parallel needs_confirmation task starts it when agent has free capacity", async () => {
+  let idCounter = 0;
+  const config = createConfig();
+  // Default cap (3) with no running parallel tasks → capacity is free
+  config.orchestration.allowWorkerChainedRequests = true;
+  const harness = makeDeps({
+    config,
+    createId: () => `id-${++idCounter}`,
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        tasks: {},
+        workerBindings: {
+          "backend:claude:backend:main": {
+            sourceHandle: "backend:claude:backend:main",
+            coordinatorSession: "backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  // Worker-sourced parallel delegation → needs_confirmation
+  const delegated = await service.requestDelegateFromRpc({
+    sourceHandle: "backend:claude:backend:main",
+    targetAgent: "codex",
+    task: "parallel worker task",
+    parallel: true,
+  });
+  expect(delegated.status).toBe("needs_confirmation");
+
+  harness.ensureCalls.length = 0;
+  harness.dispatchCalls.length = 0;
+
+  // Approve — cap is 3 (default), no running parallel tasks → should run immediately
+  const approved = await service.approveTask({
+    taskId: delegated.taskId,
+    coordinatorSession: "backend:main",
+  });
+
+  expect(approved.status).toBe("running");
+  expect(harness.ensureCalls.length).toBe(1);
+  expect(harness.dispatchCalls.length).toBe(1);
+});
+
+// ---------------------------------------------------------------------------
+// Task 8: reconcileParallelSlots — slot teardown and queue draining
+// ---------------------------------------------------------------------------
+
+test("reconcileParallelSlots closes finished slots and drains the queue", async () => {
+  let idCounter = 0;
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 1;
+  const harness = makeDeps({
+    config,
+    createId: () => `id-${++idCounter}`,
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const mkDelegate = (task: string) =>
+    service.requestDelegate({
+      sourceHandle: "wx:user-1",
+      sourceKind: "human",
+      coordinatorSession: "backend:main",
+      workspace: "backend",
+      targetAgent: "codex",
+      task,
+      parallel: true,
+    });
+
+  // r1 -> running (slot occupied), r2 -> queued (cap = 1)
+  const r1 = await mkDelegate("A");
+  const r2 = await mkDelegate("B");
+  expect(r1.status).toBe("running");
+  expect(r2.status).toBe("queued");
+
+  // Drive r1 to completed using the real mechanism: recordWorkerReply with
+  // sourceHandle = the task's workerSession (which is how the service identifies the worker)
+  await service.recordWorkerReply({
+    taskId: r1.taskId,
+    sourceHandle: r1.workerSession,
+    status: "completed",
+    summary: "done",
+    resultText: "result",
+  });
+
+  // Verify r1 is now completed before reconcile
+  const r1Task = await service.getTask(r1.taskId);
+  expect(r1Task?.status).toBe("completed");
+
+  // reconcile
+  harness.dispatchCalls.length = 0;
+  harness.ensureCalls.length = 0;
+  await service.reconcileParallelSlots();
+
+  // r1's ephemeral session must have been closed
+  expect(harness.closeCalls.map((c) => c.workerSession)).toContain(r1.workerSession);
+
+  // r2 must have been drained into running
+  const r2Task = await service.getTask(r2.taskId);
+  expect(r2Task?.status).toBe("running");
+
+  // a status_changed event to running must have been appended for r2
+  expect(
+    (r2Task?.events ?? []).some((e) => e.type === "status_changed" && e.status === "running"),
+  ).toBe(true);
+
+  // ensure and dispatch must have been called for r2
+  expect(harness.ensureCalls.some((c) => c.workerSession === r2.workerSession)).toBe(true);
+  expect(harness.dispatchCalls.some((c) => c.taskId === r2.taskId)).toBe(true);
+});
+
+test("reconcileParallelSlots is idempotent and survives closeWorkerSession errors", async () => {
+  let idCounter = 0;
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 1;
+  const harness = makeDeps({
+    config,
+    createId: () => `id-${++idCounter}`,
+    closeWorkerSession: async () => {
+      throw new Error("close failed");
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const r1 = await service.requestDelegate({
+    sourceHandle: "wx:user-1",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "codex",
+    task: "A",
+    parallel: true,
+  });
+  expect(r1.status).toBe("running");
+
+  // Drive r1 to completed
+  await service.recordWorkerReply({
+    taskId: r1.taskId,
+    sourceHandle: r1.workerSession,
+    status: "completed",
+    summary: "done",
+    resultText: "result",
+  });
+
+  // First reconcile: close throws, but reconcileParallelSlots must NOT rethrow
+  await expect(service.reconcileParallelSlots()).resolves.toBeUndefined();
+  expect(harness.closeCalls.length).toBe(1);
+
+  // Second reconcile: ephemeralWorkerSessionClosed is already set, so must NOT close again
+  await service.reconcileParallelSlots();
+  expect(harness.closeCalls.length).toBe(1);
+});
+
+test("reconcileParallelSlots drains multiple queued tasks for one agent in a single call", async () => {
+  let idCounter = 0;
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 2;
+  const harness = makeDeps({
+    config,
+    createId: () => `id-${++idCounter}`,
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const mkDelegate = (task: string) =>
+    service.requestDelegate({
+      sourceHandle: "wx:user-1",
+      sourceKind: "human",
+      coordinatorSession: "backend:main",
+      workspace: "backend",
+      targetAgent: "codex",
+      task,
+      parallel: true,
+    });
+
+  // r1, r2 -> running (cap = 2 filled); r3, r4 -> queued
+  const r1 = await mkDelegate("A");
+  const r2 = await mkDelegate("B");
+  const r3 = await mkDelegate("C");
+  const r4 = await mkDelegate("D");
+  expect(r1.status).toBe("running");
+  expect(r2.status).toBe("running");
+  expect(r3.status).toBe("queued");
+  expect(r4.status).toBe("queued");
+
+  // Free both slots by completing r1 and r2
+  for (const r of [r1, r2]) {
+    await service.recordWorkerReply({
+      taskId: r.taskId,
+      sourceHandle: r.workerSession,
+      status: "completed",
+      summary: "done",
+      resultText: "result",
+    });
+  }
+
+  harness.dispatchCalls.length = 0;
+  await service.reconcileParallelSlots();
+
+  // Both queued tasks must have drained to running in this single call
+  expect((await service.getTask(r3.taskId))?.status).toBe("running");
+  expect((await service.getTask(r4.taskId))?.status).toBe("running");
+  expect(harness.dispatchCalls.some((c) => c.taskId === r3.taskId)).toBe(true);
+  expect(harness.dispatchCalls.some((c) => c.taskId === r4.taskId)).toBe(true);
+});
+
+test("reconcileParallelSlots drains a free agent's queue while leaving a full agent's queue alone", async () => {
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 1;
+  // Pre-seed: agent codex is at capacity (one running parallel task) with a
+  // queued codex task waiting; agent claude has no running task and a queued
+  // claude task — claude has free capacity, codex does not.
+  const initialState = createEmptyState();
+  initialState.orchestration.tasks = {
+    "codex-running": {
+      taskId: "codex-running",
+      sourceHandle: "wx:user-1",
+      sourceKind: "human",
+      coordinatorSession: "backend:main",
+      workerSession: "backend:codex:p-running",
+      workspace: "backend",
+      targetAgent: "codex",
+      task: "codex running",
+      status: "running",
+      ephemeralWorkerSession: true,
+      summary: "",
+      resultText: "",
+      createdAt: "2026-04-13T10:00:00.000Z",
+      updatedAt: "2026-04-13T10:00:00.000Z",
+      eventSeq: 1,
+      events: [],
+    },
+    "codex-queued": {
+      taskId: "codex-queued",
+      sourceHandle: "wx:user-1",
+      sourceKind: "human",
+      coordinatorSession: "backend:main",
+      workerSession: "backend:codex:p-queued",
+      workspace: "backend",
+      targetAgent: "codex",
+      task: "codex queued",
+      status: "queued",
+      ephemeralWorkerSession: true,
+      summary: "",
+      resultText: "",
+      createdAt: "2026-04-13T10:01:00.000Z",
+      updatedAt: "2026-04-13T10:01:00.000Z",
+      eventSeq: 1,
+      events: [],
+    },
+    "claude-queued": {
+      taskId: "claude-queued",
+      sourceHandle: "wx:user-1",
+      sourceKind: "human",
+      coordinatorSession: "backend:main",
+      workerSession: "backend:claude:p-queued",
+      workspace: "backend",
+      targetAgent: "claude",
+      task: "claude queued",
+      status: "queued",
+      ephemeralWorkerSession: true,
+      summary: "",
+      resultText: "",
+      createdAt: "2026-04-13T10:02:00.000Z",
+      updatedAt: "2026-04-13T10:02:00.000Z",
+      eventSeq: 1,
+      events: [],
+    },
+  };
+  initialState.orchestration.workerBindings = {
+    "backend:codex:p-running": {
+      sourceHandle: "backend:codex:p-running",
+      coordinatorSession: "backend:main",
+      workspace: "backend",
+      targetAgent: "codex",
+      ephemeral: true,
+    },
+  };
+  const harness = makeDeps({ config, initialState });
+  const service = new OrchestrationService(harness.deps);
+
+  harness.dispatchCalls.length = 0;
+  await service.reconcileParallelSlots();
+
+  // Agent codex is still at capacity (codex-running never terminated) ->
+  // codex-queued stays queued.
+  expect((await service.getTask("codex-queued"))?.status).toBe("queued");
+  expect(harness.dispatchCalls.some((c) => c.taskId === "codex-queued")).toBe(false);
+
+  // Agent claude has free capacity -> claude-queued is drained to running and dispatched.
+  expect((await service.getTask("claude-queued"))?.status).toBe("running");
+  expect(harness.dispatchCalls.some((c) => c.taskId === "claude-queued")).toBe(true);
+});
+
+test("reconcileParallelSlots reverts the task to queued when ensureWorkerSession throws", async () => {
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 1;
+  // Pre-seed a single queued ephemeral parallel task and no running task — the
+  // agent has free capacity, so Phase 3 will pick this task up. ensureWorkerSession
+  // is wired to throw, exercising the rollback path.
+  const initialState = createEmptyState();
+  initialState.orchestration.tasks = {
+    "codex-queued": {
+      taskId: "codex-queued",
+      sourceHandle: "wx:user-1",
+      sourceKind: "human",
+      coordinatorSession: "backend:main",
+      workerSession: "backend:codex:p-queued",
+      workspace: "backend",
+      targetAgent: "codex",
+      task: "codex queued",
+      status: "queued",
+      ephemeralWorkerSession: true,
+      summary: "",
+      resultText: "",
+      createdAt: "2026-04-13T10:00:00.000Z",
+      updatedAt: "2026-04-13T10:00:00.000Z",
+      eventSeq: 1,
+      events: [],
+    },
+  };
+  const harness = makeDeps({
+    config,
+    initialState,
+    ensureWorkerSession: async () => {
+      throw new Error("ensure failed");
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  // reconcile must NOT throw out — rollback runs internally.
+  await expect(service.reconcileParallelSlots()).resolves.toBeUndefined();
+
+  // (a) Task ended up back at queued.
+  const task = await service.getTask("codex-queued");
+  expect(task?.status).toBe("queued");
+
+  // (b) Its workerBindings entry is gone.
+  expect(harness.getState().orchestration.workerBindings["backend:codex:p-queued"]).toBeUndefined();
+
+  // (c) dispatchWorkerTask was NOT called for this task.
+  expect(harness.dispatchCalls.some((c) => c.taskId === "codex-queued")).toBe(false);
+
+  // (d) A status_changed → queued event with the re-queued message is present.
+  expect(
+    (task?.events ?? []).some(
+      (e) =>
+        e.type === "status_changed" &&
+        e.status === "queued" &&
+        e.message === "Task re-queued after drain failure",
+    ),
+  ).toBe(true);
 });

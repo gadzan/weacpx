@@ -44,6 +44,7 @@ export interface RequestDelegateInput {
   chatKey?: string;
   replyContextToken?: string;
   accountId?: string;
+  parallel?: boolean;
 }
 
 export interface RequestDelegateRpcInput {
@@ -53,6 +54,7 @@ export interface RequestDelegateRpcInput {
   cwd?: string;
   role?: string;
   groupId?: string;
+  parallel?: boolean;
 }
 
 export interface RequestDelegateResult {
@@ -69,7 +71,7 @@ export interface RegisterExternalCoordinatorInput {
 
 export interface RequestDelegateRpcResult {
   taskId: string;
-  status: Extract<OrchestrationTaskStatus, "needs_confirmation" | "running">;
+  status: Extract<OrchestrationTaskStatus, "needs_confirmation" | "running" | "queued">;
   workerSession?: string;
 }
 
@@ -204,6 +206,14 @@ export interface OrchestrationServiceDeps {
   dispatchWorkerTask: (request: DispatchWorkerTaskRequest) => Promise<void>;
   cancelWorkerTask?: (request: CancelWorkerTaskRequest) => Promise<void>;
   resumeWorkerTask?: (request: ResumeWorkerTaskRequest) => Promise<void>;
+  closeWorkerSession?: (request: {
+    workerSession: string;
+    coordinatorSession: string;
+    workspace: string;
+    cwd?: string;
+    targetAgent: string;
+    role?: string;
+  }) => Promise<void>;
   wakeCoordinatorSession?: (request: WakeCoordinatorRequest) => Promise<void>;
   deliverCoordinatorMessage?: (
     request: DeliverCoordinatorMessageRequest,
@@ -545,6 +555,58 @@ export class OrchestrationService {
     const normalizedGroupId = this.normalizeGroupId(input.groupId);
     const taskId = this.deps.createId();
     const workerSession = await this.resolveWorkerSession(input);
+
+    // Parallel gate: when parallel is requested, check if a slot is available.
+    // If at capacity, persist the task as "queued" and return immediately — no
+    // session reservation, no ensureReservedWorkerSession, no dispatchWorkerTask.
+    if (input.parallel) {
+      const queuedResult = await this.mutate(async () => {
+        const state = await this.deps.loadState();
+        if (this.canStartParallelTask(state, input.targetAgent)) {
+          return null; // capacity available — fall through to normal start
+        }
+        const now = this.deps.now().toISOString();
+        const queuedTask: OrchestrationTaskRecord = {
+          taskId,
+          sourceHandle: input.sourceHandle,
+          sourceKind: input.sourceKind,
+          coordinatorSession: input.coordinatorSession,
+          // `workerSession` here is the *intended* ephemeral session name only —
+          // it is NOT reserved or ensured yet, and no acpx session exists for it
+          // while the task is queued. The future queue-drain path must call
+          // reserveProposedWorkerSession + ensureReservedWorkerSession on it
+          // before dispatching.
+          workerSession,
+          workspace: input.workspace,
+          ...(input.cwd ? { cwd: input.cwd } : {}),
+          targetAgent: input.targetAgent,
+          ...(role ? { role } : {}),
+          ...(normalizedGroupId ? { groupId: normalizedGroupId } : {}),
+          task: input.task,
+          status: "queued",
+          ephemeralWorkerSession: true,
+          summary: "",
+          resultText: "",
+          createdAt: now,
+          updatedAt: now,
+          eventSeq: 1,
+          events: [{ seq: 1, at: now, type: "created", status: "queued", message: "Task queued at parallel capacity" }],
+          ...(input.chatKey ? { chatKey: input.chatKey } : {}),
+          ...(input.replyContextToken ? { replyContextToken: input.replyContextToken } : {}),
+          ...(input.accountId ? { accountId: input.accountId } : {}),
+        };
+        state.orchestration.tasks[taskId] = queuedTask;
+        await this.deps.saveState(state);
+        // `workerSession` is the intended ephemeral name; it is not yet reserved
+        // or ensured (see the queuedTask.workerSession comment above).
+        return { taskId, status: "queued" as const, workerSession };
+      });
+      if (queuedResult) {
+        this.logEvent("orchestration.task.queued", "parallel task queued at capacity", { taskId, targetAgent: input.targetAgent });
+        return queuedResult;
+      }
+    }
+
     const releaseWorkerReservation = await this.reserveProposedWorkerSession(workerSession);
     let ensuredWorkerSession = workerSession;
     let prepared: {
@@ -592,6 +654,7 @@ export class OrchestrationService {
           ...(input.chatKey ? { chatKey: input.chatKey } : {}),
           ...(input.replyContextToken ? { replyContextToken: input.replyContextToken } : {}),
           ...(input.accountId ? { accountId: input.accountId } : {}),
+          ...(input.parallel ? { ephemeralWorkerSession: true } : {}),
         };
 
         let previousGroup: OrchestrationGroupRecord | undefined;
@@ -615,6 +678,7 @@ export class OrchestrationService {
           ...(input.cwd ? { cwd: input.cwd } : {}),
           targetAgent: input.targetAgent,
           role,
+          ...(input.parallel ? { ephemeral: true } : {}),
         };
 
         await this.deps.saveState(state);
@@ -701,6 +765,7 @@ export class OrchestrationService {
     // explicit approval.
     const autoRun = preflight.sourceContext.sourceKind === "coordinator";
 
+    const taskId = this.deps.createId();
     const workerSessionName = await this.resolveWorkerSession({
       sourceHandle: input.sourceHandle,
       sourceKind: preflight.sourceContext.sourceKind,
@@ -710,7 +775,57 @@ export class OrchestrationService {
       targetAgent: input.targetAgent,
       task: input.task,
       ...(preflight.role ? { role: preflight.role } : {}),
+      ...(input.parallel ? { parallel: true } : {}),
     });
+
+    // Parallel gate (coordinator/autoRun path only): when the agent is at capacity,
+    // persist the task as "queued" and return immediately — no reservation, no
+    // ensureReservedWorkerSession, no dispatchWorkerTask.
+    // Worker-sourced (autoRun === false) parallel tasks are NOT gated here because
+    // they hold no session yet; the gate runs in approveTask instead.
+    if (input.parallel && autoRun) {
+      const queuedResult = await this.mutate(async () => {
+        const state = await this.deps.loadState();
+        if (this.canStartParallelTask(state, input.targetAgent)) {
+          return null; // capacity available — fall through to normal start
+        }
+        const now = this.deps.now().toISOString();
+        const queuedTask: OrchestrationTaskRecord = {
+          taskId,
+          sourceHandle: input.sourceHandle,
+          sourceKind: preflight.sourceContext.sourceKind,
+          coordinatorSession: preflight.sourceContext.coordinatorSession,
+          // `workerSession` here is the *intended* ephemeral session name only —
+          // it is NOT reserved or ensured yet, and no acpx session exists for it
+          // while the task is queued. The future queue-drain path must call
+          // reserveProposedWorkerSession + ensureReservedWorkerSession on it
+          // before dispatching.
+          workerSession: workerSessionName,
+          workspace: preflight.targetLocation.workspace,
+          ...(preflight.targetLocation.cwd ? { cwd: preflight.targetLocation.cwd } : {}),
+          targetAgent: input.targetAgent,
+          ...(preflight.role ? { role: preflight.role } : {}),
+          ...(preflight.normalizedGroupId ? { groupId: preflight.normalizedGroupId } : {}),
+          task: input.task,
+          status: "queued",
+          ephemeralWorkerSession: true,
+          summary: "",
+          resultText: "",
+          createdAt: now,
+          updatedAt: now,
+          eventSeq: 1,
+          events: [{ seq: 1, at: now, type: "created", status: "queued", message: "Task queued at parallel capacity" }],
+        };
+        state.orchestration.tasks[taskId] = queuedTask;
+        await this.deps.saveState(state);
+        return { taskId, status: "queued" as const, workerSession: workerSessionName };
+      });
+      if (queuedResult) {
+        this.logEvent("orchestration.task.queued", "parallel task queued at capacity", { taskId, targetAgent: input.targetAgent });
+        return queuedResult;
+      }
+    }
+
     const releaseWorkerReservation = await this.reserveProposedWorkerSession(workerSessionName);
 
     let prepared: {
@@ -730,7 +845,6 @@ export class OrchestrationService {
           preflight.role,
         );
         const now = this.deps.now().toISOString();
-        const taskId = this.deps.createId();
         const status: OrchestrationTaskStatus = autoRun ? "running" : "needs_confirmation";
         const task: OrchestrationTaskRecord = {
           taskId,
@@ -751,6 +865,7 @@ export class OrchestrationService {
           updatedAt: now,
           eventSeq: 1,
           events: [{ seq: 1, at: now, type: "created", status, message: "Task created" }],
+          ...(input.parallel ? { ephemeralWorkerSession: true } : {}),
         };
 
         if (preflight.normalizedGroupId) {
@@ -774,6 +889,7 @@ export class OrchestrationService {
             ...(preflight.targetLocation.cwd ? { cwd: preflight.targetLocation.cwd } : {}),
             targetAgent: input.targetAgent,
             role: preflight.role,
+            ...(input.parallel ? { ephemeral: true } : {}),
           };
         } else {
           this.assertWorkerSessionDoesNotConflictExternalCoordinator(state, workerSessionName);
@@ -2795,6 +2911,47 @@ export class OrchestrationService {
         task: currentTask.task,
         ...(currentTask.role ? { role: currentTask.role } : {}),
       }));
+
+    // Parallel gate: if this is a parallel `needs_confirmation` task and the agent
+    // is at capacity, queue it instead of starting it. This gate covers parallel
+    // tasks regardless of source — both human-initiated and worker-sourced — since
+    // any `needs_confirmation` parallel task funnels through approveTask. It
+    // complements the requestDelegateFromRpc gate, which is coordinator/autoRun-only
+    // (those tasks never enter `needs_confirmation`). We check here, before
+    // ensureReservedWorkerSession and dispatch, so those expensive operations are
+    // skipped for queued tasks.
+    if (currentTask.ephemeralWorkerSession === true) {
+      const queuedResult = await this.mutate(async () => {
+        const state = await this.deps.loadState();
+        const task = state.orchestration.tasks[input.taskId];
+        if (!task) {
+          throw new Error(`task "${input.taskId}" does not exist`);
+        }
+        this.assertCoordinatorOwnership(task, input.coordinatorSession);
+        this.assertNeedsConfirmation(task);
+        if (this.canStartParallelTask(state, task.targetAgent)) {
+          return null; // capacity available — fall through to normal start
+        }
+        const now = this.deps.now().toISOString();
+        // Defensive no-op: a parallel task's workerSession is already set at
+        // creation time. Re-assigning here future-proofs the path for any caller
+        // that reaches approveTask with an unset workerSession.
+        task.workerSession = workerSession;
+        task.status = "queued";
+        task.updatedAt = now;
+        this.appendTaskEvent(task, now, "status_changed", {
+          status: "queued",
+          message: "Task queued at parallel capacity",
+        });
+        await this.deps.saveState(state);
+        return { ...task };
+      });
+      if (queuedResult) {
+        this.logEvent("orchestration.task.queued", "parallel task queued at capacity on approve", { taskId: input.taskId, targetAgent: currentTask.targetAgent });
+        return queuedResult;
+      }
+    }
+
     const releaseWorkerReservation = await this.reserveProposedWorkerSession(workerSession, input.taskId);
     let ensuredWorkerSession = workerSession;
     let prepared: {
@@ -2843,6 +3000,7 @@ export class OrchestrationService {
           ...(task.cwd ? { cwd: task.cwd } : {}),
           targetAgent: task.targetAgent,
           role: task.role,
+          ...(task.ephemeralWorkerSession ? { ephemeral: true } : {}),
         };
 
         await this.deps.saveState(state);
@@ -2900,8 +3058,30 @@ export class OrchestrationService {
     return prepared.task;
   }
 
+  /**
+   * Resolves the transport worker-session name for a delegation.
+   *
+   * For parallel delegations a fresh unique name is minted by appending a
+   * `:p-<id>` suffix. That suffix is purely a naming convention for
+   * human/log readability — it MUST NOT be treated as the source of truth
+   * for ephemerality. `WorkerBindingRecord.ephemeral` is the authoritative
+   * marker for whether a session is an ephemeral parallel slot; no code
+   * should detect ephemerality by string-matching the session name.
+   */
   private async resolveWorkerSession(input: RequestDelegateInput): Promise<string> {
     const role = this.normalizeRole(input.role);
+
+    const baseName = [input.workspace, input.cwd ? this.cwdWorkerSessionPart(input.cwd) : undefined, input.targetAgent, role, input.coordinatorSession]
+      .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+      .map((part) => part.trim())
+      .join(":");
+
+    if (input.parallel) {
+      // Ephemeral parallel slot: never reuse, always a fresh unique session.
+      // The `:p-` suffix is a readability convention only; see method doc.
+      return `${baseName}:p-${this.deps.createId()}`;
+    }
+
     const reusable = await this.deps.findReusableWorkerSession?.({
       sourceHandle: input.sourceHandle,
       sourceKind: input.sourceKind,
@@ -2916,10 +3096,7 @@ export class OrchestrationService {
       return reusable.trim();
     }
 
-    return [input.workspace, input.cwd ? this.cwdWorkerSessionPart(input.cwd) : undefined, input.targetAgent, role, input.coordinatorSession]
-      .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
-      .map((part) => part.trim())
-      .join(":");
+    return baseName;
   }
 
   private async reserveProposedWorkerSession(workerSession: string, excludingTaskId?: string): Promise<() => Promise<void>> {
@@ -3135,7 +3312,10 @@ export class OrchestrationService {
       (task) =>
         task.coordinatorSession === coordinatorSession &&
         task.sourceKind !== "human" &&
-        (task.status === "needs_confirmation" || task.status === "running"),
+        // `queued` counts: an accepted, persisted, pending delegation. Omitting it
+        // would let a coordinator accumulate unbounded queued tasks at a capped
+        // agent and defeat maxPendingAgentRequestsPerCoordinator.
+        (task.status === "needs_confirmation" || task.status === "running" || task.status === "queued"),
     );
 
     if (outstandingRequests.length >= policy.maxPendingAgentRequestsPerCoordinator) {
@@ -3385,6 +3565,193 @@ export class OrchestrationService {
         task.workerSession === workerSession &&
         (!this.isTerminalStatus(task.status) || task.reviewPending !== undefined),
     );
+  }
+
+  /** Count parallel-slot tasks currently holding an acpx session for an agent. */
+  private countActiveParallelSlots(state: AppState, targetAgent: string): number {
+    return Object.values(state.orchestration.tasks).filter(
+      (task) =>
+        task.ephemeralWorkerSession === true &&
+        task.targetAgent === targetAgent &&
+        // Only these three statuses hold a live acpx session. `needs_confirmation`
+        // and `queued` parallel tasks hold no session yet — and counting `queued`
+        // here would deadlock queue draining (a queued task would count against the
+        // very cap that gates its own start). Terminal tasks have released theirs.
+        // Do NOT simplify this to `!isTerminalStatus(...)`.
+        (task.status === "running" ||
+          task.status === "blocked" ||
+          task.status === "waiting_for_human"),
+    ).length;
+  }
+
+  /**
+   * Whether a new parallel task for this agent may start now, or must be queued.
+   * The cap comes from the `orchestration.maxParallelTasksPerAgent` config key.
+   */
+  private canStartParallelTask(state: AppState, targetAgent: string): boolean {
+    const cap = this.deps.config.orchestration.maxParallelTasksPerAgent;
+    return this.countActiveParallelSlots(state, targetAgent) < cap;
+  }
+
+  /**
+   * Idempotent reconciliation for parallel slots:
+   *  1. close acpx sessions of ephemeral parallel tasks that have terminated
+   *     (terminal status, no pending review), and drop their worker bindings;
+   *  2. drain `queued` parallel tasks into running, up to the per-agent cap.
+   * Safe to call repeatedly; close failures are logged and never block draining.
+   */
+  async reconcileParallelSlots(): Promise<void> {
+    // Phase 1: collect + mark sessions to close (mutex-guarded state change).
+    const toClose = await this.mutate(async () => {
+      const state = await this.deps.loadState();
+      const collected: Array<{
+        workerSession: string;
+        coordinatorSession: string;
+        workspace: string;
+        cwd?: string;
+        targetAgent: string;
+        role?: string;
+      }> = [];
+      for (const task of Object.values(state.orchestration.tasks)) {
+        if (
+          task.ephemeralWorkerSession === true &&
+          task.ephemeralWorkerSessionClosed !== true &&
+          task.workerSession &&
+          task.reviewPending === undefined &&
+          this.isTerminalStatus(task.status)
+        ) {
+          task.ephemeralWorkerSessionClosed = true;
+          delete state.orchestration.workerBindings[task.workerSession];
+          collected.push({
+            workerSession: task.workerSession,
+            coordinatorSession: task.coordinatorSession,
+            workspace: task.workspace,
+            ...(task.cwd ? { cwd: task.cwd } : {}),
+            targetAgent: task.targetAgent,
+            ...(task.role ? { role: task.role } : {}),
+          });
+        }
+      }
+      if (collected.length > 0) {
+        await this.deps.saveState(state);
+      }
+      return collected;
+    });
+
+    // Phase 2: best-effort close (outside the mutex — it is network/process I/O).
+    for (const req of toClose) {
+      try {
+        await this.deps.closeWorkerSession?.(req);
+      } catch (error) {
+        this.logEvent("orchestration.parallel.close_failed", "failed to close ephemeral worker session", {
+          workerSession: req.workerSession,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    // Phase 3: drain queued parallel tasks, oldest first, up to capacity.
+    for (;;) {
+      const next = await this.mutate(async () => {
+        const state = await this.deps.loadState();
+        const queued = Object.values(state.orchestration.tasks)
+          .filter((t) => t.status === "queued" && t.ephemeralWorkerSession === true)
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+        for (const task of queued) {
+          if (!this.canStartParallelTask(state, task.targetAgent)) {
+            continue; // this agent is full — try other agents' queued tasks
+          }
+          task.status = "running";
+          task.updatedAt = this.deps.now().toISOString();
+          // No reserveProposedWorkerSession here (unlike the normal delegate
+          // paths): an ephemeral parallel session name is a globally-unique
+          // `:p-<uuid>`, so there is no pre-existing claim or external-coordinator
+          // collision to guard against.
+          state.orchestration.workerBindings[task.workerSession!] = {
+            sourceHandle: task.workerSession!,
+            coordinatorSession: task.coordinatorSession,
+            workspace: task.workspace,
+            ...(task.cwd ? { cwd: task.cwd } : {}),
+            targetAgent: task.targetAgent,
+            ...(task.role ? { role: task.role } : {}),
+            ephemeral: true,
+          };
+          await this.deps.saveState(state);
+          return { ...task };
+        }
+        return null;
+      });
+      if (!next) {
+        break;
+      }
+      try {
+        await this.ensureReservedWorkerSession({
+          workerSession: next.workerSession!,
+          sourceHandle: next.sourceHandle,
+          sourceKind: next.sourceKind,
+          coordinatorSession: next.coordinatorSession,
+          workspace: next.workspace,
+          ...(next.cwd ? { cwd: next.cwd } : {}),
+          targetAgent: next.targetAgent,
+          ...(next.role ? { role: next.role } : {}),
+        });
+        await this.deps.dispatchWorkerTask({
+          taskId: next.taskId,
+          workerSession: next.workerSession!,
+          coordinatorSession: next.coordinatorSession,
+          workspace: next.workspace,
+          ...(next.cwd ? { cwd: next.cwd } : {}),
+          targetAgent: next.targetAgent,
+          ...(next.role ? { role: next.role } : {}),
+          task: next.task,
+        });
+      } catch (error) {
+        // Rollback: ensure/dispatch failed after the task was flipped to
+        // `running` and persisted. Revert it to `queued` and drop its binding so
+        // it does not permanently consume a slot with no worker. Break (do NOT
+        // continue) — a re-queued task would be re-picked and loop forever within
+        // this single reconcile call; the next reconcile trigger retries it.
+        await this.mutate(async () => {
+          const state = await this.deps.loadState();
+          const task = state.orchestration.tasks[next.taskId];
+          if (task && task.status === "running") {
+            task.status = "queued";
+            task.updatedAt = this.deps.now().toISOString();
+            delete state.orchestration.workerBindings[next.workerSession!];
+            // Audit-trail parity with the success path: record the running→queued
+            // revert as a status_changed event, persisted in this same mutate.
+            this.appendTaskEvent(task, task.updatedAt, "status_changed", {
+              status: "queued",
+              message: "Task re-queued after drain failure",
+            });
+            await this.deps.saveState(state);
+          }
+        });
+        this.logEvent("orchestration.parallel.drain_failed", "failed to drain queued parallel task", {
+          taskId: next.taskId,
+          workerSession: next.workerSession,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        break;
+      }
+      // Dispatch succeeded — persist the queued→running status_changed event
+      // (mirrors approveTask's queued/needs_confirmation→running transition).
+      await this.mutate(async () => {
+        const state = await this.deps.loadState();
+        const task = state.orchestration.tasks[next.taskId];
+        if (task && task.status === "running") {
+          this.appendTaskEvent(task, task.updatedAt, "status_changed", {
+            status: "running",
+            message: "Task drained from parallel queue",
+          });
+          await this.deps.saveState(state);
+        }
+      });
+      this.logEvent("orchestration.task.drained", "parallel task drained from queue", {
+        taskId: next.taskId,
+        targetAgent: next.targetAgent,
+      });
+    }
   }
 
   private async assertProposedWorkerSessionDoesNotConflictExternalCoordinator(workerSession: string): Promise<void> {

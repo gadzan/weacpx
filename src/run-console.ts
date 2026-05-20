@@ -83,6 +83,19 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
         trigger: "startup",
       });
     } catch {}
+    // Drain any tasks that were queued at shutdown and close stale ephemeral
+    // worker sessions left over from a previous run.
+    try {
+      await runtime.orchestration.service.reconcileParallelSlots();
+    } catch (reconcileError) {
+      await runtime.logger.error(
+        "orchestration.parallel.reconcile_failed",
+        "failed to reconcile parallel slots at startup",
+        {
+          message: reconcileError instanceof Error ? reconcileError.message : String(reconcileError),
+        },
+      );
+    }
     consumerLock = deps.consumerLock ?? deps.consumerLockFactory?.(runtime);
 
     if (consumerLock) {

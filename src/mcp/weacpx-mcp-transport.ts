@@ -20,6 +20,7 @@ export interface WeacpxMcpDelegateRequest {
   workingDirectory?: string;
   role?: string;
   groupId?: string;
+  parallel?: boolean;
 }
 
 export interface WeacpxMcpTaskWatchArgs {
@@ -136,6 +137,7 @@ export function createOrchestrationTransport(
         ...(input.workingDirectory !== undefined ? { cwd: input.workingDirectory } : {}),
         ...(input.role !== undefined ? { role: input.role } : {}),
         ...(input.groupId !== undefined ? { groupId: input.groupId } : {}),
+        ...(input.parallel !== undefined ? { parallel: input.parallel } : {}),
       }),
     createGroup: async (input) => await client.createGroup(input),
     getTask: async (input) => await client.getTaskForCoordinator(input),

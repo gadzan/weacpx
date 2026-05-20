@@ -41,6 +41,7 @@ function isOptionalBoolean(value: unknown): value is boolean | undefined {
 function isTaskStatus(value: unknown): value is OrchestrationTaskStatus {
   return (
     value === "needs_confirmation" ||
+    value === "queued" ||
     value === "running" ||
     value === "blocked" ||
     value === "waiting_for_human" ||
@@ -194,7 +195,8 @@ function isWorkerBindingRecord(value: unknown): value is WorkerBindingRecord {
     isString(value.workspace) &&
     isOptionalString(value.cwd) &&
     isString(value.targetAgent) &&
-    isOptionalString(value.role)
+    isOptionalString(value.role) &&
+    isOptionalBoolean(value.ephemeral)
   );
 }
 

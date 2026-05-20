@@ -554,3 +554,113 @@ test("delegate_batch reports a per-task error without aborting the rest of the b
     ],
   });
 });
+
+test("delegate_request forwards parallel:true to the transport", async () => {
+  const capturedInputs: unknown[] = [];
+  const registry = buildWeacpxMcpToolRegistry({
+    transport: createMemoryTransport(
+      async (input) => {
+        capturedInputs.push(input);
+        return { taskId: "task-parallel", status: "running" as const };
+      },
+      {
+        getTask: async () => null,
+        listTasks: async () => [],
+        approveTask: async () => {
+          throw new Error("approve not implemented");
+        },
+        cancelTask: async () => {
+          throw new Error("cancel not implemented");
+        },
+      },
+    ),
+    coordinatorSession: "backend:main",
+    sourceHandle: "backend:worker",
+  });
+
+  const delegateTool = registry.find((tool) => tool.name === "delegate_request")!;
+  // Schema must accept parallel:true (strict schema would reject unknown keys before the fix)
+  const parseResult = delegateTool.inputSchema.safeParse({
+    targetAgent: "claude",
+    task: "do the thing",
+    parallel: true,
+  });
+  expect(parseResult.success).toBe(true);
+
+  await delegateTool.handler({
+    targetAgent: "claude",
+    task: "do the thing",
+    parallel: true,
+  });
+
+  expect(capturedInputs).toHaveLength(1);
+  expect((capturedInputs[0] as Record<string, unknown>).parallel).toBe(true);
+});
+
+test("delegate_request omits parallel when not provided", async () => {
+  const capturedInputs: unknown[] = [];
+  const registry = buildWeacpxMcpToolRegistry({
+    transport: createMemoryTransport(
+      async (input) => {
+        capturedInputs.push(input);
+        return { taskId: "task-no-parallel", status: "running" as const };
+      },
+      {
+        getTask: async () => null,
+        listTasks: async () => [],
+        approveTask: async () => {
+          throw new Error("approve not implemented");
+        },
+        cancelTask: async () => {
+          throw new Error("cancel not implemented");
+        },
+      },
+    ),
+    coordinatorSession: "backend:main",
+    sourceHandle: "backend:worker",
+  });
+
+  const delegateTool = registry.find((tool) => tool.name === "delegate_request")!;
+  await delegateTool.handler({
+    targetAgent: "claude",
+    task: "do the other thing",
+  });
+
+  expect(capturedInputs).toHaveLength(1);
+  expect("parallel" in (capturedInputs[0] as Record<string, unknown>)).toBe(false);
+});
+
+test("delegate_batch forwards per-task parallel and omits it when not provided", async () => {
+  const calls: unknown[] = [];
+  const registry = buildWeacpxMcpToolRegistry({
+    transport: createMemoryTransport(
+      async (input) => {
+        calls.push({ method: "delegateRequest", input });
+        return { taskId: `task-${calls.length}`, status: "running" as const };
+      },
+      {
+        createGroup: async () => ({
+          groupId: "group-1",
+          coordinatorSession: "backend:main",
+          title: "Batch delegation (2 tasks)",
+          createdAt: "2026-05-18T00:00:00.000Z",
+          updatedAt: "2026-05-18T00:00:00.000Z",
+        }),
+      },
+    ),
+    coordinatorSession: "backend:main",
+  });
+
+  const tool = registry.find((entry) => entry.name === "delegate_batch");
+  await tool!.handler({
+    tasks: [
+      { targetAgent: "claude", task: "review module A", parallel: true },
+      { targetAgent: "codex", task: "review module B" },
+    ],
+  });
+
+  expect(calls).toEqual([
+    { method: "delegateRequest", input: { coordinatorSession: "backend:main", targetAgent: "claude", task: "review module A", groupId: "group-1", parallel: true } },
+    { method: "delegateRequest", input: { coordinatorSession: "backend:main", targetAgent: "codex", task: "review module B", groupId: "group-1" } },
+  ]);
+});

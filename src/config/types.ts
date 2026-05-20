@@ -57,6 +57,7 @@ export interface OrchestrationConfig {
   allowedAgentRequestTargets: string[];
   allowedAgentRequestRoles: string[];
   progressHeartbeatSeconds: number;
+  maxParallelTasksPerAgent: number;
 }
 
 export interface ChannelRuntimeConfig {

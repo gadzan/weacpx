@@ -65,6 +65,12 @@ export function buildWeacpxMcpToolRegistry(input: {
           workingDirectory: z.string().min(1).optional(),
           role: z.string().min(1).optional(),
           groupId: z.string().min(1).optional(),
+          parallel: z
+            .boolean()
+            .describe(
+              "Set to true to run this task in its own ephemeral session, concurrently with other in-flight tasks for the same agent.",
+            )
+            .optional(),
         })
         .strict(),
       handler: async (args) =>
@@ -75,6 +81,7 @@ export function buildWeacpxMcpToolRegistry(input: {
             workingDirectory?: string;
             role?: string;
             groupId?: string;
+            parallel?: boolean;
           };
           const result = await transport.delegateRequest({
             coordinatorSession,
@@ -98,6 +105,12 @@ export function buildWeacpxMcpToolRegistry(input: {
                   task: z.string().min(1),
                   workingDirectory: z.string().min(1).optional(),
                   role: z.string().min(1).optional(),
+                  parallel: z
+                    .boolean()
+                    .describe(
+                      "Set to true to run this task in its own ephemeral session, concurrently with other in-flight tasks for the same agent.",
+                    )
+                    .optional(),
                 })
                 .strict(),
             )
@@ -108,7 +121,7 @@ export function buildWeacpxMcpToolRegistry(input: {
         await asToolResult(async () => {
           const { title, tasks } = args as {
             title?: string;
-            tasks: Array<{ targetAgent: string; task: string; workingDirectory?: string; role?: string }>;
+            tasks: Array<{ targetAgent: string; task: string; workingDirectory?: string; role?: string; parallel?: boolean }>;
           };
           // If every subsequent delegateRequest fails, the group is created but stays
           // empty — which is harmless: an empty group has no terminal members so it
@@ -133,6 +146,7 @@ export function buildWeacpxMcpToolRegistry(input: {
                 ...(entry.workingDirectory ? { workingDirectory: entry.workingDirectory } : {}),
                 ...(entry.role ? { role: entry.role } : {}),
                 ...(groupId ? { groupId } : {}),
+                ...(entry.parallel !== undefined ? { parallel: entry.parallel } : {}),
               });
               results.push({ index, taskId: result.taskId, status: result.status });
             } catch (error) {
@@ -451,9 +465,12 @@ function createErrorResult(message: string): WeacpxMcpToolResult {
 }
 
 function renderDelegateSuccess(result: { taskId: string; status: string }): string {
-  const next = result.status === "needs_confirmation"
-    ? `Next: this delegation requires user approval. Tell the user, then call task_approve or task_cancel based on their response.`
-    : `Next: task "${result.taskId}" is running. Return this taskId to the user, call task_get/task_list for non-blocking progress snapshots, or task_watch to long-poll for the next event or terminal state.`;
+  const next =
+    result.status === "needs_confirmation"
+      ? `Next: this delegation requires user approval. Tell the user, then call task_approve or task_cancel based on their response.`
+      : result.status === "queued"
+        ? `Next: task "${result.taskId}" is queued (agent at parallel capacity). It will start automatically when a slot frees. Call task_watch to long-poll for the transition to running, or task_get/task_list for non-blocking snapshots.`
+        : `Next: task "${result.taskId}" is running. Return this taskId to the user, call task_get/task_list for non-blocking progress snapshots, or task_watch to long-poll for the next event or terminal state.`;
   return [`Delegation task "${result.taskId}" created.`, `- Status: ${result.status}`, next].join("\n");
 }
 

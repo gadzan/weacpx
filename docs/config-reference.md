@@ -52,7 +52,8 @@
     "maxPendingAgentRequestsPerCoordinator": 3,
     "allowWorkerChainedRequests": false,
     "allowedAgentRequestTargets": [],
-    "allowedAgentRequestRoles": []
+    "allowedAgentRequestRoles": [],
+    "maxParallelTasksPerAgent": 3
   }
 }
 ```
@@ -453,6 +454,7 @@ weacpx channel add <channel-type>
 | `allowWorkerChainedRequests` | `boolean` | 否 | `false` | 是否允许 worker 会话再发起委派请求。默认拒绝，避免多跳扩散 |
 | `allowedAgentRequestTargets` | `string[]` | 否 | `[]` | 允许 agent 发起委派时指定的目标 agent 白名单。空数组表示不额外限制 |
 | `allowedAgentRequestRoles` | `string[]` | 否 | `[]` | 允许 agent 发起委派时使用的 role 白名单。空数组表示不额外限制 |
+| `maxParallelTasksPerAgent` | `number` | 否 | `3` | 每个 agent 可同时运行的并行委派任务上限（整数 ≥ 1），跨所有 coordinator 和工作区全局计数。超出上限的 `parallel: true` 任务创建为 `queued` 状态，不占用 acpx session；有 slot 释放时自动按创建时间顺序升为 `running` 并开始执行。`queued` 任务仍计入 `maxPendingAgentRequestsPerCoordinator` 配额 |
 
 ### 示例
 
@@ -462,7 +464,8 @@ weacpx channel add <channel-type>
     "maxPendingAgentRequestsPerCoordinator": 5,
     "allowWorkerChainedRequests": false,
     "allowedAgentRequestTargets": ["claude", "codex"],
-    "allowedAgentRequestRoles": ["reviewer", "planner"]
+    "allowedAgentRequestRoles": ["reviewer", "planner"],
+    "maxParallelTasksPerAgent": 5
   }
 }
 ```

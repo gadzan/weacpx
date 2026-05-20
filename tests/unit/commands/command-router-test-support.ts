@@ -49,6 +49,7 @@ export function createConfig(): AppConfig {
       allowedAgentRequestTargets: [],
       allowedAgentRequestRoles: [],
       progressHeartbeatSeconds: 300,
+      maxParallelTasksPerAgent: 3,
     },
   };
 }

@@ -44,6 +44,7 @@ const DEFAULT_ORCHESTRATION_CONFIG: OrchestrationConfig = {
   allowedAgentRequestTargets: [],
   allowedAgentRequestRoles: [],
   progressHeartbeatSeconds: 300,
+  maxParallelTasksPerAgent: 3,
 };
 
 type ParsedAgentRecord = Record<string, AgentConfig & { command?: string }>;
@@ -451,5 +452,14 @@ function parseOrchestrationConfig(raw: unknown): OrchestrationConfig {
       Number.isFinite(raw.progressHeartbeatSeconds)
         ? raw.progressHeartbeatSeconds
         : DEFAULT_ORCHESTRATION_CONFIG.progressHeartbeatSeconds,
+    maxParallelTasksPerAgent:
+      typeof raw.maxParallelTasksPerAgent === "number" &&
+      Number.isFinite(raw.maxParallelTasksPerAgent) &&
+      // Threshold is >= 1 (not > 0 like maxPendingAgentRequestsPerCoordinator):
+      // this is a cap on concurrent task dispatch, and a cap of 0 would disable
+      // parallel dispatch entirely, so sub-1 values fall back to the default.
+      raw.maxParallelTasksPerAgent >= 1
+        ? Math.floor(raw.maxParallelTasksPerAgent)
+        : DEFAULT_ORCHESTRATION_CONFIG.maxParallelTasksPerAgent,
   };
 }
