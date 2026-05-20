@@ -156,6 +156,8 @@ function isTaskRecord(value: unknown): value is OrchestrationTaskRecord {
     isOptionalString(value.noticeSentAt) &&
     isOptionalString(value.lastNoticeError) &&
     isOptionalBoolean(value.injectionPending) &&
+    isOptionalBoolean(value.ephemeralWorkerSession) &&
+    isOptionalBoolean(value.ephemeralWorkerSessionClosed) &&
     isOptionalString(value.injectionAppliedAt) &&
     isOptionalString(value.lastInjectionError) &&
     isOptionalString(value.lastProgressAt) &&

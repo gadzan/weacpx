@@ -263,7 +263,7 @@ sequenceDiagram
 - `task_get`：查看单个任务。
 - `task_list`：列出当前 coordinator 的任务。
 - `task_watch`：长轮询一个任务，直到出现下一条事件、任务需要处理、任务结束或超时。返回 `events` 和 `nextAfterSeq`；继续监听时把 `nextAfterSeq` 作为下一次 `afterSeq`。默认最多等待 1 分钟；可传 `timeoutMs` 调整，最大 20 分钟。支持 MCP Tasks 的 host 可以对 `task_watch` 请求 task execution，让 watcher 作为后台 native MCP task 运行，之后用 `tasks/get` / `tasks/result` 取结果。
-- `task_cancel`：取消任务。取消一个尚未批准的任务（状态为 `needs_confirmation`）等同于拒绝。
+- `task_cancel`：取消任务。取消一个尚未批准的任务（状态为 `needs_confirmation`）等同于拒绝。取消一个 `queued` 任务（正在等待并行 slot）同样有效，立即生效，适合 coordinator 在任务开始执行前改变主意的场景。
 - `delegate_batch`：一次派发多个子任务。传入一个 `tasks` 数组（每个条目含 `targetAgent`、`task`、`workingDirectory`），2 个及以上任务自动归入同一个组，所有任务达到终态后结果一并回注，无需手动维护 groupId 状态机。单个任务失败时带 `error` 字段返回，不影响其余任务。
 
 ## `parallel` 字段：并行委派
@@ -297,6 +297,7 @@ sequenceDiagram
 | weacpx task status | MCP task status |
 |---|---|
 | `running` | `working` |
+| `queued` | `working` | 任务正在等待并行 slot 释放；slot 可用后自动升为 `running` |
 | `needs_confirmation` | `input_required` |
 | `blocked` / `waiting_for_human` | `input_required` |
 | 有 `reviewPending` 的任务 | `input_required` |

@@ -9630,3 +9630,252 @@ test("reconcileParallelSlots reverts the task to queued when ensureWorkerSession
     ),
   ).toBe(true);
 });
+
+// ---------------------------------------------------------------------------
+// Task 9 (review fixes): I-1 TOCTOU, I-2 cancel trigger, I-3 spurious close
+// ---------------------------------------------------------------------------
+
+// I-1: TOCTOU — pending counter prevents cap overshoot
+test("I-1: TOCTOU — pending parallel start counter prevents a concurrent delegation from exceeding the cap", async () => {
+  // Scenario: cap=1. Two delegations race. The first passes the gate and hangs at
+  // ensureWorkerSession (deferred). The second delegation runs the gate while the
+  // first is still in flight — the pending counter must make the gate see the
+  // slot as taken, forcing the second delegation to queue.
+
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 1;
+
+  let idCounter = 0;
+  const firstDeferred = createDeferred<string>();
+  let ensureCallCount = 0;
+
+  const harness = makeDeps({
+    config,
+    createId: () => `id-${++idCounter}`,
+    ensureWorkerSession: async (request) => {
+      ensureCallCount += 1;
+      if (ensureCallCount === 1) {
+        // First call: hang until the deferred resolves (simulates slow I/O)
+        await firstDeferred.promise;
+      }
+      return request.workerSession;
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  // Start first delegation (parallel). It will pass the gate and hang at
+  // ensureWorkerSession. We do NOT await it yet.
+  const first = service.requestDelegate({
+    sourceHandle: "wx:user-1",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "codex",
+    task: "A",
+    parallel: true,
+  });
+
+  // Yield until the first delegation's ensureWorkerSession call is in flight.
+  for (let attempt = 0; attempt < 50 && ensureCallCount < 1; attempt += 1) {
+    await Bun.sleep(0);
+  }
+  expect(ensureCallCount).toBe(1);
+
+  // Now start the second delegation while first is hanging at ensure.
+  // The pending counter must make the gate see the slot as occupied → second must queue.
+  const r2 = await service.requestDelegate({
+    sourceHandle: "wx:user-2",
+    sourceKind: "human",
+    coordinatorSession: "backend:main",
+    workspace: "backend",
+    targetAgent: "codex",
+    task: "B",
+    parallel: true,
+  });
+  expect(r2.status).toBe("queued");
+
+  // Unblock the first delegation and let it complete.
+  firstDeferred.resolve("ok");
+  const r1 = await first;
+  expect(r1.status).toBe("running");
+
+  // Verify state: exactly one running parallel task (r1) and one queued (r2).
+  const tasks = Object.values(harness.getState().orchestration.tasks);
+  const running = tasks.filter((t) => t.ephemeralWorkerSession === true && t.status === "running");
+  const queued = tasks.filter((t) => t.ephemeralWorkerSession === true && t.status === "queued");
+  expect(running.length).toBe(1);
+  expect(queued.length).toBe(1);
+});
+
+// I-2: cancelling a blocked ephemeral parallel task triggers reconcileParallelSlots
+test("I-2: cancelling a blocked parallel task triggers reconcileParallelSlots and closes the session", async () => {
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 1;
+  let idCounter = 0;
+  const harness = makeDeps({
+    config,
+    createId: () => `id-${++idCounter}`,
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        tasks: {
+          // A running parallel task that will become blocked
+          "blocked-task": {
+            taskId: "blocked-task",
+            sourceHandle: "wx:user-1",
+            sourceKind: "human" as const,
+            coordinatorSession: "backend:main",
+            workerSession: "backend:codex:p-slot",
+            workspace: "backend",
+            targetAgent: "codex",
+            task: "blocked work",
+            status: "blocked" as const,
+            ephemeralWorkerSession: true,
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-13T10:00:00.000Z",
+            updatedAt: "2026-04-13T10:00:00.000Z",
+            eventSeq: 1,
+            events: [],
+            openQuestion: {
+              questionId: "q1",
+              question: "what should I do?",
+              whyBlocked: "need guidance",
+              whatIsNeeded: "direction",
+              askedAt: "2026-04-13T10:00:00.000Z",
+              status: "open" as const,
+            },
+          },
+          // A queued task waiting for the slot
+          "queued-task": {
+            taskId: "queued-task",
+            sourceHandle: "wx:user-2",
+            sourceKind: "human" as const,
+            coordinatorSession: "backend:main",
+            workerSession: "backend:codex:p-queued",
+            workspace: "backend",
+            targetAgent: "codex",
+            task: "queued work",
+            status: "queued" as const,
+            ephemeralWorkerSession: true,
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-13T10:01:00.000Z",
+            updatedAt: "2026-04-13T10:01:00.000Z",
+            eventSeq: 1,
+            events: [],
+          },
+        },
+        workerBindings: {
+          "backend:codex:p-slot": {
+            sourceHandle: "backend:codex:p-slot",
+            coordinatorSession: "backend:main",
+            workspace: "backend",
+            targetAgent: "codex",
+            ephemeral: true,
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  // Cancel the blocked task (non-running cancel path — should trigger reconcile)
+  await service.requestTaskCancellation({
+    taskId: "blocked-task",
+    coordinatorSession: "backend:main",
+  });
+
+  // Yield to let any async reconcile fire
+  for (let attempt = 0; attempt < 20 && harness.closeCalls.length < 1; attempt += 1) {
+    await Bun.sleep(0);
+  }
+
+  // The blocked task's ephemeral session must have been closed (I-2 trigger)
+  expect(harness.closeCalls.map((c) => c.workerSession)).toContain("backend:codex:p-slot");
+});
+
+// I-3: cancelling a queued parallel task must NOT call closeWorkerSession
+test("I-3: cancelling a queued parallel task does NOT invoke closeWorkerSession for the never-started session", async () => {
+  const config = createConfig();
+  config.orchestration.maxParallelTasksPerAgent = 1;
+  let idCounter = 0;
+  const harness = makeDeps({
+    config,
+    createId: () => `id-${++idCounter}`,
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        tasks: {
+          // The slot-filler occupies the only slot
+          "running-task": {
+            taskId: "running-task",
+            sourceHandle: "wx:user-1",
+            sourceKind: "human" as const,
+            coordinatorSession: "backend:main",
+            workerSession: "backend:codex:p-running",
+            workspace: "backend",
+            targetAgent: "codex",
+            task: "running work",
+            status: "running" as const,
+            ephemeralWorkerSession: true,
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-13T10:00:00.000Z",
+            updatedAt: "2026-04-13T10:00:00.000Z",
+            eventSeq: 1,
+            events: [],
+          },
+          // Queued task — no acpx session was ever started for it
+          "queued-task": {
+            taskId: "queued-task",
+            sourceHandle: "wx:user-2",
+            sourceKind: "human" as const,
+            coordinatorSession: "backend:main",
+            workerSession: "backend:codex:p-queued",
+            workspace: "backend",
+            targetAgent: "codex",
+            task: "queued work",
+            status: "queued" as const,
+            ephemeralWorkerSession: true,
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-13T10:01:00.000Z",
+            updatedAt: "2026-04-13T10:01:00.000Z",
+            eventSeq: 1,
+            events: [],
+          },
+        },
+        workerBindings: {
+          // Only the running task has a binding; queued task has none
+          "backend:codex:p-running": {
+            sourceHandle: "backend:codex:p-running",
+            coordinatorSession: "backend:main",
+            workspace: "backend",
+            targetAgent: "codex",
+            ephemeral: true,
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  // Cancel the queued task
+  await service.requestTaskCancellation({
+    taskId: "queued-task",
+    coordinatorSession: "backend:main",
+  });
+
+  // Yield to allow any async reconcile to fire
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await Bun.sleep(0);
+  }
+
+  // closeWorkerSession must NOT have been called for the queued task's session
+  expect(harness.closeCalls.map((c) => c.workerSession)).not.toContain("backend:codex:p-queued");
+
+  // The queued task must be cancelled
+  const task = await service.getTask("queued-task");
+  expect(task?.status).toBe("cancelled");
+});
