@@ -2,10 +2,27 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+/**
+ * Treat the literal strings "undefined" / "null" (case-insensitive) as missing
+ * values. They show up when a caller stringifies a JS undefined/null into an
+ * env var or argument — without this guard, paths like `undefined/.weacpx/...`
+ * get materialized inside the current working directory.
+ */
+function coerceMissing(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const lower = trimmed.toLowerCase();
+  if (lower === "undefined" || lower === "null") return undefined;
+  return trimmed;
+}
+
 export function resolvePluginHome(input: { home?: string; pluginHome?: string } = {}): string {
-  if (input.pluginHome?.trim()) return input.pluginHome;
-  if (process.env.WEACPX_PLUGIN_HOME?.trim()) return process.env.WEACPX_PLUGIN_HOME;
-  const home = input.home ?? process.env.HOME ?? homedir();
+  const explicit = coerceMissing(input.pluginHome);
+  if (explicit) return explicit;
+  const envOverride = coerceMissing(process.env.WEACPX_PLUGIN_HOME);
+  if (envOverride) return envOverride;
+  const home = coerceMissing(input.home) ?? coerceMissing(process.env.HOME) ?? homedir();
   return join(home, ".weacpx", "plugins");
 }
 
