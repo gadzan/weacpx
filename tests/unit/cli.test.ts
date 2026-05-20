@@ -341,7 +341,7 @@ test("prints help for unknown commands", async () => {
     "weacpx doctor - 运行诊断",
     "weacpx version - 查看版本",
     "weacpx agent|agents list|add|rm|templates - 管理本机 Agent",
-    "weacpx workspace list|add|rm - 管理本机工作区（别名：ws）",
+    "weacpx workspace list|add [name] [--raw]|rm <name> - 管理本机工作区（别名：ws）",
     "weacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务",
   ]);
 });
@@ -506,6 +506,87 @@ test("workspace add rejects an explicit blank name", async () => {
   });
 });
 
+test("workspace add sanitizes a non-ASCII basename by default", async () => {
+  await withTempHome(async (home) => {
+    const lines: string[] = [];
+
+    await expect(
+      runCli(["workspace", "add"], {
+        cwd: () => "/tmp/my repo!",
+        print: (line) => lines.push(line),
+      }),
+    ).resolves.toBe(0);
+
+    expect(lines).toEqual([
+      '目录名 "my repo!" 含有特殊字符，已保存为「my-repo」。如需保留原名请加 --raw。',
+      "工作区「my-repo」已保存：/tmp/my repo!",
+    ]);
+    const config = await readConfigJson(home);
+    expect(config.workspaces["my-repo"]).toEqual({ cwd: "/tmp/my repo!" });
+    expect(config.workspaces["my repo!"]).toBeUndefined();
+  });
+});
+
+test("workspace add sanitizes an explicit dirty name", async () => {
+  await withTempHome(async (home) => {
+    const lines: string[] = [];
+
+    await expect(runCli(["workspace", "add", "my-repo"], { cwd: () => "/repo/a", print: () => {} })).resolves.toBe(0);
+    await expect(
+      runCli(["workspace", "add", "My Repo"], {
+        cwd: () => "/repo/b",
+        print: (line) => lines.push(line),
+      }),
+    ).resolves.toBe(0);
+
+    expect(lines).toEqual([
+      '名称 "My Repo" 含有特殊字符，已保存为「My-Repo」。如需保留原名请加 --raw。',
+      "工作区「My-Repo」已保存：/repo/b",
+    ]);
+    const config = await readConfigJson(home);
+    expect(config.workspaces["my-repo"]).toEqual({ cwd: "/repo/a" });
+    expect(config.workspaces["My-Repo"]).toEqual({ cwd: "/repo/b" });
+  });
+});
+
+test("workspace add --raw keeps a literal name with spaces", async () => {
+  await withTempHome(async (home) => {
+    const lines: string[] = [];
+
+    await expect(
+      runCli(["workspace", "add", "My Repo", "--raw"], {
+        cwd: () => "/repo/b",
+        print: (line) => lines.push(line),
+      }),
+    ).resolves.toBe(0);
+
+    expect(lines).toEqual(["工作区「My Repo」已保存：/repo/b"]);
+    const config = await readConfigJson(home);
+    expect(config.workspaces["My Repo"]).toEqual({ cwd: "/repo/b" });
+  });
+});
+
+test("workspace add error suggestion quotes a name that needs quoting", async () => {
+  await withTempHome(async () => {
+    const lines: string[] = [];
+
+    await expect(
+      runCli(["workspace", "add", "My Repo", "--raw"], { cwd: () => "/repo/a", print: () => {} }),
+    ).resolves.toBe(0);
+    await expect(
+      runCli(["workspace", "add", "My Repo", "--raw"], {
+        cwd: () => "/repo/b",
+        print: (line) => lines.push(line),
+      }),
+    ).resolves.toBe(1);
+
+    expect(lines).toEqual([
+      "工作区「My Repo」已存在，但路径不同：/repo/a",
+      '请换一个名称，或先执行：weacpx workspace rm "My Repo"',
+    ]);
+  });
+});
+
 test("lists and removes workspaces from the CLI", async () => {
   await withTempHome(async () => {
     const lines: string[] = [];
@@ -566,7 +647,7 @@ test("workspace commands reject invalid arguments", async () => {
   await expect(runCli(["workspace", "rm"], { print: (line) => lines.push(line) })).resolves.toBe(1);
   await expect(runCli(["ws", "nope"], { print: (line) => lines.push(line) })).resolves.toBe(1);
 
-  expect(lines.filter((line) => line === "weacpx workspace list|add|rm - 管理本机工作区（别名：ws）")).toHaveLength(3);
+  expect(lines.filter((line) => line === "weacpx workspace list|add [name] [--raw]|rm <name> - 管理本机工作区（别名：ws）")).toHaveLength(3);
 });
 
 test("agent templates lists built-in templates", async () => {

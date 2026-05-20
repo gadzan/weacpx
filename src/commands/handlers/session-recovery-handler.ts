@@ -2,7 +2,7 @@ import type { ResolvedSession } from "../../transport/types";
 import type { RouterResponse, SessionRecoveryOps } from "../router-types";
 import { isPartialPromptOutputError, summarizeTransportError } from "../transport-diagnostics";
 import { AutoInstallFailedError } from "../../recovery/errors";
-
+import { quoteWorkspaceNameIfNeeded } from "../workspace-name";
 
 export function renderTransportError(session: ResolvedSession, error: unknown): RouterResponse {
   const message = error instanceof Error ? error.message : String(error);
@@ -11,8 +11,8 @@ export function renderTransportError(session: ResolvedSession, error: unknown): 
     return {
       text: [
         `当前会话「${session.alias}」暂时不可用。`,
-        `请先在微信里重新执行：/session new ${session.alias} --agent ${session.agent} --ws ${session.workspace}`,
-        `如果你要绑定一个已有会话，再执行：/session attach ${session.alias} --agent ${session.agent} --ws ${session.workspace} --name <会话名>`,
+        `请先在微信里重新执行：/session new ${session.alias} --agent ${session.agent} --ws ${quoteWorkspaceNameIfNeeded(session.workspace)}`,
+        `如果你要绑定一个已有会话，再执行：/session attach ${session.alias} --agent ${session.agent} --ws ${quoteWorkspaceNameIfNeeded(session.workspace)} --name <会话名>`,
       ].join("\n"),
     };
   }
@@ -82,7 +82,7 @@ function renderSessionCreationFailure(session: ResolvedSession, detail: string):
     text: [
       "会话创建失败。",
       `错误信息：${summarizeTransportError(detail)}`,
-      `如果你要先绑定一个已有会话，可以执行：/session attach ${session.alias} --agent ${session.agent} --ws ${session.workspace} --name <会话名>`,
+      `如果你要先绑定一个已有会话，可以执行：/session attach ${session.alias} --agent ${session.agent} --ws ${quoteWorkspaceNameIfNeeded(session.workspace)} --name <会话名>`,
     ].join("\n"),
   };
 }

@@ -140,6 +140,25 @@ test("rejects attaching a session name that does not exist in acpx", async () =>
   await expect(sessions.getCurrentSession("wx:user")).resolves.toBeNull();
 });
 
+test("attach hint quotes a workspace name containing a space", async () => {
+  const config = createConfig();
+  config.workspaces["My Repo"] = { cwd: "/tmp/My Repo" };
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  (transport.hasSession as ReturnType<typeof mock>).mockImplementationOnce(async () => false);
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle(
+    "wx:user",
+    '/session attach review --agent codex --ws "My Repo" --name missing-review',
+  );
+
+  expect(reply.text).toContain("没有找到可绑定的已有会话");
+  expect(reply.text).toContain(
+    '/session attach review --agent codex --ws "My Repo" --name <会话名>',
+  );
+});
+
 test("renders status for the current session", async () => {
   const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
   const transport = createTransport();
@@ -262,6 +281,24 @@ test("creates a workspace and session from the shortcut command", async () => {
   });
 
   await rm(dir, { recursive: true, force: true });
+});
+
+test("shortcut auto-registers a workspace with a sanitized name when cwd has spaces", async () => {
+  const root = await mkdtemp(join(tmpdir(), "weacpx-shortcut-"));
+  const dir = join(root, "My Project");
+  await mkdir(dir);
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle("wx:user", `/ss codex -d "${dir}"`);
+
+  expect(reply.text).toContain(`新增工作区：My-Project -> ${normalizeWorkspacePath(dir)}`);
+  expect(config.workspaces["My-Project"]).toEqual({ cwd: normalizeWorkspacePath(dir) });
+  expect(config.workspaces["My Project"]).toBeUndefined();
+
+  await rm(root, { recursive: true, force: true });
 });
 
 test("shortcut creation still selects the session when agent command refresh fails", async () => {

@@ -12,6 +12,7 @@ import type { PerfSpan } from "../../perf/perf-tracer";
 import type { HelpTopicMetadata } from "../help/help-types";
 import { buildCoordinatorPrompt } from "../../orchestration/build-coordinator-prompt";
 import { toDisplaySessionAlias, getChannelIdFromChatKey, toInternalSessionAlias, resolveSessionAliasForInput } from "../../channels/channel-scope";
+import { quoteWorkspaceNameIfNeeded } from "../workspace-name";
 
 export interface SessionHandlerContext extends CommandRouterContext {
   lifecycle: SessionLifecycleOps;
@@ -182,7 +183,7 @@ export async function handleSessionAttach(
       return {
         text: [
           "没有找到可绑定的已有会话。",
-          `请确认会话名是否正确，然后重新执行：/session attach ${alias} --agent ${agent} --ws ${workspace} --name <会话名>`,
+          `请确认会话名是否正确，然后重新执行：/session attach ${alias} --agent ${agent} --ws ${quoteWorkspaceNameIfNeeded(workspace)} --name <会话名>`,
         ].join("\n"),
       };
     }

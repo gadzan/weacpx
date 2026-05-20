@@ -467,6 +467,44 @@ test("creates a workspace via the short alias and cwd flag", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test("/ws new sanitizes a name with spaces and reports the rewrite", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-workspace-"));
+  try {
+    const config = createConfig();
+    const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+    const transport = createTransport();
+    const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+    const reply = await router.handle("wx:user", `/ws new "My Repo" -d "${dir}"`);
+
+    expect(reply.text).toBe(
+      '名称 "My Repo" 含有特殊字符，已保存为「My-Repo」。如需保留原名请加 --raw。\n' +
+        "工作区「My-Repo」已保存",
+    );
+    expect(config.workspaces["My-Repo"]).toEqual({ cwd: normalizeWorkspacePath(dir) });
+    expect(config.workspaces["My Repo"]).toBeUndefined();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("/ws new --raw keeps a name with spaces", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-workspace-"));
+  try {
+    const config = createConfig();
+    const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+    const transport = createTransport();
+    const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+    const reply = await router.handle("wx:user", `/ws new "My Repo" -d "${dir}" --raw`);
+
+    expect(reply.text).toBe("工作区「My Repo」已保存");
+    expect(config.workspaces["My Repo"]).toEqual({ cwd: normalizeWorkspacePath(dir) });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("rejects creating a workspace when cwd does not exist", async () => {
   const config = createConfig();
   const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());

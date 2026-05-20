@@ -27,7 +27,7 @@ export type ParsedCommand =
   | { kind: "config.show" }
   | { kind: "config.set"; path: string; value: string }
   | { kind: "workspaces" }
-  | { kind: "workspace.new"; name: string; cwd: string }
+  | { kind: "workspace.new"; name: string; cwd: string; raw?: boolean }
   | { kind: "workspace.rm"; name: string }
   | { kind: "sessions" }
   | { kind: "status" }
@@ -234,6 +234,7 @@ export function parseCommand(input: string): ParsedCommand {
   if (command === "/workspace" && parts[1] === "new" && parts[2]) {
     const name = parts[2];
     let cwd = "";
+    let raw = false;
     let invalid = false;
 
     for (let index = 3; index < parts.length; index += 1) {
@@ -247,12 +248,21 @@ export function parseCommand(input: string): ParsedCommand {
         continue;
       }
 
+      if (parts[index] === "--raw") {
+        if (raw) {
+          invalid = true;
+          break;
+        }
+        raw = true;
+        continue;
+      }
+
       invalid = true;
       break;
     }
 
     if (!invalid && name.trim().length > 0 && cwd.trim().length > 0) {
-      return { kind: "workspace.new", name, cwd };
+      return { kind: "workspace.new", name, cwd, ...(raw ? { raw: true } : {}) };
     }
   }
 

@@ -181,7 +181,12 @@ export class CommandRouter {
         case "workspaces":
           return handleWorkspaces(this.createHandlerContext());
         case "workspace.new":
-          return await handleWorkspaceCreate(this.createHandlerContext(), command.name, command.cwd);
+          return await handleWorkspaceCreate(
+            this.createHandlerContext(),
+            command.name,
+            command.cwd,
+            command.raw ? { raw: true } : {},
+          );
         case "workspace.rm":
           return await handleWorkspaceRemove(this.createHandlerContext(), command.name);
         case "sessions":
