@@ -4,5 +4,11 @@ export type { LoginOptions, StartOptions } from "./bot.js";
 
 // Internal exports needed by weacpx for streaming reply
 export { sendMessageWeixin, markdownToPlainText } from "./messaging/send.js";
-export { getContextToken } from "./messaging/inbound.js";
+export {
+  getContextToken,
+  setContextToken,
+  restoreContextTokens,
+  clearContextTokensForAccount,
+  findAccountIdsByContextToken,
+} from "./messaging/inbound.js";
 export { resolveWeixinAccount, listWeixinAccountIds, clearAllWeixinAccounts } from "./auth/accounts.js";
