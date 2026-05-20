@@ -25,6 +25,12 @@ import { resolveDefaultOrchestrationEndpoint } from "./mcp/resolve-endpoint";
 import { createOrchestrationTransport } from "./mcp/weacpx-mcp-transport";
 import { OrchestrationClient } from "./orchestration/orchestration-client";
 import { basenameForWorkspacePath, normalizeWorkspacePath, sameWorkspacePath } from "./commands/workspace-path";
+import {
+  allocateWorkspaceName,
+  isWorkspaceNameValid,
+  quoteWorkspaceNameIfNeeded,
+  sanitizeWorkspaceName,
+} from "./commands/workspace-name";
 import { StateStore } from "./state/state-store";
 import { maybeRunFirstUseOnboarding, type FirstRunOnboardingPlan } from "./onboarding.js";
 import { handleUpdateCli, type UpdateCliDeps } from "./cli-update.js";
@@ -252,7 +258,7 @@ const HELP_LINES = [
   "weacpx doctor - 运行诊断",
   "weacpx version - 查看版本",
   "weacpx agent|agents list|add|rm|templates - 管理本机 Agent",
-  "weacpx workspace list|add|rm - 管理本机工作区（别名：ws）",
+  "weacpx workspace list|add [name] [--raw]|rm <name> - 管理本机工作区（别名：ws）",
   "weacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务",
 ];
 
@@ -549,9 +555,21 @@ async function handleWorkspaceCli(
     case "list":
       if (args.length !== 1) return null;
       return await workspaceList(deps.print);
-    case "add":
-      if (args.length > 2) return null;
-      return await workspaceAdd(args[1], deps);
+    case "add": {
+      const rest = args.slice(1);
+      let rawFlag = false;
+      let explicit: string | undefined;
+      for (const token of rest) {
+        if (token === "--raw") {
+          if (rawFlag) return null;
+          rawFlag = true;
+          continue;
+        }
+        if (explicit !== undefined) return null;
+        explicit = token;
+      }
+      return await workspaceAdd(explicit, { ...deps, raw: rawFlag });
+    }
     case "rm":
       if (args.length !== 2 || !args[1]) return null;
       return await workspaceRemove(args[1], deps.print);
@@ -582,17 +600,29 @@ async function workspaceAdd(
   deps: {
     print: (line: string) => void;
     cwd: () => string;
+    raw: boolean;
   },
 ): Promise<number> {
   const cwd = normalizeWorkspacePath(deps.cwd());
-  const name = rawName === undefined ? basenameForWorkspacePath(cwd) : rawName.trim();
-  if (name.trim().length === 0) {
+  const input = rawName === undefined ? basenameForWorkspacePath(cwd) : rawName.trim();
+  if (input.length === 0) {
     deps.print("工作区名称不能为空。");
     return 1;
   }
 
   const store = await createCliConfigStore();
   const config = await store.load();
+
+  let name = input;
+  if (!deps.raw && !isWorkspaceNameValid(input)) {
+    const base = sanitizeWorkspaceName(input);
+    name = allocateWorkspaceName(base, config.workspaces);
+    const sourceLabel = rawName === undefined ? "目录名" : "名称";
+    deps.print(
+      `${sourceLabel} ${JSON.stringify(input)} 含有特殊字符，已保存为「${name}」。如需保留原名请加 --raw。`,
+    );
+  }
+
   const existing = config.workspaces[name];
   if (existing) {
     if (sameWorkspacePath(existing.cwd, cwd)) {
@@ -601,7 +631,7 @@ async function workspaceAdd(
     }
 
     deps.print(`工作区「${name}」已存在，但路径不同：${existing.cwd}`);
-    deps.print(`请换一个名称，或先执行：weacpx workspace rm ${name}`);
+    deps.print(`请换一个名称，或先执行：weacpx workspace rm ${quoteWorkspaceNameIfNeeded(name)}`);
     return 1;
   }
 
