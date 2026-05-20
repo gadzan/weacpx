@@ -140,6 +140,25 @@ test("rejects attaching a session name that does not exist in acpx", async () =>
   await expect(sessions.getCurrentSession("wx:user")).resolves.toBeNull();
 });
 
+test("attach hint quotes a workspace name containing a space", async () => {
+  const config = createConfig();
+  config.workspaces["My Repo"] = { cwd: "/tmp/My Repo" };
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  (transport.hasSession as ReturnType<typeof mock>).mockImplementationOnce(async () => false);
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle(
+    "wx:user",
+    '/session attach review --agent codex --ws "My Repo" --name missing-review',
+  );
+
+  expect(reply.text).toContain("没有找到可绑定的已有会话");
+  expect(reply.text).toContain(
+    '/session attach review --agent codex --ws "My Repo" --name <会话名>',
+  );
+});
+
 test("renders status for the current session", async () => {
   const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
   const transport = createTransport();
