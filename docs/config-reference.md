@@ -263,6 +263,34 @@ weacpx restart
 | `options.markdownHintEnabled` | `boolean` | 否 | gateway 可用的预留字段，默认 `true` |
 | `options.accounts` | `object` | 否 | 多账号覆盖配置；子项会继承顶层配置 |
 
+### 微信频道扩展配置（`openclaw.json`）
+
+内置 weixin 频道的 `options` 当前为空对象；以下字段从单独的 `openclaw.json` 文件读取（路径默认 `~/.weacpx/state/openclaw.json`，可用环境变量 `OPENCLAW_CONFIG` 覆盖）。这是 weacpx 从 openclaw 沿用过来的扩展点，**与主 `~/.weacpx/config.json` 不是同一个文件**。
+
+文件根形如：
+```json
+{
+  "channels": {
+    "openclaw-weixin": {
+      "routeTag": "...",
+      "botAgent": "MyApp/1.0",
+      "accounts": {
+        "<accountId>": {
+          "routeTag": "...",
+          "botAgent": "MyApp/1.0 (account-A)"
+        }
+      }
+    }
+  }
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `routeTag` | `string` \| `number` | 否 | 写入 `SKRouteTag` 请求头，由后端用于灰度/分流；账号级 `accounts.<id>.routeTag` 优先于顶层 |
+| `botAgent` | `string` | 否 | UA 风格客户端标识，写入 `base_info.bot_agent`。语法 `name/version[ (comment)]`，多 token 用空格分隔；超长（>256 字节）截断；非法 token 静默丢弃；空时回退到 `weacpx`。账号级 `accounts.<id>.botAgent` 优先于顶层 |
+| `accounts.<id>` | `object` | 否 | 按 weixin 账号 id 覆盖顶层字段；目前可覆盖 `routeTag` 和 `botAgent` |
+
 ### 示例
 
 仅微信：
