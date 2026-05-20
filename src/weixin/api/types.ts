@@ -6,6 +6,8 @@
 /** Common request metadata attached to every CGI request. */
 export interface BaseInfo {
   channel_version?: string;
+  /** UA-style identifier for the upstream app embedding this channel. */
+  bot_agent?: string;
 }
 
 /** proto: UploadMediaType */
