@@ -138,6 +138,31 @@ test("parses quoted workspace paths with spaces", () => {
   });
 });
 
+test("parses /ws new --raw flag in any position", () => {
+  expect(parseCommand('/ws new "My Repo" -d /tmp/repo --raw')).toEqual({
+    kind: "workspace.new",
+    name: "My Repo",
+    cwd: "/tmp/repo",
+    raw: true,
+  });
+  expect(parseCommand("/ws new backend --raw -d /tmp/backend")).toEqual({
+    kind: "workspace.new",
+    name: "backend",
+    cwd: "/tmp/backend",
+    raw: true,
+  });
+});
+
+test("parses /ws new without --raw and omits the raw field", () => {
+  const parsed = parseCommand("/ws new backend -d /tmp/backend");
+  expect(parsed).toEqual({
+    kind: "workspace.new",
+    name: "backend",
+    cwd: "/tmp/backend",
+  });
+  expect("raw" in parsed).toBe(false);
+});
+
 test("parses workspace removal", () => {
   expect(parseCommand("/workspace rm backend")).toEqual({
     kind: "workspace.rm",
