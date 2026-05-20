@@ -1,3 +1,4 @@
+import { allocateWorkspaceName, sanitizeWorkspaceName } from "../workspace-name";
 import { basenameForWorkspacePath, normalizeWorkspacePath, pathExists, sameWorkspacePath } from "../workspace-path";
 import type { CommandRouterContext, RouterResponse, SessionShortcutOps } from "../router-types";
 import { AutoInstallFailedError } from "../../recovery/errors";
@@ -144,7 +145,10 @@ async function resolveShortcutWorkspace(
     };
   }
 
-  const workspaceName = allocateWorkspaceName(context, basenameForWorkspacePath(cwd));
+  const workspaceName = allocateWorkspaceName(
+    sanitizeWorkspaceName(basenameForWorkspacePath(cwd)),
+    context.config?.workspaces ?? {},
+  );
   const updated = await context.configStore!.upsertWorkspace(workspaceName, cwd);
   context.replaceConfig(updated);
 
@@ -153,19 +157,6 @@ async function resolveShortcutWorkspace(
     cwd,
     reused: false,
   };
-}
-
-function allocateWorkspaceName(context: CommandRouterContext, baseName: string): string {
-  if (!context.config?.workspaces[baseName]) {
-    return baseName;
-  }
-
-  let suffix = 2;
-  while (context.config.workspaces[`${baseName}-${suffix}`]) {
-    suffix += 1;
-  }
-
-  return `${baseName}-${suffix}`;
 }
 
 async function allocateUniqueSessionAlias(

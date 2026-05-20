@@ -283,6 +283,24 @@ test("creates a workspace and session from the shortcut command", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test("shortcut auto-registers a workspace with a sanitized name when cwd has spaces", async () => {
+  const root = await mkdtemp(join(tmpdir(), "weacpx-shortcut-"));
+  const dir = join(root, "My Project");
+  await mkdir(dir);
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle("wx:user", `/ss codex -d "${dir}"`);
+
+  expect(reply.text).toContain(`新增工作区：My-Project -> ${normalizeWorkspacePath(dir)}`);
+  expect(config.workspaces["My-Project"]).toEqual({ cwd: normalizeWorkspacePath(dir) });
+  expect(config.workspaces["My Project"]).toBeUndefined();
+
+  await rm(root, { recursive: true, force: true });
+});
+
 test("shortcut creation still selects the session when agent command refresh fails", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-shortcut-"));
   const config = createConfig();
