@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-import { apiGetFetch } from "../api/api.js";
+import { apiGetFetch, apiPostFetch } from "../api/api.js";
+import { listIndexedWeixinAccountIds, loadWeixinAccount } from "./accounts.js";
 import { logger } from "../util/logger.js";
 import { redactToken } from "../util/redact.js";
 
@@ -11,15 +12,22 @@ type ActiveLogin = {
   qrcodeUrl: string;
   startedAt: number;
   botToken?: string;
-  status?: "wait" | "scaned" | "confirmed" | "expired" | "scaned_but_redirect";
+  status?:
+    | "wait"
+    | "scaned"
+    | "confirmed"
+    | "expired"
+    | "scaned_but_redirect"
+    | "need_verifycode"
+    | "verify_code_blocked";
   error?: string;
   /** The current effective polling base URL; may be updated on IDC redirect. */
   currentApiBaseUrl?: string;
+  /** The 6-digit pair code the user typed at the CLI; echoed on the next poll. */
+  pendingVerifyCode?: string;
 };
 
 const ACTIVE_LOGIN_TTL_MS = 5 * 60_000;
-/** Client-side timeout for the get_bot_qrcode request. */
-const GET_QRCODE_TIMEOUT_MS = 5_000;
 /** Client-side timeout for the long-poll get_qrcode_status request. */
 const QR_LONG_POLL_TIMEOUT_MS = 35_000;
 
@@ -37,7 +45,14 @@ interface QRCodeResponse {
 }
 
 interface StatusResponse {
-  status: "wait" | "scaned" | "confirmed" | "expired" | "scaned_but_redirect";
+  status:
+    | "wait"
+    | "scaned"
+    | "confirmed"
+    | "expired"
+    | "scaned_but_redirect"
+    | "need_verifycode"
+    | "verify_code_blocked";
   bot_token?: string;
   ilink_bot_id?: string;
   baseurl?: string;
@@ -60,23 +75,48 @@ function purgeExpiredLogins(): void {
   }
 }
 
+function getLocalBotTokenList(): string[] {
+  const accountIds = listIndexedWeixinAccountIds();
+  const tokens: string[] = [];
+  for (let i = accountIds.length - 1; i >= 0 && tokens.length < 10; i--) {
+    const accountId = accountIds[i];
+    if (!accountId) continue;
+    const data = loadWeixinAccount(accountId);
+    const token = data?.token?.trim();
+    if (token) {
+      tokens.push(token);
+    }
+  }
+  return tokens;
+}
+
 async function fetchQRCode(apiBaseUrl: string, botType: string): Promise<QRCodeResponse> {
   logger.info(`Fetching QR code from: ${apiBaseUrl} bot_type=${botType}`);
-  const rawText = await apiGetFetch({
+  const localTokenList = getLocalBotTokenList();
+  logger.info(`fetchQRCode: local_token_list count=${localTokenList.length}`);
+  const rawText = await apiPostFetch({
     baseUrl: apiBaseUrl,
     endpoint: `ilink/bot/get_bot_qrcode?bot_type=${encodeURIComponent(botType)}`,
-    timeoutMs: GET_QRCODE_TIMEOUT_MS,
+    body: JSON.stringify({ local_token_list: localTokenList }),
     label: "fetchQRCode",
   });
   return JSON.parse(rawText) as QRCodeResponse;
 }
 
-async function pollQRStatus(apiBaseUrl: string, qrcode: string): Promise<StatusResponse> {
-  logger.debug(`Long-poll QR status from: ${apiBaseUrl} qrcode=***`);
+async function pollQRStatus(
+  apiBaseUrl: string,
+  qrcode: string,
+  verifyCode?: string,
+): Promise<StatusResponse> {
+  logger.debug(`Long-poll QR status from: ${apiBaseUrl} qrcode=*** hasVerifyCode=${Boolean(verifyCode)}`);
+  let endpoint = `ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`;
+  if (verifyCode) {
+    endpoint += `&verify_code=${encodeURIComponent(verifyCode)}`;
+  }
   try {
     const rawText = await apiGetFetch({
       baseUrl: apiBaseUrl,
-      endpoint: `ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`,
+      endpoint,
       timeoutMs: QR_LONG_POLL_TIMEOUT_MS,
       label: "pollQRStatus",
     });
@@ -91,6 +131,29 @@ async function pollQRStatus(apiBaseUrl: string, qrcode: string): Promise<StatusR
     logger.warn(`pollQRStatus: network/gateway error, will retry: ${String(err)}`);
     return { status: "wait" };
   }
+}
+
+/** Read a single line from stdin after writing a prompt; returns the trimmed input. */
+async function readVerifyCodeFromStdin(prompt: string): Promise<string> {
+  if (!process.stdin.isTTY) {
+    throw new Error("verify code requested but stdin is not a TTY (running in daemon mode?)");
+  }
+  process.stdout.write(prompt);
+  return new Promise((resolve) => {
+    let input = "";
+    const onData = (chunk: Buffer | string) => {
+      const str = chunk.toString();
+      input += str;
+      if (input.includes("\n")) {
+        process.stdin.removeListener("data", onData);
+        process.stdin.pause();
+        resolve(input.trim());
+      }
+    };
+    process.stdin.resume();
+    process.stdin.setEncoding("utf-8");
+    process.stdin.on("data", onData);
+  });
 }
 
 export type WeixinQrStartResult = {
@@ -166,6 +229,43 @@ export async function startWeixinLoginWithQr(opts: {
 
 const MAX_QR_REFRESH_COUNT = 3;
 
+/**
+ * Fetch a fresh QR code, update the given activeLogin in place, render the QR
+ * to the terminal, and invoke onScannedReset so the caller can clear any
+ * "已扫码" indicator. Shared by the `expired` and `verify_code_blocked` cases.
+ */
+async function refreshQRCode(
+  activeLogin: ActiveLogin,
+  botType: string,
+  qrRefreshCount: number,
+  onScannedReset: () => void,
+): Promise<{ success: true } | { success: false; message: string }> {
+  try {
+    const qrResponse = await fetchQRCode(FIXED_BASE_URL, botType);
+    activeLogin.qrcode = qrResponse.qrcode;
+    activeLogin.qrcodeUrl = qrResponse.qrcode_img_content;
+    activeLogin.startedAt = Date.now();
+    onScannedReset();
+    logger.info(
+      `refreshQRCode: new QR code obtained (${qrRefreshCount}/${MAX_QR_REFRESH_COUNT}) qrcode=${redactToken(qrResponse.qrcode)}`,
+    );
+    process.stdout.write(`🔄 新二维码已生成，请重新扫描\n\n`);
+    try {
+      const qrterm = await import("qrcode-terminal");
+      qrterm.default.generate(qrResponse.qrcode_img_content, { small: true });
+      process.stdout.write(`如果二维码未能成功展示，请用浏览器打开以下链接扫码：\n`);
+      process.stdout.write(`${qrResponse.qrcode_img_content}\n`);
+    } catch {
+      process.stdout.write(`二维码未加载成功，请用浏览器打开以下链接扫码：\n`);
+      process.stdout.write(`${qrResponse.qrcode_img_content}\n`);
+    }
+    return { success: true };
+  } catch (refreshErr) {
+    logger.error(`refreshQRCode: failed to refresh QR code: ${String(refreshErr)}`);
+    return { success: false, message: `刷新二维码失败: ${String(refreshErr)}` };
+  }
+}
+
 export async function waitForWeixinLogin(opts: {
   timeoutMs?: number;
   verbose?: boolean;
@@ -205,7 +305,11 @@ export async function waitForWeixinLogin(opts: {
   while (Date.now() < deadline) {
     try {
       const currentBaseUrl = activeLogin.currentApiBaseUrl ?? FIXED_BASE_URL;
-      const statusResponse = await pollQRStatus(currentBaseUrl, activeLogin.qrcode);
+      const statusResponse = await pollQRStatus(
+        currentBaseUrl,
+        activeLogin.qrcode,
+        activeLogin.pendingVerifyCode,
+      );
       logger.debug(`pollQRStatus: status=${statusResponse.status} hasBotToken=${Boolean(statusResponse.bot_token)} hasBotId=${Boolean(statusResponse.ilink_bot_id)}`);
       activeLogin.status = statusResponse.status;
 
@@ -216,12 +320,17 @@ export async function waitForWeixinLogin(opts: {
           }
           break;
         case "scaned":
+          if (activeLogin.pendingVerifyCode) {
+            logger.info("verify code accepted, resuming polling");
+            activeLogin.pendingVerifyCode = undefined;
+          }
           if (!scannedPrinted) {
             process.stdout.write("\n👀 已扫码，在微信继续操作...\n");
             scannedPrinted = true;
           }
           break;
         case "expired": {
+          activeLogin.pendingVerifyCode = undefined;
           qrRefreshCount++;
           if (qrRefreshCount > MAX_QR_REFRESH_COUNT) {
             logger.warn(
@@ -239,30 +348,19 @@ export async function waitForWeixinLogin(opts: {
             `waitForWeixinLogin: QR expired, refreshing (${qrRefreshCount}/${MAX_QR_REFRESH_COUNT})`,
           );
 
-          try {
-            const botType = opts.botType || DEFAULT_ILINK_BOT_TYPE;
-            const qrResponse = await fetchQRCode(FIXED_BASE_URL, botType);
-            activeLogin.qrcode = qrResponse.qrcode;
-            activeLogin.qrcodeUrl = qrResponse.qrcode_img_content;
-            activeLogin.startedAt = Date.now();
-            scannedPrinted = false;
-            logger.info(`waitForWeixinLogin: new QR code obtained qrcode=${redactToken(qrResponse.qrcode)}`);
-            process.stdout.write(`🔄 新二维码已生成，请重新扫描\n\n`);
-            try {
-              const qrterm = await import("qrcode-terminal");
-              qrterm.default.generate(qrResponse.qrcode_img_content, { small: true });
-              process.stdout.write(`如果二维码未能成功展示，请用浏览器打开以下链接扫码：\n`);
-              process.stdout.write(`${qrResponse.qrcode_img_content}\n`);
-            } catch {
-              process.stdout.write(`二维码未加载成功，请用浏览器打开以下链接扫码：\n`);
-              process.stdout.write(`${qrResponse.qrcode_img_content}\n`);
-            }
-          } catch (refreshErr) {
-            logger.error(`waitForWeixinLogin: failed to refresh QR code: ${String(refreshErr)}`);
+          const expiredRefreshResult = await refreshQRCode(
+            activeLogin,
+            opts.botType || DEFAULT_ILINK_BOT_TYPE,
+            qrRefreshCount,
+            () => {
+              scannedPrinted = false;
+            },
+          );
+          if (!expiredRefreshResult.success) {
             activeLogins.delete(opts.sessionKey);
             return {
               connected: false,
-              message: `刷新二维码失败: ${String(refreshErr)}`,
+              message: expiredRefreshResult.message,
             };
           }
           break;
@@ -275,6 +373,58 @@ export async function waitForWeixinLogin(opts: {
             logger.info(`waitForWeixinLogin: IDC redirect, switching polling host to ${redirectHost}`);
           } else {
             logger.warn(`waitForWeixinLogin: received scaned_but_redirect but redirect_host is missing, continuing with current host`);
+          }
+          break;
+        }
+        case "need_verifycode": {
+          const verifyPrompt = activeLogin.pendingVerifyCode
+            ? "❌ 你输入的数字不匹配，请重新输入："
+            : "输入手机微信显示的数字，以继续连接：";
+          let code: string;
+          try {
+            code = await readVerifyCodeFromStdin(verifyPrompt);
+          } catch (err) {
+            logger.error(`waitForWeixinLogin: cannot read verify code (no TTY): ${String(err)}`);
+            activeLogins.delete(opts.sessionKey);
+            return {
+              connected: false,
+              message: "需要输入配对码，但当前环境没有交互式终端。请在前台运行 `weacpx login` 完成登录。",
+            };
+          }
+          activeLogin.pendingVerifyCode = code;
+          continue; // skip the 1s sleep; poll immediately with new code
+        }
+        case "verify_code_blocked": {
+          logger.warn(
+            `waitForWeixinLogin: verify code blocked, qrRefreshCount=${qrRefreshCount} sessionKey=${opts.sessionKey}`,
+          );
+          process.stdout.write("\n⛔ 多次输入错误，请稍后再试。\n");
+          activeLogin.pendingVerifyCode = undefined;
+          qrRefreshCount++;
+          if (qrRefreshCount > MAX_QR_REFRESH_COUNT) {
+            logger.warn(
+              `waitForWeixinLogin: verify_code_blocked and QR refresh limit reached, giving up sessionKey=${opts.sessionKey}`,
+            );
+            activeLogins.delete(opts.sessionKey);
+            return {
+              connected: false,
+              message: "多次输入错误，连接流程已停止。请稍后再试。",
+            };
+          }
+          const blockedRefreshResult = await refreshQRCode(
+            activeLogin,
+            opts.botType || DEFAULT_ILINK_BOT_TYPE,
+            qrRefreshCount,
+            () => {
+              scannedPrinted = false;
+            },
+          );
+          if (!blockedRefreshResult.success) {
+            activeLogins.delete(opts.sessionKey);
+            return {
+              connected: false,
+              message: blockedRefreshResult.message,
+            };
           }
           break;
         }

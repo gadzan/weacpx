@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { readVersion } from "../../version.js";
 
-import { loadConfigRouteTag } from "../auth/accounts.js";
+import { loadConfigBotAgent, loadConfigRouteTag } from "../auth/accounts.js";
 import { logger } from "../util/logger.js";
 import { redactBody, redactUrl } from "../util/redact.js";
 import { WeixinSendError } from "../messaging/send-errors.js";
@@ -31,9 +31,126 @@ export type WeixinApiOptions = {
 
 const CHANNEL_VERSION = readVersion();
 
+/**
+ * iLink-App-ClientVersion: uint32 encoded as 0x00MMNNPP
+ * High 8 bits fixed to 0; remaining bits: major<<16 | minor<<8 | patch.
+ * e.g. "1.0.11" -> 0x0001000B = 65547
+ */
+function buildClientVersion(version: string): number {
+  const parts = version.split(".").map((p) => parseInt(p, 10));
+  const major = parts[0] ?? 0;
+  const minor = parts[1] ?? 0;
+  const patch = parts[2] ?? 0;
+  return ((major & 0xff) << 16) | ((minor & 0xff) << 8) | (patch & 0xff);
+}
+
+const ILINK_APP_CLIENT_VERSION: number = buildClientVersion(CHANNEL_VERSION);
+
+/**
+ * iLink-App-Id: opt-in via env var. Omitted from request headers when unset
+ * for back-compat with installs that haven't opted in.
+ */
+const ILINK_APP_ID: string = (process.env.WEACPX_ILINK_APP_ID ?? "").trim();
+
+/**
+ * Default `bot_agent` value used when the upstream app does not declare one.
+ * Mirrors the role of HTTP `User-Agent`'s implicit "no UA" fallback.
+ */
+const DEFAULT_BOT_AGENT = "weacpx";
+
+/** Maximum length (bytes) of the sanitized `bot_agent` string. */
+const BOT_AGENT_MAX_LEN = 256;
+
+/**
+ * Sanitize a user-supplied `botAgent` config value into a wire-safe string.
+ *
+ * Grammar (UA-style):
+ *   bot_agent = product *( SP product )
+ *   product   = name "/" version [ SP "(" comment ")" ]
+ *   name      = 1*32( ALPHA / DIGIT / "_" / "." / "-" )
+ *   version   = 1*32( ALPHA / DIGIT / "_" / "." / "+" / "-" )
+ *   comment   = 1*64( printable ASCII minus "(" ")" )
+ *
+ * Tokens that fail to parse are dropped silently (no partial tokens kept).
+ * Returns `DEFAULT_BOT_AGENT` when the input is empty / all tokens dropped /
+ * the result exceeds the length cap after truncation.
+ */
+export function sanitizeBotAgent(raw: string | undefined): string {
+  if (!raw || typeof raw !== "string") return DEFAULT_BOT_AGENT;
+  const trimmed = raw.trim();
+  if (!trimmed) return DEFAULT_BOT_AGENT;
+
+  const productRe = /^[A-Za-z0-9_.\-]{1,32}\/[A-Za-z0-9_.+\-]{1,32}$/;
+  const commentCharRe = /^[\x20-\x27\x2A-\x7E]{1,64}$/;
+
+  // Tokenize on whitespace, but keep `(comment)` glued to the preceding product.
+  // Strategy: split by spaces, then re-attach any token that starts with "(".
+  const rawTokens = trimmed.split(/\s+/);
+  const tokens: string[] = [];
+  for (let i = 0; i < rawTokens.length; i += 1) {
+    const tok = rawTokens[i]!;
+    if (tok.startsWith("(") && !tok.endsWith(")")) {
+      // Multi-word comment; greedily collect until we find the closing ")".
+      let acc = tok;
+      while (i + 1 < rawTokens.length && !acc.endsWith(")")) {
+        i += 1;
+        acc += " " + rawTokens[i]!;
+      }
+      tokens.push(acc);
+    } else {
+      tokens.push(tok);
+    }
+  }
+
+  const accepted: string[] = [];
+  let pendingProduct: string | null = null;
+  for (const tok of tokens) {
+    if (tok.startsWith("(") && tok.endsWith(")")) {
+      const inner = tok.slice(1, -1);
+      if (pendingProduct && commentCharRe.test(inner)) {
+        accepted.push(`${pendingProduct} (${inner})`);
+        pendingProduct = null;
+      } else {
+        if (pendingProduct) {
+          accepted.push(pendingProduct);
+          pendingProduct = null;
+        }
+      }
+      continue;
+    }
+    if (pendingProduct) {
+      accepted.push(pendingProduct);
+      pendingProduct = null;
+    }
+    if (productRe.test(tok)) {
+      pendingProduct = tok;
+    }
+  }
+  if (pendingProduct) accepted.push(pendingProduct);
+
+  if (accepted.length === 0) return DEFAULT_BOT_AGENT;
+
+  const joined = accepted.join(" ");
+  if (Buffer.byteLength(joined, "utf-8") <= BOT_AGENT_MAX_LEN) return joined;
+
+  // Truncate by dropping trailing tokens until under the cap.
+  const truncated: string[] = [];
+  let len = 0;
+  for (const t of accepted) {
+    const add = (truncated.length === 0 ? 0 : 1) + Buffer.byteLength(t, "utf-8");
+    if (len + add > BOT_AGENT_MAX_LEN) break;
+    truncated.push(t);
+    len += add;
+  }
+  return truncated.length > 0 ? truncated.join(" ") : DEFAULT_BOT_AGENT;
+}
+
 /** Build the `base_info` payload included in every API request. */
 export function buildBaseInfo(): BaseInfo {
-  return { channel_version: CHANNEL_VERSION };
+  return {
+    channel_version: CHANNEL_VERSION,
+    bot_agent: sanitizeBotAgent(loadConfigBotAgent()),
+  };
 }
 
 /** Default timeout for long-poll getUpdates requests. */
@@ -56,6 +173,8 @@ function randomWechatUin(): string {
 /** Build headers shared by both GET and POST requests. */
 function buildCommonHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
+  if (ILINK_APP_ID) headers["iLink-App-Id"] = ILINK_APP_ID;
+  headers["iLink-App-ClientVersion"] = String(ILINK_APP_CLIENT_VERSION);
   const routeTag = loadConfigRouteTag();
   if (routeTag) {
     headers.SKRouteTag = routeTag;
@@ -114,6 +233,54 @@ export async function apiGetFetch(params: {
   } catch (err) {
     clearTimeout(t);
     throw err;
+  }
+}
+
+/**
+ * Simple POST fetch wrapper for login/auth endpoints.
+ * Returns the raw response text on success; throws on HTTP error or timeout.
+ */
+export async function apiPostFetch(params: {
+  baseUrl: string;
+  endpoint: string;
+  body: string;
+  token?: string;
+  timeoutMs?: number;
+  label: string;
+  abortSignal?: AbortSignal;
+}): Promise<string> {
+  const base = ensureTrailingSlash(params.baseUrl);
+  const url = new URL(params.endpoint, base);
+  const hdrs = buildCommonHeaders();
+  hdrs["Content-Type"] = "application/json";
+  logger.debug(`POST ${redactUrl(url.toString())} body=${redactBody(params.body)}`);
+
+  const controller = new AbortController();
+  const t =
+    params.timeoutMs !== undefined
+      ? setTimeout(() => controller.abort(), params.timeoutMs)
+      : undefined;
+
+  // Forward external abort signal to our controller
+  const onAbort = () => controller.abort();
+  params.abortSignal?.addEventListener("abort", onAbort, { once: true });
+
+  try {
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      headers: hdrs,
+      body: params.body,
+      signal: controller.signal,
+    });
+    const rawText = await res.text();
+    logger.debug(`${params.label} status=${res.status} raw=${redactBody(rawText)}`);
+    if (!res.ok) {
+      throw new Error(`${params.label} ${res.status}: ${rawText}`);
+    }
+    return rawText;
+  } finally {
+    if (t !== undefined) clearTimeout(t);
+    params.abortSignal?.removeEventListener("abort", onAbort);
   }
 }
 

@@ -14,6 +14,10 @@ import {
   startWeixinLoginWithQr,
   waitForWeixinLogin,
 } from "./auth/login-qr.js";
+import {
+  clearContextTokensForAccount,
+  restoreContextTokens,
+} from "./messaging/inbound.js";
 import { monitorWeixinProvider } from "./monitor/monitor.js";
 import type { PendingFinalChunk } from "./messaging/quota-manager.js";
 import type { RuntimeMediaStore } from "../channels/media-store.js";
@@ -122,6 +126,7 @@ export function logout(opts?: { log?: (msg: string) => void }): void {
     log("当前没有已登录的账号");
     return;
   }
+  for (const id of ids) clearContextTokensForAccount(id);
   clearAllWeixinAccounts();
   log("✅ 已退出登录");
 }
@@ -162,6 +167,8 @@ export async function start(agent: Agent, opts?: StartOptions): Promise<void> {
       `账号 ${accountId} 未配置 (缺少 token)，请先运行 login`,
     );
   }
+
+  restoreContextTokens(account.accountId);
 
   log(`[weixin] 启动 bot, account=${account.accountId}`);
 
