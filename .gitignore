@@ -9,6 +9,8 @@ openclaw
 .agents/
 .codex/
 .opencode/
+.antigravitycli/
+undefined/
 .nvm*
 .npm*
 *.local.md
