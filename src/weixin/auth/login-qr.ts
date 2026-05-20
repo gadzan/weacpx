@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-import { apiGetFetch } from "../api/api.js";
+import { apiGetFetch, apiPostFetch } from "../api/api.js";
+import { listIndexedWeixinAccountIds, loadWeixinAccount } from "./accounts.js";
 import { logger } from "../util/logger.js";
 import { redactToken } from "../util/redact.js";
 
@@ -18,8 +19,6 @@ type ActiveLogin = {
 };
 
 const ACTIVE_LOGIN_TTL_MS = 5 * 60_000;
-/** Client-side timeout for the get_bot_qrcode request. */
-const GET_QRCODE_TIMEOUT_MS = 5_000;
 /** Client-side timeout for the long-poll get_qrcode_status request. */
 const QR_LONG_POLL_TIMEOUT_MS = 35_000;
 
@@ -60,12 +59,29 @@ function purgeExpiredLogins(): void {
   }
 }
 
+function getLocalBotTokenList(): string[] {
+  const accountIds = listIndexedWeixinAccountIds();
+  const tokens: string[] = [];
+  for (let i = accountIds.length - 1; i >= 0 && tokens.length < 10; i--) {
+    const accountId = accountIds[i];
+    if (!accountId) continue;
+    const data = loadWeixinAccount(accountId);
+    const token = data?.token?.trim();
+    if (token) {
+      tokens.push(token);
+    }
+  }
+  return tokens;
+}
+
 async function fetchQRCode(apiBaseUrl: string, botType: string): Promise<QRCodeResponse> {
   logger.info(`Fetching QR code from: ${apiBaseUrl} bot_type=${botType}`);
-  const rawText = await apiGetFetch({
+  const localTokenList = getLocalBotTokenList();
+  logger.info(`fetchQRCode: local_token_list count=${localTokenList.length}`);
+  const rawText = await apiPostFetch({
     baseUrl: apiBaseUrl,
     endpoint: `ilink/bot/get_bot_qrcode?bot_type=${encodeURIComponent(botType)}`,
-    timeoutMs: GET_QRCODE_TIMEOUT_MS,
+    body: JSON.stringify({ local_token_list: localTokenList }),
     label: "fetchQRCode",
   });
   return JSON.parse(rawText) as QRCodeResponse;

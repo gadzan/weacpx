@@ -118,6 +118,47 @@ export async function apiGetFetch(params: {
 }
 
 /**
+ * Simple POST fetch wrapper for login/auth endpoints.
+ * Returns the raw response text on success; throws on HTTP error or timeout.
+ */
+export async function apiPostFetch(params: {
+  baseUrl: string;
+  endpoint: string;
+  body: string;
+  token?: string;
+  timeoutMs?: number;
+  label: string;
+}): Promise<string> {
+  const base = ensureTrailingSlash(params.baseUrl);
+  const url = new URL(params.endpoint, base);
+  const hdrs = buildCommonHeaders();
+  hdrs["Content-Type"] = "application/json";
+  logger.debug(`POST ${redactUrl(url.toString())} body=${redactBody(params.body)}`);
+
+  const controller = params.timeoutMs !== undefined ? new AbortController() : undefined;
+  const t = controller && params.timeoutMs !== undefined
+    ? setTimeout(() => controller.abort(), params.timeoutMs)
+    : undefined;
+
+  try {
+    const res = await fetch(url.toString(), {
+      method: "POST",
+      headers: hdrs,
+      body: params.body,
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    const rawText = await res.text();
+    logger.debug(`${params.label} status=${res.status} raw=${redactBody(rawText)}`);
+    if (!res.ok) {
+      throw new Error(`${params.label} ${res.status}: ${rawText}`);
+    }
+    return rawText;
+  } finally {
+    if (t !== undefined) clearTimeout(t);
+  }
+}
+
+/**
  * Common fetch wrapper: POST JSON to a Weixin API endpoint with timeout + abort.
  * Returns the raw response text on success; throws on HTTP error or timeout.
  */
