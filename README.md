@@ -180,7 +180,7 @@ weacpx restart
 | `weacpx agent add <name>` | 从内置模板添加 agent；已存在且配置不同的同名 agent 不会被覆盖 |
 | `weacpx agent rm <name>` | 删除 agent |
 | `weacpx workspace list` | 查看本机已注册的 workspace |
-| `weacpx workspace add [name]` | 把当前目录注册成 workspace；不传 `name` 时使用当前目录名 |
+| `weacpx workspace add [name] [--raw]` | 把当前目录注册成 workspace；不传 `name` 时使用当前目录名，含特殊字符的名称会被自动规范化 |
 | `weacpx workspace rm <name>` | 删除 workspace |
 
 首次运行 `weacpx start` 或 `weacpx run` 时，如果没有会话、workspace 和插件，CLI 会询问是否把当前目录创建为 workspace，并选择一个内置 agent 模板；服务启动后会通过正常会话创建流程创建初始 acpx 会话。
@@ -200,8 +200,9 @@ weacpx ws rm backend
 | 命令 | 说明 |
 |------|------|
 | `weacpx workspace list` | 列出已注册的 workspace 及其路径 |
-| `weacpx workspace add` | 把当前目录注册为 workspace，名称默认取当前目录名 |
-| `weacpx workspace add <name>` | 把当前目录注册为指定名称 |
+| `weacpx workspace add` | 把当前目录注册为 workspace，名称默认取当前目录名（自动规范化） |
+| `weacpx workspace add <name>` | 把当前目录注册为指定名称（含特殊字符时自动规范化） |
+| `weacpx workspace add [name] --raw` | 保留原始名称（含空格等），后续命令需要用引号引用 |
 | `weacpx workspace rm <name>` | 删除指定 workspace |
 
 常见用法：
@@ -224,7 +225,7 @@ weacpx ws rm frontend
 /ss new claude --ws frontend
 ```
 
-注意：`workspace add` 总是注册**当前终端所在目录**；如果不传名称，会用当前目录名作为 workspace 名称。
+注意：`workspace add` 总是注册**当前终端所在目录**。如果不传名称，会用当前目录名作为 workspace 名称。含空格、中文等字符的名称会被自动规范化为 `[a-zA-Z0-9._-]+`（例如目录 `My Project` 会保存为 `My-Project`），重名时追加 `-2`、`-3`。如需保留原始名称，加 `--raw`；之后 `weacpx workspace rm`、`/ws rm`、`--ws <name>` 都需要用引号引用，例如 `weacpx workspace rm "My Project"`。
 
 ### `agent` CLI 怎么用
 
@@ -292,7 +293,7 @@ opencode, qoder, qwen, trae
 | 命令 | 说明 |
 |------|------|
 | `/workspaces` / `/workspace` / `/ws` | 查看 workspace 列表 |
-| `/ws new <name> -d <path>` | 添加 workspace，`path` 是电脑上的绝对路径，Windows 不用区分正反斜杠 |
+| `/ws new <name> -d <path> [--raw]` | 添加 workspace，`path` 是电脑上的绝对路径，Windows 不用区分正反斜杠；含空格/中文等特殊字符的名称会被自动规范化，--raw 保留原名 |
 | `/workspace rm <name>` | 删除 workspace |
 
 ### Session 会话

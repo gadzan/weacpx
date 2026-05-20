@@ -73,8 +73,8 @@ Workspace 是你电脑上的项目目录。建议使用绝对路径。
 |------|------|
 | `/workspaces` | 查看已注册的 workspace |
 | `/workspace` / `/ws` | `/workspaces` 的常用别名 |
-| `/workspace new <name> --cwd <path>` | 添加 workspace |
-| `/ws new <name> -d <path>` | 添加 workspace 的短写法 |
+| `/workspace new <name> --cwd <path> [--raw]` | 添加 workspace；含空格/中文等特殊字符的名称会被自动规范化 |
+| `/ws new <name> -d <path> [--raw]` | 添加 workspace 的短写法 |
 | `/workspace rm <name>` | 删除 workspace |
 
 示例：
@@ -84,6 +84,14 @@ Workspace 是你电脑上的项目目录。建议使用绝对路径。
 /workspaces
 /workspace rm backend
 ```
+
+> 名称会被规范化为 `[a-zA-Z0-9._-]+`：空格、中文、其他符号会替换成 `-`，重名时自动追加 `-2`、`-3`。如需保留含特殊字符的原始名称，加 `--raw`，例如：
+>
+> ```text
+> /ws new "My Project" -d /Users/me/projects/my-project --raw
+> ```
+>
+> 使用 `--raw` 后续命令需要用引号：`/ws rm "My Project"`、`/ss codex --ws "My Project"`。
 
 ## Session 会话
 
