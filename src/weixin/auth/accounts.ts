@@ -286,10 +286,10 @@ export function loadConfigBotAgent(accountId?: string): string | undefined {
     if (accountId) {
       const accounts = section.accounts as Record<string, Record<string, unknown>> | undefined;
       const agent = accounts?.[accountId]?.botAgent;
-      if (typeof agent === "string" && agent.trim()) return agent;
+      if (typeof agent === "string" && agent.trim()) return agent.trim();
     }
     return typeof section.botAgent === "string" && section.botAgent.trim()
-      ? section.botAgent
+      ? section.botAgent.trim()
       : undefined;
   } catch {
     return undefined;
