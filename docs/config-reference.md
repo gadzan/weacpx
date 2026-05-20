@@ -481,6 +481,7 @@ weacpx channel add <channel-type>
 | `WEACPX_CONFIG` | 配置文件路径（默认 `~/.weacpx/config.json`） |
 | `WEACPX_STATE` | 状态文件路径（默认 `~/.weacpx/state.json`） |
 | `WEACPX_WEIXIN_SDK` | 强制指定 weixin-agent-sdk 入口文件路径 |
+| `WEACPX_ILINK_APP_ID` | 微信频道出网请求所携带的 `iLink-App-Id` 头。留空时不发送该头（向后兼容） |
 
 ---
 
