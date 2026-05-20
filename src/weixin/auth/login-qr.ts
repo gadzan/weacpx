@@ -103,16 +103,26 @@ async function fetchQRCode(apiBaseUrl: string, botType: string): Promise<QRCodeR
   return JSON.parse(rawText) as QRCodeResponse;
 }
 
+/**
+ * Build the URL-encoded endpoint for the QR status long-poll. Exported for
+ * unit testing — `pollQRStatus` uses this exact helper, so a test on the
+ * helper covers the real production path.
+ */
+export function buildPollQRStatusEndpoint(qrcode: string, verifyCode?: string): string {
+  let endpoint = `ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`;
+  if (verifyCode) {
+    endpoint += `&verify_code=${encodeURIComponent(verifyCode)}`;
+  }
+  return endpoint;
+}
+
 async function pollQRStatus(
   apiBaseUrl: string,
   qrcode: string,
   verifyCode?: string,
 ): Promise<StatusResponse> {
   logger.debug(`Long-poll QR status from: ${apiBaseUrl} qrcode=*** hasVerifyCode=${Boolean(verifyCode)}`);
-  let endpoint = `ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`;
-  if (verifyCode) {
-    endpoint += `&verify_code=${encodeURIComponent(verifyCode)}`;
-  }
+  const endpoint = buildPollQRStatusEndpoint(qrcode, verifyCode);
   try {
     const rawText = await apiGetFetch({
       baseUrl: apiBaseUrl,
