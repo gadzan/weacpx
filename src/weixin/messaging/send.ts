@@ -5,6 +5,7 @@ import { generateId } from "../util/random.js";
 import type { MessageItem, SendMessageReq } from "../api/types.js";
 import { MessageItemType, MessageState, MessageType } from "../api/types.js";
 import type { UploadedFileInfo } from "../cdn/upload.js";
+import { StreamingMarkdownFilter } from "./markdown-filter.js";
 
 export function generateClientId(): string {
   return generateId("openclaw-weixin");
@@ -12,29 +13,13 @@ export function generateClientId(): string {
 
 /**
  * Convert markdown-formatted model reply to plain text for Weixin delivery.
- * Preserves newlines; strips markdown syntax.
+ * Backed by StreamingMarkdownFilter — preserves code blocks, tables, inline
+ * backticks, non-CJK bold/italic; strips CJK italic/bold-italic markers,
+ * images, and H5/H6 heading markers.
  */
 export function markdownToPlainText(text: string): string {
-  let result = text;
-  // Code blocks: strip fences, keep code content
-  result = result.replace(/```[^\n]*\n?([\s\S]*?)```/g, (_, code: string) => code.trim());
-  // Images: remove entirely
-  result = result.replace(/!\[[^\]]*\]\([^)]*\)/g, "");
-  // Links: keep display text only
-  result = result.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
-  // Tables: remove separator rows, then strip leading/trailing pipes and convert inner pipes to spaces
-  result = result.replace(/^\|[\s:|-]+\|$/gm, "");
-  result = result.replace(/^\|(.+)\|$/gm, (_, inner: string) =>
-    inner.split("|").map((cell) => cell.trim()).join("  "),
-  );
-  // Strip inline markdown formatting
-  result = result
-    .replace(/\*\*(.+?)\*\*/g, "$1")
-    .replace(/\*(.+?)\*/g, "$1")
-    .replace(/__(.+?)__/g, "$1")
-    .replace(/~~(.+?)~~/g, "$1")
-    .replace(/`(.+?)`/g, "$1");
-  return result;
+  const f = new StreamingMarkdownFilter();
+  return f.feed(text) + f.flush();
 }
 
 
