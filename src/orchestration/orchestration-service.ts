@@ -345,6 +345,14 @@ export class OrchestrationService {
   private readonly stateMutex: AsyncMutex;
   private readonly pendingWorkerSessions = new Map<string, number>();
   private readonly pendingLogicalTransportSessions = new Map<string, number>();
+  /**
+   * Per-agent counter for parallel tasks that have passed the capacity gate
+   * but have not yet been persisted as `running` in state (i.e., they are
+   * between the gate mutate and the inner persist mutate). This closes the
+   * TOCTOU window: a concurrent `reconcileParallelSlots` Phase 3 or a second
+   * delegation can see these in-flight starts as occupied slots.
+   */
+  private readonly pendingParallelStarts = new Map<string, number>();
 
   constructor(private readonly deps: OrchestrationServiceDeps) {
     this.stateMutex = deps.stateMutex ?? new AsyncMutex();
@@ -563,6 +571,15 @@ export class OrchestrationService {
       const queuedResult = await this.mutate(async () => {
         const state = await this.deps.loadState();
         if (this.canStartParallelTask(state, input.targetAgent)) {
+          // Slot available — increment the pending counter atomically with this
+          // mutate so that concurrent gate checks (other delegations or
+          // reconcileParallelSlots Phase 3) see this slot as taken until the task
+          // is persisted as `running` in the inner mutate below. This closes the
+          // TOCTOU window between the gate mutate exit and the inner persist mutate.
+          this.pendingParallelStarts.set(
+            input.targetAgent,
+            (this.pendingParallelStarts.get(input.targetAgent) ?? 0) + 1,
+          );
           return null; // capacity available — fall through to normal start
         }
         const now = this.deps.now().toISOString();
@@ -607,7 +624,20 @@ export class OrchestrationService {
       }
     }
 
-    const releaseWorkerReservation = await this.reserveProposedWorkerSession(workerSession);
+    // Decrement the pending-parallel-start counter on completion (success or
+    // error). This mirrors the pendingWorkerSessions cleanup style. We only
+    // decrement when `input.parallel` is true (i.e. when we incremented above).
+    const releasePendingParallelStart = input.parallel
+      ? () => {
+          const count = this.pendingParallelStarts.get(input.targetAgent) ?? 0;
+          if (count <= 1) {
+            this.pendingParallelStarts.delete(input.targetAgent);
+          } else {
+            this.pendingParallelStarts.set(input.targetAgent, count - 1);
+          }
+        }
+      : undefined;
+
     let ensuredWorkerSession = workerSession;
     let prepared: {
       task: OrchestrationTaskRecord;
@@ -615,86 +645,95 @@ export class OrchestrationService {
       previousGroup?: OrchestrationGroupRecord;
       normalizedGroupId?: string;
     };
+
+    const releaseWorkerReservation = await this.reserveProposedWorkerSession(workerSession);
     try {
-      ensuredWorkerSession = await this.ensureReservedWorkerSession({
-        workerSession,
-        sourceHandle: input.sourceHandle,
-        sourceKind: input.sourceKind,
-        coordinatorSession: input.coordinatorSession,
-        workspace: input.workspace,
-        ...(input.cwd ? { cwd: input.cwd } : {}),
-        targetAgent: input.targetAgent,
-        role,
-      });
-      prepared = await this.mutate(async () => {
-        const state = await this.deps.loadState();
-        const now = this.deps.now().toISOString();
-        if (normalizedGroupId) {
-          this.assertGroupOwnership(this.ensureGroups(state)[normalizedGroupId], normalizedGroupId, input.coordinatorSession);
-        }
-        const task: OrchestrationTaskRecord = {
-          taskId,
+      try {
+        ensuredWorkerSession = await this.ensureReservedWorkerSession({
+          workerSession,
           sourceHandle: input.sourceHandle,
           sourceKind: input.sourceKind,
-          coordinatorSession: input.coordinatorSession,
-          workerSession: ensuredWorkerSession,
-          workspace: input.workspace,
-          ...(input.cwd ? { cwd: input.cwd } : {}),
-          targetAgent: input.targetAgent,
-          ...(role ? { role } : {}),
-          ...(normalizedGroupId ? { groupId: normalizedGroupId } : {}),
-          task: input.task,
-          status: "running",
-          summary: "",
-          resultText: "",
-          createdAt: now,
-          updatedAt: now,
-          eventSeq: 1,
-          events: [{ seq: 1, at: now, type: "created", status: "running", message: "Task created" }],
-          ...(input.chatKey ? { chatKey: input.chatKey } : {}),
-          ...(input.replyContextToken ? { replyContextToken: input.replyContextToken } : {}),
-          ...(input.accountId ? { accountId: input.accountId } : {}),
-          ...(input.parallel ? { ephemeralWorkerSession: true } : {}),
-        };
-
-        let previousGroup: OrchestrationGroupRecord | undefined;
-        if (normalizedGroupId) {
-          const group = this.ensureGroups(state)[normalizedGroupId]!;
-          previousGroup = { ...group };
-          group.updatedAt = now;
-          group.coordinatorInjectedAt = undefined;
-          group.injectionPending = undefined;
-          group.injectionAppliedAt = undefined;
-          group.lastInjectionError = undefined;
-        }
-        const previousBinding = state.orchestration.workerBindings[ensuredWorkerSession];
-        this.assertWorkerSessionDoesNotConflictExternalCoordinator(state, ensuredWorkerSession);
-        this.assertWorkerSessionAvailable(state, ensuredWorkerSession, undefined, { allowCurrentReservation: true });
-        state.orchestration.tasks[taskId] = task;
-        state.orchestration.workerBindings[ensuredWorkerSession] = {
-          sourceHandle: ensuredWorkerSession,
           coordinatorSession: input.coordinatorSession,
           workspace: input.workspace,
           ...(input.cwd ? { cwd: input.cwd } : {}),
           targetAgent: input.targetAgent,
           role,
-          ...(input.parallel ? { ephemeral: true } : {}),
-        };
+        });
+        prepared = await this.mutate(async () => {
+          const state = await this.deps.loadState();
+          const now = this.deps.now().toISOString();
+          if (normalizedGroupId) {
+            this.assertGroupOwnership(this.ensureGroups(state)[normalizedGroupId], normalizedGroupId, input.coordinatorSession);
+          }
+          const task: OrchestrationTaskRecord = {
+            taskId,
+            sourceHandle: input.sourceHandle,
+            sourceKind: input.sourceKind,
+            coordinatorSession: input.coordinatorSession,
+            workerSession: ensuredWorkerSession,
+            workspace: input.workspace,
+            ...(input.cwd ? { cwd: input.cwd } : {}),
+            targetAgent: input.targetAgent,
+            ...(role ? { role } : {}),
+            ...(normalizedGroupId ? { groupId: normalizedGroupId } : {}),
+            task: input.task,
+            status: "running",
+            summary: "",
+            resultText: "",
+            createdAt: now,
+            updatedAt: now,
+            eventSeq: 1,
+            events: [{ seq: 1, at: now, type: "created", status: "running", message: "Task created" }],
+            ...(input.chatKey ? { chatKey: input.chatKey } : {}),
+            ...(input.replyContextToken ? { replyContextToken: input.replyContextToken } : {}),
+            ...(input.accountId ? { accountId: input.accountId } : {}),
+            ...(input.parallel ? { ephemeralWorkerSession: true } : {}),
+          };
 
-        await this.deps.saveState(state);
+          let previousGroup: OrchestrationGroupRecord | undefined;
+          if (normalizedGroupId) {
+            const group = this.ensureGroups(state)[normalizedGroupId]!;
+            previousGroup = { ...group };
+            group.updatedAt = now;
+            group.coordinatorInjectedAt = undefined;
+            group.injectionPending = undefined;
+            group.injectionAppliedAt = undefined;
+            group.lastInjectionError = undefined;
+          }
+          const previousBinding = state.orchestration.workerBindings[ensuredWorkerSession];
+          this.assertWorkerSessionDoesNotConflictExternalCoordinator(state, ensuredWorkerSession);
+          this.assertWorkerSessionAvailable(state, ensuredWorkerSession, undefined, { allowCurrentReservation: true });
+          state.orchestration.tasks[taskId] = task;
+          state.orchestration.workerBindings[ensuredWorkerSession] = {
+            sourceHandle: ensuredWorkerSession,
+            coordinatorSession: input.coordinatorSession,
+            workspace: input.workspace,
+            ...(input.cwd ? { cwd: input.cwd } : {}),
+            targetAgent: input.targetAgent,
+            role,
+            ...(input.parallel ? { ephemeral: true } : {}),
+          };
 
-        return {
-          task: { ...task },
-          previousBinding,
-          previousGroup,
-          normalizedGroupId,
-        };
-      });
-    } catch (error) {
+          await this.deps.saveState(state);
+
+          return {
+            task: { ...task },
+            previousBinding,
+            previousGroup,
+            normalizedGroupId,
+          };
+        });
+      } catch (error) {
+        await releaseWorkerReservation();
+        throw error;
+      }
       await releaseWorkerReservation();
-      throw error;
+    } finally {
+      // The pending-start slot is consumed once the task is persisted as
+      // `running` (or on any error). The actual slot is now tracked by the
+      // persisted task status, so the pending counter is no longer needed.
+      releasePendingParallelStart?.();
     }
-    await releaseWorkerReservation();
 
     try {
       await this.deps.dispatchWorkerTask({
@@ -787,6 +826,13 @@ export class OrchestrationService {
       const queuedResult = await this.mutate(async () => {
         const state = await this.deps.loadState();
         if (this.canStartParallelTask(state, input.targetAgent)) {
+          // Slot available — increment the pending counter atomically with this
+          // mutate so that concurrent gate checks see this slot as taken until
+          // the task is persisted as `running` in the inner mutate below.
+          this.pendingParallelStarts.set(
+            input.targetAgent,
+            (this.pendingParallelStarts.get(input.targetAgent) ?? 0) + 1,
+          );
           return null; // capacity available — fall through to normal start
         }
         const now = this.deps.now().toISOString();
@@ -826,7 +872,19 @@ export class OrchestrationService {
       }
     }
 
-    const releaseWorkerReservation = await this.reserveProposedWorkerSession(workerSessionName);
+    // Decrement the pending-parallel-start counter on completion (success or
+    // error). Only applicable when parallel + autoRun (that is when we incremented
+    // above). The counter is released once the task is persisted or on any error.
+    const releasePendingParallelStart = (input.parallel && autoRun)
+      ? () => {
+          const count = this.pendingParallelStarts.get(input.targetAgent) ?? 0;
+          if (count <= 1) {
+            this.pendingParallelStarts.delete(input.targetAgent);
+          } else {
+            this.pendingParallelStarts.set(input.targetAgent, count - 1);
+          }
+        }
+      : undefined;
 
     let prepared: {
       task: OrchestrationTaskRecord;
@@ -834,77 +892,84 @@ export class OrchestrationService {
       previousBinding?: AppState["orchestration"]["workerBindings"][string];
       normalizedGroupId?: string;
     };
-    try {
-      prepared = await this.mutate(async () => {
-        const state = await this.deps.loadState();
-        this.assertRpcRequestAllowed(
-          state,
-          preflight.sourceContext.sourceKind,
-          preflight.sourceContext.coordinatorSession,
-          input.targetAgent,
-          preflight.role,
-        );
-        const now = this.deps.now().toISOString();
-        const status: OrchestrationTaskStatus = autoRun ? "running" : "needs_confirmation";
-        const task: OrchestrationTaskRecord = {
-          taskId,
-          sourceHandle: input.sourceHandle,
-          sourceKind: preflight.sourceContext.sourceKind,
-          coordinatorSession: preflight.sourceContext.coordinatorSession,
-          workerSession: workerSessionName,
-          workspace: preflight.targetLocation.workspace,
-          ...(preflight.targetLocation.cwd ? { cwd: preflight.targetLocation.cwd } : {}),
-          targetAgent: input.targetAgent,
-          ...(preflight.role ? { role: preflight.role } : {}),
-          ...(preflight.normalizedGroupId ? { groupId: preflight.normalizedGroupId } : {}),
-          task: input.task,
-          status,
-          summary: "",
-          resultText: "",
-          createdAt: now,
-          updatedAt: now,
-          eventSeq: 1,
-          events: [{ seq: 1, at: now, type: "created", status, message: "Task created" }],
-          ...(input.parallel ? { ephemeralWorkerSession: true } : {}),
-        };
 
-        if (preflight.normalizedGroupId) {
-          const group = this.ensureGroups(state)[preflight.normalizedGroupId]!;
-          group.updatedAt = now;
-          group.coordinatorInjectedAt = undefined;
-          group.injectionPending = undefined;
-          group.injectionAppliedAt = undefined;
-          group.lastInjectionError = undefined;
-        }
-        let previousBinding: AppState["orchestration"]["workerBindings"][string] | undefined;
-        if (autoRun) {
-          previousBinding = state.orchestration.workerBindings[workerSessionName];
-          this.assertWorkerSessionDoesNotConflictExternalCoordinator(state, workerSessionName);
-          this.assertWorkerSessionAvailable(state, workerSessionName, undefined, { allowCurrentReservation: true });
-          state.orchestration.tasks[taskId] = task;
-          state.orchestration.workerBindings[workerSessionName] = {
-            sourceHandle: workerSessionName,
+    const releaseWorkerReservation = await this.reserveProposedWorkerSession(workerSessionName);
+    try {
+      try {
+        prepared = await this.mutate(async () => {
+          const state = await this.deps.loadState();
+          this.assertRpcRequestAllowed(
+            state,
+            preflight.sourceContext.sourceKind,
+            preflight.sourceContext.coordinatorSession,
+            input.targetAgent,
+            preflight.role,
+          );
+          const now = this.deps.now().toISOString();
+          const status: OrchestrationTaskStatus = autoRun ? "running" : "needs_confirmation";
+          const task: OrchestrationTaskRecord = {
+            taskId,
+            sourceHandle: input.sourceHandle,
+            sourceKind: preflight.sourceContext.sourceKind,
             coordinatorSession: preflight.sourceContext.coordinatorSession,
+            workerSession: workerSessionName,
             workspace: preflight.targetLocation.workspace,
             ...(preflight.targetLocation.cwd ? { cwd: preflight.targetLocation.cwd } : {}),
             targetAgent: input.targetAgent,
-            role: preflight.role,
-            ...(input.parallel ? { ephemeral: true } : {}),
+            ...(preflight.role ? { role: preflight.role } : {}),
+            ...(preflight.normalizedGroupId ? { groupId: preflight.normalizedGroupId } : {}),
+            task: input.task,
+            status,
+            summary: "",
+            resultText: "",
+            createdAt: now,
+            updatedAt: now,
+            eventSeq: 1,
+            events: [{ seq: 1, at: now, type: "created", status, message: "Task created" }],
+            ...(input.parallel ? { ephemeralWorkerSession: true } : {}),
           };
-        } else {
-          this.assertWorkerSessionDoesNotConflictExternalCoordinator(state, workerSessionName);
-          this.assertWorkerSessionAvailable(state, workerSessionName, undefined, { allowCurrentReservation: true });
-          state.orchestration.tasks[taskId] = task;
-        }
-        await this.deps.saveState(state);
 
-        return { task: { ...task }, status, previousBinding, normalizedGroupId: preflight.normalizedGroupId };
-      });
-    } catch (error) {
+          if (preflight.normalizedGroupId) {
+            const group = this.ensureGroups(state)[preflight.normalizedGroupId]!;
+            group.updatedAt = now;
+            group.coordinatorInjectedAt = undefined;
+            group.injectionPending = undefined;
+            group.injectionAppliedAt = undefined;
+            group.lastInjectionError = undefined;
+          }
+          let previousBinding: AppState["orchestration"]["workerBindings"][string] | undefined;
+          if (autoRun) {
+            previousBinding = state.orchestration.workerBindings[workerSessionName];
+            this.assertWorkerSessionDoesNotConflictExternalCoordinator(state, workerSessionName);
+            this.assertWorkerSessionAvailable(state, workerSessionName, undefined, { allowCurrentReservation: true });
+            state.orchestration.tasks[taskId] = task;
+            state.orchestration.workerBindings[workerSessionName] = {
+              sourceHandle: workerSessionName,
+              coordinatorSession: preflight.sourceContext.coordinatorSession,
+              workspace: preflight.targetLocation.workspace,
+              ...(preflight.targetLocation.cwd ? { cwd: preflight.targetLocation.cwd } : {}),
+              targetAgent: input.targetAgent,
+              role: preflight.role,
+              ...(input.parallel ? { ephemeral: true } : {}),
+            };
+          } else {
+            this.assertWorkerSessionDoesNotConflictExternalCoordinator(state, workerSessionName);
+            this.assertWorkerSessionAvailable(state, workerSessionName, undefined, { allowCurrentReservation: true });
+            state.orchestration.tasks[taskId] = task;
+          }
+          await this.deps.saveState(state);
+
+          return { task: { ...task }, status, previousBinding, normalizedGroupId: preflight.normalizedGroupId };
+        });
+      } catch (error) {
+        await releaseWorkerReservation();
+        throw error;
+      }
       await releaseWorkerReservation();
-      throw error;
+    } finally {
+      // The pending-start slot is consumed once the task is persisted or on error.
+      releasePendingParallelStart?.();
     }
-    await releaseWorkerReservation();
 
     if (autoRun) {
       void this.runAutoRunRpcWorkerTask({
@@ -2146,6 +2211,20 @@ export class OrchestrationService {
       }
     }
 
+    // I-2: when a contested result is accepted, the task's reviewPending is cleared
+    // and the task becomes terminally resolved (no further launchWorkerTurn fires).
+    // Fire reconcile so the ephemeral session is closed and queued tasks can drain.
+    if (input.decision === "accept") {
+      try {
+        await this.reconcileParallelSlots();
+      } catch (error) {
+        this.logEvent("orchestration.parallel.reconcile_failed", "reconcile failed after contested result accepted", {
+          taskId: prepared.task.taskId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
     return prepared.task;
   }
 
@@ -2777,6 +2856,21 @@ export class OrchestrationService {
       await this.handoffQueuedQuestions(prepared.task.coordinatorSession, prepared.closedPackageId);
     }
 
+    // I-2: non-running cancel transitions the task directly to `cancelled` without
+    // going through launchWorkerTurn. Fire reconcile so the ephemeral acpx session
+    // is closed promptly and any queued parallel tasks can drain. This also fires
+    // for non-parallel tasks — reconcile is idempotent and cheap in that case.
+    if (!prepared.shouldPropagate && this.isTerminalStatus(prepared.task.status)) {
+      try {
+        await this.reconcileParallelSlots();
+      } catch (error) {
+        this.logEvent("orchestration.parallel.reconcile_failed", "reconcile failed after non-running cancel", {
+          taskId: prepared.task.taskId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
     return prepared.task;
   }
 
@@ -2852,6 +2946,17 @@ export class OrchestrationService {
       "task cancellation completed",
       this.taskContext(prepared.task),
     );
+
+    // I-2: running-task cancel completes here. Fire reconcile so the ephemeral acpx
+    // session is closed promptly and queued parallel tasks can drain.
+    try {
+      await this.reconcileParallelSlots();
+    } catch (error) {
+      this.logEvent("orchestration.parallel.reconcile_failed", "reconcile failed after cancel completion", {
+        taskId: prepared.task.taskId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     return prepared.task;
   }
@@ -3569,7 +3674,7 @@ export class OrchestrationService {
 
   /** Count parallel-slot tasks currently holding an acpx session for an agent. */
   private countActiveParallelSlots(state: AppState, targetAgent: string): number {
-    return Object.values(state.orchestration.tasks).filter(
+    const persisted = Object.values(state.orchestration.tasks).filter(
       (task) =>
         task.ephemeralWorkerSession === true &&
         task.targetAgent === targetAgent &&
@@ -3582,6 +3687,11 @@ export class OrchestrationService {
           task.status === "blocked" ||
           task.status === "waiting_for_human"),
     ).length;
+    // Include tasks that have passed the capacity gate but are not yet persisted
+    // as `running` (between gate-mutate and inner-persist-mutate). This closes
+    // the TOCTOU window where a concurrent delegation could see stale state.
+    const pending = this.pendingParallelStarts.get(targetAgent) ?? 0;
+    return persisted + pending;
   }
 
   /**
@@ -3620,16 +3730,25 @@ export class OrchestrationService {
           task.reviewPending === undefined &&
           this.isTerminalStatus(task.status)
         ) {
+          // I-3: Only close (and delete the binding for) sessions that were actually
+          // started — i.e., the worker binding exists in state. Queued tasks that were
+          // cancelled before being drained never had an acpx session opened, so their
+          // workerSession is an intended-but-never-reserved name with no binding entry.
+          // Calling closeWorkerSession on those is wasted I/O and produces a misleading
+          // log. Mark them closed anyway so Phase 1 does not re-check them on future
+          // reconcile calls.
           task.ephemeralWorkerSessionClosed = true;
-          delete state.orchestration.workerBindings[task.workerSession];
-          collected.push({
-            workerSession: task.workerSession,
-            coordinatorSession: task.coordinatorSession,
-            workspace: task.workspace,
-            ...(task.cwd ? { cwd: task.cwd } : {}),
-            targetAgent: task.targetAgent,
-            ...(task.role ? { role: task.role } : {}),
-          });
+          if (state.orchestration.workerBindings[task.workerSession] !== undefined) {
+            delete state.orchestration.workerBindings[task.workerSession];
+            collected.push({
+              workerSession: task.workerSession,
+              coordinatorSession: task.coordinatorSession,
+              workspace: task.workspace,
+              ...(task.cwd ? { cwd: task.cwd } : {}),
+              targetAgent: task.targetAgent,
+              ...(task.role ? { role: task.role } : {}),
+            });
+          }
         }
       }
       if (collected.length > 0) {
