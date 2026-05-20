@@ -49,7 +49,7 @@ afterEach(() => {
 });
 
 function tokenFilePath(accountId: string): string {
-  return path.join(stateDir, "weacpx-weixin", "accounts", `${accountId}.context-tokens.json`);
+  return path.join(stateDir, "openclaw-weixin", "accounts", `${accountId}.context-tokens.json`);
 }
 
 describe("contextToken disk persistence", () => {

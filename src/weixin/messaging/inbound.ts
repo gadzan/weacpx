@@ -16,7 +16,7 @@ import { resolveStateDir } from "../storage/state-dir.js";
  * contextToken is issued per-message by the Weixin getupdates API and must be
  * echoed verbatim in every outbound send. The in-memory map is the hot path;
  * every write is mirrored to
- *   <stateDir>/weacpx-weixin/accounts/<accountId>.context-tokens.json
+ *   <stateDir>/openclaw-weixin/accounts/<accountId>.context-tokens.json
  * so daemon restarts can recover existing user→token associations and the
  * first reply after restart does not fail with "contextToken is required".
  */
@@ -29,7 +29,7 @@ function contextTokenKey(accountId: string, userId: string): string {
 function resolveContextTokenFilePath(accountId: string): string {
   return path.join(
     resolveStateDir(),
-    "weacpx-weixin",
+    "openclaw-weixin",
     "accounts",
     `${accountId}.context-tokens.json`,
   );
