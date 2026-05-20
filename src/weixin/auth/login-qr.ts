@@ -62,40 +62,6 @@ interface StatusResponse {
   redirect_host?: string;
 }
 
-/**
- * Categorize a raw poll response status into one of the outcomes the
- * login loop knows how to handle. Pure function — no I/O, fully testable.
- */
-export type PollOutcomeKind =
-  | "wait"
-  | "scanned"
-  | "confirmed"
-  | "expired"
-  | "scaned_but_redirect"
-  | "need_verifycode"
-  | "verify_code_blocked";
-
-export function interpretPollStatus(status: string | undefined): PollOutcomeKind {
-  switch (status) {
-    case "wait":
-      return "wait";
-    case "scaned":
-      return "scanned";
-    case "confirmed":
-      return "confirmed";
-    case "expired":
-      return "expired";
-    case "scaned_but_redirect":
-      return "scaned_but_redirect";
-    case "need_verifycode":
-      return "need_verifycode";
-    case "verify_code_blocked":
-      return "verify_code_blocked";
-    default:
-      return "wait"; // unknown → conservative fallback
-  }
-}
-
 function isLoginFresh(login: ActiveLogin): boolean {
   return Date.now() - login.startedAt < ACTIVE_LOGIN_TTL_MS;
 }
@@ -169,6 +135,9 @@ async function pollQRStatus(
 
 /** Read a single line from stdin after writing a prompt; returns the trimmed input. */
 async function readVerifyCodeFromStdin(prompt: string): Promise<string> {
+  if (!process.stdin.isTTY) {
+    throw new Error("verify code requested but stdin is not a TTY (running in daemon mode?)");
+  }
   process.stdout.write(prompt);
   return new Promise((resolve) => {
     let input = "";
@@ -361,6 +330,7 @@ export async function waitForWeixinLogin(opts: {
           }
           break;
         case "expired": {
+          activeLogin.pendingVerifyCode = undefined;
           qrRefreshCount++;
           if (qrRefreshCount > MAX_QR_REFRESH_COUNT) {
             logger.warn(
@@ -410,7 +380,17 @@ export async function waitForWeixinLogin(opts: {
           const verifyPrompt = activeLogin.pendingVerifyCode
             ? "❌ 你输入的数字不匹配，请重新输入："
             : "输入手机微信显示的数字，以继续连接：";
-          const code = await readVerifyCodeFromStdin(verifyPrompt);
+          let code: string;
+          try {
+            code = await readVerifyCodeFromStdin(verifyPrompt);
+          } catch (err) {
+            logger.error(`waitForWeixinLogin: cannot read verify code (no TTY): ${String(err)}`);
+            activeLogins.delete(opts.sessionKey);
+            return {
+              connected: false,
+              message: "需要输入配对码，但当前环境没有交互式终端。请在前台运行 `weacpx login` 完成登录。",
+            };
+          }
           activeLogin.pendingVerifyCode = code;
           continue; // skip the 1s sleep; poll immediately with new code
         }
