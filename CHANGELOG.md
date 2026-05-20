@@ -1,12 +1,24 @@
 # Changelog
 
-## [0.4.9] - 2026-05-20
+## [0.4.9] - 2026-05-21
 
 ### Added
 
 - **并行 agent 委派（`parallel` opt-in）：** `delegate_request` 和 `delegate_batch` 的每个任务条目新增可选字段 `parallel: boolean`（默认 `false`）。设为 `true` 时，任务在独立的临时 acpx session 中与该 agent 的其他并行任务并发执行；任务到达终态且无待审核项后，该临时 session 自动关闭（`transport.removeSession` → `acpx <agent> sessions close <name>`）。`parallel: false`（默认）行为与以往完全一致，串行复用 agent 现有 session，无任何变化。
 - **`orchestration.maxParallelTasksPerAgent` 配置项：** 新增整数配置字段（≥ 1，默认 `3`），全局限制每个 agent 同时运行的并行 slot 数量，跨所有 coordinator 和工作区计数。
 - **`queued` 任务状态：** 当目标 agent 的并行 slot 已满时，新的 `parallel: true` 任务以 `status: "queued"` 创建，不占用 acpx session；有 slot 释放时自动按创建时间顺序升为 `running` 并开始执行。`queued` 任务计入 `maxPendingAgentRequestsPerCoordinator` 配额，可通过 `task_watch` / `task_get` 正常跟踪直至终态。
+- **微信 channel 客户端标识头：** 出站请求新增 `iLink-App-ClientVersion`（uint32 编码的 semver）头；同时 `base_info` 新增 `bot_agent` 字段，从配置 `channels.openclaw-weixin.botAgent`（支持账号级覆盖）读取，经 UA 风格语法清洗与 256 字节上限。可选 `WEACPX_ILINK_APP_ID` 环境变量启用 `iLink-App-Id` 头，未设置时不发送（向后兼容）。
+- **微信扫码登录配对码支持：** `pollQRStatus` 识别 `need_verifycode` / `verify_code_blocked` 两种状态。前者从交互式终端读取 6 位配对码并附在下次轮询的 `&verify_code=` 上；后者刷新二维码并清除暂存的配对码，连续 `MAX_QR_REFRESH_COUNT` 次锁定后放弃。新增 daemon 模式 TTY 守卫——缺少交互终端时立即放弃登录而不挂死。
+- **文档：** `docs/config-reference.md` 新增"微信频道扩展配置（`openclaw.json`）"段，记录 `routeTag`（既有，长期未文档化）/ `botAgent`（新增）/ 账号级覆盖结构 / `OPENCLAW_CONFIG` 环境变量；环境变量表追加 `WEACPX_ILINK_APP_ID`。
+
+### Changed
+
+- **微信回复 Markdown 过滤改为流式状态机：** `markdownToPlainText` 由贪婪 regex 替换为字符级状态机（`StreamingMarkdownFilter`，从 openclaw 借鉴）——保留代码围栏内容、表格分隔行、行内反引号、`**` 加粗与非 CJK 斜体；仅在 CJK 语境剥离 `*` / `***` / `_` / `___` 斜体标记，剥离图片与 H5/H6。修复长期存在的代码块与表格被吞问题。`markdownToPlainText` API 签名不变，所有调用点零改动。
+
+### Fixed
+
+- **微信 contextToken 落盘持久化：** `contextToken` 现在每次 `setContextToken` 写入磁盘（`<stateDir>/openclaw-weixin/accounts/<id>.context-tokens.json`），`bot.start()` 时 `restoreContextTokens` 读回内存，`bot.logout()` 时清理对应账号。修复 daemon 重启后首条 outbound 回复因 `contextToken is required` 直接失败。新增 `findAccountIdsByContextToken` 供编排投递路径反查发送账号。
+- **resolvePluginHome 防御字符串化的 undefined/null：** 当 `input.home` / `input.pluginHome` / `WEACPX_PLUGIN_HOME` / `process.env.HOME` 被传成字面字符串 `"undefined"` 或 `"null"` 时，旧 `??` 守卫视其 truthy 保留，导致 `join("undefined", ".weacpx", "plugins")` 在 CWD 下材化出 `undefined/.weacpx/plugins/`。现统一归一化为缺省值让 `??` 正确 fall-through 到 `homedir()`。同时清理 `73b08c1`（0.4.7）误提交的 `undefined/.weacpx/plugins/package.json` 并加入 `.gitignore`。
 
 ## [channel-feishu 0.1.2] - 2026-05-19
 
