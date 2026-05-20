@@ -1,4 +1,5 @@
 import { basenameForWorkspacePath, normalizeWorkspacePath } from "./commands/workspace-path.js";
+import { allocateWorkspaceName, sanitizeWorkspaceName } from "./commands/workspace-name.js";
 import type { AppConfig } from "./config/types.js";
 import type { AppState } from "./state/types.js";
 import { listAgentTemplates, getAgentTemplate } from "./config/agent-templates.js";
@@ -40,7 +41,10 @@ export async function maybeRunFirstUseOnboarding(input: {
   if (!input.deps.isInteractive()) return { created: false };
 
   const cwd = normalizeWorkspacePath(input.deps.cwd());
-  const workspaceName = allocateName(sanitizeName(basenameForWorkspacePath(cwd), "workspace"), input.config.workspaces);
+  const workspaceName = allocateWorkspaceName(
+    sanitizeWorkspaceName(basenameForWorkspacePath(cwd)),
+    input.config.workspaces,
+  );
   const yes = (await input.deps.promptText(`检测到首次使用 weacpx。是否将当前目录创建为工作区「${workspaceName}」？[Y/n] `)).trim().toLowerCase();
   if (yes === "n" || yes === "no") return { created: false };
 
@@ -82,16 +86,4 @@ function resolveTemplateChoice(answer: string, names: string[]): string | null {
   const index = Number.parseInt(answer, 10);
   if (Number.isFinite(index) && index >= 1 && index <= names.length) return names[index - 1]!;
   return names.includes(answer) ? answer : null;
-}
-
-function allocateName(base: string, existing: Record<string, unknown>): string {
-  if (!existing[base]) return base;
-  let suffix = 2;
-  while (existing[`${base}-${suffix}`]) suffix += 1;
-  return `${base}-${suffix}`;
-}
-
-function sanitizeName(input: string, fallback: string): string {
-  const sanitized = input.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-  return sanitized || fallback;
 }
