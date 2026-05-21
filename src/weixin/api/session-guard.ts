@@ -39,6 +39,11 @@ export function getRemainingPauseMs(accountId: string): number {
   return remaining;
 }
 
+/** Clear the session pause for a specific account. Used when fresh credentials are detected. */
+export function resetSessionPause(accountId: string): void {
+  pauseUntilMap.delete(accountId);
+}
+
 /** Throw if the session is currently paused. Call before any API request. */
 export function assertSessionActive(accountId: string): void {
   if (isSessionPaused(accountId)) {
