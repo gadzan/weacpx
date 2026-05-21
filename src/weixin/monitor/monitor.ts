@@ -1,7 +1,7 @@
 import type { Agent } from "../agent/interface.js";
 import { getUpdates } from "../api/api.js";
 import { WeixinConfigManager } from "../api/config-cache.js";
-import { SESSION_EXPIRED_ERRCODE, pauseSession, getRemainingPauseMs } from "../api/session-guard.js";
+import { SESSION_EXPIRED_ERRCODE, pauseSession } from "../api/session-guard.js";
 import { createConversationExecutor } from "../messaging/conversation-executor.js";
 import { getWeixinMessageTurnLane, handleWeixinMessageTurn } from "../messaging/handle-weixin-message-turn.js";
 import type { PendingFinalChunk } from "../messaging/quota-manager.js";
@@ -146,13 +146,48 @@ export async function monitorWeixinProvider(opts: MonitorWeixinOpts): Promise<vo
           resp.errcode === SESSION_EXPIRED_ERRCODE || resp.ret === SESSION_EXPIRED_ERRCODE;
 
         if (isSessionExpired) {
-          pauseSession(accountId);
-          const pauseMs = getRemainingPauseMs(accountId);
+          const staleToken = token;
+          const staleAccountId = accountId;
           errLog(
-            `[weixin] session expired (errcode ${SESSION_EXPIRED_ERRCODE}), pausing for ${Math.ceil(pauseMs / 60_000)} min. Please run \`npx weixin-acp login\` to re-login.`,
+            `[weixin] session expired (errcode ${SESSION_EXPIRED_ERRCODE}), entering credential recovery. Please run \`weacpx login\` to re-login.`,
           );
+          pauseSession(accountId);
           consecutiveFailures = 0;
-          await sleep(pauseMs, abortSignal);
+
+          const recovered = await pollForFreshCredentials(
+            staleAccountId,
+            staleToken,
+            log,
+            abortSignal,
+          );
+
+          if (recovered === null) {
+            aLog.info("Monitor stopped (aborted during credential recovery)");
+            return;
+          }
+
+          // Hot-swap credentials and reset all dependent state.
+          const oldAccountId = accountId;
+          accountId = recovered.accountId;
+          baseUrl = recovered.baseUrl;
+          cdnBaseUrl = recovered.cdnBaseUrl;
+          token = recovered.token;
+          aLog = logger.withAccount(accountId);
+          syncFilePath = getSyncBufFilePath(accountId);
+          const previousBuf = loadGetUpdatesBuf(syncFilePath);
+          getUpdatesBuf = previousBuf ?? "";
+          configManager = new WeixinConfigManager({ baseUrl, token }, log);
+          seenMessageIds.clear();
+          messageIdOrder.length = 0;
+          consecutiveFailures = 0;
+          nextTimeoutMs = longPollTimeoutMs ?? DEFAULT_LONG_POLL_TIMEOUT_MS;
+          resetSessionPause(oldAccountId);
+          resetSessionPause(accountId);
+          if (oldAccountId !== accountId) {
+            clearContextTokensForAccount(oldAccountId);
+            restoreContextTokens(accountId);
+          }
+          log(`[weixin] credential recovered, resuming monitor with account=${accountId}`);
           continue;
         }
 
