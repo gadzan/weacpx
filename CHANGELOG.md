@@ -19,6 +19,7 @@
 
 - **微信 contextToken 落盘持久化：** `contextToken` 现在每次 `setContextToken` 写入磁盘（`<stateDir>/openclaw-weixin/accounts/<id>.context-tokens.json`），`bot.start()` 时 `restoreContextTokens` 读回内存，`bot.logout()` 时清理对应账号。修复 daemon 重启后首条 outbound 回复因 `contextToken is required` 直接失败。新增 `findAccountIdsByContextToken` 供编排投递路径反查发送账号。
 - **resolvePluginHome 防御字符串化的 undefined/null：** 当 `input.home` / `input.pluginHome` / `WEACPX_PLUGIN_HOME` / `process.env.HOME` 被传成字面字符串 `"undefined"` 或 `"null"` 时，旧 `??` 守卫视其 truthy 保留，导致 `join("undefined", ".weacpx", "plugins")` 在 CWD 下材化出 `undefined/.weacpx/plugins/`。现统一归一化为缺省值让 `??` 正确 fall-through 到 `homedir()`。同时清理 `73b08c1`（0.4.7）误提交的 `undefined/.weacpx/plugins/package.json` 并加入 `.gitignore`。
+- **微信 session 过期凭证热切换：** 替换 errcode -14（session expired）时的 60 分钟死循环等待为 30 秒凭证恢复轮询——monitor 检测到 `weacpx login` 写入的新 token 后自动热切换所有依赖状态（baseUrl、token、accountId、configManager、syncBuf、dedup 窗口、session pause、context tokens）并恢复 getUpdates 循环，无需重启 daemon。新增 `resetSessionPause` 清除指定账号的暂停状态；`pollForFreshCredentials` 支持同账号刷新 token 与新账号 QR 登录两种恢复路径。
 
 ## [channel-feishu 0.1.2] - 2026-05-19
 
