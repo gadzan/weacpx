@@ -159,3 +159,176 @@ describe("v1.4: monitor drops pending final on non-/jx inbound", () => {
     expect(logout.typingTickets).toEqual([""]);
   });
 });
+
+describe("credential recovery on session expiry", () => {
+  test("monitor recovers when same account gets fresh token", async () => {
+    const logMessages: string[] = [];
+    const log = (msg: string) => logMessages.push(msg);
+
+    let getUpdatesCalls = 0;
+    mock.module("../../../src/weixin/api/api.ts", () => ({
+      getUpdates: async (params: { token?: string; abortSignal?: AbortSignal }) => {
+        getUpdatesCalls += 1;
+        if (getUpdatesCalls === 1) {
+          return { ret: 0, errcode: -14, msgs: [], get_updates_buf: "" };
+        }
+        if (getUpdatesCalls === 2) {
+          return { ret: 0, errcode: 0, msgs: [], get_updates_buf: "buf-after-recovery", longpolling_timeout_ms: 0 };
+        }
+        return await new Promise((_resolve, reject) => {
+          params.abortSignal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        });
+      },
+      sendMessage: async () => ({}),
+      sendTyping: async () => ({}),
+    }));
+
+    mock.module("../../../src/weixin/api/config-cache.ts", () => ({
+      WeixinConfigManager: class {
+        async getForUser() { return { typingTicket: "" }; }
+      },
+    }));
+
+    mock.module("../../../src/weixin/messaging/conversation-executor.ts", () => ({
+      createConversationExecutor: () => ({ run: async (_c: string, _l: string, fn: () => Promise<void>) => { await fn(); } }),
+    }));
+
+    mock.module("../../../src/weixin/messaging/handle-weixin-message-turn.ts", () => ({
+      getWeixinMessageTurnLane: () => "normal",
+      handleWeixinMessageTurn: async () => {},
+    }));
+
+    mock.module("../../../src/weixin/storage/sync-buf.ts", () => ({
+      getSyncBufFilePath: () => "/tmp/none",
+      loadGetUpdatesBuf: () => "",
+      saveGetUpdatesBuf: () => {},
+    }));
+
+    mock.module("../../../src/weixin/auth/accounts.js", () => ({
+      resolveWeixinAccount: (id: string) => {
+        // Simulate credentials already refreshed by the time the first poll check runs.
+        // The monitor's initial token is "stale-token"; returning a different token
+        // triggers the "fresh token detected" path on the first poll iteration,
+        // avoiding the 30-second sleep interval that would time out the test.
+        return { accountId: id, baseUrl: "https://ilinkai.weixin.qq.com", cdnBaseUrl: "https://cdn.example.com", token: "fresh-token", enabled: true, configured: true };
+      },
+      listWeixinAccountIds: () => ["acct"],
+    }));
+
+    mock.module("../../../src/weixin/api/session-guard.js", () => ({
+      SESSION_EXPIRED_ERRCODE: -14,
+      pauseSession: () => {},
+      resetSessionPause: () => {},
+    }));
+
+    mock.module("../../../src/weixin/messaging/inbound.js", () => ({
+      clearContextTokensForAccount: () => {},
+      restoreContextTokens: () => {},
+    }));
+
+    const { monitorWeixinProvider } = await import("../../../src/weixin/monitor/monitor");
+
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(), 500);
+
+    await monitorWeixinProvider({
+      baseUrl: "https://ilinkai.weixin.qq.com",
+      cdnBaseUrl: "https://cdn.example.com",
+      token: "stale-token",
+      accountId: "acct",
+      agent: { chat: async () => ({ text: "" }) },
+      abortSignal: ac.signal,
+      log,
+    });
+
+    expect(getUpdatesCalls).toBeGreaterThanOrEqual(2);
+    expect(logMessages.some(m => m.includes("credential recovery: fresh token detected"))).toBe(true);
+    expect(logMessages.some(m => m.includes("credential recovered, resuming monitor"))).toBe(true);
+  });
+
+  test("monitor switches to new account when fresh QR login registers a different accountId", async () => {
+    const logMessages: string[] = [];
+    const log = (msg: string) => logMessages.push(msg);
+
+    let getUpdatesCalls = 0;
+    mock.module("../../../src/weixin/api/api.ts", () => ({
+      getUpdates: async (params: { token?: string; abortSignal?: AbortSignal }) => {
+        getUpdatesCalls += 1;
+        if (getUpdatesCalls === 1) {
+          return { ret: 0, errcode: -14, msgs: [], get_updates_buf: "" };
+        }
+        if (getUpdatesCalls === 2) {
+          return { ret: 0, errcode: 0, msgs: [], get_updates_buf: "buf-new-acct", longpolling_timeout_ms: 0 };
+        }
+        return await new Promise((_resolve, reject) => {
+          params.abortSignal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        });
+      },
+      sendMessage: async () => ({}),
+      sendTyping: async () => ({}),
+    }));
+
+    mock.module("../../../src/weixin/api/config-cache.ts", () => ({
+      WeixinConfigManager: class {
+        async getForUser() { return { typingTicket: "" }; }
+      },
+    }));
+
+    mock.module("../../../src/weixin/messaging/conversation-executor.ts", () => ({
+      createConversationExecutor: () => ({ run: async (_c: string, _l: string, fn: () => Promise<void>) => { await fn(); } }),
+    }));
+
+    mock.module("../../../src/weixin/messaging/handle-weixin-message-turn.ts", () => ({
+      getWeixinMessageTurnLane: () => "normal",
+      handleWeixinMessageTurn: async () => {},
+    }));
+
+    mock.module("../../../src/weixin/storage/sync-buf.ts", () => ({
+      getSyncBufFilePath: () => "/tmp/none",
+      loadGetUpdatesBuf: () => "",
+      saveGetUpdatesBuf: () => {},
+    }));
+
+    let resolveCalls = 0;
+    mock.module("../../../src/weixin/auth/accounts.js", () => ({
+      resolveWeixinAccount: (id: string) => {
+        resolveCalls += 1;
+        if (id === "stale-acct") {
+          return { accountId: "stale-acct", baseUrl: "https://ilinkai.weixin.qq.com", cdnBaseUrl: "https://cdn.example.com", token: "stale-token", enabled: true, configured: true };
+        }
+        return { accountId: "new-acct", baseUrl: "https://ilinkai.weixin.qq.com", cdnBaseUrl: "https://cdn.example.com", token: "fresh-token", enabled: true, configured: true };
+      },
+      listWeixinAccountIds: () => ["stale-acct", "new-acct"],
+    }));
+
+    mock.module("../../../src/weixin/api/session-guard.js", () => ({
+      SESSION_EXPIRED_ERRCODE: -14,
+      pauseSession: () => {},
+      resetSessionPause: () => {},
+    }));
+
+    mock.module("../../../src/weixin/messaging/inbound.js", () => ({
+      clearContextTokensForAccount: () => {},
+      restoreContextTokens: () => {},
+    }));
+
+    const { monitorWeixinProvider } = await import("../../../src/weixin/monitor/monitor");
+
+    const ac = new AbortController();
+    setTimeout(() => ac.abort(), 500);
+
+    await monitorWeixinProvider({
+      baseUrl: "https://ilinkai.weixin.qq.com",
+      cdnBaseUrl: "https://cdn.example.com",
+      token: "stale-token",
+      accountId: "stale-acct",
+      agent: { chat: async () => ({ text: "" }) },
+      abortSignal: ac.signal,
+      log,
+    });
+
+    expect(getUpdatesCalls).toBeGreaterThanOrEqual(2);
+    expect(logMessages.some(m => m.includes("new account detected, switching to account=new-acct"))).toBe(true);
+    expect(logMessages.some(m => m.includes("credential recovered, resuming monitor with account=new-acct"))).toBe(true);
+  });
+});
