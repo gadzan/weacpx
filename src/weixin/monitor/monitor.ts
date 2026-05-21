@@ -11,11 +11,15 @@ import { MessageItemType, type MessageItem } from "../api/types.js";
 import { getSyncBufFilePath, loadGetUpdatesBuf, saveGetUpdatesBuf } from "../storage/sync-buf.js";
 import { logger } from "../util/logger.js";
 import { redactBody } from "../util/redact.js";
+import { resolveWeixinAccount, listWeixinAccountIds } from "../auth/accounts.js";
+import { resetSessionPause } from "../api/session-guard.js";
+import { clearContextTokensForAccount, restoreContextTokens } from "../messaging/inbound.js";
 
 const DEFAULT_LONG_POLL_TIMEOUT_MS = 35_000;
 const MAX_CONSECUTIVE_FAILURES = 3;
 const BACKOFF_DELAY_MS = 30_000;
 const RETRY_DELAY_MS = 2_000;
+const CREDENTIAL_RECOVERY_POLL_INTERVAL_MS = 30_000;
 
 export type MonitorWeixinOpts = {
   baseUrl: string;
@@ -81,25 +85,25 @@ function shouldFetchTypingConfig(textBody: string): boolean {
  */
 export async function monitorWeixinProvider(opts: MonitorWeixinOpts): Promise<void> {
   const {
-    baseUrl,
-    cdnBaseUrl,
-    token,
-    accountId,
     agent,
     abortSignal,
     longPollTimeoutMs,
   } = opts;
+  let baseUrl = opts.baseUrl;
+  let cdnBaseUrl = opts.cdnBaseUrl;
+  let token = opts.token;
+  let accountId = opts.accountId;
   const log = opts.log ?? ((msg: string) => console.log(msg));
   const errLog = (msg: string) => {
     log(msg);
     logger.error(msg);
   };
-  const aLog = logger.withAccount(accountId);
+  let aLog = logger.withAccount(accountId);
 
   log(`[weixin] monitor started (${baseUrl}, account=${accountId})`);
   aLog.info(`Monitor started: baseUrl=${baseUrl}`);
 
-  const syncFilePath = getSyncBufFilePath(accountId);
+  let syncFilePath = getSyncBufFilePath(accountId);
   const previousGetUpdatesBuf = loadGetUpdatesBuf(syncFilePath);
   let getUpdatesBuf = previousGetUpdatesBuf ?? "";
 
@@ -109,7 +113,7 @@ export async function monitorWeixinProvider(opts: MonitorWeixinOpts): Promise<vo
     log(`[weixin] no previous sync buf, starting fresh`);
   }
 
-  const configManager = new WeixinConfigManager({ baseUrl, token }, log);
+  let configManager = new WeixinConfigManager({ baseUrl, token }, log);
   const conversationExecutor = createConversationExecutor();
 
   const seenMessageIds = new Set<number>();
@@ -280,4 +284,65 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
       { once: true },
     );
   });
+}
+
+type FreshCredentials = {
+  accountId: string;
+  baseUrl: string;
+  cdnBaseUrl: string;
+  token: string;
+};
+
+/**
+ * Poll the account credential store for a fresh token every 30 seconds.
+ * Checks two paths:
+ *   1. The original accountId got a new token on disk (re-login refreshed same account).
+ *   2. A new accountId was registered with a valid token (fresh QR login).
+ * Returns the fresh credentials when found, or null if abortSignal fires.
+ */
+async function pollForFreshCredentials(
+  staleAccountId: string,
+  staleToken: string | undefined,
+  log: (msg: string) => void,
+  abortSignal?: AbortSignal,
+): Promise<FreshCredentials | null> {
+  let attempt = 0;
+  while (!abortSignal?.aborted) {
+    attempt += 1;
+
+    // Priority 1: same accountId, fresh token on disk.
+    const currentAccount = resolveWeixinAccount(staleAccountId);
+    if (currentAccount.token && currentAccount.token !== staleToken) {
+      log(`[weixin] credential recovery: fresh token detected for account=${staleAccountId}`);
+      return {
+        accountId: currentAccount.accountId,
+        baseUrl: currentAccount.baseUrl,
+        cdnBaseUrl: currentAccount.cdnBaseUrl,
+        token: currentAccount.token,
+      };
+    }
+
+    // Priority 2: a new accountId was registered with a valid token.
+    const ids = listWeixinAccountIds();
+    for (const id of ids) {
+      if (id === staleAccountId) continue;
+      const account = resolveWeixinAccount(id);
+      if (account.configured && account.token) {
+        log(`[weixin] credential recovery: new account detected, switching to account=${id}`);
+        return {
+          accountId: account.accountId,
+          baseUrl: account.baseUrl,
+          cdnBaseUrl: account.cdnBaseUrl,
+          token: account.token,
+        };
+      }
+    }
+
+    if (attempt % 10 === 0) {
+      log(`[weixin] credential recovery: still waiting for fresh credentials (checked ${attempt} times)`);
+    }
+
+    await sleep(CREDENTIAL_RECOVERY_POLL_INTERVAL_MS, abortSignal);
+  }
+  return null;
 }
