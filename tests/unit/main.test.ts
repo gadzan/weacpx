@@ -1703,6 +1703,7 @@ test("creates a default config on first run when the config file is missing", as
     sessionInitTimeoutMs: 120000,
     permissionMode: "approve-all",
     nonInteractivePermissions: "deny",
+    queueOwnerTtlSeconds: 1800,
   });
   expect(saved.agents).toEqual({
     codex: {

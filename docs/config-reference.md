@@ -13,7 +13,8 @@
     "command": "acpx",
     "sessionInitTimeoutMs": 120000,
     "permissionMode": "approve-all",
-    "nonInteractivePermissions": "deny"
+    "nonInteractivePermissions": "deny",
+    "queueOwnerTtlSeconds": 1800
   },
   "logging": {
     "level": "info",
@@ -72,6 +73,7 @@
 | `permissionMode` | `"approve-all"` \| `"approve-reads"` \| `"deny-all"` | 否 | 权限模式，默认 `"approve-all"` |
 | `nonInteractivePermissions` | `"deny"` \| `"fail"` | 否 | 非交互场景权限策略，默认 `"deny"` |
 | `permissionPolicy` | `string` | 否 | acpx permission policy 文件路径（透传为 `acpx --permission-policy <value>`）；不填则不启用 |
+| `queueOwnerTtlSeconds` | `number` | 否 | acpx queue owner 空闲存活时长（秒），透传为 prompt 命令的 `acpx --ttl <value>`。默认 `1800`（30 分钟）；`0` = 永久存活。详见下方“减少 agent 冷启动”说明 |
 
 ### `type` 可选值
 
@@ -95,6 +97,20 @@
 2. Shell `PATH` 中的 `acpx`
 
 显式指定 `command` 会覆盖上述行为。
+
+### 减少 agent 冷启动（`queueOwnerTtlSeconds`）
+
+acpx 在收到 prompt 时会拉起一个 **queue owner** 后台进程，它持有真正的 ACP agent（codex/claude 等 adapter）和模型上下文。weacpx 每条消息 spawn 的 `acpx prompt` 只是轻量前端，会通过 Unix socket 连到这个 queue owner——只要 owner 还活着，后续消息就**跳过 agent 冷启动**（adapter boot + `session/new`/`load`，通常数秒到数十秒）。
+
+queue owner 的空闲存活时长由 acpx 的 `--ttl` 决定（acpx 自身默认 300 秒）。WeChat 对话天然有几分钟停顿，300 秒一过下一条消息就要冷启动。weacpx 默认把它设为 **1800 秒（30 分钟）**，覆盖绝大多数对话停顿；真正空闲后 agent 在 30 分钟内自动回收，daemon 停止后最多残留 30 分钟，自愈、不泄漏。
+
+- 取值更大（如 `3600`）→ 更暖，但运行期残留窗口更长。
+- `0` → 永久存活，后续消息全程零冷启动；运行期每个 session 常驻一个 agent 进程，资源占用最高。
+- **daemon stop 时的清理**：weacpx 停止时会枚举自己的会话（普通用户会话 + orchestration worker 会话）并终止对应的 queue owner 进程（只杀进程、不 close acpx session，下次启动正常冷恢复）。因此即便 `ttl=0`，停止后也不会残留 owner。这是 best-effort：若清理失败或超时，owner 会按各自 TTL 自然过期（`ttl=0` 的则需手动清理），不影响停止流程。
+- 普通会话：透传为 `acpx prompt --ttl <value>`，由该 prompt 拉起的 queue owner 继承此 TTL。
+- orchestration coordinator 会话（设置了 `mcpCoordinatorSession`）：weacpx 会在 prompt 前预启 queue owner，该 owner 也按此 TTL 启动（内部转为毫秒），因此同样享受 warm 窗口。
+- `sessions new/ensure`、`cancel` 等命令本身不带 `--ttl`，不受影响。
+- 修改该值需重启 daemon 生效。
 
 ### orchestration MCP 自动注入
 

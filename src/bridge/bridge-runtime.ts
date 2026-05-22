@@ -96,6 +96,8 @@ interface BridgeRuntimeOptions {
   permissionMode?: PermissionMode;
   nonInteractivePermissions?: NonInteractivePermissions;
   permissionPolicy?: string;
+  /** Idle TTL (seconds) passed to acpx as `--ttl` on prompt; 0 = keep alive forever. */
+  queueOwnerTtlSeconds?: number;
 }
 
 export class BridgeRuntime {
@@ -114,6 +116,12 @@ export class BridgeRuntime {
     private readonly repairSessionIndex: RepairSessionIndexFn = tryRepairAcpxSessionIndex,
     private readonly queueOwnerLauncher: Pick<AcpxQueueOwnerLauncher, "launch"> = new AcpxQueueOwnerLauncher({
       acpxCommand: command,
+      // Coordinator sessions pre-spawn the queue owner here (before `acpx prompt`),
+      // so the owner's warm window must be set at launch — the prompt's `--ttl`
+      // can't extend an already-running owner. Launcher ttl is milliseconds.
+      ...(typeof options.queueOwnerTtlSeconds === "number" && Number.isFinite(options.queueOwnerTtlSeconds)
+        ? { ttlMs: options.queueOwnerTtlSeconds * 1000 }
+        : {}),
     }),
   ) {}
 
@@ -474,12 +482,23 @@ export class BridgeRuntime {
       "--cwd",
       input.cwd,
       ...this.buildPermissionArgs(),
+      ...this.buildQueueOwnerTtlArgs(),
     ];
     if (input.agentCommand) {
       return [...prefix, "--agent", input.agentCommand, ...tail];
     }
 
     return [...prefix, input.agent, ...tail];
+  }
+
+  // `--ttl` only governs the prompt path's queue owner warm window, so it is
+  // intentionally limited to buildPromptArgs (not the shared session args).
+  private buildQueueOwnerTtlArgs(): string[] {
+    const ttl = this.options.queueOwnerTtlSeconds;
+    if (typeof ttl !== "number" || !Number.isFinite(ttl)) {
+      return [];
+    }
+    return ["--ttl", String(ttl)];
   }
 
   private buildPermissionArgs(): string[] {

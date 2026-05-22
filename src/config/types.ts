@@ -22,6 +22,13 @@ export interface TransportConfig {
   permissionMode: PermissionMode;
   nonInteractivePermissions: NonInteractivePermissions;
   permissionPolicy?: string;
+  /**
+   * Idle TTL (seconds) passed to acpx as `--ttl` on prompt commands. Governs how
+   * long the acpx queue owner (and the warm ACP agent it holds) survives between
+   * prompts, so follow-up messages in a conversation skip the agent cold start.
+   * `0` keeps the owner alive forever. Defaults to 1800 (30 min).
+   */
+  queueOwnerTtlSeconds?: number;
 }
 
 export type LoggingLevel = "error" | "info" | "debug";

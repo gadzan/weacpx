@@ -1,6 +1,10 @@
 import { createInterface } from "node:readline";
 
-import { normalizeBridgeNonInteractivePermissions, normalizeBridgePermissionMode } from "./bridge-env";
+import {
+  normalizeBridgeNonInteractivePermissions,
+  normalizeBridgePermissionMode,
+  normalizeBridgeQueueOwnerTtlSeconds,
+} from "./bridge-env";
 import { BridgeServer } from "./bridge-server";
 import { BridgeRuntime } from "./bridge-runtime";
 
@@ -55,6 +59,9 @@ export async function runBridgeMain(): Promise<void> {
       permissionMode: normalizeBridgePermissionMode(process.env.WEACPX_BRIDGE_PERMISSION_MODE),
       nonInteractivePermissions: normalizeBridgeNonInteractivePermissions(
         process.env.WEACPX_BRIDGE_NON_INTERACTIVE_PERMISSIONS,
+      ),
+      queueOwnerTtlSeconds: normalizeBridgeQueueOwnerTtlSeconds(
+        process.env.WEACPX_BRIDGE_QUEUE_OWNER_TTL_SECONDS,
       ),
     }),
   );

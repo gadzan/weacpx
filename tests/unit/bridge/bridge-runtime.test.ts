@@ -291,6 +291,36 @@ test("prompt starts queue owner with orchestration MCP identity", async () => {
   }]);
 });
 
+test("prompt forwards --ttl when queueOwnerTtlSeconds is configured", async () => {
+  const calls: string[][] = [];
+  const run = async (_command: string, args: string[]) => {
+    calls.push(args);
+    return { code: 0, stdout: "worker response", stderr: "" };
+  };
+  const runtime = new BridgeRuntime("acpx", run, undefined, { queueOwnerTtlSeconds: 1800 });
+
+  await runtime.prompt({ agent: "codex", cwd: "/repo", name: "worker", text: "hello" });
+
+  expect(calls).toHaveLength(1);
+  const ttlIndex = calls[0]!.indexOf("--ttl");
+  expect(ttlIndex).toBeGreaterThan(0);
+  expect(calls[0]![ttlIndex + 1]).toBe("1800");
+});
+
+test("prompt omits --ttl when queueOwnerTtlSeconds is not configured", async () => {
+  const calls: string[][] = [];
+  const run = async (_command: string, args: string[]) => {
+    calls.push(args);
+    return { code: 0, stdout: "worker response", stderr: "" };
+  };
+  const runtime = new BridgeRuntime("acpx", run, undefined, {});
+
+  await runtime.prompt({ agent: "codex", cwd: "/repo", name: "worker", text: "hello" });
+
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).not.toContain("--ttl");
+});
+
 test("ensureSession forwards --permission-policy when configured", async () => {
   const calls: string[][] = [];
   const run = async (_command: string, args: string[]) => {

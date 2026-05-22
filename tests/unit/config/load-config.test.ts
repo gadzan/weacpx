@@ -107,6 +107,62 @@ test("loads an optional transport session init timeout", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test("defaults transport.queueOwnerTtlSeconds to 1800", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: { backend: { cwd: "/tmp/backend" } },
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.transport.queueOwnerTtlSeconds).toBe(1800);
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("loads an explicit transport.queueOwnerTtlSeconds (including 0 = forever)", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx", queueOwnerTtlSeconds: 0 },
+      agents: { codex: { driver: "codex" } },
+      workspaces: { backend: { cwd: "/tmp/backend" } },
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.transport.queueOwnerTtlSeconds).toBe(0);
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("rejects a negative transport.queueOwnerTtlSeconds", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx", queueOwnerTtlSeconds: -5 },
+      agents: { codex: { driver: "codex" } },
+      workspaces: { backend: { cwd: "/tmp/backend" } },
+    }),
+  );
+
+  await expect(loadConfig(path)).rejects.toThrow("transport.queueOwnerTtlSeconds");
+
+  await rm(dir, { recursive: true, force: true });
+});
+
 test("defaults transport permission policy to approve-all and deny", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
   const path = join(dir, "config.json");
