@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { reapQueueOwners, type ReapTarget } from "../../../src/transport/queue-owner-reaper";
+import { parseRecordId, reapQueueOwners, type ReapTarget } from "../../../src/transport/queue-owner-reaper";
 
 const target = (transportSession: string, cwd = "/tmp/backend"): ReapTarget => ({
   agent: "codex",
@@ -70,6 +70,23 @@ test("swallows resolver and terminate errors so one bad session never blocks the
 
   expect(terminated).toEqual(["record-backend:ok"]);
   expect(result.terminated).toBe(1);
+});
+
+test("parseRecordId reads a bare quiet id, a JSON record, or returns null", () => {
+  // `acpx sessions show --format quiet` emits a bare record id line.
+  expect(parseRecordId("a1b2c3d4-e5f6-7890-abcd-ef0123456789\n")).toBe(
+    "a1b2c3d4-e5f6-7890-abcd-ef0123456789",
+  );
+  // JSON record object: prefer acpxRecordId, else id.
+  expect(parseRecordId(JSON.stringify({ acpxRecordId: "rec-12345678", id: "other" }))).toBe(
+    "rec-12345678",
+  );
+  expect(parseRecordId(JSON.stringify({ id: "id-12345678" }))).toBe("id-12345678");
+  // Unusable output → null (never terminate a guessed owner).
+  expect(parseRecordId("")).toBeNull();
+  expect(parseRecordId("not a record id with spaces")).toBeNull();
+  expect(parseRecordId("short")).toBeNull();
+  expect(parseRecordId(JSON.stringify({ unrelated: "value" }))).toBeNull();
 });
 
 test("returns within the timeout instead of hanging on a stuck resolver", async () => {

@@ -119,9 +119,11 @@ async function defaultResolveRecordId(acpxCommand: string, target: ReapTarget): 
   return parseRecordId(result.stdout);
 }
 
-// Mirrors the transports' readSessionRecord parsing: prefer the JSON record id,
-// fall back to a record-id-shaped first line for quiet/plain output.
-function parseRecordId(stdout: string): string | null {
+// Mirrors the transports' readSessionRecord parsing. `acpx sessions show
+// --format quiet` emits a bare record id, handled by the first-line branch; the
+// JSON branch additionally accepts a record-object payload so this stays correct
+// if the output format ever changes (e.g. --format json).
+export function parseRecordId(stdout: string): string | null {
   try {
     const parsed = JSON.parse(stdout) as { acpxRecordId?: unknown; id?: unknown };
     if (typeof parsed.acpxRecordId === "string") {
