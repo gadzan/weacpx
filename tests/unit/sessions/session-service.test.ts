@@ -378,3 +378,21 @@ test("resolves display alias to internal alias per channel", async () => {
   expect(await service.resolveAliasForChat("weixin:default:wxid_alice", "backend:codex")).toBe("backend:codex");
   expect(await service.resolveAliasForChat("feishu:default:oc_chat", "backend:codex")).toBe("feishu:backend:codex");
 });
+
+test("listAllResolvedSessions resolves all sessions, dedups by transport session, and skips de-registered ones", async () => {
+  const state = createEmptyState();
+  const baseTimes = { created_at: "2026-05-03T00:00:00.000Z", last_used_at: "2026-05-03T00:00:00.000Z" };
+  state.sessions["api-fix"] = { alias: "api-fix", agent: "codex", workspace: "backend", transport_session: "backend:api-fix", ...baseTimes };
+  state.sessions["docs"] = { alias: "docs", agent: "claude", workspace: "backend", transport_session: "backend:docs", ...baseTimes };
+  // Second alias bound to the same transport session as api-fix → must dedup.
+  state.sessions["api-fix-mirror"] = { alias: "api-fix-mirror", agent: "codex", workspace: "backend", transport_session: "backend:api-fix", ...baseTimes };
+  // Workspace de-registered after the session was created → must be skipped (no throw).
+  state.sessions["orphan"] = { alias: "orphan", agent: "codex", workspace: "ghost-workspace", transport_session: "ghost-workspace:orphan", ...baseTimes };
+  const service = new SessionService(createConfig(), new MemoryStateStore(), state);
+
+  const resolved = service.listAllResolvedSessions();
+  const transportSessions = resolved.map((s) => s.transportSession).sort();
+
+  expect(transportSessions).toEqual(["backend:api-fix", "backend:docs"]);
+  expect(resolved.every((s) => s.cwd === "/tmp/backend")).toBe(true);
+});

@@ -239,7 +239,7 @@ function createDefaultQueueOwnerTerminator(_acpxCommand: string): QueueOwnerTerm
   };
 }
 
-async function terminateAcpxQueueOwner(sessionId: string): Promise<void> {
+export async function terminateAcpxQueueOwner(sessionId: string): Promise<void> {
   const lockPath = queueLockFilePath(sessionId);
   let owner: { pid?: unknown } | undefined;
   try {

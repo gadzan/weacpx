@@ -29,6 +29,8 @@ import { spawnAcpxBridgeClient } from "./transport/acpx-bridge/acpx-bridge-clien
 import { AcpxBridgeTransport } from "./transport/acpx-bridge/acpx-bridge-transport";
 import { AcpxCliTransport } from "./transport/acpx-cli/acpx-cli-transport";
 import type { ResolvedSession, SessionTransport } from "./transport/types";
+import { reapQueueOwners } from "./transport/queue-owner-reaper";
+import { workerBindingReapTargets } from "./transport/collect-reap-targets";
 import type { MessageChannelRuntime, CoordinatorMessageInput } from "./channels/types.js";
 import { MessageChannelRegistry } from "./channels/channel-registry.js";
 import { RuntimeMediaStore } from "./channels/media-store.js";
@@ -671,6 +673,39 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
         clearInterval(progressHeartbeatInterval);
       }
       await Promise.allSettled([...pendingWorkerDispatches]);
+      // Terminate warm acpx queue owners for our sessions so they don't linger
+      // until their --ttl expires (or forever, when ttl=0) after the daemon exits.
+      // Best-effort and bounded: failures/timeouts just leave owners to expire on TTL.
+      try {
+        const targets = [
+          ...sessions.listAllResolvedSessions().map((session) => ({
+            agent: session.agent,
+            ...(session.agentCommand ? { agentCommand: session.agentCommand } : {}),
+            cwd: session.cwd,
+            transportSession: session.transportSession,
+          })),
+          // Orchestration worker sessions also spawn warm owners (with the same TTL).
+          ...workerBindingReapTargets(state.orchestration, config),
+        ];
+        if (targets.length > 0) {
+          const { terminated, attempted } = await reapQueueOwners(acpxCommand, targets, {
+            onError: (target, error) => {
+              void logger.info("transport.queue_owner_reap.failed", "failed to reap queue owner on shutdown", {
+                transport_session: target.transportSession,
+                error: error instanceof Error ? error.message : String(error),
+              }).catch(() => {});
+            },
+          });
+          await logger.info("transport.queue_owner_reap.completed", "reaped warm queue owners on shutdown", {
+            terminated,
+            attempted,
+          }).catch(() => {});
+        }
+      } catch (err) {
+        await logger.error("transport.queue_owner_reap.error", "queue owner reap failed during shutdown", {
+          error: err instanceof Error ? err.message : String(err),
+        }).catch(() => {});
+      }
       await debouncedStateStore.dispose();
       if ("dispose" in transport && typeof transport.dispose === "function") {
         await transport.dispose();

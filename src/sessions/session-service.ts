@@ -40,6 +40,29 @@ export class SessionService {
     return await this.createLogicalSession(alias, agent, workspace, `${workspace}:${alias}`);
   }
 
+  /**
+   * All currently-known logical sessions resolved to transport sessions, deduped by
+   * transport session. Sessions whose agent or workspace is no longer registered are
+   * skipped (toResolvedSession would throw). Used by shutdown cleanup to reap warm
+   * acpx queue owners; never throws.
+   */
+  listAllResolvedSessions(): ResolvedSession[] {
+    const seen = new Set<string>();
+    const resolved: ResolvedSession[] = [];
+    for (const session of Object.values(this.state.sessions)) {
+      if (seen.has(session.transport_session)) {
+        continue;
+      }
+      seen.add(session.transport_session);
+      try {
+        resolved.push(this.toResolvedSession(session));
+      } catch {
+        // Agent/workspace de-registered since this session was created — skip it.
+      }
+    }
+    return resolved;
+  }
+
   resolveSession(alias: string, agent: string, workspace: string, transportSession: string): ResolvedSession {
     this.validateSession(alias, agent, workspace);
     return this.toResolvedSession({
