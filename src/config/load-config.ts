@@ -34,6 +34,10 @@ const DEFAULT_LOGGING_CONFIG: LoggingConfig = {
 };
 const DEFAULT_PERMISSION_MODE: PermissionMode = "approve-all";
 const DEFAULT_NON_INTERACTIVE_PERMISSIONS: NonInteractivePermissions = "deny";
+// Warm window for the acpx queue owner / ACP agent. acpx's own default is 300s,
+// but WeChat conversations routinely pause longer than that; a 30 min window keeps
+// the agent warm across natural gaps so follow-up prompts skip the cold start.
+const DEFAULT_QUEUE_OWNER_TTL_SECONDS = 1800;
 const DEFAULT_CHANNEL_CONFIG: ChannelConfig = {
   type: "weixin",
   replyMode: "verbose",
@@ -163,6 +167,14 @@ export function parseConfig(
     if (typeof transport.permissionPolicy !== "string" || transport.permissionPolicy.trim().length === 0) {
       throw new Error("transport.permissionPolicy must be a non-empty string");
     }
+  }
+  if (
+    "queueOwnerTtlSeconds" in transport &&
+    (typeof transport.queueOwnerTtlSeconds !== "number" ||
+      !Number.isFinite(transport.queueOwnerTtlSeconds) ||
+      transport.queueOwnerTtlSeconds < 0)
+  ) {
+    throw new Error("transport.queueOwnerTtlSeconds must be a non-negative number (0 = keep alive forever)");
   }
 
   if (!isRecord(raw.agents)) {
@@ -300,6 +312,10 @@ export function parseConfig(
       type: transportType,
       permissionMode,
       nonInteractivePermissions,
+      queueOwnerTtlSeconds:
+        typeof transport.queueOwnerTtlSeconds === "number"
+          ? transport.queueOwnerTtlSeconds
+          : DEFAULT_QUEUE_OWNER_TTL_SECONDS,
     },
     logging: {
       level: resolvedLoggingLevel,

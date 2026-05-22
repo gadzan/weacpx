@@ -172,6 +172,7 @@ interface SpawnedBridgeClientOptions {
   cwd?: string;
   permissionMode?: string;
   nonInteractivePermissions?: string;
+  queueOwnerTtlSeconds?: number;
 }
 
 export function buildBridgeSpawnSpec(options: {
@@ -207,6 +208,9 @@ export async function spawnAcpxBridgeClient(
       WEACPX_BRIDGE_ACPX_COMMAND: options.acpxCommand ?? "acpx",
       WEACPX_BRIDGE_PERMISSION_MODE: options.permissionMode ?? "approve-all",
       WEACPX_BRIDGE_NON_INTERACTIVE_PERMISSIONS: options.nonInteractivePermissions ?? "deny",
+      ...(typeof options.queueOwnerTtlSeconds === "number" && Number.isFinite(options.queueOwnerTtlSeconds)
+        ? { WEACPX_BRIDGE_QUEUE_OWNER_TTL_SECONDS: String(options.queueOwnerTtlSeconds) }
+        : {}),
     },
     stdio: ["pipe", "pipe", "inherit"],
   });

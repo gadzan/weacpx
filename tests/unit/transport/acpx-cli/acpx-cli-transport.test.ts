@@ -307,6 +307,74 @@ test("passes default permission policy flags to prompt", async () => {
   ]);
 });
 
+test("passes --ttl to prompt when queueOwnerTtlSeconds is configured", async () => {
+  const run = mock(async () => ({
+    code: 0,
+    stdout: [
+      JSON.stringify({ jsonrpc: "2.0", id: 0, method: "initialize" }),
+      JSON.stringify({ jsonrpc: "2.0", id: 2, result: { stopReason: "end_turn" } }),
+    ].join("\n"),
+    stderr: "",
+  }));
+  const transport = new AcpxCliTransport({ command: "acpx", queueOwnerTtlSeconds: 1800 }, run);
+
+  await transport.prompt(session, "hello");
+
+  expect(run).toHaveBeenCalledWith("acpx", [
+    "--format",
+    "json",
+    "--json-strict",
+    "--cwd",
+    "/tmp/backend",
+    "--approve-all",
+    "--non-interactive-permissions",
+    "deny",
+    "--ttl",
+    "1800",
+    "--agent",
+    "./node_modules/.bin/codex-acp",
+    "prompt",
+    "-s",
+    "backend:api-fix",
+    "hello",
+  ]);
+});
+
+test("passes --ttl 0 (keep alive forever) when queueOwnerTtlSeconds is 0", async () => {
+  const run = mock(async () => ({
+    code: 0,
+    stdout: [
+      JSON.stringify({ jsonrpc: "2.0", id: 0, method: "initialize" }),
+      JSON.stringify({ jsonrpc: "2.0", id: 2, result: { stopReason: "end_turn" } }),
+    ].join("\n"),
+    stderr: "",
+  }));
+  const transport = new AcpxCliTransport({ command: "acpx", queueOwnerTtlSeconds: 0 }, run);
+
+  await transport.prompt(session, "hello");
+
+  const args = run.mock.calls[0]?.[1] ?? [];
+  const ttlIndex = args.indexOf("--ttl");
+  expect(ttlIndex).toBeGreaterThan(0);
+  expect(args[ttlIndex + 1]).toBe("0");
+});
+
+test("omits --ttl from prompt when queueOwnerTtlSeconds is not configured", async () => {
+  const run = mock(async () => ({
+    code: 0,
+    stdout: [
+      JSON.stringify({ jsonrpc: "2.0", id: 0, method: "initialize" }),
+      JSON.stringify({ jsonrpc: "2.0", id: 2, result: { stopReason: "end_turn" } }),
+    ].join("\n"),
+    stderr: "",
+  }));
+  const transport = new AcpxCliTransport({ command: "acpx" }, run);
+
+  await transport.prompt(session, "hello");
+
+  expect(run.mock.calls[0]?.[1] ?? []).not.toContain("--ttl");
+});
+
 test("writes image media prompts as structured ACP content blocks via --file", async () => {
   const mediaDir = await mkdtemp(join(tmpdir(), "weacpx-image-prompt-"));
   const mediaPath = join(mediaDir, "image.bin");

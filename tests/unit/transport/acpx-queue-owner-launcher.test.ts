@@ -122,6 +122,50 @@ test("terminates existing owner then starts acpx queue owner with payload", asyn
   });
 });
 
+test("forwards a configured ttlMs into the queue owner payload", async () => {
+  const spawns: Array<{ env: Record<string, string> }> = [];
+  const launcher = new AcpxQueueOwnerLauncher({
+    acpxCommand: "acpx",
+    ttlMs: 1_800_000,
+    spawnOwner: async (_command, _args, options) => {
+      spawns.push({ env: options.env });
+    },
+    terminateOwner: async () => {},
+  });
+
+  await launcher.launch({
+    acpxRecordId: "record-1",
+    coordinatorSession: "backend:main",
+    permissionMode: "approve-all",
+    nonInteractivePermissions: "deny",
+  });
+
+  const payload = JSON.parse(spawns[0].env.ACPX_QUEUE_OWNER_PAYLOAD);
+  expect(payload.ttlMs).toBe(1_800_000);
+});
+
+test("forwards ttlMs of 0 (keep alive forever) into the queue owner payload", async () => {
+  const spawns: Array<{ env: Record<string, string> }> = [];
+  const launcher = new AcpxQueueOwnerLauncher({
+    acpxCommand: "acpx",
+    ttlMs: 0,
+    spawnOwner: async (_command, _args, options) => {
+      spawns.push({ env: options.env });
+    },
+    terminateOwner: async () => {},
+  });
+
+  await launcher.launch({
+    acpxRecordId: "record-1",
+    coordinatorSession: "backend:main",
+    permissionMode: "approve-all",
+    nonInteractivePermissions: "deny",
+  });
+
+  const payload = JSON.parse(spawns[0].env.ACPX_QUEUE_OWNER_PAYLOAD);
+  expect(payload.ttlMs).toBe(0);
+});
+
 test("parses quoted weacpx command paths with spaces", () => {
   expect(buildWeacpxMcpServerSpec({
     weacpxCommand: '"C:/Program Files/nodejs/node.exe" "E:/projects/weacpx/dist/cli.js"',

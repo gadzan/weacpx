@@ -11,3 +11,11 @@ export function normalizeBridgeNonInteractivePermissions(
 ): NonInteractivePermissions {
   return value === "deny" || value === "fail" ? value : "deny";
 }
+
+export function normalizeBridgeQueueOwnerTtlSeconds(value: string | undefined): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}

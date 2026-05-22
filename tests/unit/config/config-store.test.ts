@@ -51,6 +51,7 @@ test("upserts a workspace while preserving transport and agents", async () => {
     command: "acpx",
     permissionMode: "approve-all",
     nonInteractivePermissions: "deny",
+    queueOwnerTtlSeconds: 1800,
   });
   expect(config.agents.codex).toEqual({
     driver: "codex",
@@ -96,6 +97,7 @@ test("removes a workspace and keeps the rest of the config intact", async () => 
     command: "acpx",
     permissionMode: "approve-all",
     nonInteractivePermissions: "deny",
+    queueOwnerTtlSeconds: 1800,
   });
   expect(config.agents).toEqual({ claude: { driver: "claude" } });
   expect(config.workspaces).toEqual({ frontend: { cwd: "/tmp/frontend" } });
@@ -134,6 +136,7 @@ test("updates transport permissions while preserving unrelated transport config"
     sessionInitTimeoutMs: 45000,
     permissionMode: "approve-reads",
     nonInteractivePermissions: "deny",
+    queueOwnerTtlSeconds: 1800,
   });
 
   const saved = JSON.parse(await readFile(path, "utf8")) as {
@@ -145,6 +148,7 @@ test("updates transport permissions while preserving unrelated transport config"
     sessionInitTimeoutMs: 45000,
     permissionMode: "approve-reads",
     nonInteractivePermissions: "deny",
+    queueOwnerTtlSeconds: 1800,
   });
 
   await rm(dir, { recursive: true, force: true });

@@ -29,6 +29,8 @@ interface AcpxCliTransportOptions {
   permissionMode?: PermissionMode;
   nonInteractivePermissions?: NonInteractivePermissions;
   permissionPolicy?: string;
+  /** Idle TTL (seconds) passed to acpx as `--ttl` on prompt; 0 = keep alive forever. */
+  queueOwnerTtlSeconds?: number;
 }
 
 interface CommandResult {
@@ -156,6 +158,7 @@ export class AcpxCliTransport implements SessionTransport {
   private permissionMode: PermissionMode;
   private nonInteractivePermissions: NonInteractivePermissions;
   private permissionPolicy: string | undefined;
+  private readonly queueOwnerTtlSeconds: number | undefined;
   private readonly runCommand: CommandRunner;
   private readonly runPtyCommand: PtyRunner;
   private readonly queueOwnerLauncher: Pick<AcpxQueueOwnerLauncher, "launch">;
@@ -173,10 +176,17 @@ export class AcpxCliTransport implements SessionTransport {
     this.permissionMode = options.permissionMode ?? "approve-all";
     this.nonInteractivePermissions = options.nonInteractivePermissions ?? "deny";
     this.permissionPolicy = options.permissionPolicy;
+    this.queueOwnerTtlSeconds = options.queueOwnerTtlSeconds;
     this.runCommand = runCommand;
     this.runPtyCommand = runPtyCommand;
     this.queueOwnerLauncher = queueOwnerLauncher ?? new AcpxQueueOwnerLauncher({
       acpxCommand: this.command,
+      // Coordinator sessions pre-spawn the queue owner here (before `acpx prompt`),
+      // so the owner's warm window must be set at launch — the prompt's `--ttl`
+      // can't extend an already-running owner. Launcher ttl is milliseconds.
+      ...(typeof this.queueOwnerTtlSeconds === "number" && Number.isFinite(this.queueOwnerTtlSeconds)
+        ? { ttlMs: this.queueOwnerTtlSeconds * 1000 }
+        : {}),
     });
     this.streamingHooks = streamingHooks;
   }
@@ -605,6 +615,7 @@ export class AcpxCliTransport implements SessionTransport {
       "--cwd",
       session.cwd,
       ...this.buildPermissionArgs(),
+      ...this.buildQueueOwnerTtlArgs(),
     ];
     const tail = promptFile
       ? ["prompt", "-s", session.transportSession, "--file", promptFile]
@@ -615,6 +626,15 @@ export class AcpxCliTransport implements SessionTransport {
     }
 
     return [...prefix, session.agent, ...tail];
+  }
+
+  // `--ttl` only governs the prompt path's queue owner warm window, so it is
+  // intentionally limited to buildPromptArgs (not the shared session args).
+  private buildQueueOwnerTtlArgs(): string[] {
+    if (typeof this.queueOwnerTtlSeconds !== "number" || !Number.isFinite(this.queueOwnerTtlSeconds)) {
+      return [];
+    }
+    return ["--ttl", String(this.queueOwnerTtlSeconds)];
   }
 
   private buildPermissionArgs(): string[] {
