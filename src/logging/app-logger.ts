@@ -1,4 +1,4 @@
-import { appendFile, mkdir } from "node:fs/promises";
+import { appendFile, chmod, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import type { LoggingLevel } from "../config/types";
@@ -46,6 +46,7 @@ export function createNoopAppLogger(): AppLogger {
 export function createAppLogger(options: CreateAppLoggerOptions): AppLogger {
   const now = options.now ?? (() => new Date());
   let writeChain = Promise.resolve();
+  let modeEnsured = false;
 
   return {
     debug: async (event, message, context) => {
@@ -88,8 +89,15 @@ export function createAppLogger(options: CreateAppLoggerOptions): AppLogger {
 
     const line = formatLogLine(now(), level, event, message, context);
     await mkdir(dirname(options.filePath), { recursive: true });
+    if (!modeEnsured) {
+      // Harden a log file created before 0o600 was enforced. A missing file
+      // (first run) throws ENOENT and is ignored — appendFile then creates it
+      // at 0o600. Runs once per logger instance.
+      modeEnsured = true;
+      await chmod(options.filePath, 0o600).catch(() => {});
+    }
     await rotateIfNeeded(options.filePath, Buffer.byteLength(line), options.maxSizeBytes, options.maxFiles);
-    await appendFile(options.filePath, line, "utf8");
+    await appendFile(options.filePath, line, { encoding: "utf8", mode: 0o600 });
   }
 }
 

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -23,6 +23,47 @@ test("writes structured log lines at or above the configured level", async () =>
   expect(content).toContain("INFO command.completed");
   expect(content).toContain('durationMs=42');
   expect(content).not.toContain("DEBUG command.parsed");
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("creates the app log file with owner-only permissions", async () => {
+  if (process.platform === "win32") return;
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-logger-"));
+  const appLog = join(dir, "app.log");
+  const logger = createAppLogger({
+    filePath: appLog,
+    level: "info",
+    maxSizeBytes: 1024,
+    maxFiles: 3,
+    retentionDays: 7,
+  });
+
+  await logger.info("command.completed", "command finished");
+
+  const { mode } = await stat(appLog);
+  expect(mode & 0o777).toBe(0o600);
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("hardens a pre-existing world-readable log file to 0600 on first write", async () => {
+  if (process.platform === "win32") return;
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-logger-"));
+  const appLog = join(dir, "app.log");
+  await writeFile(appLog, "pre-existing line\n");
+  await chmod(appLog, 0o644);
+
+  const logger = createAppLogger({
+    filePath: appLog,
+    level: "info",
+    maxSizeBytes: 1_000_000,
+    maxFiles: 3,
+    retentionDays: 7,
+  });
+  await logger.info("command.completed", "command finished");
+
+  expect((await stat(appLog)).mode & 0o777).toBe(0o600);
 
   await rm(dir, { recursive: true, force: true });
 });
