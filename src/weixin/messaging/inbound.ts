@@ -7,6 +7,7 @@ import { generateId } from "../util/random.js";
 import type { WeixinMessage, MessageItem } from "../api/types.js";
 import { MessageItemType } from "../api/types.js";
 import { resolveStateDir } from "../storage/state-dir.js";
+import { writePrivateFileSync } from "../../util/private-file.js";
 
 // ---------------------------------------------------------------------------
 // Context token store (in-memory cache + per-account disk persistence)
@@ -43,8 +44,7 @@ function persistContextTokens(accountId: string): void {
   }
   const filePath = resolveContextTokenFilePath(accountId);
   try {
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, JSON.stringify(tokens), "utf-8");
+    writePrivateFileSync(filePath, JSON.stringify(tokens));
   } catch (err) {
     logger.warn(`persistContextTokens: failed to write ${filePath}: ${String(err)}`);
   }

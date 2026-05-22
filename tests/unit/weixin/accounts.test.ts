@@ -5,7 +5,7 @@ import path from "node:path";
 
 import { expect, test } from "bun:test";
 
-import { clearAllWeixinAccounts, listWeixinAccountIds, registerWeixinAccountId } from "../../../src/weixin/auth/accounts";
+import { clearAllWeixinAccounts, listWeixinAccountIds, loadWeixinAccount, registerWeixinAccountId, saveWeixinAccount } from "../../../src/weixin/auth/accounts";
 
 async function withTempStateDir<T>(fn: (stateDir: string) => Promise<T>): Promise<T> {
   const stateDir = await mkdtemp(path.join(tmpdir(), "weacpx-openclaw-"));
@@ -53,6 +53,18 @@ test("registerWeixinAccountId tolerates EPERM when the state directory already e
   });
 });
 
+
+test("saveWeixinAccount writes the credential file with owner-only permissions", async () => {
+  if (process.platform === "win32") return;
+  await withTempStateDir(async (stateDir) => {
+    const accountId = "e33867cf4ec7-im-bot";
+    saveWeixinAccount(accountId, { token: "secret-token", baseUrl: "https://example.com" });
+
+    const accountFile = path.join(stateDir, "openclaw-weixin", "accounts", `${accountId}.json`);
+    expect(fs.statSync(accountFile).mode & 0o777).toBe(0o600);
+    expect(loadWeixinAccount(accountId)?.token).toBe("secret-token");
+  });
+});
 
 test("clearAllWeixinAccounts clears credential files even when the account index is empty", async () => {
   await withTempStateDir(async (stateDir) => {

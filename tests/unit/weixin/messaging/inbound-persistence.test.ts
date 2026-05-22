@@ -76,6 +76,12 @@ describe("contextToken disk persistence", () => {
     expect(getContextToken(restoredId, "user-2")).toBe("tok-222");
   });
 
+  it("setContextToken writes the persistence file with owner-only permissions", () => {
+    if (process.platform === "win32") return;
+    setContextToken("acct-perm", "user-1", "tok-perm");
+    expect(fs.statSync(tokenFilePath("acct-perm")).mode & 0o777).toBe(0o600);
+  });
+
   it("clearContextTokensForAccount removes memory + disk entries", () => {
     setContextToken("acct-B1", "user-1", "tok-xyz");
     expect(getContextToken("acct-B1", "user-1")).toBe("tok-xyz");

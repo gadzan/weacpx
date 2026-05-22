@@ -1,4 +1,5 @@
 import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import * as lockfile from "proper-lockfile";
@@ -49,6 +50,53 @@ export async function writePrivateFileAtomic(path: string, content: string): Pro
     }
   } finally {
     await release();
+  }
+}
+
+/**
+ * Synchronous private-file write for hot-path callers that cannot await
+ * (e.g. per-message weixin credential/sync-buf/context-token persistence).
+ * Atomic via write-file-atomic's temp+rename, created at 0600 so the secret is
+ * never momentarily world-readable. No cross-process lock: weixin's per-account
+ * consumer lock already serializes the single writing daemon.
+ */
+interface WritePrivateFileSyncDeps {
+  platform?: NodeJS.Platform;
+  atomicWrite?: (path: string, content: string) => void;
+  directWrite?: (path: string, content: string) => void;
+}
+
+export function writePrivateFileSync(
+  path: string,
+  content: string,
+  deps: WritePrivateFileSyncDeps = {},
+): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const platform = deps.platform ?? process.platform;
+  const atomicWrite =
+    deps.atomicWrite ??
+    ((p, c) => writeFileAtomic.sync(p, c, { mode: PRIVATE_FILE_MODE, encoding: "utf8", fsync: true }));
+
+  try {
+    atomicWrite(path, content);
+  } catch (error) {
+    if (!isTransientWriteError(error, platform)) {
+      throw error;
+    }
+    // Windows last-ditch: AV/locking can hold the temp file and break the
+    // rename. Direct overwrite sacrifices atomicity but preserves the write,
+    // mirroring writePrivateFileAtomic's async fallback.
+    const directWrite =
+      deps.directWrite ??
+      ((p, c) => {
+        writeFileSync(p, c, { encoding: "utf8", mode: PRIVATE_FILE_MODE });
+        try {
+          chmodSync(p, PRIVATE_FILE_MODE);
+        } catch {
+          /* best-effort */
+        }
+      });
+    directWrite(path, content);
   }
 }
 

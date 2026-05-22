@@ -4,6 +4,7 @@ import path from "node:path";
 import { ensureDirSync } from "../storage/ensure-dir.js";
 import { resolveStateDir } from "../storage/state-dir.js";
 import { logger } from "../util/logger.js";
+import { writePrivateFileSync } from "../../util/private-file.js";
 
 export const DEFAULT_BASE_URL = "https://ilinkai.weixin.qq.com";
 export const CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
@@ -177,9 +178,6 @@ export function saveWeixinAccount(
   accountId: string,
   update: { token?: string; baseUrl?: string; userId?: string },
 ): void {
-  const dir = resolveAccountsDir();
-  ensureDirSync(dir);
-
   const existing = loadWeixinAccount(accountId) ?? {};
 
   const token = update.token?.trim() || existing.token;
@@ -195,13 +193,7 @@ export function saveWeixinAccount(
     ...(userId ? { userId } : {}),
   };
 
-  const filePath = resolveAccountPath(accountId);
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
-  try {
-    fs.chmodSync(filePath, 0o600);
-  } catch {
-    // best-effort
-  }
+  writePrivateFileSync(resolveAccountPath(accountId), JSON.stringify(data, null, 2));
 }
 
 /** Remove account data file. */
