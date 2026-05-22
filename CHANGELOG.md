@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.4.10] - 2026-05-23
+
+### Added
+
+- **acpx agent warm 窗口（`transport.queueOwnerTtlSeconds`）：** 新增配置项（秒，默认 `1800`/30 分钟，`0` = 永久），在 prompt 路径透传 `acpx --ttl <value>`，延长 acpx queue owner（持有 ACP agent 与模型上下文的后台进程）的空闲存活窗口，使对话停顿后的后续消息跳过 agent 冷启动（适配器 boot + `session/new`/`load`，通常数秒到数十秒）。acpx 自身默认仅 300s，过短不足以覆盖 WeChat 对话的自然停顿。`acpx-cli` 与 `acpx-bridge` 两种 transport 均支持（bridge 经 `WEACPX_BRIDGE_QUEUE_OWNER_TTL_SECONDS` 透传）；orchestration coordinator 会话因在 prompt 前预启 queue owner，同样按此 TTL 启动（内部转毫秒注入 launcher），不会因 `--ttl` 对已存在 owner 失效而落空。未配置时按 config 层默认注入，直接构造 transport 的既有行为不变。
+
+### Changed
+
+- **daemon stop 主动回收 warm queue owner：** weacpx 停止时枚举自身会话（logical 用户会话 + orchestration worker 会话）并终止对应的 queue owner 进程——只杀进程、**不** `close` acpx session（不改 `~/.acpx/sessions/` 元数据，下次启动正常冷恢复）。因此即便 `queueOwnerTtlSeconds=0`，daemon 停止后也不会残留 owner。该清理为 best-effort：逐会话解析 acpxRecordId（`acpx sessions show`）后按 acpx 一致的 lock key（`~/.acpx/queues/<sha256(recordId)[:24]>.lock`）终止，整体有超时兜底、全程吞错，失败或超时仅退回「owner 按各自 TTL 自然过期」，绝不阻塞或中断停止流程。
+
+### Fixed
+
+- **daemon 日志文件 0600 权限：** app log 的 `appendFile` 与 daemon stdout/stderr 打开均传入 mode `0600`；由于 mode 仅在创建时生效，已存在的旧日志会在首次写入/打开时 `chmod` 一次，使本次改动前创建的日志也得到加固。
+- **微信凭证 / sync-buf / context token 原子 0600 写入：** 新增 `writePrivateFileSync`（`write-file-atomic` temp+rename、mode `0600`、`fsync`，并带 Windows AV 直写回落，与异步 `writePrivateFileAtomic` 对齐），用于 `saveWeixinAccount`、`saveGetUpdatesBuf`、`persistContextTokens`，消除原 `writeFileSync` 后再 `chmod` 的 world-readable 时间窗，以及崩溃时可能留下半截损坏文件的非原子写入。
+- **daemon 启动健壮性加固：**
+  - 插件：`loadConfiguredPlugins` 新增可选 `onPluginError`，单个坏插件被上报并跳过，而非在首个失败处中断整个 daemon 启动（连带 orchestration IPC 与健康的 channel）；未传时保持原有 throw 语义。
+  - heartbeat：progress heartbeat 加单飞守卫，慢 tick 不会与下一次 interval 重叠堆积。
+  - daemon-controller：spawn 前以独占方式 claim pid 文件（`open "wx"`、`0600`），并发的 `weacpx start` 会以 `EEXIST` 失败而非启动重复 daemon；spawn/写入失败时释放锁。
+
 ## [0.4.9] - 2026-05-21
 
 ### Added
