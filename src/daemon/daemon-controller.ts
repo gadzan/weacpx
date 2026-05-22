@@ -1,4 +1,5 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rm } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import type { DaemonPaths } from "./daemon-files";
@@ -100,12 +101,29 @@ export class DaemonController {
       );
     }
 
-    // Clear any stale status file before spawning so that a matching PID from a
-    // recycled process does not cause a spurious immediate return from
-    // waitForStartupMetadata.
-    await this.statusStore.clear();
-    const pid = await this.deps.spawnDetached(options);
-    await this.writePid(pid);
+    // Exclusively claim the pid file before spawning. getStatus() above already
+    // cleared any stale pid file, so a genuinely stopped daemon leaves this open;
+    // a second concurrent `start` loses the race here and aborts instead of
+    // launching a duplicate daemon.
+    const pidHandle = await this.openPidFileExclusive();
+    let pid: number;
+    try {
+      // Clear any stale status file before spawning so that a matching PID from a
+      // recycled process does not cause a spurious immediate return from
+      // waitForStartupMetadata.
+      await this.statusStore.clear();
+      pid = await this.deps.spawnDetached(options);
+      await pidHandle.write(`${pid}\n`);
+    } catch (error) {
+      // Spawn or pid write failed before the daemon could take over: drop our
+      // exclusive pid file so a retry can start cleanly.
+      await pidHandle.close().catch(() => {});
+      await rm(this.paths.pidFile, { force: true }).catch(() => {});
+      throw error;
+    }
+    await pidHandle.close();
+    // From here the daemon owns the pid file; on a startup timeout we leave it in
+    // place so `stop` can still reach a slow-but-live daemon.
     await this.waitForStartupMetadata(
       pid,
       options.firstRunOnboarding ? this.onboardingStartupTimeoutMs : this.startupTimeoutMs,
@@ -142,9 +160,18 @@ export class DaemonController {
     }
   }
 
-  private async writePid(pid: number): Promise<void> {
+  private async openPidFileExclusive(): Promise<FileHandle> {
     await mkdir(dirname(this.paths.pidFile), { recursive: true });
-    await writeFile(this.paths.pidFile, `${pid}\n`);
+    try {
+      return await open(this.paths.pidFile, "wx", 0o600);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new Error(
+          `weacpx daemon pid file already exists (${this.paths.pidFile}); another start may be in progress`,
+        );
+      }
+      throw error;
+    }
   }
 
   private async clearRuntimeFiles(): Promise<void> {

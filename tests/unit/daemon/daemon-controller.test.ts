@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -176,6 +176,55 @@ test("start waits for daemon status metadata before returning", async () => {
   });
   expect(checks).toBeGreaterThan(0);
   await expect(statusStore.load()).resolves.toMatchObject({ pid: 44444 });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("start refuses to overwrite an existing pid file it did not create", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-daemon-controller-"));
+  let spawned = false;
+  const controller = createController(dir, {
+    isProcessRunning: () => false,
+    spawnDetached: async () => {
+      spawned = true;
+      return 12321;
+    },
+  });
+  // A pid file whose contents do not parse as a live pid: getStatus treats the
+  // daemon as stopped without clearing the file, so start() must not clobber it.
+  await writeFile(join(dir, "daemon.pid"), "not-a-pid\n");
+
+  await expect(controller.start()).rejects.toThrow(/pid file already exists/);
+  expect(spawned).toBe(false);
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("start creates the pid file with owner-only permissions", async () => {
+  if (process.platform === "win32") return;
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-daemon-controller-"));
+  const statusStore = new DaemonStatusStore(join(dir, "status.json"));
+  const controller = createController(dir, {
+    isProcessRunning: (pid) => pid === 13579,
+    spawnDetached: async () => 13579,
+    onStartupPoll: async () => {
+      await statusStore.save({
+        pid: 13579,
+        started_at: "2026-03-26T00:00:00.000Z",
+        heartbeat_at: "2026-03-26T00:00:00.000Z",
+        config_path: "/cfg",
+        state_path: "/state",
+        app_log: "/app",
+        stdout_log: "/out",
+        stderr_log: "/err",
+      });
+    },
+  });
+
+  await expect(controller.start()).resolves.toEqual({ state: "started", pid: 13579 });
+  const { mode } = await stat(join(dir, "daemon.pid"));
+  expect(mode & 0o777).toBe(0o600);
+  await expect(readFile(join(dir, "daemon.pid"), "utf8")).resolves.toBe("13579\n");
 
   await rm(dir, { recursive: true, force: true });
 });

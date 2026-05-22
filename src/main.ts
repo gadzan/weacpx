@@ -92,7 +92,12 @@ function startProgressHeartbeat(
     return undefined;
   }
 
+  let ticking = false;
   return setInterval(async () => {
+    // Skip this tick if the previous one is still running (e.g. a slow channel
+    // delivery) so heartbeat ticks cannot overlap and stack up.
+    if (ticking) return;
+    ticking = true;
     try {
       const tasks = await orchestration.listHeartbeatTasks(thresholdSeconds);
       for (const task of tasks) {
@@ -114,6 +119,8 @@ function startProgressHeartbeat(
       await logger.error("orchestration.heartbeat.check_failed", "heartbeat check failed", {
         message: error instanceof Error ? error.message : String(error),
       });
+    } finally {
+      ticking = false;
     }
   }, 60_000);
 }
@@ -699,7 +706,14 @@ export async function main(): Promise<void> {
     const startupConfig = await loadConfig(paths.configPath);
 
     const { loadConfiguredPlugins } = await import("./plugins/plugin-loader.js");
-    await loadConfiguredPlugins({ plugins: startupConfig.plugins });
+    await loadConfiguredPlugins({
+      plugins: startupConfig.plugins,
+      onPluginError: ({ name, error }) => {
+        console.error(
+          `[weacpx] skipping plugin ${name}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      },
+    });
 
     const { channelDeps } = await prepareChannelMedia(paths.configPath, startupConfig);
     const channelRegistry = new MessageChannelRegistry(createMessageChannels(startupConfig.channels, channelDeps));
