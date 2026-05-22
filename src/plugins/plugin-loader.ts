@@ -21,6 +21,13 @@ export interface LoadConfiguredPluginsInput {
    * Defaults to the value embedded in `validateWeacpxPlugin` (i.e. `readVersion()`).
    */
   currentWeacpxVersion?: string;
+  /**
+   * When provided, a plugin that fails to import or validate is reported here
+   * and skipped instead of aborting the whole load. Console startup uses this so
+   * one broken plugin cannot prevent the daemon (and healthy channels) from
+   * starting. When omitted, the first failure throws (CLI/install semantics).
+   */
+  onPluginError?: (input: { name: string; error: unknown }) => void;
 }
 
 export async function importPluginFromHome(packageName: string, pluginHome: string): Promise<unknown> {
@@ -38,21 +45,26 @@ export async function loadConfiguredPlugins(input: LoadConfiguredPluginsInput): 
   const loaded: LoadedPluginSummary[] = [];
 
   for (const config of enabled) {
-    let moduleValue: unknown;
     try {
-      moduleValue = await importPlugin(config.name, pluginHome);
+      let moduleValue: unknown;
+      try {
+        moduleValue = await importPlugin(config.name, pluginHome);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`failed to load plugin ${config.name}: ${message}`);
+      }
+      const plugin = validateWeacpxPlugin(moduleValue, config.name, {
+        ...(input.currentWeacpxVersion !== undefined ? { currentWeacpxVersion: input.currentWeacpxVersion } : {}),
+      });
+      const channels = plugin.channels ?? [];
+      for (const channel of channels) {
+        registerChannelPlugin(channel);
+      }
+      loaded.push({ name: config.name, channels: channels.map((channel) => channel.type) });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`failed to load plugin ${config.name}: ${message}`);
+      if (!input.onPluginError) throw error;
+      input.onPluginError({ name: config.name, error });
     }
-    const plugin = validateWeacpxPlugin(moduleValue, config.name, {
-      ...(input.currentWeacpxVersion !== undefined ? { currentWeacpxVersion: input.currentWeacpxVersion } : {}),
-    });
-    const channels = plugin.channels ?? [];
-    for (const channel of channels) {
-      registerChannelPlugin(channel);
-    }
-    loaded.push({ name: config.name, channels: channels.map((channel) => channel.type) });
   }
 
   return loaded;

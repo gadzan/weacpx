@@ -37,8 +37,11 @@ export function createDaemonController(
     isProcessRunning: options.isProcessRunning ?? defaultIsProcessRunning,
     spawnDetached: async (spawnOptions) => {
       await mkdir(paths.runtimeDir, { recursive: true });
-      const stdoutHandle = await open(paths.stdoutLog, "a");
-      const stderrHandle = await open(paths.stderrLog, "a");
+      const stdoutHandle = await open(paths.stdoutLog, "a", 0o600);
+      const stderrHandle = await open(paths.stderrLog, "a", 0o600);
+      // open's mode only applies on creation; harden pre-existing logs too.
+      await stdoutHandle.chmod(0o600).catch(() => {});
+      await stderrHandle.chmod(0o600).catch(() => {});
 
       try {
         return await (options.spawnProcess ?? defaultSpawnProcess)(

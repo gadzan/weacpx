@@ -2,8 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { deriveRawAccountId } from "../auth/accounts.js";
+import { writePrivateFileSync } from "../../util/private-file.js";
 
-import { ensureDirSync } from "./ensure-dir.js";
 import { resolveStateDir } from "./state-dir.js";
 
 function resolveAccountsDir(): string {
@@ -76,7 +76,5 @@ export function loadGetUpdatesBuf(filePath: string): string | undefined {
  * Persist get_updates_buf. Creates parent dir if needed.
  */
 export function saveGetUpdatesBuf(filePath: string, getUpdatesBuf: string): void {
-  const dir = path.dirname(filePath);
-  ensureDirSync(dir);
-  fs.writeFileSync(filePath, JSON.stringify({ get_updates_buf: getUpdatesBuf }, null, 0), "utf-8");
+  writePrivateFileSync(filePath, JSON.stringify({ get_updates_buf: getUpdatesBuf }, null, 0));
 }

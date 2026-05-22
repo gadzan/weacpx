@@ -809,7 +809,14 @@ async function defaultRun(options: { firstRunOnboarding?: FirstRunOnboardingPlan
   await ensureConfigExists(runtimePaths.configPath);
   const config = await loadConfig(runtimePaths.configPath);
   const { loadConfiguredPlugins } = await import("./plugins/plugin-loader.js");
-  await loadConfiguredPlugins({ plugins: config.plugins });
+  await loadConfiguredPlugins({
+    plugins: config.plugins,
+    onPluginError: ({ name, error }) => {
+      console.error(
+        `[weacpx] skipping plugin ${name}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    },
+  });
   const { createMessageChannels } = await import("./channels/create-channel.js");
   const { MessageChannelRegistry } = await import("./channels/channel-registry.js");
   const daemonPaths = resolveDaemonPathsForCurrentConfig();
