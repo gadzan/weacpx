@@ -279,3 +279,80 @@ test("start runs an immediate tick", async () => {
 
   scheduler.stop();
 });
+
+test("tick times out a hung dispatch, aborts it, and marks it failed", async () => {
+  const state = createEmptyState();
+  state.scheduled_tasks.hung = {
+    id: "hung",
+    chat_key: "c",
+    session_alias: "s",
+    execute_at: "2026-05-23T09:59:00.000Z",
+    message: "hung task",
+    status: "pending",
+    created_at: "2026-05-23T09:00:00.000Z",
+  };
+
+  const store = new MemoryStore();
+  const service = new ScheduledTaskService(state, store, {
+    now: () => new Date("2026-05-23T10:00:00.000Z"),
+  });
+
+  let abortObserved = false;
+  const dispatchTask = mock((_task: unknown, signal: AbortSignal) => {
+    return new Promise<void>((_resolve, reject) => {
+      signal.addEventListener("abort", () => {
+        abortObserved = true;
+        reject(new Error("dispatch aborted"));
+      });
+    });
+  });
+  const { setIntervalFn, clearIntervalFn } = createFakeSetInterval();
+
+  const scheduler = new ScheduledTaskScheduler(service, {
+    dispatchTask,
+    dispatchTimeoutMs: 20,
+    setIntervalFn,
+    clearIntervalFn,
+  });
+
+  await scheduler.tick();
+
+  expect(abortObserved).toBe(true);
+  expect(state.scheduled_tasks.hung?.status).toBe("failed");
+  expect(state.scheduled_tasks.hung?.last_error).toContain("timed out");
+});
+
+test("tick does not wedge when a dispatch ignores its abort signal", async () => {
+  const state = createEmptyState();
+  state.scheduled_tasks.stuck = {
+    id: "stuck",
+    chat_key: "c",
+    session_alias: "s",
+    execute_at: "2026-05-23T09:59:00.000Z",
+    message: "stuck task",
+    status: "pending",
+    created_at: "2026-05-23T09:00:00.000Z",
+  };
+
+  const store = new MemoryStore();
+  const service = new ScheduledTaskService(state, store, {
+    now: () => new Date("2026-05-23T10:00:00.000Z"),
+  });
+
+  // Never resolves and never observes the abort signal — the scheduler must
+  // still recover via the dispatch timeout instead of wedging forever.
+  const dispatchTask = mock(() => new Promise<void>(() => {}));
+  const { setIntervalFn, clearIntervalFn } = createFakeSetInterval();
+
+  const scheduler = new ScheduledTaskScheduler(service, {
+    dispatchTask,
+    dispatchTimeoutMs: 20,
+    setIntervalFn,
+    clearIntervalFn,
+  });
+
+  // If the tick can wedge, this await never settles and the test times out.
+  await scheduler.tick();
+
+  expect(state.scheduled_tasks.stuck?.status).toBe("failed");
+});

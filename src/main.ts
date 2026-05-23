@@ -23,6 +23,7 @@ import { buildWorkerAnswerPrompt, buildWorkerTaskPrompt } from "./orchestration/
 import { ScheduledTaskScheduler } from "./scheduled/scheduled-scheduler";
 import { ScheduledTaskService } from "./scheduled/scheduled-service";
 import { preview } from "./scheduled/scheduled-render";
+import { toDisplaySessionAlias } from "./channels/channel-scope";
 import { SessionService } from "./sessions/session-service";
 import { DebouncedStateStore } from "./state/debounced-state-store";
 import { StateStore } from "./state/state-store";
@@ -661,12 +662,12 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
   const router = new CommandRouter(sessions, transport, config, configStore, logger, undefined, orchestration, quota, scheduledService);
   const agent = new ConsoleAgent(router, logger);
   const scheduledScheduler = new ScheduledTaskScheduler(scheduledService, {
-    dispatchTask: async (task) => {
+    dispatchTask: async (task, abortSignal) => {
       const session = await sessions.getSession(task.session_alias);
       if (!session) {
         throw new Error(`session "${task.session_alias}" not found for scheduled task`);
       }
-      const noticeText = `执行定时任务 #${task.id}\n会话：${task.session_alias}\n内容：${preview(task.message)}`;
+      const noticeText = `执行定时任务 #${task.id}\n会话：${toDisplaySessionAlias(task.session_alias)}\n内容：${preview(task.message)}`;
       if (!deps.channel?.sendScheduledMessage) {
         throw new Error("no channel runtime available for scheduled task dispatch");
       }
@@ -675,6 +676,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
         sessionAlias: task.session_alias,
         noticeText,
         promptText: task.message,
+        abortSignal,
         ...(task.account_id ? { accountId: task.account_id } : {}),
         ...(task.reply_context_token ? { replyContextToken: task.reply_context_token } : {}),
       });

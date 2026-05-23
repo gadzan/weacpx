@@ -33,6 +33,9 @@ export interface ScheduledChannelMessageInput {
   replyContextToken?: string;
   noticeText: string;
   promptText: string;
+  // Bounds the non-interactive agent turn so a wedged scheduled prompt cannot
+  // hold the scheduler's tick lock forever; the scheduler aborts on timeout.
+  abortSignal?: AbortSignal;
 }
 
 export interface ChannelStartInput {

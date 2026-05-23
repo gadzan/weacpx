@@ -118,6 +118,7 @@ export async function executeScheduledTurn(
         conversationId: input.chatKey,
         text: input.promptText,
         ...(deliveryContextToken ? { replyContextToken: deliveryContextToken } : {}),
+        ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
         metadata: { channel: "weixin", scheduledSessionAlias: input.sessionAlias },
       },
       onReplySegment: sendReplySegment,
