@@ -3,10 +3,13 @@ import { beforeAll, expect, test, mock } from "bun:test";
 import { MessageChannelRegistry } from "../../../src/channels/channel-registry";
 import { registerKnownChannelId } from "../../../src/channels/channel-scope";
 import type { MessageChannelRuntime, ScheduledChannelMessageInput } from "../../../src/channels/types";
+import { FeishuChannel } from "../../../packages/channel-feishu/src/channel";
+import { YuanbaoChannel } from "../../../packages/channel-yuanbao/src/channel";
 
-// Register feishu so we can test multi-channel routing
+// Register feishu and yuanbao so we can test multi-channel routing
 beforeAll(() => {
   registerKnownChannelId("feishu");
+  registerKnownChannelId("yuanbao");
 });
 
 function createFakeChannel(
@@ -61,6 +64,16 @@ test("ChannelRegistry reports scheduled-message support by chatKey", () => {
   expect(registry.supportsScheduledMessages("weixin:account1:user1")).toBe(true);
   expect(registry.supportsScheduledMessages("feishu:default:oc_chat123")).toBe(false);
   expect(registry.supportsScheduledMessages("unknown:default:conv1")).toBe(false);
+});
+
+test("first-party plugin channels advertise scheduled-message support", () => {
+  const registry = new MessageChannelRegistry([
+    new FeishuChannel({ appId: "app", appSecret: "secret" }),
+    new YuanbaoChannel({ appKey: "key", appSecret: "secret", botId: "bot" }),
+  ]);
+
+  expect(registry.supportsScheduledMessages("feishu:default:oc_chat123")).toBe(true);
+  expect(registry.supportsScheduledMessages("yuanbao:default:group:group_123")).toBe(true);
 });
 
 test("ChannelRegistry routes sendScheduledMessage to correct channel by chatKey", async () => {
