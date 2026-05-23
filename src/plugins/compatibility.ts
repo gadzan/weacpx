@@ -8,7 +8,7 @@ export const WEACPX_PLUGIN_API_SUPPORTED_VERSIONS: readonly number[] = [1];
 
 // Minimum core version that the current plugin API version corresponds to.
 // First-party plugins should declare `minWeacpxVersion` >= this value.
-export const WEACPX_PLUGIN_MIN_CORE_VERSION = "0.4.0" as const;
+export const WEACPX_PLUGIN_MIN_CORE_VERSION = "0.5.0" as const;
 
 const SEMVER_RE = /^(\d+)\.(\d+)\.(\d+)$/;
 

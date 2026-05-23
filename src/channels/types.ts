@@ -28,6 +28,8 @@ export interface CoordinatorMessageInput {
 
 export interface ScheduledChannelMessageInput {
   chatKey: string;
+  // Core scheduler task id for channels that need stable scheduled-message correlation.
+  taskId?: string;
   sessionAlias: string;
   accountId?: string;
   replyContextToken?: string;

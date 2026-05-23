@@ -9,7 +9,7 @@ export { yuanbaoCliProvider } from "./yuanbao-provider.js";
 const plugin: WeacpxPlugin = {
   apiVersion: 1,
   name: "@ganglion/weacpx-channel-yuanbao",
-  minWeacpxVersion: "0.4.0",
+  minWeacpxVersion: "0.5.0",
   channels: [
     {
       type: "yuanbao",

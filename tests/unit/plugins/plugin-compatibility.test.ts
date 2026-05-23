@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import {
   WEACPX_PLUGIN_API_VERSION,
   WEACPX_PLUGIN_API_SUPPORTED_VERSIONS,
+  WEACPX_PLUGIN_MIN_CORE_VERSION,
   compareSemver,
   isVersionSatisfied,
   validatePluginCompatibility,
@@ -114,4 +115,9 @@ test("validatePluginCompatibility tolerates prerelease tags on the running core"
 
 test("WEACPX_PLUGIN_API_SUPPORTED_VERSIONS includes the current API version", () => {
   expect(WEACPX_PLUGIN_API_SUPPORTED_VERSIONS).toContain(WEACPX_PLUGIN_API_VERSION);
+});
+
+
+test("WEACPX_PLUGIN_MIN_CORE_VERSION is the first-party plugin minimum core", () => {
+  expect(WEACPX_PLUGIN_MIN_CORE_VERSION).toBe("0.5.0");
 });

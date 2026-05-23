@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.0] - 2026-05-23
+
+### Added
+
+- **Scheduled plugin API:** `ScheduledChannelMessageInput` is now exported from `weacpx/plugin-api`, and scheduled dispatch payloads include optional `taskId` for channels that need to correlate scheduler-originated messages.
+
+### Changed
+
+- **First-party plugin compatibility:** Core `weacpx` is now `0.5.0`; Feishu and Yuanbao plugin package versions stay independent, while their plugin metadata requires weacpx `0.5.0` and package peer dependency requires `>=0.5.0-0`.
+
 ## [0.4.10] - 2026-05-23
 
 ### Added

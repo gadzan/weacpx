@@ -7,6 +7,7 @@ export type {
   ConsumerLockOptions,
   CoordinatorMessageInput,
   MessageChannelRuntime,
+  ScheduledChannelMessageInput,
   OrchestrationDeliveryCallbacks,
   OutboundQuota,
   ToolUseEvent,
