@@ -9,7 +9,7 @@ import {
   createTransport,
 } from "./command-router-test-support";
 import type { ScheduledTaskRecord } from "../../../src/scheduled/scheduled-types";
-import type { ScheduledRouterOps } from "../../../src/commands/router-types";
+import type { ScheduledDeliveryCapabilityOps, ScheduledRouterOps } from "../../../src/commands/router-types";
 import type { CreateScheduledTaskInput } from "../../../src/scheduled/scheduled-service";
 import type { AppState } from "../../../src/state/types";
 
@@ -42,7 +42,7 @@ function createMockScheduled(overrides?: Partial<ScheduledRouterOps>): Scheduled
   };
 }
 
-function buildRouter(opts?: { scheduled?: ScheduledRouterOps; state?: AppState }) {
+function buildRouter(opts?: { scheduled?: ScheduledRouterOps; scheduledDelivery?: ScheduledDeliveryCapabilityOps; state?: AppState }) {
   const config = createConfig();
   config.agents.codex = { driver: "codex" };
   config.workspaces.backend = { cwd: "/tmp/backend" };
@@ -50,6 +50,7 @@ function buildRouter(opts?: { scheduled?: ScheduledRouterOps; state?: AppState }
   const sessions = new SessionService(config, new MemoryStateStore(), state);
   const transport = createTransport();
   const scheduled = opts?.scheduled;
+  const scheduledDelivery = opts?.scheduledDelivery ?? (scheduled ? { supportsScheduledMessages: () => true } : undefined);
   const router = new CommandRouter(
     sessions,
     transport,
@@ -60,6 +61,7 @@ function buildRouter(opts?: { scheduled?: ScheduledRouterOps; state?: AppState }
     undefined,
     undefined,
     scheduled,
+    scheduledDelivery,
   );
   return { router, transport, sessions, config, state };
 }
@@ -107,6 +109,31 @@ test("/lt in 2h 检查 CI creates task bound to current session", async () => {
   expect(call.accountId).toBe("acct-1");
   expect(call.replyContextToken).toBe("ctx-token");
   expect(call.sessionAlias).toBe("backend:codex");
+});
+
+test("/lt rejects creation when channel lacks scheduled-message support", async () => {
+  const scheduled = createMockScheduled();
+  const scheduledDelivery: ScheduledDeliveryCapabilityOps = {
+    supportsScheduledMessages: mock(() => false),
+  };
+  const state = createEmptyState();
+  state.sessions["backend:codex"] = {
+    alias: "backend:codex",
+    agent: "codex",
+    workspace: "backend",
+    transport_session: "backend:backend:codex",
+    created_at: "2026-05-23T09:00:00.000Z",
+    last_used_at: "2026-05-23T09:00:00.000Z",
+  };
+  state.chat_contexts["feishu:default:oc_chat123"] = { current_session: "backend:codex" };
+
+  const { router } = buildRouter({ scheduled, scheduledDelivery, state });
+  const reply = await router.handle("feishu:default:oc_chat123", "/lt in 2h 检查 CI", undefined, "om_message_1", "default");
+
+  expect(reply.text).toContain("当前频道暂不支持定时任务");
+  expect(reply.text).toContain("未创建任务");
+  expect(scheduledDelivery.supportsScheduledMessages).toHaveBeenCalledWith("feishu:default:oc_chat123");
+  expect(scheduled.createTask).toHaveBeenCalledTimes(0);
 });
 
 test("/lt in 2h /status rejects command-looking message", async () => {

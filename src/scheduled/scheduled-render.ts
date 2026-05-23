@@ -27,6 +27,15 @@ export function renderLaterHelp(): string {
   ].join("\n");
 }
 
+export function renderLaterUnsupportedChannel(): string {
+  return [
+    "当前频道暂不支持定时任务，未创建任务。",
+    "",
+    "原因：这个频道还没有实现定时消息投递能力，任务到点后无法把结果发回原聊天。",
+    "请切换到支持定时任务的频道后再使用 /lt。",
+  ].join("\n");
+}
+
 export function renderTaskCreated(task: ScheduledTaskRecord, displaySession: string): string {
   return [
     `已创建定时任务 #${task.id}`,

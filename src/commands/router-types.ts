@@ -183,3 +183,7 @@ export type ScheduledRouterOps = Pick<
   import("../scheduled/scheduled-service").ScheduledTaskService,
   "createTask" | "listPending" | "cancelPending"
 >;
+
+export interface ScheduledDeliveryCapabilityOps {
+  supportsScheduledMessages(chatKey: string): boolean;
+}

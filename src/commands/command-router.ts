@@ -71,6 +71,7 @@ import { handleSessionResetCommand } from "./handlers/session-reset-handler";
 import type {
   CommandRouterContext,
   RouterResponse,
+  ScheduledDeliveryCapabilityOps,
   ScheduledRouterOps,
   SessionInteractionOps,
   SessionLifecycleOps,
@@ -81,6 +82,7 @@ import type {
   OrchestrationRouterOps,
   WritableConfigStore,
 } from "./router-types";
+import { renderLaterUnsupportedChannel } from "../scheduled/scheduled-render";
 
 type AutoInstallFn = typeof defaultAutoInstall;
 type DiscoverPathsFn = typeof defaultDiscoverPaths;
@@ -108,6 +110,7 @@ export class CommandRouter {
     private readonly orchestration?: OrchestrationRouterOps,
     private readonly quota?: QuotaManager,
     private readonly scheduled?: ScheduledRouterOps,
+    private readonly scheduledDelivery?: ScheduledDeliveryCapabilityOps,
   ) {
     this.logger = logger ?? createNoopAppLogger();
   }
@@ -288,6 +291,9 @@ export class CommandRouter {
           return handleLaterList(this.scheduled);
         case "later.create": {
           if (!this.scheduled) return { text: "定时任务服务未启用。" };
+          if (this.scheduledDelivery && !this.scheduledDelivery.supportsScheduledMessages(chatKey)) {
+            return { text: renderLaterUnsupportedChannel() };
+          }
           const currentSession = await this.sessions.getCurrentSession(chatKey);
           return await handleLaterCreate(
             command.tokens,
