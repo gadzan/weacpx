@@ -8,7 +8,8 @@
 
 ### Changed
 
-- **First-party plugin compatibility:** Core `weacpx` is now `0.5.0`; Feishu and Yuanbao plugin package versions stay independent, while their plugin metadata requires weacpx `0.5.0` and package peer dependency requires `>=0.5.0-0`.
+- **First-party plugin scheduled delivery:** Feishu 与 Yuanbao 插件实现 `sendScheduledMessage`，`/lt` 到点后向原飞书/元宝聊天发送触发通知、执行绑定会话 prompt，并把文本结果投递回原聊天。
+- **First-party plugin compatibility:** Core `weacpx` is now `0.5.0`; the Feishu and Yuanbao channel plugins are released at `0.2.0`, with plugin metadata requiring weacpx `0.5.0` and package peer dependency `>=0.5.0-0`.
 
 ## [0.4.10] - 2026-05-23
 

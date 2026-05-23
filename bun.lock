@@ -26,7 +26,7 @@
     },
     "packages/channel-feishu": {
       "name": "@ganglion/weacpx-channel-feishu",
-      "version": "0.1.2",
+      "version": "0.2.0",
       "dependencies": {
         "@larksuiteoapi/node-sdk": "~1.60.0",
       },
@@ -39,7 +39,7 @@
     },
     "packages/channel-yuanbao": {
       "name": "@ganglion/weacpx-channel-yuanbao",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "dependencies": {
         "protobufjs": "^7.5.6",
         "ws": "^8.20.0",
