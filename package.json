@@ -76,7 +76,7 @@
     "zod-to-json-schema": "^3"
   },
   "publishConfig": {
-    "registry": "https://registry.npmjs.com/"
+    "registry": "https://registry.npmjs.org/"
   },
   "engines": {
     "node": ">=22"
