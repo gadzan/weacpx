@@ -824,9 +824,10 @@ export class FeishuChannel implements MessageChannelRuntime {
 
 
 function formatScheduledFailureText(input: ScheduledChannelMessageInput, error: unknown): string {
-  const taskLabel = input.taskId ? ` #${input.taskId}` : "";
   const message = error instanceof Error ? error.message : String(error);
-  return `⏰ 定时任务${taskLabel} 执行失败：${message}`;
+  return input.taskId
+    ? `⏰ 定时任务 #${input.taskId} 执行失败：${message}`
+    : `⏰ 定时任务执行失败：${message}`;
 }
 
 function defaultMimeForKind(kind: "image" | "file" | "audio" | "video"): string {
