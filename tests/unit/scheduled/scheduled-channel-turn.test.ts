@@ -61,6 +61,7 @@ test("ChannelRegistry routes sendScheduledMessage to correct channel by chatKey"
 
   const weixinInput: ScheduledChannelMessageInput = {
     chatKey: "weixin:account1:user1",
+    sessionAlias: "weixin:backend-codex",
     noticeText: "⏰ 定时任务触发",
     promptText: "检查 CI 状态",
   };
@@ -72,6 +73,7 @@ test("ChannelRegistry routes sendScheduledMessage to correct channel by chatKey"
 
   const feishuInput: ScheduledChannelMessageInput = {
     chatKey: "feishu:default:oc_chat123",
+    sessionAlias: "weixin:backend-codex",
     noticeText: "⏰ 定时任务触发",
     promptText: "检查 CI 状态",
   };
@@ -100,6 +102,7 @@ test("ChannelRegistry throws clear error when channel does not support sendSched
 
   const input: ScheduledChannelMessageInput = {
     chatKey: "basic:default:conv1",
+    sessionAlias: "weixin:backend-codex",
     noticeText: "notice",
     promptText: "prompt",
   };
@@ -114,6 +117,7 @@ test("ChannelRegistry throws clear error when no channel owns the chatKey", asyn
 
   const input: ScheduledChannelMessageInput = {
     chatKey: "unknown:default:conv1",
+    sessionAlias: "weixin:backend-codex",
     noticeText: "notice",
     promptText: "prompt",
   };
@@ -136,6 +140,7 @@ test("sendScheduledMessage passes all optional fields correctly", async () => {
 
   const input: ScheduledChannelMessageInput = {
     chatKey: "weixin:account1:user1",
+    sessionAlias: "weixin:backend-codex",
     accountId: "account1",
     replyContextToken: "ctx-token-123",
     noticeText: "⏰ 定时提醒",

@@ -28,6 +28,7 @@ export interface CoordinatorMessageInput {
 
 export interface ScheduledChannelMessageInput {
   chatKey: string;
+  sessionAlias: string;
   accountId?: string;
   replyContextToken?: string;
   noticeText: string;

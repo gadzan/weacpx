@@ -128,6 +128,25 @@ test("/lt in 2h /status rejects command-looking message", async () => {
   expect(scheduled.createTask).toHaveBeenCalledTimes(0);
 });
 
+
+test("/lt rejects unknown slash-looking messages", async () => {
+  const scheduled = createMockScheduled();
+  const state = createEmptyState();
+  state.sessions["backend:codex"] = {
+    alias: "backend:codex",
+    agent: "codex",
+    workspace: "backend",
+    transport_session: "backend:backend:codex",
+    created_at: "2026-05-23T09:00:00.000Z",
+    last_used_at: "2026-05-23T09:00:00.000Z",
+  };
+  state.chat_contexts["wx:user"] = { current_session: "backend:codex" };
+  const { router } = buildRouter({ scheduled, state });
+  const reply = await router.handle("wx:user", "/lt in 2h /unknown arg");
+  expect(reply.text).toContain("不支持延迟执行 / 开头的命令");
+  expect(scheduled.createTask).toHaveBeenCalledTimes(0);
+});
+
 test("/lt list renders pending tasks", async () => {
   const scheduled = createMockScheduled({
     listPending: mock(() => [
@@ -193,4 +212,42 @@ test("/help later returns later help topic", async () => {
   const reply = await router.handle("wx:user", "/help later");
   expect(reply.text).toContain("定时任务");
   expect(reply.text).toContain("/lt");
+});
+
+test("scheduled prompt uses the bound session even after current session changes", async () => {
+  const state = createEmptyState();
+  state.sessions["weixin:bound"] = {
+    alias: "weixin:bound",
+    agent: "codex",
+    workspace: "backend",
+    transport_session: "transport-bound",
+    created_at: "2026-05-23T09:00:00.000Z",
+    last_used_at: "2026-05-23T09:00:00.000Z",
+  };
+  state.sessions["weixin:current"] = {
+    alias: "weixin:current",
+    agent: "codex",
+    workspace: "backend",
+    transport_session: "transport-current",
+    created_at: "2026-05-23T09:00:00.000Z",
+    last_used_at: "2026-05-23T09:00:00.000Z",
+  };
+  state.chat_contexts["wx:user"] = { current_session: "weixin:current" };
+
+  const { router, transport } = buildRouter({ scheduled: createMockScheduled(), state });
+  const reply = await router.handle(
+    "wx:user",
+    "检查 CI",
+    undefined,
+    "ctx-token",
+    "acct-1",
+    undefined,
+    { scheduledSessionAlias: "weixin:bound" },
+  );
+
+  expect(reply.text).toContain("agent:weixin:bound:检查 CI");
+  expect(transport.prompt).toHaveBeenCalledTimes(1);
+  const session = (transport.prompt as ReturnType<typeof mock>).mock.calls[0][0];
+  expect(session.alias).toBe("weixin:bound");
+  expect(session.transportSession).toBe("transport-bound");
 });

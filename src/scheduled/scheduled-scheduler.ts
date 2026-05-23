@@ -31,6 +31,7 @@ export class ScheduledTaskScheduler {
   }
 
   async start(): Promise<void> {
+    if (this.intervalHandle !== null) return;
     await this.service.markStartupMissed();
     this.intervalHandle = this.setIntervalFn(() => {
       void this.tick();

@@ -174,15 +174,57 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
       );
     }
 
+    const channelStartPromise = deps.channels.startAll({
+      agent: runtime.agent,
+      abortSignal: shutdownController.signal,
+      quota: runtime.quota,
+      logger: runtime.logger,
+      perfTracer: runtime.perfTracer,
+    });
+    // Observe rejections immediately so a channel failure cannot become an
+    // unhandled rejection while the scheduler startup path is still running.
+    channelStartPromise.catch(() => {});
+
+    let channelStartSettled = false;
+    let channelStartError: unknown;
+    channelStartPromise.then(
+      () => {
+        channelStartSettled = true;
+      },
+      (error) => {
+        channelStartSettled = true;
+        channelStartError = error;
+      },
+    );
+    // Give immediately-failing channel startup a chance to report before
+    // enabling scheduled dispatch. Long-running channel loops remain pending
+    // here, which is the normal daemon state.
+    await Promise.resolve();
+
+    if (channelStartSettled && channelStartError) {
+      if (deps.channelStartupPolicy !== "best-effort") {
+        throw channelStartError;
+      }
+      await runtime.logger.error(
+        "daemon.channels.start_failed",
+        "all channels failed to start; daemon remains alive for orchestration IPC",
+        { error: channelStartError instanceof Error ? channelStartError.message : String(channelStartError) },
+      );
+      await waitForShutdown(shutdownController.signal);
+      return;
+    }
+
     try {
-      await deps.channels.startAll({
-        agent: runtime.agent,
-        abortSignal: shutdownController.signal,
-        quota: runtime.quota,
-        logger: runtime.logger,
-        perfTracer: runtime.perfTracer,
-      });
+      await runtime.scheduled.scheduler.start();
     } catch (error) {
+      shutdownController.abort();
+      throw error;
+    }
+
+    try {
+      await channelStartPromise;
+    } catch (error) {
+      runtime.scheduled.scheduler.stop();
       if (deps.channelStartupPolicy !== "best-effort") {
         throw error;
       }
@@ -194,8 +236,6 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
       await waitForShutdown(shutdownController.signal);
       return;
     }
-
-    await runtime.scheduled.scheduler.start();
   } finally {
     await runCleanupSequence({
       removeProcessListener,

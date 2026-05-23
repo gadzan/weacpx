@@ -142,6 +142,69 @@ test("runs the foreground service with daemon lifecycle hooks", async () => {
   expect(purgeInput).toEqual({ cutoffDays: 7, trigger: "startup" });
 });
 
+
+test("starts the scheduler while channel startup is still running", async () => {
+  const events: string[] = [];
+  const signalHandlers = new Map<string, () => void>();
+
+  const runPromise = runConsole(
+    {
+      configPath: "/cfg",
+      statePath: "/state",
+    },
+    {
+      buildApp: async () => ({
+        ...createRuntime(),
+        scheduled: {
+          service: {} as never,
+          scheduler: {
+            start: async () => {
+              events.push("scheduled:start");
+            },
+            stop: () => {
+              events.push("scheduled:stop");
+            },
+          } as never,
+        },
+        dispose: async () => {
+          events.push("dispose");
+        },
+      }),
+      channels: {
+        startAll: async (input) => {
+          events.push("channel:start");
+          await new Promise<void>((resolve) => {
+            input.abortSignal.addEventListener(
+              "abort",
+              () => {
+                events.push("channel:abort");
+                resolve();
+              },
+              { once: true },
+            );
+          });
+        },
+      },
+      addProcessListener: (signal, handler) => {
+        signalHandlers.set(signal, handler);
+      },
+      removeProcessListener: (signal, handler) => {
+        if (signalHandlers.get(signal) === handler) {
+          signalHandlers.delete(signal);
+        }
+      },
+    },
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(events).toEqual(["channel:start", "scheduled:start"]);
+
+  signalHandlers.get("SIGTERM")?.();
+  await runPromise;
+
+  expect(events).toEqual(["channel:start", "scheduled:start", "channel:abort", "dispose"]);
+});
+
 test("best-effort channel startup keeps running when all channels fail until shutdown", async () => {
   const events: string[] = [];
   const logErrors: Array<{ event: string; message: string; context: unknown }> = [];

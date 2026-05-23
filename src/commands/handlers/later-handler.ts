@@ -1,7 +1,6 @@
 import type { RouterResponse, ScheduledRouterOps } from "../router-types";
 import type { ScheduledTaskRecord } from "../../scheduled/scheduled-types";
 import { parseLaterTime } from "../../scheduled/parse-later-time";
-import { isKnownWeacpxCommandText } from "../command-list";
 import { renderLaterHelp, renderLaterList, renderTaskCreated } from "../../scheduled/scheduled-render";
 import { toDisplaySessionAlias } from "../../channels/channel-scope";
 
@@ -52,10 +51,10 @@ export async function handleLaterCreate(
   }
 
   const message = tokens.slice(result.messageStartIndex).join(" ").trim();
-  if (isKnownWeacpxCommandText(message)) {
+  if (message.startsWith("/")) {
     return {
       text: [
-        "不支持延迟执行 weacpx 命令。",
+        "不支持延迟执行 / 开头的命令。",
         "",
         "如果需要让 agent 解释命令，可以用自然语言描述：",
         "例如：/lt in 1h 请解释 /status 的作用",
@@ -84,7 +83,8 @@ export async function handleLaterCancel(id: string, scheduled: ScheduledRouterOp
   if (ok) {
     return { text: `已取消定时任务 #${id.replace(/^#/, "").toLowerCase()}` };
   }
-  return { text: `未找到待执行的定时任务 ${id}` };
+  const displayId = id.replace(/^#/, "").toLowerCase();
+  return { text: [`未找到待执行的定时任务 #${displayId}。`, "可以用 /lt list 查看当前待执行任务。"].join("\n") };
 }
 
 function renderTimeParseError(code: string, value?: string): string {

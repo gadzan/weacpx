@@ -66,6 +66,8 @@ export interface ChatRequestMetadata {
   senderName?: string;
   groupId?: string;
   isOwner?: boolean;
+  /** Internal weacpx session alias to use for non-interactive scheduled prompts. */
+  scheduledSessionAlias?: string;
 }
 
 export interface ChatResponse {

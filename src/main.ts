@@ -672,6 +672,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
       }
       await deps.channel.sendScheduledMessage({
         chatKey: task.chat_key,
+        sessionAlias: task.session_alias,
         noticeText,
         promptText: task.message,
         ...(task.account_id ? { accountId: task.account_id } : {}),

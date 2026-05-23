@@ -22,6 +22,7 @@ test("executeScheduledTurn delivers notice, intermediate replies, and final resp
       expect(request.accountId).toBe("acct");
       expect(request.conversationId).toBe("weixin:acct:user1");
       expect(request.replyContextToken).toBe("ctx");
+      expect(request.metadata?.scheduledSessionAlias).toBe("weixin:backend-codex");
       await request.reply?.("progress 1");
       return { text: "done" };
     },
@@ -30,6 +31,7 @@ test("executeScheduledTurn delivers notice, intermediate replies, and final resp
   await executeScheduledTurn(
     {
       chatKey: "weixin:acct:user1",
+      sessionAlias: "weixin:backend-codex",
       accountId: "acct",
       replyContextToken: "ctx-from-input",
       noticeText: "执行定时任务 #k8f2",
@@ -55,19 +57,17 @@ test("executeScheduledTurn delivers notice, intermediate replies, and final resp
     { to: "user1", text: "progress 1", contextToken: "ctx" },
     { to: "user1", text: "done", contextToken: "ctx" },
   ]);
-  expect(reserveMidSegment).toHaveBeenCalledTimes(2);
-  expect(reserveMidSegment).toHaveBeenNthCalledWith(1, "weixin:acct:user1");
-  expect(reserveMidSegment).toHaveBeenNthCalledWith(2, "weixin:acct:user1");
-  expect(reserveFinal).toHaveBeenCalledWith("weixin:acct:user1");
+  expect(reserveMidSegment).toHaveBeenCalledTimes(1);
+  expect(reserveMidSegment).toHaveBeenNthCalledWith(1, "user1");
+  expect(reserveFinal).toHaveBeenCalledWith("user1");
 });
 
-test("executeScheduledTurn drops intermediate replies when mid quota is exhausted", async () => {
+test("executeScheduledTurn does not double-reserve quota for delivered reply segments", async () => {
   const sent: string[] = [];
-  const reserveMidSegment = mock(() => sent.length === 0);
-  const logger = createLogger();
+  const reserveMidSegment = mock(() => true);
   const agent: Agent = {
     chat: async (request) => {
-      await request.reply?.("progress after quota");
+      await request.reply?.("progress after transport quota");
       return {};
     },
   };
@@ -75,6 +75,7 @@ test("executeScheduledTurn drops intermediate replies when mid quota is exhauste
   await executeScheduledTurn(
     {
       chatKey: "weixin:acct:user1",
+      sessionAlias: "weixin:backend-codex",
       accountId: "acct",
       replyContextToken: "ctx",
       noticeText: "notice",
@@ -91,14 +92,92 @@ test("executeScheduledTurn drops intermediate replies when mid quota is exhauste
         sent.push(text);
         return { messageId: `msg-${sent.length}` };
       }),
-      logger,
+      logger: createLogger(),
     },
   );
 
-  expect(sent).toEqual(["notice"]);
-  expect(logger.info).toHaveBeenCalledWith(
-    "scheduled.mid_dropped",
-    "scheduled turn intermediate response dropped due to quota",
-    { chatKey: "weixin:acct:user1", reason: "quota_exhausted" },
+  expect(sent).toEqual(["notice", "progress after transport quota"]);
+  expect(reserveMidSegment).toHaveBeenCalledTimes(1);
+  expect(reserveMidSegment).toHaveBeenCalledWith("user1");
+});
+
+test("executeScheduledTurn sends best-effort failure notice after prompt dispatch fails", async () => {
+  const sent: string[] = [];
+  const agent: Agent = {
+    chat: async () => {
+      throw new Error("transport down");
+    },
+  };
+
+  await expect(
+    executeScheduledTurn(
+      {
+        chatKey: "weixin:acct:user1",
+        sessionAlias: "weixin:backend-codex",
+        accountId: "acct",
+        replyContextToken: "ctx",
+        noticeText: "notice",
+        promptText: "prompt",
+      },
+      {
+        agent,
+        listAccountIds: () => ["acct"],
+        resolveAccount: () => ({ accountId: "acct", baseUrl: "https://example.test", token: "token" }),
+        getContextToken: () => "ctx",
+        reserveMidSegment: mock(() => true),
+        reserveFinal: mock(() => true),
+        sendMessage: mock(async ({ text }) => {
+          sent.push(text);
+          return { messageId: `msg-${sent.length}` };
+        }),
+        logger: createLogger(),
+      },
+    ),
+  ).rejects.toThrow("transport down");
+
+  expect(sent).toEqual(["notice", "定时任务执行失败：transport down"]);
+});
+
+test("executeScheduledTurn paginates long final responses and parks remaining chunks", async () => {
+  const sent: string[] = [];
+  const parked: Array<{ text: string; seq: number; total: number; accountId?: string; contextToken?: string }> = [];
+  const agent: Agent = {
+    chat: async () => ({ text: "a".repeat(4000) }),
+  };
+
+  await executeScheduledTurn(
+    {
+      chatKey: "weixin:acct:user1",
+      sessionAlias: "weixin:backend-codex",
+      accountId: "acct",
+      replyContextToken: "ctx",
+      noticeText: "notice",
+      promptText: "prompt",
+    },
+    {
+      agent,
+      listAccountIds: () => ["acct"],
+      resolveAccount: () => ({ accountId: "acct", baseUrl: "https://example.test", token: "token" }),
+      getContextToken: () => "ctx",
+      reserveMidSegment: mock(() => true),
+      reserveFinal: mock(() => true),
+      finalRemaining: mock(() => 1),
+      enqueuePendingFinal: mock((chatKey, chunks) => {
+        expect(chatKey).toBe("user1");
+        parked.push(...chunks);
+      }),
+      sendMessage: mock(async ({ text }) => {
+        sent.push(text);
+        return { messageId: `msg-${sent.length}` };
+      }),
+      logger: createLogger(),
+    },
   );
+
+  expect(sent[0]).toBe("notice");
+  expect(sent[1]).toStartWith("(1/3) ");
+  expect(sent[1]).toContain("回复 /jx 续看");
+  expect(parked.map((chunk) => chunk.seq)).toEqual([2, 3]);
+  expect(parked.every((chunk) => chunk.total === 3)).toBe(true);
+  expect(parked.every((chunk) => chunk.accountId === "acct" && chunk.contextToken === "ctx")).toBe(true);
 });

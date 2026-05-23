@@ -150,6 +150,8 @@ export class WeixinChannel implements MessageChannelRuntime {
       getContextToken: (accountId, userId) => getContextToken(accountId, userId),
       reserveMidSegment: (chatKey) => this.quota!.reserveMidSegment(chatKey),
       reserveFinal: (chatKey) => this.quota!.reserveFinal(chatKey),
+      finalRemaining: (chatKey) => this.quota!.finalRemaining(chatKey),
+      enqueuePendingFinal: (chatKey, chunks) => this.quota!.enqueuePendingFinal(chatKey, chunks),
       sendMessage: sendMessageWeixin,
       logger: this.logger,
     });

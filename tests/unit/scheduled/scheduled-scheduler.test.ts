@@ -72,6 +72,29 @@ test("start calls markStartupMissed and schedules interval", async () => {
   scheduler.stop();
 });
 
+
+test("start is idempotent while already running", async () => {
+  const state = createEmptyState();
+  const store = new MemoryStore();
+  const service = new ScheduledTaskService(state, store);
+  const dispatchTask = mock(async () => {});
+  const { setIntervalFn, clearIntervalFn, active } = createFakeSetInterval();
+
+  const scheduler = new ScheduledTaskScheduler(service, {
+    dispatchTask,
+    setIntervalFn,
+    clearIntervalFn,
+  });
+
+  await scheduler.start();
+  await scheduler.start();
+
+  expect(setIntervalFn).toHaveBeenCalledTimes(1);
+  expect(active.size).toBe(1);
+
+  scheduler.stop();
+});
+
 test("stop clears the interval", async () => {
   const state = createEmptyState();
   const store = new MemoryStore();

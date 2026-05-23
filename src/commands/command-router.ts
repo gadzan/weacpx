@@ -20,6 +20,7 @@ import {
   handleModeSet,
   handleModeShow,
   handlePrompt,
+  handlePromptWithSession,
   handleReplyModeReset,
   handleReplyModeSet,
   handleReplyModeShow,
@@ -300,9 +301,30 @@ export class CommandRouter {
         case "later.cancel":
           if (!this.scheduled) return { text: "定时任务服务未启用。" };
           return await handleLaterCancel(command.id, this.scheduled);
-        case "prompt":
+        case "prompt": {
+          const sessionContext = this.createSessionHandlerContext(undefined, perfSpan);
+          if (metadata?.scheduledSessionAlias) {
+            const scheduledSession = await this.sessions.getSession(metadata.scheduledSessionAlias);
+            if (!scheduledSession) {
+              throw new Error(`session "${metadata.scheduledSessionAlias}" not found for scheduled prompt`);
+            }
+            return await handlePromptWithSession(
+              sessionContext,
+              scheduledSession,
+              chatKey,
+              command.text,
+              reply,
+              replyContextToken,
+              accountId,
+              media,
+              abortSignal,
+              onToolEvent,
+              onThought,
+              perfSpan,
+            );
+          }
           return await handlePrompt(
-            this.createSessionHandlerContext(undefined, perfSpan),
+            sessionContext,
             chatKey,
             command.text,
             reply,
@@ -314,6 +336,7 @@ export class CommandRouter {
             onThought,
             perfSpan,
           );
+        }
       }
     });
   }

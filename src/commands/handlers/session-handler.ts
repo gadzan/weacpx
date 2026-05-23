@@ -536,6 +536,31 @@ const effectiveReplyMode = session.replyMode ?? context.config?.channel.replyMod
   }
 }
 
+export async function handlePromptWithSession(
+  context: SessionHandlerContext,
+  session: ResolvedSession,
+  chatKey: string,
+  text: string,
+  reply?: (text: string) => Promise<void>,
+  replyContextToken?: string,
+  accountId?: string,
+  media?: PromptMediaInput,
+  abortSignal?: AbortSignal,
+  onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
+  onThought?: (chunk: string) => void | Promise<void>,
+  perfSpan?: PerfSpan,
+): Promise<RouterResponse> {
+  try {
+    return await promptWithSession(context, session, chatKey, text, reply, replyContextToken, accountId, media, abortSignal, onToolEvent, onThought, perfSpan);
+  } catch (error) {
+    const recovered = await context.recovery.tryRecoverMissingSession(session, error);
+    if (recovered) {
+      return await promptWithSession(context, recovered, chatKey, text, reply, replyContextToken, accountId, media, abortSignal, onToolEvent, onThought, perfSpan);
+    }
+    return context.recovery.renderTransportError(session, error);
+  }
+}
+
 export async function handlePrompt(
   context: SessionHandlerContext,
   chatKey: string,
@@ -554,15 +579,7 @@ export async function handlePrompt(
     return { text: NO_CURRENT_SESSION_TEXT };
   }
 
-  try {
-    return await promptWithSession(context, session, chatKey, text, reply, replyContextToken, accountId, media, abortSignal, onToolEvent, onThought, perfSpan);
-  } catch (error) {
-    const recovered = await context.recovery.tryRecoverMissingSession(session, error);
-    if (recovered) {
-      return await promptWithSession(context, recovered, chatKey, text, reply, replyContextToken, accountId, media, abortSignal, onToolEvent, onThought, perfSpan);
-    }
-    return context.recovery.renderTransportError(session, error);
-  }
+  return await handlePromptWithSession(context, session, chatKey, text, reply, replyContextToken, accountId, media, abortSignal, onToolEvent, onThought, perfSpan);
 }
 
 async function preparePromptWithFallback(
