@@ -49,6 +49,28 @@ function createNoopLogger() {
   } as never;
 }
 
+
+function createFeishuTestClient(sent: unknown[]) {
+  return {
+    sdk: {
+      im: {
+        message: {
+          reply: async (payload: unknown) => {
+            sent.push(payload);
+            return { data: { message_id: "om_reply", chat_id: "oc_chat" } };
+          },
+          create: async (payload: unknown) => {
+            sent.push(payload);
+            return { data: { message_id: "om_created", chat_id: "oc_chat" } };
+          },
+        },
+      },
+    },
+    probeBot: async () => ({ botOpenId: "ou_bot" }),
+    startWS: async () => {},
+  };
+}
+
 const defaultFeishuConfig = {
   appId: "cli_test",
   appSecret: "secret_test",
@@ -147,6 +169,205 @@ test("FeishuChannel.start routes text websocket events to agent and replies", as
       path: { message_id: "om_in" },
       data: { msg_type: "text", content: JSON.stringify({ text: "echo:hello" }) },
     },
+  ]);
+});
+
+
+test("FeishuChannel sends scheduled notice, streaming reply, and final text as Feishu replies", async () => {
+  const sent: unknown[] = [];
+  const requests: unknown[] = [];
+  const abortController = new AbortController();
+  const channel = new FeishuChannel(defaultFeishuConfig, {
+    createClient: () => createFeishuTestClient(sent),
+  });
+  const agent: ChatAgent = {
+    async chat(request) {
+      requests.push(request);
+      await request.reply?.("  intermediate reply  ");
+      return { text: "  final text  " };
+    },
+  };
+
+  await channel.start({ agent, abortSignal: new AbortController().signal, quota: createNoopQuota(), logger: createNoopLogger() });
+
+  await channel.sendScheduledMessage({
+    chatKey: "feishu:default:oc_chat",
+    taskId: "task-42",
+    sessionAlias: "daily",
+    accountId: "default",
+    replyContextToken: "om_schedule",
+    noticeText: "notice text",
+    promptText: "prompt text",
+    abortSignal: abortController.signal,
+  });
+
+  expect(sent).toEqual([
+    { path: { message_id: "om_schedule" }, data: { msg_type: "text", content: JSON.stringify({ text: "notice text" }) } },
+    { path: { message_id: "om_schedule" }, data: { msg_type: "text", content: JSON.stringify({ text: "intermediate reply" }) } },
+    { path: { message_id: "om_schedule" }, data: { msg_type: "text", content: JSON.stringify({ text: "final text" }) } },
+  ]);
+  expect(requests).toHaveLength(1);
+  expect(requests[0]).toMatchObject({
+    accountId: "default",
+    conversationId: "feishu:default:oc_chat",
+    text: "prompt text",
+    replyContextToken: "om_schedule",
+    metadata: { channel: "feishu", scheduledSessionAlias: "daily" },
+  });
+  expect((requests[0] as { abortSignal?: AbortSignal }).abortSignal).toBe(abortController.signal);
+});
+
+test("FeishuChannel logs unsupported scheduled media without failing text delivery", async () => {
+  const sent: unknown[] = [];
+  const errorLogs: Array<{ event: string; ctx?: Record<string, unknown> }> = [];
+  const channel = new FeishuChannel(defaultFeishuConfig, {
+    createClient: () => createFeishuTestClient(sent),
+  });
+  const agent: ChatAgent = {
+    async chat() {
+      return { text: "scheduled done", media: [{ kind: "image", filePath: "/tmp/out.png" }] };
+    },
+  };
+
+  await channel.start({
+    agent,
+    abortSignal: new AbortController().signal,
+    quota: createNoopQuota(),
+    logger: {
+      info: async () => {},
+      error: async (event: string, _message: string, ctx?: Record<string, unknown>) => {
+        errorLogs.push({ event, ctx });
+      },
+      debug: async () => {},
+      cleanup: async () => {},
+      flush: async () => {},
+    } as never,
+  });
+
+  await channel.sendScheduledMessage({
+    chatKey: "feishu:default:oc_chat",
+    taskId: "task-media",
+    sessionAlias: "daily",
+    accountId: "default",
+    replyContextToken: "om_schedule",
+    noticeText: "notice text",
+    promptText: "prompt text",
+  });
+
+  expect(sent).toEqual([
+    { path: { message_id: "om_schedule" }, data: { msg_type: "text", content: JSON.stringify({ text: "notice text" }) } },
+    { path: { message_id: "om_schedule" }, data: { msg_type: "text", content: JSON.stringify({ text: "scheduled done" }) } },
+  ]);
+  expect(errorLogs).toEqual([
+    {
+      event: "feishu.scheduled.media_unsupported",
+      ctx: expect.objectContaining({
+        accountId: "default",
+        chatKey: "feishu:default:oc_chat",
+        taskId: "task-media",
+        sessionAlias: "daily",
+        count: 1,
+      }),
+    },
+  ]);
+});
+
+test("FeishuChannel does not send late scheduled text or media log after abort", async () => {
+  const sent: unknown[] = [];
+  const errorLogs: unknown[] = [];
+  const abortController = new AbortController();
+  const channel = new FeishuChannel(defaultFeishuConfig, {
+    createClient: () => createFeishuTestClient(sent),
+  });
+  const agent: ChatAgent = {
+    async chat(request) {
+      await request.reply?.("before abort");
+      abortController.abort();
+      await request.reply?.("after abort");
+      return { text: "late final", media: [{ kind: "image", filePath: "/tmp/out.png" }] };
+    },
+  };
+
+  await channel.start({
+    agent,
+    abortSignal: new AbortController().signal,
+    quota: createNoopQuota(),
+    logger: {
+      info: async () => {},
+      error: async (...args: unknown[]) => {
+        errorLogs.push(args);
+      },
+      debug: async () => {},
+      cleanup: async () => {},
+      flush: async () => {},
+    } as never,
+  });
+
+  await channel.sendScheduledMessage({
+    chatKey: "feishu:default:oc_chat",
+    sessionAlias: "daily",
+    replyContextToken: "om_schedule",
+    noticeText: "notice text",
+    promptText: "prompt text",
+    abortSignal: abortController.signal,
+  });
+
+  expect(sent).toEqual([
+    { path: { message_id: "om_schedule" }, data: { msg_type: "text", content: JSON.stringify({ text: "notice text" }) } },
+    { path: { message_id: "om_schedule" }, data: { msg_type: "text", content: JSON.stringify({ text: "before abort" }) } },
+  ]);
+  expect(errorLogs).toHaveLength(0);
+});
+
+test("FeishuChannel rejects scheduled accountId mismatch with chatKey account", async () => {
+  const sent: unknown[] = [];
+  const channel = new FeishuChannel(defaultFeishuConfig, {
+    createClient: () => createFeishuTestClient(sent),
+  });
+
+  await channel.start({
+    agent: { async chat() { return { text: "should not run" }; } },
+    abortSignal: new AbortController().signal,
+    quota: createNoopQuota(),
+    logger: createNoopLogger(),
+  });
+
+  await expect(channel.sendScheduledMessage({
+    chatKey: "feishu:default:oc_chat",
+    accountId: "other",
+    sessionAlias: "daily",
+    replyContextToken: "om_schedule",
+    noticeText: "notice text",
+    promptText: "prompt text",
+  })).rejects.toThrow('scheduled Feishu accountId "other" does not match chatKey account "default"');
+  expect(sent).toHaveLength(0);
+});
+
+test("FeishuChannel sends scheduled failure notice after agent failure and rethrows", async () => {
+  const sent: unknown[] = [];
+  const channel = new FeishuChannel(defaultFeishuConfig, {
+    createClient: () => createFeishuTestClient(sent),
+  });
+  const agent: ChatAgent = {
+    async chat() {
+      throw new Error("agent exploded");
+    },
+  };
+
+  await channel.start({ agent, abortSignal: new AbortController().signal, quota: createNoopQuota(), logger: createNoopLogger() });
+
+  await expect(channel.sendScheduledMessage({
+    chatKey: "feishu:default:oc_chat",
+    taskId: "task-42",
+    sessionAlias: "daily",
+    replyContextToken: "om_schedule",
+    noticeText: "notice text",
+    promptText: "prompt text",
+  })).rejects.toThrow("agent exploded");
+
+  expect(sent).toEqual([
+    { path: { message_id: "om_schedule" }, data: { msg_type: "text", content: JSON.stringify({ text: "notice text" }) } },
+    { path: { message_id: "om_schedule" }, data: { msg_type: "text", content: JSON.stringify({ text: "⏰ 定时任务 #task-42 执行失败：agent exploded" }) } },
   ]);
 });
 

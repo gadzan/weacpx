@@ -3,6 +3,7 @@ import type {
   ChannelStartInput,
   CoordinatorMessageInput,
   CreateChannelDeps,
+  ScheduledChannelMessageInput,
   MessageChannelRuntime,
   OrchestrationDeliveryCallbacks,
 } from "weacpx/plugin-api";
@@ -164,6 +165,60 @@ export class FeishuChannel implements MessageChannelRuntime {
 
   async sendCoordinatorMessage(input: CoordinatorMessageInput): Promise<void> {
     await this.sendRouteText(input.chatKey, input.replyContextToken, input.text);
+  }
+
+  async sendScheduledMessage(input: ScheduledChannelMessageInput): Promise<void> {
+    if (!this.agent || !this.logger) {
+      throw new Error("FeishuChannel.start() must be called before scheduled message delivery");
+    }
+    const route = parseFeishuConversationId(input.chatKey);
+    if (!route) throw new Error(`cannot deliver Feishu scheduled message to non-Feishu chatKey: ${input.chatKey}`);
+    if (input.accountId && input.accountId !== route.accountId) {
+      throw new Error(`scheduled Feishu accountId "${input.accountId}" does not match chatKey account "${route.accountId}"`);
+    }
+    if (!this.accounts.has(route.accountId)) {
+      throw new Error(`feishu account "${route.accountId}" is not started; check channel.options.accounts and enabled flags`);
+    }
+
+    const deliverText = async (text: string | undefined): Promise<void> => {
+      if (input.abortSignal?.aborted) return;
+      const trimmed = text?.trim() ?? "";
+      if (trimmed.length === 0) return;
+      await this.sendRouteText(input.chatKey, input.replyContextToken, trimmed);
+    };
+
+    await this.sendRouteText(input.chatKey, input.replyContextToken, input.noticeText);
+
+    try {
+      const response = await this.agent.chat({
+        accountId: route.accountId,
+        conversationId: input.chatKey,
+        text: input.promptText,
+        ...(input.replyContextToken ? { replyContextToken: input.replyContextToken } : {}),
+        ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+        metadata: { channel: "feishu", scheduledSessionAlias: input.sessionAlias },
+        reply: deliverText,
+      });
+      if (input.abortSignal?.aborted) return;
+      const media = normalizeMediaArray(response.media);
+      if (media.length > 0) {
+        await this.logger.error("feishu.scheduled.media_unsupported", "scheduled feishu media responses are not supported", {
+          accountId: route.accountId,
+          chatKey: input.chatKey,
+          taskId: input.taskId,
+          sessionAlias: input.sessionAlias,
+          count: media.length,
+        });
+      }
+      await deliverText(response.text);
+    } catch (error) {
+      try {
+        await deliverText(formatScheduledFailureText(input, error));
+      } catch {
+        // Best-effort failure notice only; preserve the agent error for scheduler handling.
+      }
+      throw error;
+    }
   }
 
   private async sendRouteText(chatKey: string, replyContextToken: string | undefined, text: string): Promise<void> {
@@ -765,6 +820,13 @@ export class FeishuChannel implements MessageChannelRuntime {
     }
     return true;
   }
+}
+
+
+function formatScheduledFailureText(input: ScheduledChannelMessageInput, error: unknown): string {
+  const taskLabel = input.taskId ? ` #${input.taskId}` : "";
+  const message = error instanceof Error ? error.message : String(error);
+  return `⏰ 定时任务${taskLabel} 执行失败：${message}`;
 }
 
 function defaultMimeForKind(kind: "image" | "file" | "audio" | "video"): string {
