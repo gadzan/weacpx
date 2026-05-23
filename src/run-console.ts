@@ -193,6 +193,8 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
       );
       await waitForShutdown(shutdownController.signal);
     }
+
+    await runtime.scheduled.scheduler.start();
   } finally {
     await runCleanupSequence({
       removeProcessListener,

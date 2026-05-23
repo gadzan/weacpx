@@ -20,6 +20,9 @@ import { OrchestrationServer } from "./orchestration/orchestration-server";
 import { OrchestrationService } from "./orchestration/orchestration-service";
 import { buildCoordinatorPrompt } from "./orchestration/build-coordinator-prompt";
 import { buildWorkerAnswerPrompt, buildWorkerTaskPrompt } from "./orchestration/worker-prompts";
+import { ScheduledTaskScheduler } from "./scheduled/scheduled-scheduler";
+import { ScheduledTaskService } from "./scheduled/scheduled-service";
+import { preview } from "./scheduled/scheduled-render";
 import { SessionService } from "./sessions/session-service";
 import { DebouncedStateStore } from "./state/debounced-state-store";
 import { StateStore } from "./state/state-store";
@@ -62,6 +65,10 @@ export interface AppRuntime {
     server: OrchestrationServer;
     endpoint: ReturnType<typeof resolveOrchestrationEndpoint>;
   };
+  scheduled: {
+    service: ScheduledTaskService;
+    scheduler: ScheduledTaskScheduler;
+  };
   dispose: () => Promise<void>;
 }
 
@@ -70,7 +77,7 @@ interface RuntimeDeps {
   createBridgeTransport?: () => Promise<SessionTransport>;
   defaultLoggingLevel?: LoggingLevel;
   loggerNow?: () => Date;
-  channel?: Pick<MessageChannelRuntime, "notifyTaskCompletion" | "notifyTaskProgress" | "sendCoordinatorMessage"> & {
+  channel?: Pick<MessageChannelRuntime, "notifyTaskCompletion" | "notifyTaskProgress" | "sendCoordinatorMessage" | "sendScheduledMessage"> & {
     configureOrchestration?: MessageChannelRuntime["configureOrchestration"];
   };
   sendOrchestrationNotice?: (task: OrchestrationTaskRecord) => Promise<void>;
@@ -176,6 +183,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     },
   });
   const sessions = new SessionService(config, debouncedStateStore, state, { stateMutex });
+  const scheduledService = new ScheduledTaskService(state, debouncedStateStore);
   const pendingWorkerDispatches = new Set<Promise<void>>();
   const transport =
     config.transport.type === "acpx-bridge"
@@ -650,8 +658,28 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     paths.orchestrationSocketPath ?? resolveOrchestrationSocketPathFromConfigPath(paths.configPath),
   );
   const orchestrationServer = new OrchestrationServer(orchestrationEndpoint, orchestration);
-  const router = new CommandRouter(sessions, transport, config, configStore, logger, undefined, orchestration, quota);
+  const router = new CommandRouter(sessions, transport, config, configStore, logger, undefined, orchestration, quota, scheduledService);
   const agent = new ConsoleAgent(router, logger);
+  const scheduledScheduler = new ScheduledTaskScheduler(scheduledService, {
+    dispatchTask: async (task) => {
+      const session = await sessions.getSession(task.session_alias);
+      if (!session) {
+        throw new Error(`session "${task.session_alias}" not found for scheduled task`);
+      }
+      const noticeText = `执行定时任务 #${task.id}\n会话：${task.session_alias}\n内容：${preview(task.message)}`;
+      if (!deps.channel?.sendScheduledMessage) {
+        throw new Error("no channel runtime available for scheduled task dispatch");
+      }
+      await deps.channel.sendScheduledMessage({
+        chatKey: task.chat_key,
+        noticeText,
+        promptText: task.message,
+        ...(task.account_id ? { accountId: task.account_id } : {}),
+        ...(task.reply_context_token ? { replyContextToken: task.reply_context_token } : {}),
+      });
+    },
+    logger,
+  });
 
   return {
     agent,
@@ -668,7 +696,12 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
       server: orchestrationServer,
       endpoint: orchestrationEndpoint,
     },
+    scheduled: {
+      service: scheduledService,
+      scheduler: scheduledScheduler,
+    },
     dispose: async () => {
+      scheduledScheduler.stop();
       if (progressHeartbeatInterval !== undefined) {
         clearInterval(progressHeartbeatInterval);
       }
