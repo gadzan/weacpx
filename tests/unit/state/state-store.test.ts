@@ -99,6 +99,277 @@ test("persists sessions and chat context", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test("round-trips blocker-loop state records through load", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+  const state = {
+    sessions: {},
+    chat_contexts: {},
+    scheduled_tasks: {},
+    orchestration: {
+      tasks: {
+        "task-1": {
+          taskId: "task-1",
+          sourceHandle: "backend:main",
+          sourceKind: "worker",
+          coordinatorSession: "backend:main",
+          workerSession: "backend:claude:backend:main",
+          workspace: "backend",
+          targetAgent: "claude",
+          task: "继续处理数据库方案",
+          status: "blocked",
+          summary: "等待数据库方案确认",
+          resultText: "",
+          createdAt: "2026-04-21T10:00:00.000Z",
+          updatedAt: "2026-04-21T10:01:00.000Z",
+          openQuestion: {
+            questionId: "question-1",
+            question: "继续 SQLite 还是切 Postgres？",
+            whyBlocked: "schema choice affects follow-up work",
+            whatIsNeeded: "database decision",
+            askedAt: "2026-04-21T10:00:30.000Z",
+            status: "open",
+            packageId: "package-1",
+          },
+        },
+        "task-2": {
+          taskId: "task-2",
+          sourceHandle: "backend:main",
+          sourceKind: "coordinator",
+          coordinatorSession: "backend:main",
+          workerSession: "backend:claude:backend:main",
+          workspace: "backend",
+          targetAgent: "claude",
+          task: "确认误路由结果",
+          status: "completed",
+          summary: "等待 coordinator 判定",
+          resultText: "result payload",
+          createdAt: "2026-04-21T10:02:00.000Z",
+          updatedAt: "2026-04-21T10:03:00.000Z",
+          reviewPending: {
+            reviewId: "review-1",
+            reason: "misrouted_answer",
+            createdAt: "2026-04-21T10:03:00.000Z",
+            resultId: "result-1",
+            resultText: "result payload",
+          },
+        },
+        "task-3": {
+          taskId: "task-3",
+          sourceHandle: "backend:main",
+          sourceKind: "coordinator",
+          coordinatorSession: "backend:main",
+          workerSession: "backend:claude:backend:main",
+          workspace: "backend",
+          targetAgent: "claude",
+          task: "处理纠正中的 task",
+          status: "running",
+          summary: "等待纠正结果",
+          resultText: "",
+          createdAt: "2026-04-21T10:04:00.000Z",
+          updatedAt: "2026-04-21T10:05:00.000Z",
+          correctionPending: {
+            requestedAt: "2026-04-21T10:05:00.000Z",
+            reason: "misrouted_answer",
+          },
+        },
+      },
+      workerBindings: {
+        "backend:claude:backend:main": {
+          sourceHandle: "backend:claude:backend:main",
+          coordinatorSession: "backend:main",
+          workspace: "backend",
+          targetAgent: "claude",
+        },
+      },
+      groups: {},
+      humanQuestionPackages: {
+        "package-1": {
+          packageId: "package-1",
+          coordinatorSession: "backend:main",
+          status: "active",
+          createdAt: "2026-04-21T10:00:00.000Z",
+          updatedAt: "2026-04-21T10:05:00.000Z",
+          initialTaskIds: ["task-1"],
+          openTaskIds: ["task-1"],
+          resolvedTaskIds: ["task-3"],
+          messages: [
+            {
+              messageId: "message-1",
+              kind: "initial",
+              promptText: "请确认数据库方案和文件写入边界",
+              createdAt: "2026-04-21T10:00:00.000Z",
+              deliveredAt: "2026-04-21T10:00:10.000Z",
+              deliveredChatKey: "wx:user-1",
+              deliveryAccountId: "account-1",
+            },
+          ],
+          awaitingReplyMessageId: "message-1",
+        },
+      },
+      coordinatorQuestionState: {
+        "backend:main": {
+          activePackageId: "package-1",
+          queuedQuestions: [
+            {
+              taskId: "task-3",
+              questionId: "question-3",
+              enqueuedAt: "2026-04-21T10:05:00.000Z",
+            },
+          ],
+        },
+      },
+      coordinatorRoutes: {
+        "backend:main": {
+          coordinatorSession: "backend:main",
+          chatKey: "wx:user-1",
+          accountId: "account-1",
+          replyContextToken: "reply-token-1",
+          updatedAt: "2026-04-21T10:05:00.000Z",
+        },
+      },
+      externalCoordinators: {},
+    },
+  };
+
+  await store.save(state);
+  await expect(store.load()).resolves.toEqual(state);
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("loads orchestration task records with coordinator injection metadata", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+
+  await Bun.write(
+    path,
+    JSON.stringify({
+      sessions: {},
+      chat_contexts: {},
+      orchestration: {
+        tasks: {
+          "task-1": {
+            taskId: "task-1",
+            sourceHandle: "backend:main",
+            sourceKind: "coordinator",
+            coordinatorSession: "backend:main",
+            workerSession: "backend:worker",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "inject result back to coordinator",
+            status: "completed",
+            summary: "worker result injected",
+            resultText: "done",
+            createdAt: "2026-04-13T10:00:00.000Z",
+            updatedAt: "2026-04-13T10:05:00.000Z",
+            coordinatorInjectedAt: "2026-04-13T10:06:00.000Z",
+          },
+        },
+        workerBindings: {},
+        groups: {},
+      },
+    }),
+  );
+
+  await expect(store.load()).resolves.toEqual({
+    sessions: {},
+    chat_contexts: {},
+    scheduled_tasks: {},
+    orchestration: {
+      tasks: {
+        "task-1": {
+          taskId: "task-1",
+          sourceHandle: "backend:main",
+          sourceKind: "coordinator",
+          coordinatorSession: "backend:main",
+          workerSession: "backend:worker",
+          workspace: "backend",
+          targetAgent: "claude",
+          task: "inject result back to coordinator",
+          status: "completed",
+          summary: "worker result injected",
+          resultText: "done",
+          createdAt: "2026-04-13T10:00:00.000Z",
+          updatedAt: "2026-04-13T10:05:00.000Z",
+          coordinatorInjectedAt: "2026-04-13T10:06:00.000Z",
+        },
+      },
+      workerBindings: {},
+      groups: {},
+      humanQuestionPackages: {},
+      coordinatorQuestionState: {},
+      coordinatorRoutes: {},
+      externalCoordinators: {},
+    },
+  });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("loads orchestration groups and grouped tasks", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+
+  await Bun.write(
+    path,
+    JSON.stringify({
+      sessions: {},
+      chat_contexts: {},
+      orchestration: {
+        tasks: {
+          "task-1": {
+            taskId: "task-1",
+            sourceHandle: "backend:main",
+            sourceKind: "coordinator",
+            coordinatorSession: "backend:main",
+            workerSession: "backend:claude:backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "review api",
+            groupId: "group-review",
+            status: "completed",
+            summary: "done",
+            resultText: "ok",
+            createdAt: "2026-04-18T10:00:00.000Z",
+            updatedAt: "2026-04-18T10:05:00.000Z",
+          },
+        },
+        workerBindings: {},
+        groups: {
+          "group-review": {
+            groupId: "group-review",
+            coordinatorSession: "backend:main",
+            title: "review",
+            createdAt: "2026-04-18T10:00:00.000Z",
+            updatedAt: "2026-04-18T10:05:00.000Z",
+          },
+        },
+      },
+    }),
+  );
+
+  await expect(store.load()).resolves.toMatchObject({
+    orchestration: {
+      tasks: {
+        "task-1": {
+          groupId: "group-review",
+        },
+      },
+      groups: {
+        "group-review": {
+          title: "review",
+        },
+      },
+    },
+  });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
 test("loads orchestration task records with reliability metadata", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
   const path = join(dir, "state.json");
