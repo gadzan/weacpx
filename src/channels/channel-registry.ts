@@ -65,6 +65,15 @@ export class MessageChannelRegistry {
     await this.requireByChatKey(input.chatKey).sendCoordinatorMessage(input);
   }
 
+  supportsScheduledMessages(chatKey: string): boolean {
+    const [candidateChannelId] = chatKey.split(":", 1);
+    if (chatKey.includes(":") && candidateChannelId && !this.channels.has(candidateChannelId)) {
+      return false;
+    }
+    const channel = this.getByChatKey(chatKey);
+    return !!channel?.sendScheduledMessage;
+  }
+
   async sendScheduledMessage(input: ScheduledChannelMessageInput): Promise<void> {
     const channel = this.requireByChatKey(input.chatKey);
     if (!channel.sendScheduledMessage) {

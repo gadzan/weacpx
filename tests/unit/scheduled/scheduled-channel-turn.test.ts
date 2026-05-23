@@ -41,6 +41,28 @@ const startInput = {
   } as never,
 };
 
+test("ChannelRegistry reports scheduled-message support by chatKey", () => {
+  const weixin = createFakeChannel("weixin", {
+    sendScheduledMessage: async () => {},
+  });
+  const feishu: MessageChannelRuntime = {
+    id: "feishu",
+    isLoggedIn: () => true,
+    login: async () => "feishu",
+    logout: () => {},
+    start: async () => {},
+    notifyTaskCompletion: async () => {},
+    notifyTaskProgress: async () => {},
+    sendCoordinatorMessage: async () => {},
+  };
+
+  const registry = new MessageChannelRegistry([weixin, feishu]);
+
+  expect(registry.supportsScheduledMessages("weixin:account1:user1")).toBe(true);
+  expect(registry.supportsScheduledMessages("feishu:default:oc_chat123")).toBe(false);
+  expect(registry.supportsScheduledMessages("unknown:default:conv1")).toBe(false);
+});
+
 test("ChannelRegistry routes sendScheduledMessage to correct channel by chatKey", async () => {
   const weixinCalls: ScheduledChannelMessageInput[] = [];
   const feishuCalls: ScheduledChannelMessageInput[] = [];
