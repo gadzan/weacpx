@@ -183,7 +183,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     },
   });
   const sessions = new SessionService(config, debouncedStateStore, state, { stateMutex });
-  const scheduledService = new ScheduledTaskService(state, debouncedStateStore);
+  const scheduledService = new ScheduledTaskService(state, debouncedStateStore, { stateMutex });
   const pendingWorkerDispatches = new Set<Promise<void>>();
   const transport =
     config.transport.type === "acpx-bridge"
@@ -760,6 +760,11 @@ function replaceRuntimeState(target: AppState, source: AppState): void {
   target.sessions = source.sessions;
   target.chat_contexts = source.chat_contexts;
   target.orchestration = source.orchestration;
+  // Must mirror every AppState runtime domain. Omitting scheduled_tasks here
+  // let an orchestration save (whose source is a clone) drop newly-created
+  // scheduled tasks from the persisted state. Safe because scheduled writes now
+  // serialize through the shared stateMutex, so `source` reflects the latest.
+  target.scheduled_tasks = source.scheduled_tasks;
 }
 
 function replaceRuntimeConfig(target: AppConfig, source: AppConfig): void {

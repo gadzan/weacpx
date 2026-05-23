@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { ScheduledTaskService } from "../../../src/scheduled/scheduled-service";
+import { AsyncMutex } from "../../../src/orchestration/async-mutex";
 import { createEmptyState, type AppState } from "../../../src/state/types";
 
 class MemoryStore {
@@ -74,4 +75,47 @@ test("claims due tasks and marks old pending tasks missed", async () => {
 
   await service.markStartupMissed();
   expect(state.scheduled_tasks.due1?.status).toBe("triggering");
+});
+
+test("scheduled writes serialize with the shared state mutex so an interleaved clone-save cannot drop a task", async () => {
+  const mutex = new AsyncMutex();
+  const state = createEmptyState();
+  const persistedTaskKeys: string[][] = [];
+  const store = {
+    save: async (s: AppState): Promise<void> => {
+      persistedTaskKeys.push(Object.keys(s.scheduled_tasks));
+    },
+  };
+
+  // Orchestration-style critical section (mirrors main.ts loadState/saveState
+  // under the shared stateMutex): acquire the lock, snapshot the state, hold it
+  // while "working", then persist the snapshot. Started first so it owns the lock.
+  const orchestration = mutex.run(async () => {
+    const clone = JSON.parse(JSON.stringify(state)) as AppState;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    await store.save(clone);
+  });
+
+  // A scheduled create issued while the orchestration section still holds the lock.
+  const service = new ScheduledTaskService(state, store, {
+    stateMutex: mutex,
+    generateId: () => "abcd",
+  });
+  const create = service.createTask({
+    chatKey: "weixin:user-1",
+    sessionAlias: "internal-alias",
+    executeAt: new Date(Date.now() + 60_000),
+    message: "检查 CI",
+  });
+
+  await Promise.all([orchestration, create]);
+
+  // In-memory state has the task.
+  expect(state.scheduled_tasks.abcd).toBeDefined();
+  // Serialization forces the create's save AFTER the orchestration snapshot save:
+  // the orchestration save persisted no tasks, then the create persisted the task
+  // last — so the on-disk state ends with the task present. Without the shared
+  // mutex the create would interleave and the stale clone save would land last
+  // (persisting []), silently dropping the task.
+  expect(persistedTaskKeys).toEqual([[], ["abcd"]]);
 });
