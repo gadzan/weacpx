@@ -11,6 +11,10 @@
 - **First-party plugin scheduled delivery:** Feishu 与 Yuanbao 插件实现 `sendScheduledMessage`，`/lt` 到点后向原飞书/元宝聊天发送触发通知、执行绑定会话 prompt，并把文本结果投递回原聊天。
 - **First-party plugin compatibility:** Core `weacpx` is now `0.5.0`; the Feishu and Yuanbao channel plugins are released at `0.2.0`, with plugin metadata requiring weacpx `0.5.0` and package peer dependency `>=0.5.0-0`.
 
+### Fixed
+
+- **Feishu 定时任务卡片渲染（channel-feishu 0.2.1）：** 飞书插件定时任务的 agent 输出改为与普通消息一致的流式卡片（streaming/auto 模式）；触发通知仍为纯文本，static 模式或卡片创建失败时回退纯文本。
+
 ## [0.4.10] - 2026-05-23
 
 ### Added
