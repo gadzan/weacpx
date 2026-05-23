@@ -668,3 +668,14 @@ test("parseCommand accepts needs_confirmation for /tasks", () => {
     filter: { status: "needs_confirmation" },
   });
 });
+
+test("parses later commands", () => {
+  expect(parseCommand("/later")).toEqual({ kind: "later.help" });
+  expect(parseCommand("/lt")).toEqual({ kind: "later.help" });
+  expect(parseCommand("/lt list")).toEqual({ kind: "later.list" });
+  expect(parseCommand("/later cancel #K8F2")).toEqual({ kind: "later.cancel", id: "#K8F2" });
+  expect(parseCommand("/lt in 2h 检查 CI")).toEqual({
+    kind: "later.create",
+    tokens: ["in", "2h", "检查", "CI"],
+  });
+});

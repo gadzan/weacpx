@@ -276,6 +276,14 @@ export class CommandRouter {
           return await handleTaskReject(this.createHandlerContext(), chatKey, command.taskId);
         case "task.cancel":
           return await handleTaskCancel(this.createHandlerContext(), chatKey, command.taskId);
+        case "later.help":
+          return { text: "定时任务功能即将推出。" };
+        case "later.list":
+          return { text: "定时任务功能即将推出。" };
+        case "later.create":
+          return { text: "定时任务功能即将推出。" };
+        case "later.cancel":
+          return { text: "定时任务功能即将推出。" };
         case "prompt":
           return await handlePrompt(
             this.createSessionHandlerContext(undefined, perfSpan),

@@ -19,6 +19,7 @@ const GROUP_PUBLIC_COMMAND_KINDS = new Set<ParsedCommand["kind"]>([
   "group.get",
   "tasks",
   "task.get",
+  "later.help",
   "invalid",
   "prompt",
 ]);
@@ -69,6 +70,9 @@ const COMMAND_KIND_TO_LABEL: Record<string, string> = {
   "session.shortcut": "/session",
   "session.shortcut.new": "/session",
   "session.attach": "/session attach",
+  "later.create": "/later",
+  "later.list": "/later list",
+  "later.cancel": "/later cancel",
 };
 
 export function renderCommandAccessDenied(command: ParsedCommand): string {

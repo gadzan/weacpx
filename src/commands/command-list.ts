@@ -24,6 +24,8 @@ export const WEACPX_KNOWN_COMMAND_PREFIXES = [
   "/group",
   "/groups",
   "/task",
+  "/later",
+  "/lt",
 ] as const;
 
 const KNOWN_COMMAND_PREFIX_SET = new Set<string>(WEACPX_KNOWN_COMMAND_PREFIXES);

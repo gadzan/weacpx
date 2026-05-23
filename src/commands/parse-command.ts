@@ -57,6 +57,10 @@ export type ParsedCommand =
   | { kind: "session.shortcut"; agent: string; cwd?: string; workspace?: string }
   | { kind: "session.shortcut.new"; agent: string; cwd?: string; workspace?: string }
   | { kind: "session.attach"; alias: string; agent: string; workspace: string; transportSession: string }
+  | { kind: "later.help" }
+  | { kind: "later.create"; tokens: string[] }
+  | { kind: "later.list" }
+  | { kind: "later.cancel"; id: string }
   | { kind: "invalid"; text: string; recognizedCommand: string }
   | { kind: "prompt"; text: string };
 
@@ -229,6 +233,15 @@ export function parseCommand(input: string): ParsedCommand {
     }
   } else if (command === "/task" && parts[1] && parts.length === 2) {
     return { kind: "task.get", taskId: parts[1] };
+  }
+
+  if (command === "/later") {
+    if (parts.length === 1) return { kind: "later.help" };
+    if (parts[1] === "list" && parts.length === 2) return { kind: "later.list" };
+    if (parts[1] === "cancel" && parts[2] && parts.length === 3) {
+      return { kind: "later.cancel", id: parts[2] };
+    }
+    return { kind: "later.create", tokens: parts.slice(1) };
   }
 
   if (command === "/workspace" && parts[1] === "new" && parts[2]) {
@@ -442,6 +455,7 @@ function normalizeCommand(command: string): string {
   if (command === "/ws") return "/workspace";
   if (command === "/pm") return "/permission";
   if (command === "/stop") return "/cancel";
+  if (command === "/lt") return "/later";
   return command;
 }
 

@@ -59,3 +59,18 @@ test("renderCommandAccessDenied renders blocked message for various command kind
   expect(denied).toContain("/permission");
   expect(denied).toContain("仅限群创建者");
 });
+
+test("allows later help in groups but gates later control commands to owner", () => {
+  expect(authorizeCommandForChat(parseCommand("/later"), { chatType: "group", isOwner: false })).toEqual({ allowed: true });
+  expect(authorizeCommandForChat(parseCommand("/lt"), { chatType: "group", isOwner: false })).toEqual({ allowed: true });
+  expect(authorizeCommandForChat(parseCommand("/lt list"), { chatType: "group", isOwner: false })).toMatchObject({ allowed: false });
+  expect(authorizeCommandForChat(parseCommand("/later cancel #K8F2"), { chatType: "group", isOwner: false })).toMatchObject({ allowed: false });
+  expect(authorizeCommandForChat(parseCommand("/lt in 2h 检查 CI"), { chatType: "group", isOwner: false })).toMatchObject({ allowed: false });
+  expect(authorizeCommandForChat(parseCommand("/lt list"), { chatType: "group", isOwner: true })).toEqual({ allowed: true });
+  expect(authorizeCommandForChat(parseCommand("/later cancel #K8F2"), { chatType: "group", isOwner: true })).toEqual({ allowed: true });
+});
+
+test("renderCommandAccessDenied labels later commands", () => {
+  const denied = renderCommandAccessDenied(parseCommand("/later cancel #K8F2"));
+  expect(denied).toContain("/later cancel");
+});
