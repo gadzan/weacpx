@@ -3,6 +3,16 @@ import { expect, test } from "bun:test";
 import { createNoopAppLogger } from "../../src/logging/app-logger";
 import { runConsole } from "../../src/run-console";
 
+function createScheduledRuntime() {
+  return {
+    service: {} as never,
+    scheduler: {
+      start: async () => {},
+      stop: () => {},
+    } as never,
+  };
+}
+
 function createRuntime() {
   return {
     agent: {} as never,
@@ -10,6 +20,7 @@ function createRuntime() {
     sessions: {} as never,
     stateStore: {} as never,
     configStore: {} as never,
+    scheduled: createScheduledRuntime(),
     logger: createNoopAppLogger(),
     quota: {} as never,
     orchestration: {
@@ -62,6 +73,7 @@ test("runs the foreground service with daemon lifecycle hooks", async () => {
         sessions: {} as never,
         stateStore: {} as never,
         configStore: {} as never,
+        scheduled: createScheduledRuntime(),
         logger: createNoopAppLogger(),
         orchestration: {
           server: {
@@ -148,6 +160,7 @@ test("best-effort channel startup keeps running when all channels fail until shu
         sessions: {} as never,
         stateStore: {} as never,
         configStore: {} as never,
+        scheduled: createScheduledRuntime(),
         logger: {
           ...createNoopAppLogger(),
           error: async (event, message, context) => {
@@ -237,6 +250,7 @@ test("require-one channel startup still rejects when all channels fail", async (
           sessions: {} as never,
           stateStore: {} as never,
           configStore: {} as never,
+          scheduled: createScheduledRuntime(),
           logger: createNoopAppLogger(),
           orchestration: {
             server: {
@@ -279,6 +293,45 @@ test("require-one channel startup still rejects when all channels fail", async (
   expect(events).toEqual(["daemon:start", "orchestration:start", "channel:start", "orchestration:stop", "dispose", "daemon:stop"]);
 });
 
+test("propagates scheduler startup failures after channels start", async () => {
+  const events: string[] = [];
+
+  await expect(
+    runConsole(
+      {
+        configPath: "/cfg",
+        statePath: "/state",
+      },
+      {
+        buildApp: async () => ({
+          ...createRuntime(),
+          scheduled: {
+            service: {} as never,
+            scheduler: {
+              start: async () => {
+                events.push("scheduled:start");
+                throw new Error("scheduler failed");
+              },
+              stop: () => {},
+            } as never,
+          },
+          dispose: async () => {
+            events.push("dispose");
+          },
+        }),
+        channels: {
+          startAll: async () => {
+            events.push("channel:start");
+          },
+        },
+        channelStartupPolicy: "best-effort",
+      },
+    ),
+  ).rejects.toThrow("scheduler failed");
+
+  expect(events).toEqual(["channel:start", "scheduled:start", "dispose"]);
+});
+
 test("disposes runtime when loading the sdk fails before startup", async () => {
   const events: string[] = [];
 
@@ -295,6 +348,7 @@ test("disposes runtime when loading the sdk fails before startup", async () => {
           sessions: {} as never,
           stateStore: {} as never,
           configStore: {} as never,
+          scheduled: createScheduledRuntime(),
           logger: createNoopAppLogger(),
           orchestration: {
             server: {
@@ -341,6 +395,7 @@ test("swallows heartbeat failures inside the timer callback", async () => {
         sessions: {} as never,
         stateStore: {} as never,
         configStore: {} as never,
+        scheduled: createScheduledRuntime(),
         logger: createNoopAppLogger(),
         orchestration: {
           server: {
@@ -392,6 +447,7 @@ test("does not register gc interval in foreground mode", async () => {
         sessions: {} as never,
         stateStore: {} as never,
         configStore: {} as never,
+        scheduled: createScheduledRuntime(),
         logger: createNoopAppLogger(),
         orchestration: {
           server: {
@@ -435,6 +491,7 @@ test("still stops daemon runtime when dispose fails", async () => {
           sessions: {} as never,
           stateStore: {} as never,
           configStore: {} as never,
+          scheduled: createScheduledRuntime(),
           logger: createNoopAppLogger(),
           orchestration: {
             server: {
@@ -445,10 +502,10 @@ test("still stops daemon runtime when dispose fails", async () => {
                 events.push("orchestration:stop");
               },
             },
-          service: {
-            purgeExpiredResetCoordinators: async () => {},
-            reconcileParallelSlots: async () => {},
-          },
+            service: {
+              purgeExpiredResetCoordinators: async () => {},
+              reconcileParallelSlots: async () => {},
+            },
           },
           dispose: async () => {
             events.push("dispose");
@@ -492,6 +549,7 @@ test("handles SIGINT by aborting the sdk start and running cleanup", async () =>
         sessions: {} as never,
         stateStore: {} as never,
         configStore: {} as never,
+        scheduled: createScheduledRuntime(),
         logger: createNoopAppLogger(),
         orchestration: {
           server: {

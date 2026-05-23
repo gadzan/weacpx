@@ -192,6 +192,7 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
         { error: error instanceof Error ? error.message : String(error) },
       );
       await waitForShutdown(shutdownController.signal);
+      return;
     }
 
     await runtime.scheduled.scheduler.start();

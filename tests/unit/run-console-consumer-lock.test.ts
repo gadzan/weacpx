@@ -4,6 +4,16 @@ import { createNoopAppLogger } from "../../src/logging/app-logger";
 import { runConsole } from "../../src/run-console";
 import { ActiveWeixinConsumerLockError } from "../../src/weixin/monitor/consumer-lock";
 
+function createScheduledRuntime() {
+  return {
+    service: {} as never,
+    scheduler: {
+      start: async () => {},
+      stop: () => {},
+    } as never,
+  };
+}
+
 test("acquires and releases the weixin consumer lock around sdk.start", async () => {
   const events: string[] = [];
 
@@ -19,6 +29,7 @@ test("acquires and releases the weixin consumer lock around sdk.start", async ()
         sessions: {} as never,
         stateStore: {} as never,
         configStore: {} as never,
+        scheduled: createScheduledRuntime(),
         logger: createNoopAppLogger(),
         dispose: async () => {
           events.push("dispose");
@@ -59,6 +70,7 @@ test("releases the weixin consumer lock when sdk.start fails", async () => {
           sessions: {} as never,
           stateStore: {} as never,
           configStore: {} as never,
+          scheduled: createScheduledRuntime(),
           logger: createNoopAppLogger(),
           dispose: async () => {
             events.push("dispose");
@@ -100,6 +112,7 @@ test("does not release the lock if acquisition fails before startup", async () =
           sessions: {} as never,
           stateStore: {} as never,
           configStore: {} as never,
+          scheduled: createScheduledRuntime(),
           logger: createNoopAppLogger(),
           dispose: async () => {
             events.push("dispose");
@@ -141,6 +154,7 @@ test("logs active lock holder diagnostics when another consumer already owns the
           sessions: {} as never,
           stateStore: {} as never,
           configStore: {} as never,
+          scheduled: createScheduledRuntime(),
           logger: {
             debug: async () => {},
             info: async (event, _message, context) => {
