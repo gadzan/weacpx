@@ -6,10 +6,12 @@ import type {
   OrchestrationDeliveryCallbacks,
   ConsumerLock,
   ConsumerLockOptions,
+  ScheduledChannelMessageInput,
 } from "./types.js";
 import type { RuntimeMediaStore } from "./media-store.js";
 import type { OrchestrationTaskRecord } from "../orchestration/orchestration-types.js";
 import type { AppLogger } from "../logging/app-logger.js";
+import type { ChatAgent } from "./types.js";
 import {
   login as weixinLogin,
   logout as weixinLogout,
@@ -23,11 +25,13 @@ import { getContextToken } from "../weixin/messaging/inbound.js";
 import { deliverOrchestrationTaskNotice } from "../weixin/messaging/deliver-orchestration-task-notice.js";
 import { deliverOrchestrationTaskProgress } from "../weixin/messaging/deliver-orchestration-task-progress.js";
 import { deliverCoordinatorMessage } from "../weixin/messaging/deliver-coordinator-message.js";
+import { executeScheduledTurn } from "../weixin/messaging/scheduled-turn.js";
 import { createWeixinConsumerLock } from "../weixin/monitor/consumer-lock.js";
 
 export class WeixinChannel implements MessageChannelRuntime {
   readonly id = "weixin";
 
+  private agent: ChatAgent | null = null;
   private quota: OutboundQuota | null = null;
   private logger: AppLogger | null = null;
   private markDelivered: OrchestrationDeliveryCallbacks["markTaskNoticeDelivered"] | null = null;
@@ -65,6 +69,7 @@ export class WeixinChannel implements MessageChannelRuntime {
   }
 
   async start(input: ChannelStartInput): Promise<void> {
+    this.agent = input.agent;
     this.quota = input.quota;
     this.logger = input.logger;
 
@@ -130,6 +135,22 @@ export class WeixinChannel implements MessageChannelRuntime {
       getContextToken: (accountId, userId) => getContextToken(accountId, userId),
       sendMessage: sendMessageWeixin,
       reserveMidSegment: (chatKey) => this.quota!.reserveMidSegment(chatKey),
+      logger: this.logger,
+    });
+  }
+
+  async sendScheduledMessage(input: ScheduledChannelMessageInput): Promise<void> {
+    if (!this.agent || !this.quota || !this.logger) {
+      throw new Error("WeixinChannel.start() must be called before scheduled message delivery");
+    }
+    await executeScheduledTurn(input, {
+      agent: this.agent,
+      listAccountIds: () => listWeixinAccountIds(),
+      resolveAccount: (accountId) => resolveWeixinAccount(accountId),
+      getContextToken: (accountId, userId) => getContextToken(accountId, userId),
+      reserveMidSegment: (chatKey) => this.quota!.reserveMidSegment(chatKey),
+      reserveFinal: (chatKey) => this.quota!.reserveFinal(chatKey),
+      sendMessage: sendMessageWeixin,
       logger: this.logger,
     });
   }

@@ -26,6 +26,14 @@ export interface CoordinatorMessageInput {
   text: string;
 }
 
+export interface ScheduledChannelMessageInput {
+  chatKey: string;
+  accountId?: string;
+  replyContextToken?: string;
+  noticeText: string;
+  promptText: string;
+}
+
 export interface ChannelStartInput {
   agent: ChatAgent;
   abortSignal: AbortSignal;
@@ -77,6 +85,7 @@ export interface MessageChannelRuntime {
   notifyTaskCompletion(task: OrchestrationTaskRecord): Promise<void>;
   notifyTaskProgress(task: OrchestrationTaskRecord, text: string): Promise<void>;
   sendCoordinatorMessage(input: CoordinatorMessageInput): Promise<void>;
+  sendScheduledMessage?(input: ScheduledChannelMessageInput): Promise<void>;
 }
 
 // Structured tool-use event. The transport emits one of these per acpx

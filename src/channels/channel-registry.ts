@@ -4,6 +4,7 @@ import type {
   CoordinatorMessageInput,
   MessageChannelRuntime,
   OrchestrationDeliveryCallbacks,
+  ScheduledChannelMessageInput,
 } from "./types";
 import type { OrchestrationTaskRecord } from "../orchestration/orchestration-types";
 
@@ -62,6 +63,14 @@ export class MessageChannelRegistry {
 
   async sendCoordinatorMessage(input: CoordinatorMessageInput): Promise<void> {
     await this.requireByChatKey(input.chatKey).sendCoordinatorMessage(input);
+  }
+
+  async sendScheduledMessage(input: ScheduledChannelMessageInput): Promise<void> {
+    const channel = this.requireByChatKey(input.chatKey);
+    if (!channel.sendScheduledMessage) {
+      throw new Error(`channel '${channel.id}' does not support scheduled messages`);
+    }
+    await channel.sendScheduledMessage(input);
   }
 
   createConsumerLocks(): Array<{ channel: MessageChannelRuntime; create: NonNullable<MessageChannelRuntime["createConsumerLock"]> }> {
