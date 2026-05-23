@@ -360,6 +360,113 @@ test("YuanbaoChannel sends coordinator messages via gateway", async () => {
   expect(sent[0]).toMatchObject({ chatType: "direct", target: "user_001", text: "wake up", replyContextToken: "msg_001" });
 });
 
+test("YuanbaoChannel sends scheduled notice and agent output through outbound queue", async () => {
+  const sent: Array<{ text: string; chatType?: string; target?: string; replyContextToken?: string }> = [];
+  const quotaCalls: string[] = [];
+  const abortController = new AbortController();
+  const gateway: YuanbaoGateway = {
+    start: async () => {},
+    sendText: async (input) => { sent.push(input as never); },
+  };
+  const channel = new YuanbaoChannel(defaultYuanbaoConfig, { createGateway: () => gateway });
+  const requests: unknown[] = [];
+
+  await channel.start({
+    agent: {
+      async chat(request) {
+        requests.push(request);
+        await request.reply?.("progress");
+        return { text: "final answer" };
+      },
+    },
+    abortSignal: new AbortController().signal,
+    quota: { ...createNoopQuota(), onInbound: (chatKey: string) => { quotaCalls.push(chatKey); } },
+    logger: createNoopLogger(),
+  });
+
+  await channel.sendScheduledMessage({
+    chatKey: "yuanbao:default:group:group_001",
+    sessionAlias: "backend:codex",
+    taskId: "k8f2",
+    replyContextToken: "msg_001",
+    noticeText: "执行定时任务 #k8f2",
+    promptText: "总结最近一个 commit 内容",
+    abortSignal: abortController.signal,
+  });
+
+  expect(requests).toHaveLength(1);
+  expect(requests[0]).toMatchObject({
+    accountId: "default",
+    conversationId: "yuanbao:default:group:group_001",
+    text: "总结最近一个 commit 内容",
+    replyContextToken: "msg_001",
+    metadata: { channel: "yuanbao", scheduledSessionAlias: "backend:codex" },
+    abortSignal: abortController.signal,
+  });
+  // Scheduled turns must not consume inbound quota budget.
+  expect(quotaCalls).toEqual([]);
+  // Notice is delivered first, quoting the creation-time reply token snapshot.
+  expect(sent[0]).toMatchObject({ chatType: "group", target: "group_001", text: "执行定时任务 #k8f2", replyContextToken: "msg_001" });
+  // The agent's streamed reply and final text are delivered back to the chat.
+  const delivered = sent.slice(1).map((item) => item.text).join("");
+  expect(delivered).toContain("progress");
+  expect(delivered).toContain("final answer");
+});
+
+test("YuanbaoChannel scheduled delivery retries without reply token and reports failures", async () => {
+  const sent: Array<{ text: string; replyContextToken?: string }> = [];
+  let failQuotedSends = true;
+  const gateway: YuanbaoGateway = {
+    start: async () => {},
+    sendText: async (input) => {
+      if (failQuotedSends && input.replyContextToken) throw new Error("quote expired");
+      sent.push(input as never);
+    },
+  };
+
+  // replyToMode "all" keeps the quote token on every send, so both the notice
+  // and the queued agent output exercise the retry-without-quote fallback.
+  const channel = new YuanbaoChannel({ ...defaultYuanbaoConfig, replyToMode: "all" }, { createGateway: () => gateway });
+  await channel.start({
+    agent: { async chat() { return { text: "final" }; } },
+    abortSignal: new AbortController().signal,
+    quota: createNoopQuota(),
+    logger: createNoopLogger(),
+  });
+
+  await channel.sendScheduledMessage({
+    chatKey: "yuanbao:default:group:group_001",
+    sessionAlias: "backend:codex",
+    taskId: "k8f2",
+    replyContextToken: "msg_expired",
+    noticeText: "notice",
+    promptText: "prompt",
+  });
+
+  expect(sent.length).toBeGreaterThan(0);
+  expect(sent.every((item) => !item.replyContextToken)).toBe(true);
+
+  failQuotedSends = false;
+  const failingChannel = new YuanbaoChannel(defaultYuanbaoConfig, { createGateway: () => gateway });
+  await failingChannel.start({
+    agent: { async chat() { throw new Error("boom"); } },
+    abortSignal: new AbortController().signal,
+    quota: createNoopQuota(),
+    logger: createNoopLogger(),
+  });
+
+  await expect(failingChannel.sendScheduledMessage({
+    chatKey: "yuanbao:default:group:group_001",
+    sessionAlias: "backend:codex",
+    taskId: "fail1",
+    replyContextToken: "msg_001",
+    noticeText: "notice",
+    promptText: "prompt",
+  })).rejects.toThrow("boom");
+
+  expect(sent.some((item) => item.text === "⏰ 定时任务 #fail1 执行失败：boom")).toBe(true);
+});
+
 test("YuanbaoChannel skips self messages and duplicate inbound messages", async () => {
   let startInput: YuanbaoGatewayStartInput | null = null;
   const gateway: YuanbaoGateway = {

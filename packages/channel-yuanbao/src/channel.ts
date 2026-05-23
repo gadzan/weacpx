@@ -3,6 +3,7 @@ import type {
   CoordinatorMessageInput,
   MessageChannelRuntime,
   OrchestrationDeliveryCallbacks,
+  ScheduledChannelMessageInput,
 } from "weacpx/plugin-api";
 import { parseYuanbaoChannelConfig, type YuanbaoChannelConfig, type YuanbaoResolvedAccountConfig } from "./config.js";
 import type { YuanbaoGateway, YuanbaoGatewayFactory, YuanbaoGatewayInboundMessage } from "./types.js";
@@ -33,6 +34,13 @@ type OrchestrationTaskRecord = Parameters<MessageChannelRuntime["notifyTaskCompl
 const REPLY_HEARTBEAT_RUNNING = 1;
 const REPLY_HEARTBEAT_FINISH = 2;
 const REPLY_HEARTBEAT_INTERVAL_MS = 2_000;
+
+function formatScheduledFailureText(input: ScheduledChannelMessageInput, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return input.taskId
+    ? `⏰ 定时任务 #${input.taskId} 执行失败：${message}`
+    : `⏰ 定时任务执行失败：${message}`;
+}
 
 export interface YuanbaoChannelDeps {
   createGateway?: YuanbaoGatewayFactory;
@@ -133,6 +141,77 @@ export class YuanbaoChannel implements MessageChannelRuntime {
     await this.sendRouteText(input.chatKey, input.replyContextToken, input.text);
   }
 
+  async sendScheduledMessage(input: ScheduledChannelMessageInput): Promise<void> {
+    if (!this.agent || !this.gateway || !this.logger) {
+      throw new Error("YuanbaoChannel.start() must be called before scheduled message delivery");
+    }
+    if (this.isAborted()) return;
+    const route = parseYuanbaoChatKey(input.chatKey);
+    if (!route) throw new Error(`cannot deliver Yuanbao scheduled message to non-Yuanbao chatKey: ${input.chatKey}`);
+    const account = this.accountById(route.accountId);
+    if (!account) throw new Error(`unknown Yuanbao account in chatKey: ${route.accountId}`);
+
+    await this.sendTextChunks({
+      account,
+      chatType: route.chatType,
+      target: route.target,
+      text: input.noticeText,
+      replyContextToken: input.replyContextToken,
+      retryWithoutReplyContextOnError: true,
+    });
+
+    const queue = this.createTurnQueue({
+      account,
+      chatType: route.chatType,
+      target: route.target,
+      replyContextToken: input.replyContextToken,
+      retryWithoutReplyContextOnError: true,
+    });
+
+    try {
+      const response = await this.agent.chat({
+        accountId: account.accountId,
+        conversationId: input.chatKey,
+        text: input.promptText,
+        ...(input.replyContextToken ? { replyContextToken: input.replyContextToken } : {}),
+        ...(input.abortSignal ? { abortSignal: input.abortSignal } : this.abortSignal ? { abortSignal: this.abortSignal } : {}),
+        metadata: { channel: "yuanbao", scheduledSessionAlias: input.sessionAlias },
+        reply: async (text) => {
+          if (this.isAborted() || input.abortSignal?.aborted) return;
+          await queue.push(text);
+        },
+      });
+
+      if (this.isAborted() || input.abortSignal?.aborted) {
+        queue.abort();
+        return;
+      }
+      if (response.text) await queue.push(response.text);
+      await queue.flush();
+
+      const media = normalizeMediaArray(response.media);
+      if (media.length > 0) {
+        await this.logger.error("yuanbao.scheduled.media_unsupported", "yuanbao scheduled outbound media is not supported by the current gateway adapter", {
+          chatKey: input.chatKey,
+          taskId: input.taskId,
+          sessionAlias: input.sessionAlias,
+          count: media.length,
+        });
+      }
+    } catch (error) {
+      queue.abort();
+      await this.sendTextChunks({
+        account,
+        chatType: route.chatType,
+        target: route.target,
+        text: formatScheduledFailureText(input, error),
+        replyContextToken: input.replyContextToken,
+        retryWithoutReplyContextOnError: true,
+      }).catch(() => {});
+      throw error;
+    }
+  }
+
   private async resolveGateway(): Promise<YuanbaoGateway> {
     if (this.deps.createGateway) return this.deps.createGateway({ config: this.config });
     if (this.config.gatewayModule) return await loadYuanbaoGatewayFromModule(this.config.gatewayModule, this.config);
@@ -191,23 +270,39 @@ export class YuanbaoChannel implements MessageChannelRuntime {
     target: string;
     text: string;
     replyContextToken?: string;
+    /** Scheduled sends use a creation-time quote snapshot that may be stale; retry once without it. */
+    retryWithoutReplyContextOnError?: boolean;
   }): Promise<void> {
     if (!this.gateway) throw new Error("YuanbaoChannel.start() must be called before delivery");
     const routeKey = buildYuanbaoChatKey(input.account.accountId, input.chatType, input.target);
     const chunks = this.splitText(input.account, input.text);
     for (const chunk of chunks) {
       if (this.isAborted()) return;
-      await this.gateway.sendText({
+      const replyContextToken = this.resolveReplyContextToken({
         account: input.account,
-        chatType: input.chatType,
-        target: input.target,
-        text: chunk,
-        replyContextToken: this.resolveReplyContextToken({
-          account: input.account,
-          routeKey,
-          replyContextToken: input.replyContextToken,
-        }),
+        routeKey,
+        replyContextToken: input.replyContextToken,
       });
+      try {
+        await this.gateway.sendText({
+          account: input.account,
+          chatType: input.chatType,
+          target: input.target,
+          text: chunk,
+          replyContextToken,
+        });
+      } catch (error) {
+        if (input.retryWithoutReplyContextOnError && replyContextToken) {
+          await this.gateway.sendText({
+            account: input.account,
+            chatType: input.chatType,
+            target: input.target,
+            text: chunk,
+          });
+          continue;
+        }
+        throw error;
+      }
     }
   }
 
@@ -423,6 +518,8 @@ export class YuanbaoChannel implements MessageChannelRuntime {
     target: string;
     replyContextToken?: string;
     forceStrategy?: OutboundQueueStrategy;
+    /** Scheduled sends use a creation-time quote snapshot that may be stale; retry once without it. */
+    retryWithoutReplyContextOnError?: boolean;
   }): ReturnType<typeof createOutboundQueueSession> {
     const account = input.account;
     const routeKey = buildYuanbaoChatKey(account.accountId, input.chatType, input.target);
@@ -444,17 +541,31 @@ export class YuanbaoChannel implements MessageChannelRuntime {
       },
       sendText: async (text) => {
         if (!this.gateway) throw new Error("YuanbaoChannel.start() must be called before delivery");
-        await this.gateway.sendText({
+        const replyContextToken = this.resolveReplyContextToken({
           account,
-          chatType: input.chatType,
-          target: input.target,
-          text,
-          replyContextToken: this.resolveReplyContextToken({
-            account,
-            routeKey,
-            replyContextToken: input.replyContextToken,
-          }),
+          routeKey,
+          replyContextToken: input.replyContextToken,
         });
+        try {
+          await this.gateway.sendText({
+            account,
+            chatType: input.chatType,
+            target: input.target,
+            text,
+            replyContextToken,
+          });
+        } catch (error) {
+          if (input.retryWithoutReplyContextOnError && replyContextToken) {
+            await this.gateway.sendText({
+              account,
+              chatType: input.chatType,
+              target: input.target,
+              text,
+            });
+            return;
+          }
+          throw error;
+        }
       },
     });
   }
