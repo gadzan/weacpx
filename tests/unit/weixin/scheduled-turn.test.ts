@@ -138,6 +138,77 @@ test("executeScheduledTurn sends best-effort failure notice after prompt dispatc
   expect(sent).toEqual(["notice", "定时任务执行失败：transport down"]);
 });
 
+test("executeScheduledTurn runs the agent and delivers the final reply even when the trigger notice is dropped by mid quota", async () => {
+  const sent: string[] = [];
+  let agentRan = false;
+  const agent: Agent = {
+    chat: async () => {
+      agentRan = true;
+      return { text: "final answer" };
+    },
+  };
+
+  await executeScheduledTurn(
+    {
+      chatKey: "weixin:acct:user1",
+      sessionAlias: "weixin:backend-codex",
+      accountId: "acct",
+      replyContextToken: "ctx",
+      noticeText: "notice",
+      promptText: "prompt",
+    },
+    {
+      agent,
+      listAccountIds: () => ["acct"],
+      resolveAccount: () => ({ accountId: "acct", baseUrl: "https://example.test", token: "token" }),
+      getContextToken: () => "ctx",
+      // Mid-segment quota is exhausted, so the trigger notice cannot be sent.
+      reserveMidSegment: mock(() => false),
+      reserveFinal: mock(() => true),
+      sendMessage: mock(async ({ text }) => {
+        sent.push(text);
+        return { messageId: `msg-${sent.length}` };
+      }),
+      logger: createLogger(),
+    },
+  );
+
+  // The notice was dropped, but the scheduled work still ran and its final
+  // result reached the user through the (separate) final tier.
+  expect(agentRan).toBe(true);
+  expect(sent).toEqual(["final answer"]);
+});
+
+test("executeScheduledTurn aborts without running the agent when no usable context token exists", async () => {
+  const chat = mock(async () => ({ text: "should not run" }));
+  const agent: Agent = { chat };
+
+  await expect(
+    executeScheduledTurn(
+      {
+        chatKey: "weixin:acct:user1",
+        sessionAlias: "weixin:backend-codex",
+        noticeText: "notice",
+        promptText: "prompt",
+      },
+      {
+        agent,
+        listAccountIds: () => ["acct"],
+        resolveAccount: () => ({ accountId: "acct", baseUrl: "https://example.test", token: "token" }),
+        // No context token anywhere and no replyContextToken to fall back to —
+        // an outbound message (including the agent result) is undeliverable.
+        getContextToken: () => undefined,
+        reserveMidSegment: mock(() => true),
+        reserveFinal: mock(() => true),
+        sendMessage: mock(async () => ({ messageId: "msg" })),
+        logger: createLogger(),
+      },
+    ),
+  ).rejects.toThrow();
+
+  expect(chat).not.toHaveBeenCalled();
+});
+
 test("executeScheduledTurn paginates long final responses and parks remaining chunks", async () => {
   const sent: string[] = [];
   const parked: Array<{ text: string; seq: number; total: number; accountId?: string; contextToken?: string }> = [];

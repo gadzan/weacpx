@@ -39,6 +39,10 @@ export async function executeScheduledTurn(
   let lastNoticeError: unknown;
   let deliveryAccountId: string | undefined;
   let deliveryContextToken: string | undefined;
+  // First candidate that can carry an outbound message (valid context token +
+  // account token), regardless of whether the trigger notice itself sends.
+  let deliverableAccountId: string | undefined;
+  let deliverableContextToken: string | undefined;
 
   const resolveContextToken = (candidateAccountId: string): string | undefined =>
     deps.getContextToken(candidateAccountId, userId) ??
@@ -50,6 +54,11 @@ export async function executeScheduledTurn(
 
     const account = deps.resolveAccount(candidateAccountId);
     if (!account.token) continue;
+
+    if (!deliverableAccountId) {
+      deliverableAccountId = candidateAccountId;
+      deliverableContextToken = contextToken;
+    }
 
     try {
       if (!deps.reserveMidSegment(quotaKey)) {
@@ -75,10 +84,28 @@ export async function executeScheduledTurn(
   }
 
   if (!noticeSent) {
-    const message = lastNoticeError instanceof Error
-      ? lastNoticeError.message
-      : `failed to send scheduled notice for chatKey: ${input.chatKey}`;
-    throw new Error(message);
+    // No account can carry an outbound message (no valid context token / account
+    // token). The agent result would be undeliverable too, so do not run it.
+    if (!deliverableAccountId || !deliverableContextToken) {
+      const message = lastNoticeError instanceof Error
+        ? lastNoticeError.message
+        : `no deliverable weixin context for scheduled message on chatKey: ${input.chatKey}`;
+      throw new Error(message);
+    }
+    // The trigger notice failed (e.g. mid-segment quota exhausted, transient
+    // send error) but a deliverable target exists. Do not cancel the scheduled
+    // work: run the agent turn and deliver its result through the final tier.
+    deliveryAccountId = deliverableAccountId;
+    deliveryContextToken = deliverableContextToken;
+    await deps.logger.info(
+      "scheduled.notice_skipped",
+      "scheduled trigger notice was not delivered; proceeding with agent turn",
+      {
+        chatKey: input.chatKey,
+        accountId: deliveryAccountId,
+        reason: lastNoticeError instanceof Error ? lastNoticeError.message : "notice_undelivered",
+      },
+    );
   }
 
   const sendReplySegment = async (text: string): Promise<boolean> => {
