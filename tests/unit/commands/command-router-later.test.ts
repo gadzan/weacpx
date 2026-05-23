@@ -134,7 +134,7 @@ test("/lt list renders pending tasks", async () => {
       {
         id: "k8f2",
         chat_key: "wx:user",
-        session_alias: "backend:codex",
+        session_alias: "weixin:backend-codex",
         execute_at: "2026-05-23T12:00:00.000Z",
         message: "检查 CI",
         status: "pending",
@@ -147,6 +147,8 @@ test("/lt list renders pending tasks", async () => {
   expect(reply.text).toContain("待执行定时任务");
   expect(reply.text).toContain("#k8f2");
   expect(reply.text).toContain("检查 CI");
+  expect(reply.text).toContain("会话：backend-codex");
+  expect(reply.text).not.toContain("weixin:backend-codex");
 });
 
 test("/lt list renders empty when no tasks", async () => {
@@ -163,7 +165,7 @@ test("/lt cancel #K8F2 cancels and renders success", async () => {
   const { router } = buildRouter({ scheduled });
   const reply = await router.handle("wx:user", "/lt cancel #K8F2");
   expect(reply.text).toContain("已取消");
-  expect(reply.text).toContain("#K8F2");
+  expect(reply.text).toContain("#k8f2");
   expect(scheduled.cancelPending).toHaveBeenCalledWith("#K8F2");
 });
 

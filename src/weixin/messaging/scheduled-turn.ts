@@ -4,7 +4,6 @@ import type { Agent } from "../agent/interface";
 import { executeChatTurn } from "./execute-chat-turn";
 import { markdownToPlainText, sendMessageWeixin } from "./send";
 import { normalizeWeixinUserIdFromChatKey, getContextToken } from "./inbound";
-import { describeWeixinSendError } from "./send-errors";
 
 export interface ScheduledTurnDeps {
   agent: Agent;
@@ -32,11 +31,15 @@ export async function executeScheduledTurn(
 
   let noticeSent = false;
   let lastNoticeError: unknown;
+  let deliveryAccountId: string | undefined;
+  let deliveryContextToken: string | undefined;
+
+  const resolveContextToken = (candidateAccountId: string): string | undefined =>
+    deps.getContextToken(candidateAccountId, userId) ??
+    (candidateAccountId === input.accountId ? input.replyContextToken : undefined);
 
   for (const candidateAccountId of candidateAccountIds) {
-    const contextToken =
-      deps.getContextToken(candidateAccountId, userId) ??
-      (candidateAccountId === input.accountId ? input.replyContextToken : undefined);
+    const contextToken = resolveContextToken(candidateAccountId);
     if (!contextToken) continue;
 
     const account = deps.resolveAccount(candidateAccountId);
@@ -52,6 +55,8 @@ export async function executeScheduledTurn(
         opts: { baseUrl: account.baseUrl, token: account.token, contextToken },
       });
       noticeSent = true;
+      deliveryAccountId = candidateAccountId;
+      deliveryContextToken = contextToken;
       break;
     } catch (error) {
       lastNoticeError = error;
@@ -70,16 +75,64 @@ export async function executeScheduledTurn(
     throw new Error(message);
   }
 
+  const sendReplySegment = async (text: string): Promise<boolean> => {
+    const plainText = markdownToPlainText(text).trim();
+    if (plainText.length === 0) return false;
+
+    if (!deps.reserveMidSegment(input.chatKey)) {
+      await deps.logger.info(
+        "scheduled.mid_dropped",
+        "scheduled turn intermediate response dropped due to quota",
+        { chatKey: input.chatKey, reason: "quota_exhausted" },
+      );
+      return false;
+    }
+
+    const orderedAccountIds = [
+      ...(deliveryAccountId ? [deliveryAccountId] : []),
+      ...candidateAccountIds.filter((accountId) => accountId !== deliveryAccountId),
+    ];
+    for (const candidateAccountId of orderedAccountIds) {
+      const contextToken =
+        candidateAccountId === deliveryAccountId && deliveryContextToken
+          ? deliveryContextToken
+          : resolveContextToken(candidateAccountId);
+      if (!contextToken) continue;
+
+      const account = deps.resolveAccount(candidateAccountId);
+      if (!account.token) continue;
+
+      try {
+        await sendMessage({
+          to: userId,
+          text: plainText,
+          opts: { baseUrl: account.baseUrl, token: account.token, contextToken },
+        });
+        return true;
+      } catch (error) {
+        await deps.logger.error(
+          "scheduled.mid_send_failed",
+          "failed to send scheduled intermediate response",
+          { chatKey: input.chatKey, accountId: candidateAccountId, error: String(error) },
+        );
+      }
+    }
+
+    return false;
+  };
+
   // 2. Execute agent chat turn
-  // Use the first successfully resolved account for the agent turn
-  const resolvedAccountId = input.accountId ?? candidateAccountIds[0]!;
+  // Use the account/context that delivered the trigger notice for the agent turn.
+  const resolvedAccountId = deliveryAccountId ?? input.accountId ?? candidateAccountIds[0]!;
   const turn = await executeChatTurn({
     agent: deps.agent,
     request: {
       accountId: resolvedAccountId,
       conversationId: input.chatKey,
       text: input.promptText,
+      ...(deliveryContextToken ? { replyContextToken: deliveryContextToken } : {}),
     },
+    onReplySegment: sendReplySegment,
   });
 
   // 3. Send final response through quota

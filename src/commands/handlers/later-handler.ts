@@ -3,6 +3,7 @@ import type { ScheduledTaskRecord } from "../../scheduled/scheduled-types";
 import { parseLaterTime } from "../../scheduled/parse-later-time";
 import { isKnownWeacpxCommandText } from "../command-list";
 import { renderLaterHelp, renderLaterList, renderTaskCreated } from "../../scheduled/scheduled-render";
+import { toDisplaySessionAlias } from "../../channels/channel-scope";
 
 export const laterHelpMetadata = {
   topic: "later",
@@ -50,7 +51,7 @@ export async function handleLaterCreate(
     return { text: renderTimeParseError(result.code, result.value) };
   }
 
-  const message = tokens.slice(result.messageStartIndex).join(" ");
+  const message = tokens.slice(result.messageStartIndex).join(" ").trim();
   if (isKnownWeacpxCommandText(message)) {
     return {
       text: [
@@ -75,13 +76,13 @@ export async function handleLaterCreate(
 
 export function handleLaterList(scheduled: ScheduledRouterOps): RouterResponse {
   const tasks = scheduled.listPending();
-  return { text: renderLaterList(tasks, (alias) => alias) };
+  return { text: renderLaterList(tasks, (alias) => toDisplaySessionAlias(alias)) };
 }
 
 export async function handleLaterCancel(id: string, scheduled: ScheduledRouterOps): Promise<RouterResponse> {
   const ok = await scheduled.cancelPending(id);
   if (ok) {
-    return { text: `已取消定时任务 #${id.replace(/^#/, "").toUpperCase()}` };
+    return { text: `已取消定时任务 #${id.replace(/^#/, "").toLowerCase()}` };
   }
   return { text: `未找到待执行的定时任务 ${id}` };
 }
