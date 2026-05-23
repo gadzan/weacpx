@@ -80,6 +80,7 @@ interface RuntimeDeps {
   loggerNow?: () => Date;
   channel?: Pick<MessageChannelRuntime, "notifyTaskCompletion" | "notifyTaskProgress" | "sendCoordinatorMessage" | "sendScheduledMessage"> & {
     configureOrchestration?: MessageChannelRuntime["configureOrchestration"];
+    supportsScheduledMessages?: (chatKey: string) => boolean;
   };
   sendOrchestrationNotice?: (task: OrchestrationTaskRecord) => Promise<void>;
   sendCoordinatorMessage?: (input: CoordinatorMessageInput) => Promise<void>;
@@ -659,7 +660,18 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     paths.orchestrationSocketPath ?? resolveOrchestrationSocketPathFromConfigPath(paths.configPath),
   );
   const orchestrationServer = new OrchestrationServer(orchestrationEndpoint, orchestration);
-  const router = new CommandRouter(sessions, transport, config, configStore, logger, undefined, orchestration, quota, scheduledService);
+  const router = new CommandRouter(
+    sessions,
+    transport,
+    config,
+    configStore,
+    logger,
+    undefined,
+    orchestration,
+    quota,
+    scheduledService,
+    deps.channel?.supportsScheduledMessages ? { supportsScheduledMessages: deps.channel.supportsScheduledMessages.bind(deps.channel) } : undefined,
+  );
   const agent = new ConsoleAgent(router, logger);
   const scheduledScheduler = new ScheduledTaskScheduler(scheduledService, {
     dispatchTask: async (task, abortSignal) => {
