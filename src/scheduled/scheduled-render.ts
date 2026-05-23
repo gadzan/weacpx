@@ -23,6 +23,7 @@ export function renderLaterHelp(): string {
     "- 到点后会把消息发送到创建时绑定的会话",
     "- 触发通知和 agent 回复复用现有频道路由；微信回复额度由现有路由控制",
     "- 不支持延迟执行 / 开头的 weacpx 命令",
+    "- 完整时间格式与说明见 docs/later-command.md",
   ].join("\n");
 }
 

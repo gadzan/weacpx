@@ -17,7 +17,16 @@ export const laterHelpMetadata = {
     "/lt in 2h 检查 CI",
     "/lt 30分钟后 总结进展",
     "/lt tomorrow 09:00 看 PR",
+    "/lt 今天 21:30 继续处理",
     "/lt 周五 09:00 继续处理",
+  ],
+  notes: [
+    "只支持一次性任务，不支持重复执行",
+    "时间必须在 10 秒之后、7 天之内",
+    "到点后会把消息发送到创建时绑定的会话（不随之后 /use 切换而改变）",
+    "/lt list 显示全局待执行任务；群聊中只有群主可取消",
+    "不支持延迟执行 / 开头的 weacpx 命令",
+    "完整时间格式与说明见 docs/later-command.md",
   ],
 };
 
@@ -70,7 +79,7 @@ export async function handleLaterCreate(
     ...(accountId ? { accountId } : {}),
     ...(replyContextToken ? { replyContextToken } : {}),
   });
-  return { text: renderTaskCreated(task, currentSessionAlias) };
+  return { text: renderTaskCreated(task, toDisplaySessionAlias(currentSessionAlias)) };
 }
 
 export function handleLaterList(scheduled: ScheduledRouterOps): RouterResponse {

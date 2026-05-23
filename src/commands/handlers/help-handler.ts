@@ -41,6 +41,7 @@ function renderHelpTopic(topic: HelpTopicMetadata): string {
     "命令：",
     ...topic.commands.map((command) => `- ${command.usage} - ${command.description}`),
     ...(topic.examples && topic.examples.length > 0 ? ["", "示例：", ...topic.examples.map((example) => `- ${example}`)] : []),
+    ...(topic.notes && topic.notes.length > 0 ? ["", "注意：", ...topic.notes.map((note) => `- ${note}`)] : []),
   ].join("\n");
 }
 

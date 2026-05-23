@@ -132,6 +132,7 @@ Uses **Bun** for development scripts and builds. Dependencies are in `package.js
 - 测试文档请参考 [docs\testing.md](docs\testing.md)
 - 配置文件详解 [docs/config-reference.md](docs/config-reference.md)
 - `/config` 命令说明 [docs/config-command.md](docs/config-command.md)
+- `/later` 定时任务命令说明 [docs/later-command.md](docs/later-command.md)
 - `src/commands` 模块说明 [commands-module.md](docs/commands-module.md)
 - `src/daemon` 模块说明 [daemon-module.md](docs/daemon-module.md)
 - 计划文档 [superpower/plans](docs/superpowers/plans/)

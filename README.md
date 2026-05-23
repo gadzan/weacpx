@@ -323,6 +323,30 @@ opencode, qoder, qwen, trae
 /cancel
 ```
 
+### 定时任务（/later）
+
+让 agent 在未来某个时间自动收到一条消息。任务绑定「创建时的当前会话」，到点后把这条消息作为普通 prompt 发给那个会话。
+
+| 命令 | 说明 |
+|------|------|
+| `/lt <时间> <消息>` | 创建一次性定时任务（`/later` 同义） |
+| `/lt list` | 查看全局待执行任务 |
+| `/lt cancel <id>` | 取消待执行任务 |
+
+最常见例子：
+
+```text
+/lt in 2h 检查 CI 是否通过
+/lt 明天 09:00 看 PR
+/lt list
+```
+
+说明：
+
+- 只支持一次性任务，时间必须在 10 秒之后、7 天之内
+- 时间格式是固定白名单（相对时间 / 今天·明天·后天 / 星期几 + 时刻），不支持自然语言
+- 完整时间格式、任务状态与限制见 [docs/later-command.md](./docs/later-command.md)
+
 ### 配置与权限
 
 | 命令 | 说明 |
@@ -514,6 +538,7 @@ bun run dev
 ### 日常使用
 
 - 想查看完整聊天命令参考：[docs/commands.md](./docs/commands.md)
+- 想用定时任务（`/later`）安排一次性的未来消息：[docs/later-command.md](./docs/later-command.md)
 - 想理解什么时候该用 delegate、什么时候该开 group：[docs/weacpx-group-usage-guide.md](./docs/weacpx-group-usage-guide.md)
 
 ### 排错与验证
