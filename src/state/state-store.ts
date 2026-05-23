@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 
 import { writePrivateFileAtomic } from "../util/private-file.js";
 import { createEmptyState, type AppState } from "./types";
+import type { ScheduledTaskRecord, ScheduledTaskStatus } from "../scheduled/scheduled-types";
 import {
   createEmptyOrchestrationState,
   type OrchestrationCorrectionPendingRecord,
@@ -469,6 +470,54 @@ function parseChatContexts(raw: Record<string, unknown>, path: string): AppState
   return chatContexts;
 }
 
+function isScheduledTaskStatus(value: unknown): value is ScheduledTaskStatus {
+  return (
+    value === "pending" ||
+    value === "triggering" ||
+    value === "executed" ||
+    value === "cancelled" ||
+    value === "missed" ||
+    value === "failed"
+  );
+}
+
+function isScheduledTaskRecord(value: unknown): value is ScheduledTaskRecord {
+  if (!isRecord(value)) return false;
+  return (
+    isString(value.id) &&
+    isString(value.chat_key) &&
+    isString(value.session_alias) &&
+    isString(value.execute_at) &&
+    isString(value.message) &&
+    isScheduledTaskStatus(value.status) &&
+    isString(value.created_at) &&
+    isOptionalString(value.account_id) &&
+    isOptionalString(value.reply_context_token) &&
+    isOptionalString(value.source_label) &&
+    isOptionalString(value.triggered_at) &&
+    isOptionalString(value.executed_at) &&
+    isOptionalString(value.cancelled_at) &&
+    isOptionalString(value.missed_at) &&
+    isOptionalString(value.failed_at) &&
+    isOptionalString(value.last_error)
+  );
+}
+
+function parseScheduledTasks(raw: unknown, path: string): Record<string, ScheduledTaskRecord> {
+  if (raw === undefined) return {};
+  if (!isRecord(raw)) {
+    throw new Error(`state file "${path}" must contain an object field "scheduled_tasks"`);
+  }
+  const tasks: Record<string, ScheduledTaskRecord> = {};
+  for (const [id, value] of Object.entries(raw)) {
+    if (!isScheduledTaskRecord(value) || value.id !== id) {
+      throw new Error(`state file "${path}" contains malformed scheduled task record "${id}"`);
+    }
+    tasks[id] = value;
+  }
+  return tasks;
+}
+
 export function parseState(raw: unknown, path: string): AppState {
   if (!isRecord(raw)) {
     throw new Error(`state file "${path}" must contain a JSON object`);
@@ -492,6 +541,7 @@ export function parseState(raw: unknown, path: string): AppState {
     sessions: parsedSessions,
     chat_contexts: parseChatContexts(chatContexts, path),
     orchestration,
+    scheduled_tasks: parseScheduledTasks(raw.scheduled_tasks, path),
   };
 }
 

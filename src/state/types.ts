@@ -1,4 +1,5 @@
 import { createEmptyOrchestrationState, type OrchestrationState } from "../orchestration/orchestration-types";
+import type { ScheduledTaskRecord } from "../scheduled/scheduled-types";
 
 export interface LogicalSession {
   alias: string;
@@ -20,6 +21,7 @@ export interface AppState {
   sessions: Record<string, LogicalSession>;
   chat_contexts: Record<string, ChatContextState>;
   orchestration: OrchestrationState;
+  scheduled_tasks: Record<string, ScheduledTaskRecord>;
 }
 
 export function createEmptyState(): AppState {
@@ -27,5 +29,6 @@ export function createEmptyState(): AppState {
     sessions: {},
     chat_contexts: {},
     orchestration: createEmptyOrchestrationState(),
+    scheduled_tasks: {},
   };
 }
