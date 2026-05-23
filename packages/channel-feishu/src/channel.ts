@@ -176,7 +176,8 @@ export class FeishuChannel implements MessageChannelRuntime {
     if (input.accountId && input.accountId !== route.accountId) {
       throw new Error(`scheduled Feishu accountId "${input.accountId}" does not match chatKey account "${route.accountId}"`);
     }
-    if (!this.accounts.has(route.accountId)) {
+    const runtime = this.accounts.get(route.accountId);
+    if (!runtime) {
       throw new Error(`feishu account "${route.accountId}" is not started; check channel.options.accounts and enabled flags`);
     }
 
@@ -187,7 +188,31 @@ export class FeishuChannel implements MessageChannelRuntime {
       await this.sendRouteText(input.chatKey, input.replyContextToken, trimmed);
     };
 
+    // The trigger notice stays a plain-text message so the user always sees the
+    // task fired, even when the agent turn renders into an interactive card.
     await this.sendRouteText(input.chatKey, input.replyContextToken, input.noticeText);
+
+    // Mirror normal-message rendering: drive a streaming card when the account
+    // is in streaming mode. Scheduled turns carry no chatType, so "auto" resolves
+    // to streaming; static accounts (and card seed failures) fall back to plain text.
+    const effectiveReplyMode = resolveEffectiveReplyMode(runtime.account.replyMode, undefined);
+    const cardController = effectiveReplyMode === "streaming"
+      ? await this.trySeedStreamingCard({
+          runtime,
+          accountId: route.accountId,
+          chatId: route.chatId,
+          ...(input.replyContextToken ? { replyToMessageId: input.replyContextToken } : {}),
+        })
+      : null;
+
+    const deliverReply = async (text: string): Promise<void> => {
+      if (input.abortSignal?.aborted) return;
+      if (cardController) {
+        cardController.appendStream(text);
+        return;
+      }
+      await deliverText(text);
+    };
 
     try {
       const response = await this.agent.chat({
@@ -197,9 +222,26 @@ export class FeishuChannel implements MessageChannelRuntime {
         ...(input.replyContextToken ? { replyContextToken: input.replyContextToken } : {}),
         ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
         metadata: { channel: "feishu", scheduledSessionAlias: input.sessionAlias },
-        reply: deliverText,
+        reply: deliverReply,
+        ...(cardController ? {
+          onToolEvent: (event) => {
+            if (input.abortSignal?.aborted) return;
+            cardController.recordToolEvent(event);
+          },
+          onThought: (chunk) => {
+            if (input.abortSignal?.aborted) return;
+            cardController.appendReasoning(chunk);
+          },
+        } : {}),
       });
-      if (input.abortSignal?.aborted) return;
+
+      if (input.abortSignal?.aborted) {
+        if (cardController && !cardController.isTerminated()) {
+          await cardController.abort(abortAck()).catch(() => {});
+        }
+        return;
+      }
+
       const media = normalizeMediaArray(response.media);
       if (media.length > 0) {
         await this.logger.error("feishu.scheduled.media_unsupported", "scheduled feishu media responses are not supported", {
@@ -210,12 +252,26 @@ export class FeishuChannel implements MessageChannelRuntime {
           count: media.length,
         });
       }
-      await deliverText(response.text);
+
+      if (cardController) {
+        const responseText = response.text?.trim() ?? "";
+        await cardController.complete(responseText.length > 0 ? response.text : undefined);
+        // If the card subsystem degraded mid-turn, deliver the answer as plain text.
+        if (cardController.isDegraded() && responseText.length > 0) {
+          await deliverText(response.text);
+        }
+      } else {
+        await deliverText(response.text);
+      }
     } catch (error) {
-      try {
-        await deliverText(formatScheduledFailureText(input, error));
-      } catch {
-        // Best-effort failure notice only; preserve the agent error for scheduler handling.
+      if (cardController && !cardController.isTerminated()) {
+        await cardController.fail(error instanceof Error ? error.message : String(error)).catch(() => {});
+      } else {
+        try {
+          await deliverText(formatScheduledFailureText(input, error));
+        } catch {
+          // Best-effort failure notice only; preserve the agent error for scheduler handling.
+        }
       }
       throw error;
     }
@@ -468,7 +524,7 @@ export class FeishuChannel implements MessageChannelRuntime {
       // (permission, SDK missing CardKit, network) falls back to static.
       const effectiveReplyMode = resolveEffectiveReplyMode(runtime.account.replyMode, chatType);
       if (effectiveReplyMode === "streaming") {
-        await this.trySeedStreamingCard({ runtime, accountId, chatId, messageId, active });
+        active.cardController = await this.trySeedStreamingCard({ runtime, accountId, chatId, replyToMessageId: messageId });
       }
       // Abort can race the card seed: handleAbortFastPath may have flipped
       // suppressed while we were awaiting card.create / message.reply. In
@@ -552,10 +608,9 @@ export class FeishuChannel implements MessageChannelRuntime {
     runtime: AccountRuntime;
     accountId: string;
     chatId: string;
-    messageId: string;
-    active: ActiveTask;
-  }): Promise<void> {
-    const { runtime, accountId, chatId, messageId, active } = input;
+    replyToMessageId?: string;
+  }): Promise<StreamingCardController | null> {
+    const { runtime, accountId, chatId } = input;
     try {
       const controller = new StreamingCardController({
         client: runtime.client.sdk as unknown as StreamingCardClient,
@@ -574,8 +629,8 @@ export class FeishuChannel implements MessageChannelRuntime {
           );
         },
       });
-      await controller.seed({ to: chatId, replyToMessageId: messageId });
-      active.cardController = controller;
+      await controller.seed({ to: chatId, ...(input.replyToMessageId ? { replyToMessageId: input.replyToMessageId } : {}) });
+      return controller;
     } catch (error) {
       const permErr = extractPermissionError(error);
       await this.logger!.info("feishu.streaming.fallback", "streaming card seed failed; falling back to static", {
@@ -585,7 +640,7 @@ export class FeishuChannel implements MessageChannelRuntime {
         message: error instanceof Error ? error.message : String(error),
       });
       if (permErr) await this.maybeNotifyPermissionError({ runtime, chatId, error });
-      active.cardController = null;
+      return null;
     }
   }
 

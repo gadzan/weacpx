@@ -371,6 +371,70 @@ test("FeishuChannel sends scheduled failure notice after agent failure and rethr
   ]);
 });
 
+test("FeishuChannel renders scheduled streaming output into a card", async () => {
+  const sent: Array<{ data?: { msg_type?: string; content?: string } }> = [];
+  const cardCreates: unknown[] = [];
+  const cardUpdates: Array<{ data: string }> = [];
+  const channel = new FeishuChannel(
+    { ...defaultFeishuConfig, replyMode: "streaming" as const },
+    {
+      createClient: () => ({
+        sdk: {
+          im: {
+            message: {
+              reply: async (payload: unknown) => { sent.push(payload as never); return { data: { message_id: "om_reply", chat_id: "oc_chat" } }; },
+              create: async (payload: unknown) => { sent.push(payload as never); return { data: { message_id: "om_created", chat_id: "oc_chat" } }; },
+            },
+          },
+          cardkit: {
+            v1: {
+              card: {
+                create: async (payload: unknown) => { cardCreates.push(payload); return { data: { card_id: "card_1" } }; },
+                update: async (payload: { data: { card: { data: string } } }) => { cardUpdates.push({ data: payload.data.card.data }); return {}; },
+              },
+              cardElement: { content: async () => ({}) },
+            },
+          },
+        },
+        probeBot: async () => ({ botOpenId: "ou_bot" }),
+        startWS: async () => {},
+      }),
+    },
+  );
+  const agent: ChatAgent = {
+    async chat(request) {
+      await request.reply?.("streaming chunk");
+      return { text: "final card answer" };
+    },
+  };
+
+  await channel.start({ agent, abortSignal: new AbortController().signal, quota: createNoopQuota(), logger: createNoopLogger() });
+
+  await channel.sendScheduledMessage({
+    chatKey: "feishu:default:oc_chat",
+    taskId: "task-card",
+    sessionAlias: "daily",
+    replyContextToken: "om_schedule",
+    noticeText: "执行定时任务 #task-card",
+    promptText: "总结",
+  });
+
+  // Trigger notice stays a plain-text reply, delivered first.
+  expect(sent[0]).toMatchObject({
+    path: { message_id: "om_schedule" },
+    data: { msg_type: "text", content: JSON.stringify({ text: "执行定时任务 #task-card" }) },
+  });
+  // A streaming card was seeded and the interactive message attached to the chat.
+  expect(cardCreates).toHaveLength(1);
+  expect(sent.some((p) => p.data?.msg_type === "interactive")).toBe(true);
+  // Agent output drove card updates, and the final answer landed in the card.
+  expect(cardUpdates.length).toBeGreaterThan(0);
+  expect(cardUpdates.map((u) => u.data).join(" ")).toContain("final card answer");
+  // The only plain-text message was the trigger notice — the answer is NOT a plain reply.
+  const plainContents = sent.filter((p) => p.data?.msg_type === "text").map((p) => p.data!.content);
+  expect(plainContents).toEqual([JSON.stringify({ text: "执行定时任务 #task-card" })]);
+});
+
 test("FeishuChannel sends coordinator messages to feishu chat keys", async () => {
   const sent: unknown[] = [];
   const channel = new FeishuChannel(
