@@ -59,6 +59,7 @@ import { handleHelp } from "./handlers/help-handler";
 import { handleAgents, handleAgentAdd, handleAgentRemove } from "./handlers/agent-handler";
 import { handleWorkspaces, handleWorkspaceCreate, handleWorkspaceRemove } from "./handlers/workspace-handler";
 import { handleSessionShortcutCommand } from "./handlers/session-shortcut-handler";
+import { handleLaterHelp, handleLaterCreate, handleLaterList, handleLaterCancel } from "./handlers/later-handler";
 import { renderSessionCreationError, renderSessionCreationVerificationError, renderTransportError, tryRecoverMissingSession } from "./handlers/session-recovery-handler";
 import { autoInstallOptionalDep as defaultAutoInstall } from "../recovery/auto-install-optional-dep";
 import { discoverParentPackagePaths as defaultDiscoverPaths } from "../recovery/discover-parent-package-paths";
@@ -69,6 +70,7 @@ import { handleSessionResetCommand } from "./handlers/session-reset-handler";
 import type {
   CommandRouterContext,
   RouterResponse,
+  ScheduledRouterOps,
   SessionInteractionOps,
   SessionLifecycleOps,
   SessionRecoveryOps,
@@ -104,6 +106,7 @@ export class CommandRouter {
     private readonly resolveSessionAgentCommand: SessionAgentCommandResolver = resolveSessionAgentCommandFromIndex,
     private readonly orchestration?: OrchestrationRouterOps,
     private readonly quota?: QuotaManager,
+    private readonly scheduled?: ScheduledRouterOps,
   ) {
     this.logger = logger ?? createNoopAppLogger();
   }
@@ -277,13 +280,26 @@ export class CommandRouter {
         case "task.cancel":
           return await handleTaskCancel(this.createHandlerContext(), chatKey, command.taskId);
         case "later.help":
-          return { text: "定时任务功能即将推出。" };
+          if (!this.scheduled) return { text: "定时任务服务未启用。" };
+          return handleLaterHelp();
         case "later.list":
-          return { text: "定时任务功能即将推出。" };
-        case "later.create":
-          return { text: "定时任务功能即将推出。" };
+          if (!this.scheduled) return { text: "定时任务服务未启用。" };
+          return handleLaterList(this.scheduled);
+        case "later.create": {
+          if (!this.scheduled) return { text: "定时任务服务未启用。" };
+          const currentSession = await this.sessions.getCurrentSession(chatKey);
+          return await handleLaterCreate(
+            command.tokens,
+            this.scheduled,
+            chatKey,
+            currentSession?.alias ?? null,
+            accountId,
+            replyContextToken,
+          );
+        }
         case "later.cancel":
-          return { text: "定时任务功能即将推出。" };
+          if (!this.scheduled) return { text: "定时任务服务未启用。" };
+          return await handleLaterCancel(command.id, this.scheduled);
         case "prompt":
           return await handlePrompt(
             this.createSessionHandlerContext(undefined, perfSpan),

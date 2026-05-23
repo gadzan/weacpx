@@ -178,3 +178,8 @@ export interface SessionResetOps {
   refreshSessionTransportAgentCommand: (alias: string) => Promise<void>;
   now: () => number;
 }
+
+export type ScheduledRouterOps = Pick<
+  import("../scheduled/scheduled-service").ScheduledTaskService,
+  "createTask" | "listPending" | "cancelPending"
+>;

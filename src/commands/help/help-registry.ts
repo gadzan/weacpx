@@ -11,6 +11,7 @@ import {
   statusHelp,
 } from "../handlers/session-handler";
 import { workspaceHelp } from "../handlers/workspace-handler";
+import { laterHelpMetadata } from "../handlers/later-handler";
 
 export const HELP_TOPICS: HelpTopicMetadata[] = [
   sessionHelp,
@@ -23,6 +24,7 @@ export const HELP_TOPICS: HelpTopicMetadata[] = [
   replyModeHelp,
   statusHelp,
   cancelHelp,
+  laterHelpMetadata,
 ];
 
 const HELP_TOPIC_MAP = new Map<string, HelpTopicMetadata>();
