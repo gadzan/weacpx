@@ -12,6 +12,7 @@ import type { ScheduledTaskRecord } from "../../../src/scheduled/scheduled-types
 import type { ScheduledDeliveryCapabilityOps, ScheduledRouterOps } from "../../../src/commands/router-types";
 import type { CreateScheduledTaskInput } from "../../../src/scheduled/scheduled-service";
 import type { AppState } from "../../../src/state/types";
+import type { ResolvedSession } from "../../../src/transport/types";
 
 function createMockScheduled(overrides?: Partial<ScheduledRouterOps>): ScheduledRouterOps {
   const tasks: ScheduledTaskRecord[] = [];
@@ -342,4 +343,32 @@ test("/lt honors later.defaultMode = bind from config", async () => {
   const call = (scheduled.createTask as ReturnType<typeof mock>).mock.calls[0][0] as CreateScheduledTaskInput;
   expect(call.sessionMode).toBe("bound");
   expect(reply.text).toContain("会话：");
+});
+
+test("routes a scheduled prompt into a transient session via descriptor", async () => {
+  const state = createEmptyState();
+  const { router, transport } = buildRouter({ state });
+  await router.handle(
+    "wx:user",
+    "检查 CI",
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      channel: "weixin",
+      scheduledSessionDescriptor: {
+        alias: "later-k8f2",
+        agent: "codex",
+        workspace: "backend",
+        transportSession: "backend:later-k8f2",
+      },
+    },
+  );
+
+  const promptMock = transport.prompt as ReturnType<typeof mock>;
+  expect(promptMock).toHaveBeenCalledTimes(1);
+  const sessionArg = promptMock.mock.calls[0][0] as ResolvedSession;
+  expect(sessionArg.alias).toBe("later-k8f2");
+  expect(sessionArg.transportSession).toBe("backend:later-k8f2");
 });

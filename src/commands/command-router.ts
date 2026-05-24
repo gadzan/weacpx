@@ -315,6 +315,29 @@ export class CommandRouter {
           return await handleLaterCancel(command.id, this.scheduled);
         case "prompt": {
           const sessionContext = this.createSessionHandlerContext(undefined, perfSpan);
+          if (metadata?.scheduledSessionDescriptor) {
+            const descriptor = metadata.scheduledSessionDescriptor;
+            const transientSession = this.sessions.resolveSession(
+              descriptor.alias,
+              descriptor.agent,
+              descriptor.workspace,
+              descriptor.transportSession,
+            );
+            return await handlePromptWithSession(
+              sessionContext,
+              transientSession,
+              chatKey,
+              command.text,
+              reply,
+              replyContextToken,
+              accountId,
+              media,
+              abortSignal,
+              onToolEvent,
+              onThought,
+              perfSpan,
+            );
+          }
           if (metadata?.scheduledSessionAlias) {
             const scheduledSession = await this.sessions.getSession(metadata.scheduledSessionAlias);
             if (!scheduledSession) {
