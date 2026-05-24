@@ -1,11 +1,26 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
 import { expect, test } from "bun:test";
 
 import { ensureConfigExists, normalizeDefaultConfigTemplate } from "../../../src/config/ensure-config";
 import { loadConfig } from "../../../src/config/load-config";
+
+const SHIPPED_CONFIG_EXAMPLE = fileURLToPath(new URL("../../../config.example.json", import.meta.url));
+
+test("shipped config.example.json ships only the portable home workspace (safe to copy verbatim)", async () => {
+  // config.example.json doubles as the seed template and the file users naturally
+  // copy to ~/.weacpx/config.json. The only seeded workspace must be machine-portable
+  // (`~`) — never an absolute placeholder that would leak the author's paths or break
+  // on copy, which is exactly what happened to a real user on first use.
+  const raw = JSON.parse(await readFile(SHIPPED_CONFIG_EXAMPLE, "utf8")) as {
+    workspaces?: Record<string, { cwd?: string }>;
+  };
+  expect(Object.keys(raw.workspaces ?? {})).toEqual(["home"]);
+  expect(raw.workspaces?.home?.cwd).toBe("~");
+});
 
 test("normalizes the default config template through the shared config parser", () => {
   const config = normalizeDefaultConfigTemplate({
@@ -27,7 +42,7 @@ test("normalizes the default config template through the shared config parser", 
     agents: {
       codex: { driver: "codex" },
     },
-    workspaces: {},
+    workspaces: { home: { cwd: "~", description: "用户主目录" } },
   });
   expect(config.logging).toEqual({
     level: "info",
@@ -79,7 +94,7 @@ test("ensureConfigExists falls back to the built-in default template when bundle
         codex: { driver: "codex" },
         claude: { driver: "claude" },
       },
-      workspaces: {},
+      workspaces: { home: { cwd: "~", description: "用户主目录" } },
     });
 
     const parsed = await loadConfig(configPath);
@@ -109,7 +124,9 @@ test("ensureConfigExists normalizes injected default config templates", async ()
       permissionMode: "approve-all",
       nonInteractivePermissions: "deny",
     });
-    expect(parsed.workspaces).toEqual({});
+    // The seed always injects only `home`, ignoring the template's own workspaces;
+    // `~` is expanded to the real home dir on load.
+    expect(parsed.workspaces).toEqual({ home: { cwd: homedir(), description: "用户主目录" } });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -461,11 +461,13 @@ weacpx channel add <channel-type>
 
 注册的工作区映射表，key 为工作区名称（供 `/workspace new`、`/session new --ws` 使用）。
 
+首次创建配置时会自动种入一个 `home` 工作区（`cwd` 为 `~`），让你开箱即用；不需要可用 `weacpx workspace rm home` 删除。
+
 ### Workspace 配置
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `cwd` | `string` | 是 | 工作区的绝对路径，acpx 的 `--cwd` 参数 |
+| `cwd` | `string` | 是 | 工作区路径，acpx 的 `--cwd` 参数；支持以 `~` 开头，加载时展开为用户主目录 |
 | `description` | `string` | 否 | 描述信息，供 `/workspaces` 命令展示用 |
 
 ### 示例

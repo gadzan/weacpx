@@ -1,5 +1,6 @@
 import { basenameForWorkspacePath, normalizeWorkspacePath } from "./commands/workspace-path.js";
 import { allocateWorkspaceName, sanitizeWorkspaceName } from "./commands/workspace-name.js";
+import { DEFAULT_HOME_WORKSPACE_NAME } from "./config/default-workspace.js";
 import type { AppConfig } from "./config/types.js";
 import type { AppState } from "./state/types.js";
 import { listAgentTemplates, getAgentTemplate } from "./config/agent-templates.js";
@@ -26,8 +27,15 @@ export type OnboardingResult =
   | { created: false };
 
 export function isFirstUse(config: Pick<AppConfig, "workspaces" | "plugins">, state: Pick<AppState, "sessions">): boolean {
+  // A config carrying only the seeded `home` workspace is still "first use":
+  // the seed gives users something usable, but it shouldn't suppress the
+  // interactive onboarding (add current dir + initial session).
+  const workspaceNames = Object.keys(config.workspaces ?? {});
+  const onlyDefaultOrEmpty =
+    workspaceNames.length === 0 ||
+    (workspaceNames.length === 1 && workspaceNames[0] === DEFAULT_HOME_WORKSPACE_NAME);
   return Object.keys(state.sessions ?? {}).length === 0 &&
-    Object.keys(config.workspaces ?? {}).length === 0 &&
+    onlyDefaultOrEmpty &&
     (config.plugins ?? []).length === 0;
 }
 

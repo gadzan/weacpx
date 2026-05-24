@@ -1713,7 +1713,8 @@ test("creates a default config on first run when the config file is missing", as
       driver: "claude",
     },
   });
-  expect(saved.workspaces).toEqual({});
+  // First run seeds a single portable home workspace (`~` is expanded on load).
+  expect(saved.workspaces).toEqual({ home: { cwd: "~", description: "用户主目录" } });
 
   await runtime.dispose();
   await rm(dir, { recursive: true, force: true });

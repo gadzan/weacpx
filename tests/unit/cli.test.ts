@@ -588,9 +588,10 @@ test("workspace add error suggestion quotes a name that needs quoting", async ()
 });
 
 test("lists and removes workspaces from the CLI", async () => {
-  await withTempHome(async () => {
+  await withTempHome(async (home) => {
     const lines: string[] = [];
 
+    // First CLI call seeds the default home workspace (cwd `~` -> this temp home).
     await expect(runCli(["workspace", "add", "backend"], { cwd: () => "/repo/backend", print: () => {} })).resolves.toBe(0);
     await expect(runCli(["workspace", "add", "frontend"], { cwd: () => "/repo/frontend", print: () => {} })).resolves.toBe(0);
     await expect(runCli(["workspace", "list"], { print: (line) => lines.push(line) })).resolves.toBe(0);
@@ -599,10 +600,12 @@ test("lists and removes workspaces from the CLI", async () => {
 
     expect(lines).toEqual([
       "工作区列表：",
+      `- home: ${home}`,
       "- backend: /repo/backend",
       "- frontend: /repo/frontend",
       "工作区「backend」已删除",
       "工作区列表：",
+      `- home: ${home}`,
       "- frontend: /repo/frontend",
     ]);
   });
@@ -633,6 +636,8 @@ test("workspace list handles an empty config and rm missing returns 1", async ()
   await withTempHome(async () => {
     const lines: string[] = [];
 
+    // Remove the seeded home workspace so the config is genuinely empty.
+    await expect(runCli(["workspace", "rm", "home"], { print: () => {} })).resolves.toBe(0);
     await expect(runCli(["workspace", "list"], { print: (line) => lines.push(line) })).resolves.toBe(0);
     await expect(runCli(["workspace", "rm", "missing"], { print: (line) => lines.push(line) })).resolves.toBe(1);
 

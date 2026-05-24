@@ -36,13 +36,9 @@
     }
   },
   "workspaces": {
-    "backend": {
-      "cwd": "/absolute/path/to/backend",
-      "description": "backend repo"
-    },
-    "weacpx-console": {
-      "cwd": "/Users/your-name/Projects/weacpx/.worktrees/weacpx-console-v1",
-      "description": "weacpx console worktree"
+    "home": {
+      "cwd": "~",
+      "description": "用户主目录"
     }
   }
 }

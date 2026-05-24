@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { AppConfig } from "../../src/config/types";
 import { createEmptyState } from "../../src/state/types";
-import { maybeRunFirstUseOnboarding } from "../../src/onboarding";
+import { isFirstUse, maybeRunFirstUseOnboarding } from "../../src/onboarding";
 
 function config(): AppConfig {
   return {
@@ -15,6 +15,39 @@ function config(): AppConfig {
     orchestration: { maxPendingAgentRequestsPerCoordinator: 1, allowWorkerChainedRequests: false, allowedAgentRequestTargets: [], allowedAgentRequestRoles: [], progressHeartbeatSeconds: 0 },
   };
 }
+
+test("isFirstUse treats a config carrying only the seeded home workspace as first use", () => {
+  const cfg = config();
+  cfg.workspaces = { home: { cwd: "/Users/test" } };
+  expect(isFirstUse(cfg, createEmptyState())).toBe(true);
+});
+
+test("isFirstUse is false once a non-default workspace exists", () => {
+  const cfg = config();
+  cfg.workspaces = { home: { cwd: "/Users/test" }, myrepo: { cwd: "/tmp/myrepo" } };
+  expect(isFirstUse(cfg, createEmptyState())).toBe(false);
+});
+
+test("interactive onboarding still fires when only the seeded home workspace is present", async () => {
+  const cfg = config();
+  cfg.workspaces = { home: { cwd: "/Users/test" } };
+  const state = createEmptyState();
+  const result = await maybeRunFirstUseOnboarding({
+    config: cfg,
+    state,
+    saveConfig: async () => {},
+    deps: {
+      cwd: () => "/tmp/myrepo",
+      print: () => {},
+      isInteractive: () => true,
+      promptText: async () => "",
+    },
+  });
+
+  expect(result).toMatchObject({ created: true, workspace: "myrepo", alias: "myrepo:codex" });
+  // The seeded home workspace and the onboarding-created project workspace coexist.
+  expect(Object.keys(cfg.workspaces).sort()).toEqual(["home", "myrepo"]);
+});
 
 test("first-use onboarding creates current directory workspace and initial session", async () => {
   const cfg = config();

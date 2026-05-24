@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import { ConfigStore } from "./config-store";
+import { DEFAULT_HOME_WORKSPACE, DEFAULT_HOME_WORKSPACE_NAME } from "./default-workspace";
 import { loadConfig, parseConfig } from "./load-config";
 import { resolveAgentCommand } from "./resolve-agent-command";
 import type { AppConfig } from "./types";
@@ -36,7 +37,9 @@ const BUILTIN_DEFAULT_CONFIG_TEMPLATE = {
     codex: { driver: "codex" },
     claude: { driver: "claude" },
   },
-  workspaces: {},
+  workspaces: {
+    [DEFAULT_HOME_WORKSPACE_NAME]: { ...DEFAULT_HOME_WORKSPACE },
+  },
   plugins: [],
 } satisfies unknown;
 
@@ -104,7 +107,12 @@ export function normalizeDefaultConfigTemplate(raw: unknown): AppConfig {
         },
       ]),
     ),
-    workspaces: {},
+    // Seed exactly one usable workspace (home) regardless of what the template
+    // file carries, so the written config is deterministic. `~` is kept literal
+    // here and expanded to the real home dir when the config is later loaded.
+    workspaces: {
+      [DEFAULT_HOME_WORKSPACE_NAME]: { ...DEFAULT_HOME_WORKSPACE },
+    },
   };
 }
 
