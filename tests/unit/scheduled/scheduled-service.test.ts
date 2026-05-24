@@ -119,3 +119,65 @@ test("scheduled writes serialize with the shared state mutex so an interleaved c
   // (persisting []), silently dropping the task.
   expect(persistedTaskKeys).toEqual([[], ["abcd"]]);
 });
+
+test("creates a temp task that stores session_mode + agent/workspace snapshot", async () => {
+  const state = createEmptyState();
+  const service = new ScheduledTaskService(state, new MemoryStore(), {
+    now: () => new Date("2026-05-24T09:00:00.000Z"),
+    generateId: () => "tmp1",
+  });
+
+  const task = await service.createTask({
+    chatKey: "weixin:user-1",
+    sessionAlias: "backend:codex",
+    executeAt: new Date("2026-05-24T10:00:00.000Z"),
+    message: "检查 CI",
+    sessionMode: "temp",
+    agent: "codex",
+    workspace: "backend",
+  });
+
+  expect(task.session_mode).toBe("temp");
+  expect(task.agent).toBe("codex");
+  expect(task.workspace).toBe("backend");
+  expect(task.session_alias).toBe("backend:codex");
+});
+
+test("creates a bound task without agent/workspace snapshot", async () => {
+  const state = createEmptyState();
+  const service = new ScheduledTaskService(state, new MemoryStore(), {
+    now: () => new Date("2026-05-24T09:00:00.000Z"),
+    generateId: () => "bnd1",
+  });
+
+  const task = await service.createTask({
+    chatKey: "weixin:user-1",
+    sessionAlias: "backend:codex",
+    executeAt: new Date("2026-05-24T10:00:00.000Z"),
+    message: "检查 CI",
+    sessionMode: "bound",
+  });
+
+  expect(task.session_mode).toBe("bound");
+  expect(task.agent).toBeUndefined();
+  expect(task.workspace).toBeUndefined();
+});
+
+test("creates a task without sessionMode, leaving mode/agent/workspace undefined (legacy default)", async () => {
+  const state = createEmptyState();
+  const service = new ScheduledTaskService(state, new MemoryStore(), {
+    now: () => new Date("2026-05-24T09:00:00.000Z"),
+    generateId: () => "leg1",
+  });
+
+  const task = await service.createTask({
+    chatKey: "weixin:user-1",
+    sessionAlias: "backend:codex",
+    executeAt: new Date("2026-05-24T10:00:00.000Z"),
+    message: "检查 CI",
+  });
+
+  expect(task.session_mode).toBeUndefined();
+  expect(task.agent).toBeUndefined();
+  expect(task.workspace).toBeUndefined();
+});

@@ -1,13 +1,16 @@
 import { AsyncMutex } from "../orchestration/async-mutex";
 import type { StateStore } from "../state/state-store";
 import type { AppState } from "../state/types";
-import type { ScheduledTaskRecord } from "./scheduled-types";
+import type { ScheduledSessionMode, ScheduledTaskRecord } from "./scheduled-types";
 
 export interface CreateScheduledTaskInput {
   chatKey: string;
   sessionAlias: string;
   executeAt: Date;
   message: string;
+  sessionMode?: ScheduledSessionMode;
+  agent?: string;
+  workspace?: string;
   accountId?: string;
   replyContextToken?: string;
   sourceLabel?: string;
@@ -51,6 +54,9 @@ export class ScheduledTaskService {
         message: input.message,
         status: "pending",
         created_at: this.now().toISOString(),
+        ...(input.sessionMode ? { session_mode: input.sessionMode } : {}),
+        ...(input.agent ? { agent: input.agent } : {}),
+        ...(input.workspace ? { workspace: input.workspace } : {}),
         ...(input.accountId ? { account_id: input.accountId } : {}),
         ...(input.replyContextToken ? { reply_context_token: input.replyContextToken } : {}),
         ...(input.sourceLabel ? { source_label: input.sourceLabel } : {}),

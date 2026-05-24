@@ -10,10 +10,18 @@ export type ScheduledTaskStatus =
   | "missed"
   | "failed";
 
+export type ScheduledSessionMode = "temp" | "bound";
+
 export interface ScheduledTaskRecord {
   id: string;
   chat_key: string;
   session_alias: string;
+  /** Absent ⇒ "bound" (legacy tasks created before temp mode existed). */
+  session_mode?: ScheduledSessionMode;
+  /** Agent snapshot at creation; only set for "temp" tasks. */
+  agent?: string;
+  /** Workspace snapshot at creation; only set for "temp" tasks. */
+  workspace?: string;
   execute_at: string;
   message: string;
   status: ScheduledTaskStatus;

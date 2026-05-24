@@ -1192,3 +1192,80 @@ test("rejects states with malformed chat context records", async () => {
   await expect(new StateStore(path).load()).rejects.toThrow("malformed chat context record");
   await rm(dir, { recursive: true, force: true });
 });
+
+test("round-trips a temp scheduled task with session_mode + agent/workspace snapshot", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+  const state = {
+    sessions: {},
+    chat_contexts: {},
+    scheduled_tasks: {
+      tmp1: {
+        id: "tmp1",
+        chat_key: "weixin:user-1",
+        session_alias: "backend:codex",
+        session_mode: "temp",
+        agent: "codex",
+        workspace: "backend",
+        execute_at: "2026-05-24T10:00:00.000Z",
+        message: "检查 CI",
+        status: "pending",
+        created_at: "2026-05-24T09:00:00.000Z",
+      },
+    },
+    orchestration: {
+      tasks: {},
+      workerBindings: {},
+      groups: {},
+      humanQuestionPackages: {},
+      coordinatorQuestionState: {},
+      coordinatorRoutes: {},
+      externalCoordinators: {},
+    },
+  };
+
+  await store.save(state);
+  const loaded = await store.load();
+  expect(loaded.scheduled_tasks.tmp1?.session_mode).toBe("temp");
+  expect(loaded.scheduled_tasks.tmp1?.agent).toBe("codex");
+  expect(loaded.scheduled_tasks.tmp1?.workspace).toBe("backend");
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("rejects scheduled tasks with an invalid session_mode", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  await Bun.write(
+    path,
+    JSON.stringify({
+      sessions: {},
+      chat_contexts: {},
+      scheduled_tasks: {
+        bad1: {
+          id: "bad1",
+          chat_key: "weixin:user-1",
+          session_alias: "backend:codex",
+          session_mode: "nonsense",
+          execute_at: "2026-05-24T10:00:00.000Z",
+          message: "检查 CI",
+          status: "pending",
+          created_at: "2026-05-24T09:00:00.000Z",
+        },
+      },
+      orchestration: {
+        tasks: {},
+        workerBindings: {},
+        groups: {},
+        humanQuestionPackages: {},
+        coordinatorQuestionState: {},
+        coordinatorRoutes: {},
+        externalCoordinators: {},
+      },
+    }),
+  );
+
+  await expect(new StateStore(path).load()).rejects.toThrow("malformed scheduled task record");
+  await rm(dir, { recursive: true, force: true });
+});
