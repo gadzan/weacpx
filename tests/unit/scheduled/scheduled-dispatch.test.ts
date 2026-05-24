@@ -102,3 +102,19 @@ test("a failing teardown is swallowed and does not reject the dispatch", async (
 
   await expect(dispatch(tempTask, new AbortController().signal)).resolves.toBeUndefined();
 });
+
+test("temp dispatch whose agent/workspace is de-registered rejects without teardown", async () => {
+  const removed: ResolvedSession[] = [];
+  const dispatch = buildScheduledDispatchTask({
+    getSession: async () => null,
+    // resolveSession validates against config and throws for a de-registered agent/workspace.
+    resolveSession: () => { throw new Error('工作区「backend」未注册'); },
+    sendScheduledMessage: async () => {},
+    removeSession: async (session) => { removed.push(session); },
+  });
+
+  // The throw must propagate so the scheduler marks the task failed; and because
+  // it happens before the try block, teardown must NOT run.
+  await expect(dispatch(tempTask, new AbortController().signal)).rejects.toThrow("未注册");
+  expect(removed).toHaveLength(0);
+});
