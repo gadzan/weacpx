@@ -345,6 +345,18 @@ test("/lt honors later.defaultMode = bind from config", async () => {
   expect(reply.text).toContain("会话：");
 });
 
+test("/lt --temp overrides config defaultMode = bind", async () => {
+  const scheduled = createMockScheduled();
+  const state = createEmptyState();
+  seedCurrentSession(state);
+  const { router, config } = buildRouter({ scheduled, state });
+  config.later = { defaultMode: "bind" };
+  await router.handle("wx:user", "/lt --temp in 2h 检查 CI");
+  const call = (scheduled.createTask as ReturnType<typeof mock>).mock.calls[0][0] as CreateScheduledTaskInput;
+  expect(call.sessionMode).toBe("temp");
+  expect(call.agent).toBe("codex");
+});
+
 test("routes a scheduled prompt into a transient session via descriptor", async () => {
   const state = createEmptyState();
   const { router, transport } = buildRouter({ state });
