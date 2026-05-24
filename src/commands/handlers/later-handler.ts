@@ -1,5 +1,5 @@
 import type { RouterResponse, ScheduledRouterOps } from "../router-types";
-import type { ScheduledTaskRecord } from "../../scheduled/scheduled-types";
+import type { ScheduledTaskRecord, ScheduledSessionMode } from "../../scheduled/scheduled-types";
 import { parseLaterTime } from "../../scheduled/parse-later-time";
 import { renderLaterHelp, renderLaterList, renderTaskCreated } from "../../scheduled/scheduled-render";
 import { toDisplaySessionAlias } from "../../channels/channel-scope";
@@ -38,11 +38,26 @@ export async function handleLaterCreate(
   tokens: string[],
   scheduled: ScheduledRouterOps,
   chatKey: string,
-  currentSessionAlias: string | null,
+  currentSession: { alias: string; agent: string; workspace: string } | null,
+  defaultMode: ScheduledSessionMode,
   accountId?: string,
   replyContextToken?: string,
 ): Promise<RouterResponse> {
-  if (!currentSessionAlias) {
+  // Consume any leading --bind / --temp flags (mutually exclusive).
+  let rest = tokens;
+  const seenFlags = new Set<string>();
+  let flagMode: ScheduledSessionMode | undefined;
+  while (rest.length > 0 && (rest[0] === "--bind" || rest[0] === "--temp")) {
+    seenFlags.add(rest[0]);
+    flagMode = rest[0] === "--bind" ? "bound" : "temp";
+    rest = rest.slice(1);
+  }
+  if (seenFlags.size > 1) {
+    return { text: "定时任务的 --bind 与 --temp 不能同时使用。" };
+  }
+  const mode: ScheduledSessionMode = flagMode ?? defaultMode;
+
+  if (!currentSession) {
     return {
       text: [
         "当前没有会话，无法创建定时任务。",
@@ -54,12 +69,12 @@ export async function handleLaterCreate(
     };
   }
 
-  const result = parseLaterTime(tokens);
+  const result = parseLaterTime(rest);
   if (!result.ok) {
     return { text: renderTimeParseError(result.code, result.value) };
   }
 
-  const message = tokens.slice(result.messageStartIndex).join(" ").trim();
+  const message = rest.slice(result.messageStartIndex).join(" ").trim();
   if (message.startsWith("/")) {
     return {
       text: [
@@ -73,13 +88,15 @@ export async function handleLaterCreate(
 
   const task = await scheduled.createTask({
     chatKey,
-    sessionAlias: currentSessionAlias,
+    sessionAlias: currentSession.alias,
     executeAt: result.executeAt,
     message,
+    sessionMode: mode,
+    ...(mode === "temp" ? { agent: currentSession.agent, workspace: currentSession.workspace } : {}),
     ...(accountId ? { accountId } : {}),
     ...(replyContextToken ? { replyContextToken } : {}),
   });
-  return { text: renderTaskCreated(task, toDisplaySessionAlias(currentSessionAlias)) };
+  return { text: renderTaskCreated(task, toDisplaySessionAlias(currentSession.alias)) };
 }
 
 export function handleLaterList(scheduled: ScheduledRouterOps): RouterResponse {

@@ -299,7 +299,13 @@ export class CommandRouter {
             command.tokens,
             this.scheduled,
             chatKey,
-            currentSession?.alias ?? null,
+            currentSession
+              ? { alias: currentSession.alias, agent: currentSession.agent, workspace: currentSession.workspace }
+              : null,
+            // Map the config surface ("temp" | "bind") to the internal mode
+            // ("temp" | "bound"). Anything other than "bind" (incl. undefined)
+            // defaults to temp.
+            this.config?.later?.defaultMode === "bind" ? "bound" : "temp",
             accountId,
             replyContextToken,
           );

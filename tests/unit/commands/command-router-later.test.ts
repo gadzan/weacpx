@@ -25,6 +25,9 @@ function createMockScheduled(overrides?: Partial<ScheduledRouterOps>): Scheduled
         message: input.message,
         status: "pending",
         created_at: "2026-05-23T10:00:00.000Z",
+        ...(input.sessionMode ? { session_mode: input.sessionMode } : {}),
+        ...(input.agent ? { agent: input.agent } : {}),
+        ...(input.workspace ? { workspace: input.workspace } : {}),
         ...(input.accountId ? { account_id: input.accountId } : {}),
         ...(input.replyContextToken ? { reply_context_token: input.replyContextToken } : {}),
       };
@@ -86,7 +89,7 @@ test("shows not-enabled message when scheduled service missing", async () => {
   expect(reply.text).toContain("定时任务服务未启用");
 });
 
-test("/lt in 2h 检查 CI creates task bound to current session", async () => {
+test("/lt in 2h 检查 CI creates a task recording the current session as origin", async () => {
   const scheduled = createMockScheduled();
   const state = createEmptyState();
   state.sessions["backend:codex"] = {
@@ -277,4 +280,66 @@ test("scheduled prompt uses the bound session even after current session changes
   const session = (transport.prompt as ReturnType<typeof mock>).mock.calls[0][0];
   expect(session.alias).toBe("weixin:bound");
   expect(session.transportSession).toBe("transport-bound");
+});
+
+function seedCurrentSession(state: ReturnType<typeof createEmptyState>) {
+  state.sessions["backend:codex"] = {
+    alias: "backend:codex",
+    agent: "codex",
+    workspace: "backend",
+    transport_session: "backend:backend:codex",
+    created_at: "2026-05-23T09:00:00.000Z",
+    last_used_at: "2026-05-23T09:00:00.000Z",
+  };
+  state.chat_contexts["wx:user"] = { current_session: "backend:codex" };
+}
+
+test("/lt defaults to a temp task snapshotting current agent/workspace", async () => {
+  const scheduled = createMockScheduled();
+  const state = createEmptyState();
+  seedCurrentSession(state);
+  const { router } = buildRouter({ scheduled, state });
+  const reply = await router.handle("wx:user", "/lt in 2h 检查 CI");
+  expect(reply.text).toContain("临时会话（backend · codex）");
+  const call = (scheduled.createTask as ReturnType<typeof mock>).mock.calls[0][0] as CreateScheduledTaskInput;
+  expect(call.sessionMode).toBe("temp");
+  expect(call.agent).toBe("codex");
+  expect(call.workspace).toBe("backend");
+  expect(call.sessionAlias).toBe("backend:codex");
+});
+
+test("/lt --bind creates a bound task without agent/workspace snapshot", async () => {
+  const scheduled = createMockScheduled();
+  const state = createEmptyState();
+  seedCurrentSession(state);
+  const { router } = buildRouter({ scheduled, state });
+  const reply = await router.handle("wx:user", "/lt --bind in 2h 检查 CI");
+  expect(reply.text).toContain("会话：");
+  const call = (scheduled.createTask as ReturnType<typeof mock>).mock.calls[0][0] as CreateScheduledTaskInput;
+  expect(call.sessionMode).toBe("bound");
+  expect(call.agent).toBeUndefined();
+  expect(call.workspace).toBeUndefined();
+  expect(call.message).toBe("检查 CI");
+});
+
+test("/lt --bind --temp is rejected as mutually exclusive", async () => {
+  const scheduled = createMockScheduled();
+  const state = createEmptyState();
+  seedCurrentSession(state);
+  const { router } = buildRouter({ scheduled, state });
+  const reply = await router.handle("wx:user", "/lt --bind --temp in 2h 检查 CI");
+  expect(reply.text).toContain("不能同时使用");
+  expect(scheduled.createTask).toHaveBeenCalledTimes(0);
+});
+
+test("/lt honors later.defaultMode = bind from config", async () => {
+  const scheduled = createMockScheduled();
+  const state = createEmptyState();
+  seedCurrentSession(state);
+  const { router, config } = buildRouter({ scheduled, state });
+  config.later = { defaultMode: "bind" };
+  const reply = await router.handle("wx:user", "/lt in 2h 检查 CI");
+  const call = (scheduled.createTask as ReturnType<typeof mock>).mock.calls[0][0] as CreateScheduledTaskInput;
+  expect(call.sessionMode).toBe("bound");
+  expect(reply.text).toContain("会话：");
 });
