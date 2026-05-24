@@ -26,11 +26,24 @@ export interface CoordinatorMessageInput {
   text: string;
 }
 
+export interface ScheduledSessionDescriptor {
+  alias: string;
+  agent: string;
+  workspace: string;
+  transportSession: string;
+}
+
 export interface ScheduledChannelMessageInput {
   chatKey: string;
   // Core scheduler task id for channels that need stable scheduled-message correlation.
   taskId?: string;
   sessionAlias: string;
+  /**
+   * When present, the scheduled prompt runs in a transient session described
+   * here (temp mode) instead of the persisted logical session named by
+   * `sessionAlias`. `sessionAlias` still records the origin session for display.
+   */
+  sessionDescriptor?: ScheduledSessionDescriptor;
   accountId?: string;
   replyContextToken?: string;
   noticeText: string;

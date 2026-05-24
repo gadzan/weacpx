@@ -1,5 +1,5 @@
 import type { ChannelMediaAttachment, OutboundChannelMedia } from "../../channels/media-types.js";
-import type { ToolUseEvent } from "../../channels/types.js";
+import type { ScheduledSessionDescriptor, ToolUseEvent } from "../../channels/types.js";
 import type { PerfSpan } from "../../perf/perf-tracer.js";
 
 /**
@@ -68,6 +68,8 @@ export interface ChatRequestMetadata {
   isOwner?: boolean;
   /** Internal weacpx session alias to use for non-interactive scheduled prompts. */
   scheduledSessionAlias?: string;
+  /** Transient session descriptor for temp-mode scheduled prompts (no persisted alias). */
+  scheduledSessionDescriptor?: ScheduledSessionDescriptor;
 }
 
 export interface ChatResponse {

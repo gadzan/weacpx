@@ -146,7 +146,11 @@ export async function executeScheduledTurn(
         text: input.promptText,
         ...(deliveryContextToken ? { replyContextToken: deliveryContextToken } : {}),
         ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
-        metadata: { channel: "weixin", scheduledSessionAlias: input.sessionAlias },
+        metadata: {
+          channel: "weixin",
+          scheduledSessionAlias: input.sessionAlias,
+          ...(input.sessionDescriptor ? { scheduledSessionDescriptor: input.sessionDescriptor } : {}),
+        },
       },
       onReplySegment: sendReplySegment,
     });
