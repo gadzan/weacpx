@@ -34,6 +34,13 @@ export interface ResolvedSession {
   modeId?: string;
   replyMode?: "stream" | "final" | "verbose";
   cwd: string;
+  /**
+   * True for a non-persisted, single-use session (e.g. a `/later` temp-mode
+   * scheduled run). Transport errors for such a session must not suggest
+   * `/session new`/`attach`, and missing-session recovery (which mutates
+   * persisted state by alias) does not apply.
+   */
+  transient?: boolean;
 }
 
 export type EnsureSessionProgressStage = "spawn" | "initializing" | "ready";

@@ -383,4 +383,5 @@ test("routes a scheduled prompt into a transient session via descriptor", async 
   const sessionArg = promptMock.mock.calls[0][0] as ResolvedSession;
   expect(sessionArg.alias).toBe("later-k8f2");
   expect(sessionArg.transportSession).toBe("backend:later-k8f2");
+  expect(sessionArg.transient).toBe(true);
 });

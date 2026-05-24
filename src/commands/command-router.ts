@@ -317,12 +317,15 @@ export class CommandRouter {
           const sessionContext = this.createSessionHandlerContext(undefined, perfSpan);
           if (metadata?.scheduledSessionDescriptor) {
             const descriptor = metadata.scheduledSessionDescriptor;
-            const transientSession = this.sessions.resolveSession(
-              descriptor.alias,
-              descriptor.agent,
-              descriptor.workspace,
-              descriptor.transportSession,
-            );
+            const transientSession = {
+              ...this.sessions.resolveSession(
+                descriptor.alias,
+                descriptor.agent,
+                descriptor.workspace,
+                descriptor.transportSession,
+              ),
+              transient: true,
+            };
             return await handlePromptWithSession(
               sessionContext,
               transientSession,
