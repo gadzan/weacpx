@@ -22,8 +22,7 @@ import { buildCoordinatorPrompt } from "./orchestration/build-coordinator-prompt
 import { buildWorkerAnswerPrompt, buildWorkerTaskPrompt } from "./orchestration/worker-prompts";
 import { ScheduledTaskScheduler } from "./scheduled/scheduled-scheduler";
 import { ScheduledTaskService } from "./scheduled/scheduled-service";
-import { preview } from "./scheduled/scheduled-render";
-import { toDisplaySessionAlias } from "./channels/channel-scope";
+import { buildScheduledDispatchTask } from "./scheduled/scheduled-dispatch";
 import { SessionService } from "./sessions/session-service";
 import { DebouncedStateStore } from "./state/debounced-state-store";
 import { StateStore } from "./state/state-store";
@@ -674,26 +673,19 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
   );
   const agent = new ConsoleAgent(router, logger);
   const scheduledScheduler = new ScheduledTaskScheduler(scheduledService, {
-    dispatchTask: async (task, abortSignal) => {
-      const session = await sessions.getSession(task.session_alias);
-      if (!session) {
-        throw new Error(`session "${task.session_alias}" not found for scheduled task`);
-      }
-      const noticeText = `执行定时任务 #${task.id}\n会话：${toDisplaySessionAlias(task.session_alias)}\n内容：${preview(task.message)}`;
-      if (!deps.channel?.sendScheduledMessage) {
-        throw new Error("no channel runtime available for scheduled task dispatch");
-      }
-      await deps.channel.sendScheduledMessage({
-        chatKey: task.chat_key,
-        taskId: task.id,
-        sessionAlias: task.session_alias,
-        noticeText,
-        promptText: task.message,
-        abortSignal,
-        ...(task.account_id ? { accountId: task.account_id } : {}),
-        ...(task.reply_context_token ? { replyContextToken: task.reply_context_token } : {}),
-      });
-    },
+    dispatchTask: buildScheduledDispatchTask({
+      getSession: (alias) => sessions.getSession(alias),
+      resolveSession: (alias, agent, workspace, transportSession) =>
+        sessions.resolveSession(alias, agent, workspace, transportSession),
+      sendScheduledMessage: async (input) => {
+        if (!deps.channel?.sendScheduledMessage) {
+          throw new Error("no channel runtime available for scheduled task dispatch");
+        }
+        await deps.channel.sendScheduledMessage(input);
+      },
+      ...(transport.removeSession ? { removeSession: (session) => transport.removeSession!(session) } : {}),
+      logger,
+    }),
     logger,
   });
 
