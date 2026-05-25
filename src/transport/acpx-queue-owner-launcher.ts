@@ -64,7 +64,7 @@ export function buildWeacpxMcpServerSpec(input: {
 }): AcpxMcpServerSpec {
   const { command, args } = splitCommandLine(input.weacpxCommand);
   return {
-    name: "weacpx-orchestration",
+    name: "weacpx",
     type: "stdio",
     command,
     args: [

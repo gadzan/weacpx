@@ -82,7 +82,7 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
   const watchTasksById = new Map<string, WatchMcpTaskRecord>();
   const server = new Server(
     {
-      name: "weacpx-orchestration",
+      name: "weacpx",
       version: readVersion(),
     },
     {
