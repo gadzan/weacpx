@@ -7,6 +7,7 @@ import type {
   AppConfig,
   ChannelConfig,
   ChannelRuntimeConfig,
+  LaterConfig,
   LoggingConfig,
   LoggingLevel,
   NonInteractivePermissions,
@@ -49,6 +50,9 @@ const DEFAULT_ORCHESTRATION_CONFIG: OrchestrationConfig = {
   allowedAgentRequestRoles: [],
   progressHeartbeatSeconds: 300,
   maxParallelTasksPerAgent: 3,
+};
+const DEFAULT_LATER_CONFIG: LaterConfig = {
+  defaultMode: "temp",
 };
 
 type ParsedAgentRecord = Record<string, AgentConfig & { command?: string }>;
@@ -300,6 +304,7 @@ export function parseConfig(
   const channelConfig = parseChannelConfig(channel, legacyWechat);
   const channelsConfig = parseRuntimeChannels(raw.channels, channelConfig);
   const orchestrationConfig = parseOrchestrationConfig(orchestration);
+  const laterConfig = parseLaterConfig(raw.later);
   const plugins = parsePlugins(raw.plugins);
 
   return {
@@ -349,6 +354,7 @@ export function parseConfig(
     agents,
     workspaces,
     orchestration: orchestrationConfig,
+    later: laterConfig,
   };
 }
 
@@ -440,6 +446,11 @@ function parseRuntimeChannels(rawChannels: unknown, channel: ChannelConfig): Cha
       ...(channel.options ? { options: channel.options } : {}),
     },
   ];
+}
+
+function parseLaterConfig(raw: unknown): LaterConfig {
+  if (!isRecord(raw)) return { ...DEFAULT_LATER_CONFIG };
+  return raw.defaultMode === "bind" ? { defaultMode: "bind" } : { ...DEFAULT_LATER_CONFIG };
 }
 
 function parseOrchestrationConfig(raw: unknown): OrchestrationConfig {

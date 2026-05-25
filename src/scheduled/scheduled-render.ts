@@ -1,6 +1,13 @@
 import type { ScheduledTaskRecord } from "./scheduled-types";
 import { LATER_MESSAGE_PREVIEW_CHARS } from "./scheduled-types";
 
+function sessionLabel(task: ScheduledTaskRecord, displaySession: string): string {
+  if (task.session_mode === "temp") {
+    return `临时会话（${task.workspace ?? "?"} · ${task.agent ?? "?"}）`;
+  }
+  return `会话：${displaySession}`;
+}
+
 export function renderLaterHelp(): string {
   return [
     "定时任务用法：",
@@ -20,7 +27,8 @@ export function renderLaterHelp(): string {
     "说明：",
     "- 只支持一次性任务",
     "- 时间必须在 10 秒之后、7 天之内",
-    "- 到点后会把消息发送到创建时绑定的会话",
+    "- 默认在为本次任务新建的临时会话里执行（跑完即销毁）",
+    "- 加 --bind 改为发送到创建时绑定的当前会话",
     "- 触发通知和 agent 回复复用现有频道路由；微信回复额度由现有路由控制",
     "- 不支持延迟执行 / 开头的 weacpx 命令",
     "- 完整时间格式与说明见 docs/later-command.md",
@@ -40,7 +48,7 @@ export function renderTaskCreated(task: ScheduledTaskRecord, displaySession: str
   return [
     `已创建定时任务 #${task.id}`,
     `执行时间：${formatLocalDateTime(new Date(task.execute_at))}`,
-    `会话：${displaySession}`,
+    sessionLabel(task, displaySession),
     `内容：${preview(task.message)}`,
   ].join("\n");
 }
@@ -51,7 +59,7 @@ export function renderLaterList(tasks: ScheduledTaskRecord[], displaySession: (i
     "待执行定时任务：",
     "",
     ...tasks.flatMap((task) => [
-      `#${task.id}  ${formatLocalDateTime(new Date(task.execute_at))}  会话：${displaySession(task.session_alias)}`,
+      `#${task.id}  ${formatLocalDateTime(new Date(task.execute_at))}  ${sessionLabel(task, displaySession(task.session_alias))}`,
       preview(task.message),
       "",
     ]),

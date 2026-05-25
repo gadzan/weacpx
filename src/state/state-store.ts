@@ -481,6 +481,10 @@ function isScheduledTaskStatus(value: unknown): value is ScheduledTaskStatus {
   );
 }
 
+function isOptionalScheduledSessionMode(value: unknown): boolean {
+  return value === undefined || value === "temp" || value === "bound";
+}
+
 function isScheduledTaskRecord(value: unknown): value is ScheduledTaskRecord {
   if (!isRecord(value)) return false;
   return (
@@ -499,7 +503,10 @@ function isScheduledTaskRecord(value: unknown): value is ScheduledTaskRecord {
     isOptionalString(value.cancelled_at) &&
     isOptionalString(value.missed_at) &&
     isOptionalString(value.failed_at) &&
-    isOptionalString(value.last_error)
+    isOptionalString(value.last_error) &&
+    isOptionalScheduledSessionMode(value.session_mode) &&
+    isOptionalString(value.agent) &&
+    isOptionalString(value.workspace)
   );
 }
 

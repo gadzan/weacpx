@@ -8,6 +8,17 @@ export function renderTransportError(session: ResolvedSession, error: unknown): 
   const message = error instanceof Error ? error.message : String(error);
 
   if (message.includes("No acpx session found")) {
+    if (session.transient) {
+      // Transient scheduled (temp-mode) session: it is created on demand at
+      // trigger time and never persisted, so advising /session new/attach by
+      // its `later-<id>` alias would be nonsensical.
+      return {
+        text: [
+          "定时任务的临时会话启动失败，本次任务未能执行。",
+          "临时会话由系统在执行时自动创建，无需手动操作；如需重排，请用 /lt 重新安排。",
+        ].join("\n"),
+      };
+    }
     return {
       text: [
         `当前会话「${session.alias}」暂时不可用。`,
@@ -94,6 +105,12 @@ export async function tryRecoverMissingSession(
 ): Promise<ResolvedSession | null> {
   const message = error instanceof Error ? error.message : String(error);
   if (!message.includes("No acpx session found")) {
+    return null;
+  }
+
+  // Transient scheduled sessions are not persisted; the agent-command recovery
+  // path mutates persisted state by alias and would throw on the missing alias.
+  if (session.transient) {
     return null;
   }
 

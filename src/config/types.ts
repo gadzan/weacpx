@@ -67,6 +67,12 @@ export interface OrchestrationConfig {
   maxParallelTasksPerAgent: number;
 }
 
+export type LaterDefaultMode = "temp" | "bind";
+
+export interface LaterConfig {
+  defaultMode: LaterDefaultMode;
+}
+
 export interface ChannelRuntimeConfig {
   id: string;
   type: string;
@@ -89,4 +95,5 @@ export interface AppConfig {
   agents: Record<string, AgentConfig>;
   workspaces: Record<string, WorkspaceConfig>;
   orchestration: OrchestrationConfig;
+  later?: LaterConfig;
 }

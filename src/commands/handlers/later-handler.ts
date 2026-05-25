@@ -1,5 +1,5 @@
 import type { RouterResponse, ScheduledRouterOps } from "../router-types";
-import type { ScheduledTaskRecord } from "../../scheduled/scheduled-types";
+import type { ScheduledTaskRecord, ScheduledSessionMode } from "../../scheduled/scheduled-types";
 import { parseLaterTime } from "../../scheduled/parse-later-time";
 import { renderLaterHelp, renderLaterList, renderTaskCreated } from "../../scheduled/scheduled-render";
 import { toDisplaySessionAlias } from "../../channels/channel-scope";
@@ -7,9 +7,11 @@ import { toDisplaySessionAlias } from "../../channels/channel-scope";
 export const laterHelpMetadata = {
   topic: "later",
   aliases: ["lt"],
-  summary: "定时任务：延时发送消息到当前会话",
+  summary: "定时任务：到点在临时会话执行（或 --bind 发到当前会话）",
   commands: [
     { usage: "/lt <时间> <消息>", description: "创建定时任务" },
+    { usage: "/lt --bind <时间> <消息>", description: "改为发送到当前会话" },
+    { usage: "/lt --temp <时间> <消息>", description: "强制使用临时会话" },
     { usage: "/lt list", description: "查看待执行定时任务" },
     { usage: "/lt cancel <id>", description: "取消定时任务" },
   ],
@@ -23,7 +25,8 @@ export const laterHelpMetadata = {
   notes: [
     "只支持一次性任务，不支持重复执行",
     "时间必须在 10 秒之后、7 天之内",
-    "到点后会把消息发送到创建时绑定的会话（不随之后 /use 切换而改变）",
+    "默认在为本次任务新建的临时会话里执行，跑完即销毁",
+    "加 --bind 改为发送到创建时绑定的当前会话（默认模式可用 later.defaultMode 配置）",
     "/lt list 显示全局待执行任务；群聊中只有群主可取消",
     "不支持延迟执行 / 开头的 weacpx 命令",
     "完整时间格式与说明见 docs/later-command.md",
@@ -38,11 +41,26 @@ export async function handleLaterCreate(
   tokens: string[],
   scheduled: ScheduledRouterOps,
   chatKey: string,
-  currentSessionAlias: string | null,
+  currentSession: { alias: string; agent: string; workspace: string } | null,
+  defaultMode: ScheduledSessionMode,
   accountId?: string,
   replyContextToken?: string,
 ): Promise<RouterResponse> {
-  if (!currentSessionAlias) {
+  // Consume any leading --bind / --temp flags (mutually exclusive).
+  let rest = tokens;
+  const seenFlags = new Set<string>();
+  let flagMode: ScheduledSessionMode | undefined;
+  while (rest.length > 0 && (rest[0] === "--bind" || rest[0] === "--temp")) {
+    seenFlags.add(rest[0]);
+    flagMode = rest[0] === "--bind" ? "bound" : "temp";
+    rest = rest.slice(1);
+  }
+  if (seenFlags.size > 1) {
+    return { text: "定时任务的 --bind 与 --temp 不能同时使用。" };
+  }
+  const mode: ScheduledSessionMode = flagMode ?? defaultMode;
+
+  if (!currentSession) {
     return {
       text: [
         "当前没有会话，无法创建定时任务。",
@@ -54,12 +72,12 @@ export async function handleLaterCreate(
     };
   }
 
-  const result = parseLaterTime(tokens);
+  const result = parseLaterTime(rest);
   if (!result.ok) {
     return { text: renderTimeParseError(result.code, result.value) };
   }
 
-  const message = tokens.slice(result.messageStartIndex).join(" ").trim();
+  const message = rest.slice(result.messageStartIndex).join(" ").trim();
   if (message.startsWith("/")) {
     return {
       text: [
@@ -73,13 +91,15 @@ export async function handleLaterCreate(
 
   const task = await scheduled.createTask({
     chatKey,
-    sessionAlias: currentSessionAlias,
+    sessionAlias: currentSession.alias,
     executeAt: result.executeAt,
     message,
+    sessionMode: mode,
+    ...(mode === "temp" ? { agent: currentSession.agent, workspace: currentSession.workspace } : {}),
     ...(accountId ? { accountId } : {}),
     ...(replyContextToken ? { replyContextToken } : {}),
   });
-  return { text: renderTaskCreated(task, toDisplaySessionAlias(currentSessionAlias)) };
+  return { text: renderTaskCreated(task, toDisplaySessionAlias(currentSession.alias)) };
 }
 
 export function handleLaterList(scheduled: ScheduledRouterOps): RouterResponse {

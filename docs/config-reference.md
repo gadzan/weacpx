@@ -55,6 +55,9 @@
     "allowedAgentRequestTargets": [],
     "allowedAgentRequestRoles": [],
     "maxParallelTasksPerAgent": 3
+  },
+  "later": {
+    "defaultMode": "temp"
   }
 }
 ```
@@ -515,6 +518,18 @@ weacpx channel add <channel-type>
   }
 }
 ```
+
+---
+
+## `later`
+
+### `later.defaultMode`
+
+定时任务（`/lt`）的默认执行会话模式。
+
+- `"temp"`（默认）：到点新建临时会话执行，跑完即销毁。
+- `"bind"`：到点发送到创建时绑定的当前会话。
+- 单条任务可用 `--temp` / `--bind` 覆盖默认值。
 
 ---
 

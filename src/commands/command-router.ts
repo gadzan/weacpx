@@ -299,7 +299,13 @@ export class CommandRouter {
             command.tokens,
             this.scheduled,
             chatKey,
-            currentSession?.alias ?? null,
+            currentSession
+              ? { alias: currentSession.alias, agent: currentSession.agent, workspace: currentSession.workspace }
+              : null,
+            // Map the config surface ("temp" | "bind") to the internal mode
+            // ("temp" | "bound"). Anything other than "bind" (incl. undefined)
+            // defaults to temp.
+            this.config?.later?.defaultMode === "bind" ? "bound" : "temp",
             accountId,
             replyContextToken,
           );
@@ -309,6 +315,32 @@ export class CommandRouter {
           return await handleLaterCancel(command.id, this.scheduled);
         case "prompt": {
           const sessionContext = this.createSessionHandlerContext(undefined, perfSpan);
+          if (metadata?.scheduledSessionDescriptor) {
+            const descriptor = metadata.scheduledSessionDescriptor;
+            const transientSession = {
+              ...this.sessions.resolveSession(
+                descriptor.alias,
+                descriptor.agent,
+                descriptor.workspace,
+                descriptor.transportSession,
+              ),
+              transient: true,
+            };
+            return await handlePromptWithSession(
+              sessionContext,
+              transientSession,
+              chatKey,
+              command.text,
+              reply,
+              replyContextToken,
+              accountId,
+              media,
+              abortSignal,
+              onToolEvent,
+              onThought,
+              perfSpan,
+            );
+          }
           if (metadata?.scheduledSessionAlias) {
             const scheduledSession = await this.sessions.getSession(metadata.scheduledSessionAlias);
             if (!scheduledSession) {
