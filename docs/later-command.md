@@ -202,6 +202,19 @@
 
 没有待执行任务时显示：`当前没有待执行定时任务。`
 
+### CLI 查看与取消
+
+如果当前频道不可用、无法发消息，或只想在电脑终端管理本机任务，可以用 CLI 查看和取消待执行任务：
+
+```bash
+weacpx later list
+weacpx later cancel k8f2
+weacpx lt list
+weacpx lt cancel #k8f2
+```
+
+CLI 只做管理能力：支持 `list` / `cancel`，不支持创建定时任务，也不会触发频道投递。
+
 ## 触发与任务状态
 
 到点后：

@@ -182,6 +182,8 @@ weacpx restart
 | `weacpx workspace list` | 查看本机已注册的 workspace |
 | `weacpx workspace add [name] [--raw]` | 把当前目录注册成 workspace；不传 `name` 时使用当前目录名，含特殊字符的名称会被自动规范化 |
 | `weacpx workspace rm <name>` | 删除 workspace |
+| `weacpx later list` / `weacpx lt list` | 在终端查看本机待执行定时任务 |
+| `weacpx later cancel <id>` / `weacpx lt cancel <id>` | 在终端取消本机待执行定时任务 |
 
 首次运行 `weacpx start` 或 `weacpx run` 时，如果没有会话、workspace 和插件，CLI 会询问是否把当前目录创建为 workspace，并选择一个内置 agent 模板；服务启动后会通过正常会话创建流程创建初始 acpx 会话。
 
@@ -347,6 +349,7 @@ opencode, qoder, qwen, trae
 - 默认临时会话执行，`--bind` 绑定当前会话；默认模式可用配置 `later.defaultMode`（`temp` / `bind`，默认 `temp`）修改
 - 只支持一次性任务，时间必须在 10 秒之后、7 天之内
 - 时间格式是固定白名单（相对时间 / 今天·明天·后天 / 星期几 + 时刻），不支持自然语言
+- 终端里也可以用 `weacpx later list` / `weacpx later cancel <id>` 管理待执行任务；CLI 只做查看和取消，不创建定时任务
 - 完整时间格式、临时/绑定模式、任务状态与限制见 [docs/later-command.md](./docs/later-command.md)
 
 ### 配置与权限

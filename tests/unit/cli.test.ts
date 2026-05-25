@@ -6,6 +6,7 @@ import { expect, test } from "bun:test";
 
 import { createMcpStdioIdentityResolver, prepareMcpCoordinatorStartup, resolveLoginChannelForCli, runCli } from "../../src/cli";
 import { listAgentTemplates } from "../../src/config/agent-templates";
+import { createEmptyState } from "../../src/state/types";
 
 async function withTempHome<T>(fn: (home: string) => Promise<T>): Promise<T> {
   const home = await mkdtemp(join(tmpdir(), "weacpx-cli-"));
@@ -41,6 +42,16 @@ async function withTempHome<T>(fn: (home: string) => Promise<T>): Promise<T> {
 
 async function readConfigJson(home: string): Promise<any> {
   return JSON.parse(await readFile(join(home, ".weacpx", "config.json"), "utf8"));
+}
+
+async function writeStateJson(home: string, state: any): Promise<void> {
+  const root = join(home, ".weacpx");
+  await mkdir(root, { recursive: true });
+  await writeFile(join(root, "state.json"), `${JSON.stringify(state, null, 2)}\n`);
+}
+
+async function readStateJson(home: string): Promise<any> {
+  return JSON.parse(await readFile(join(home, ".weacpx", "state.json"), "utf8"));
 }
 
 test("dispatches login", async () => {
@@ -342,6 +353,7 @@ test("prints help for unknown commands", async () => {
     "weacpx version - 查看版本",
     "weacpx agent|agents list|add|rm|templates - 管理本机 Agent",
     "weacpx workspace list|add [name] [--raw]|rm <name> - 管理本机工作区（别名：ws）",
+    "weacpx later|lt list|cancel <id> - 管理本机待执行定时任务",
     "weacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务",
   ]);
 });
@@ -734,6 +746,127 @@ test("agent commands reject invalid arguments", async () => {
   await expect(runCli(["agents", "nope"], { print: (line) => lines.push(line) })).resolves.toBe(1);
 
   expect(lines.filter((line) => line === "weacpx agent|agents list|add|rm|templates - 管理本机 Agent")).toHaveLength(3);
+});
+
+test("later list prints pending scheduled tasks from local state", async () => {
+  await withTempHome(async (home) => {
+    const state = createEmptyState();
+    state.scheduled_tasks.zzzz = {
+      id: "zzzz",
+      chat_key: "weixin:user-1",
+      session_alias: "weixin:frontend-codex",
+      execute_at: "2026-05-26T01:00:00.000Z",
+      message: "不应该先显示",
+      status: "pending",
+      created_at: "2026-05-25T10:00:00.000Z",
+    };
+    state.scheduled_tasks.k8f2 = {
+      id: "k8f2",
+      chat_key: "weixin:user-1",
+      session_alias: "weixin:backend-codex",
+      session_mode: "temp",
+      agent: "codex",
+      workspace: "backend",
+      execute_at: "2026-05-25T12:00:00.000Z",
+      message: "检查 CI",
+      status: "pending",
+      created_at: "2026-05-25T10:00:00.000Z",
+    };
+    state.scheduled_tasks.done1 = {
+      id: "done1",
+      chat_key: "weixin:user-1",
+      session_alias: "weixin:backend-codex",
+      execute_at: "2026-05-25T11:00:00.000Z",
+      message: "已完成任务不显示",
+      status: "executed",
+      created_at: "2026-05-25T10:00:00.000Z",
+      executed_at: "2026-05-25T11:01:00.000Z",
+    };
+    await writeStateJson(home, state);
+
+    const lines: string[] = [];
+    await expect(runCli(["later", "list"], { print: (line) => lines.push(line) })).resolves.toBe(0);
+
+    const output = lines.join("\n");
+    expect(output).toContain("待执行定时任务：");
+    // ScheduledTaskService.listPending() sorts by execute_at, so the task
+    // inserted second with the earlier execution time must render first.
+    expect(output.indexOf("#k8f2")).toBeLessThan(output.indexOf("#zzzz"));
+    expect(output).toContain("临时会话（backend · codex）");
+    expect(output).toContain("检查 CI");
+    expect(output).toContain("会话：frontend-codex");
+    expect(output).toContain("不应该先显示");
+    expect(output).not.toContain("已完成任务不显示");
+  });
+});
+
+test("later list reports when there are no pending scheduled tasks", async () => {
+  await withTempHome(async (home) => {
+    await writeStateJson(home, createEmptyState());
+
+    const lines: string[] = [];
+    await expect(runCli(["lt", "list"], { print: (line) => lines.push(line) })).resolves.toBe(0);
+
+    expect(lines).toEqual(["当前没有待执行定时任务。"]);
+  });
+});
+
+test("later cancel cancels a pending scheduled task by id", async () => {
+  await withTempHome(async (home) => {
+    const state = createEmptyState();
+    state.scheduled_tasks.k8f2 = {
+      id: "k8f2",
+      chat_key: "weixin:user-1",
+      session_alias: "weixin:backend-codex",
+      execute_at: "2026-05-25T12:00:00.000Z",
+      message: "检查 CI",
+      status: "pending",
+      created_at: "2026-05-25T10:00:00.000Z",
+    };
+    await writeStateJson(home, state);
+
+    const lines: string[] = [];
+    await expect(runCli(["later", "cancel", "#K8F2"], { print: (line) => lines.push(line) })).resolves.toBe(0);
+
+    expect(lines).toEqual(["已取消定时任务 #k8f2"]);
+    const updated = await readStateJson(home);
+    expect(updated.scheduled_tasks.k8f2.status).toBe("cancelled");
+    expect(typeof updated.scheduled_tasks.k8f2.cancelled_at).toBe("string");
+  });
+});
+
+test("later cancel returns 1 when the scheduled task is not pending", async () => {
+  await withTempHome(async (home) => {
+    const state = createEmptyState();
+    state.scheduled_tasks.k8f2 = {
+      id: "k8f2",
+      chat_key: "weixin:user-1",
+      session_alias: "weixin:backend-codex",
+      execute_at: "2026-05-25T12:00:00.000Z",
+      message: "检查 CI",
+      status: "executed",
+      created_at: "2026-05-25T10:00:00.000Z",
+      executed_at: "2026-05-25T12:01:00.000Z",
+    };
+    await writeStateJson(home, state);
+
+    const lines: string[] = [];
+    await expect(runCli(["lt", "cancel", "k8f2"], { print: (line) => lines.push(line) })).resolves.toBe(1);
+
+    expect(lines).toEqual(["未找到待执行的定时任务 #k8f2。", "可以用 weacpx later list 查看当前待执行任务。"]);
+    const updated = await readStateJson(home);
+    expect(updated.scheduled_tasks.k8f2.status).toBe("executed");
+  });
+});
+
+test("later commands reject invalid arguments", async () => {
+  const lines: string[] = [];
+
+  await expect(runCli(["later"], { print: (line) => lines.push(line) })).resolves.toBe(1);
+  await expect(runCli(["later", "cancel"], { print: (line) => lines.push(line) })).resolves.toBe(1);
+  await expect(runCli(["lt", "create"], { print: (line) => lines.push(line) })).resolves.toBe(1);
+
+  expect(lines.filter((line) => line === "weacpx later|lt list|cancel <id> - 管理本机待执行定时任务")).toHaveLength(3);
 });
 
 test("prints doctor in help output", async () => {

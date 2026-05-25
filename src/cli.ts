@@ -32,6 +32,9 @@ import {
   sanitizeWorkspaceName,
 } from "./commands/workspace-name";
 import { StateStore } from "./state/state-store";
+import { toDisplaySessionAlias } from "./channels/channel-scope";
+import { renderLaterList } from "./scheduled/scheduled-render";
+import { ScheduledTaskService, normalizeId } from "./scheduled/scheduled-service";
 import { maybeRunFirstUseOnboarding, type FirstRunOnboardingPlan } from "./onboarding.js";
 import { handleUpdateCli, type UpdateCliDeps } from "./cli-update.js";
 import type { AppConfig } from "./config/types";
@@ -259,6 +262,7 @@ const HELP_LINES = [
   "weacpx version - 查看版本",
   "weacpx agent|agents list|add|rm|templates - 管理本机 Agent",
   "weacpx workspace list|add [name] [--raw]|rm <name> - 管理本机工作区（别名：ws）",
+  "weacpx later|lt list|cancel <id> - 管理本机待执行定时任务",
   "weacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务",
 ];
 
@@ -342,6 +346,17 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
     case "agent":
     case "agents": {
       const result = await handleAgentCli(args.slice(1), { print });
+      if (result === null) {
+        for (const line of HELP_LINES) {
+          print(line);
+        }
+        return 1;
+      }
+      return result;
+    }
+    case "later":
+    case "lt": {
+      const result = await handleLaterCli(args.slice(1), { print });
       if (result === null) {
         for (const line of HELP_LINES) {
           print(line);
@@ -756,6 +771,59 @@ async function agentRemove(rawName: string, print: (line: string) => void): Prom
   await store.removeAgent(name);
   print(`Agent「${name}」已删除`);
   return 0;
+}
+
+async function handleLaterCli(
+  args: string[],
+  deps: {
+    print: (line: string) => void;
+  },
+): Promise<number | null> {
+  const subcommand = args[0];
+  switch (subcommand) {
+    case "list":
+      if (args.length !== 1) return null;
+      return await laterList(deps.print);
+    case "cancel":
+      if (args.length !== 2 || !args[1]) return null;
+      return await laterCancel(args[1], deps.print);
+    default:
+      return null;
+  }
+}
+
+async function laterList(print: (line: string) => void): Promise<number> {
+  const scheduled = await createCliScheduledTaskService();
+  print(renderLaterList(scheduled.listPending(), (alias) => toDisplaySessionAlias(alias)));
+  return 0;
+}
+
+async function laterCancel(rawId: string, print: (line: string) => void): Promise<number> {
+  const id = normalizeId(rawId);
+  if (id.length === 0) {
+    print("定时任务 ID 不能为空。");
+    return 1;
+  }
+
+  const scheduled = await createCliScheduledTaskService();
+  const ok = await scheduled.cancelPending(id);
+  if (!ok) {
+    print(`未找到待执行的定时任务 #${id}。`);
+    print("可以用 weacpx later list 查看当前待执行任务。");
+    return 1;
+  }
+  print(`已取消定时任务 #${id}`);
+  return 0;
+}
+
+async function createCliScheduledTaskService(): Promise<ScheduledTaskService> {
+  // Keep `main` lazy-loaded like the other daemon/runtime CLI paths. Importing
+  // it eagerly pulls in transport/channel wiring that simple commands such as
+  // `weacpx --help`, `agent`, and `workspace` should not pay for.
+  const runtimePaths = (await import("./main")).resolveRuntimePaths();
+  const stateStore = new StateStore(runtimePaths.statePath);
+  const state = await stateStore.load();
+  return new ScheduledTaskService(state, stateStore);
 }
 
 function resolveConfigPathForCurrentEnv(): string {
