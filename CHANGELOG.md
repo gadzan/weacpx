@@ -1,14 +1,21 @@
 # Changelog
 
-## [Unreleased]
+## [0.5.1] - 2026-05-25
 
 ### Added
 
 - **`/later` 临时会话执行模式（默认）：** `/lt` 定时任务到点时默认在一个为该任务新建的**临时会话**里执行——沿用创建时当前会话的 agent 与工作区，但对话历史全新；单轮执行后通过 `transport.removeSession` 销毁该 acpx 会话，且全程不写入 `state.json`。新增互斥标志 `--bind`（发送到创建时绑定的当前会话，即旧行为）/ `--temp`（强制临时）在单条任务上覆盖模式，以及配置项 `later.defaultMode`（`"temp"` | `"bind"`，默认 `"temp"`）修改全局默认。任务记录新增 `session_mode`/`agent`/`workspace` 字段；缺省 `session_mode` 的旧任务按 `bound`（绑定当前会话）处理，无需迁移。创建回显、`/lt list` 与触发通知按模式分别显示「临时会话（工作区 · agent）」或「会话：<别名>」。
+- **自然语言创建与管理定时任务（当前会话内部 MCP 工具）：** 普通对话里的 agent 在理解到“稍后/明天某时提醒我做某事”时，可通过当前会话内部 MCP 工具创建、查看与取消定时任务：`scheduled_create`（只需 `timeText`/`message` 与可选模式 `temp`/`bound`，`chatKey`、会话 alias、账号、回复上下文等路由信息由 daemon 从当前会话记录解析）、`scheduled_list`（返回**全局**待执行列表，与 `/lt list` 一致）、`scheduled_cancel <id>`（按任务 id 取消，`#` 可选）。时间语法、10 秒～7 天限制、默认临时会话、`later.defaultMode`、频道投递能力检查、群聊仅群主等约束都与 `/lt` 一致。这些工具只暴露给 weacpx 为**当前对话会话**启动的 queue owner，不会出现在外部 `weacpx mcp-stdio` 配置中。
+- **`weacpx later list` / `weacpx later cancel <id>` CLI 命令（含 `lt` 别名）：** 在电脑终端直接查看与取消本机待执行定时任务，适合频道不可用或只想本地管理的场景。CLI 仅提供 `list` / `cancel` 管理能力，不支持创建定时任务，也不会触发频道投递。
+
+### Changed
+
+- **依赖：** acpx 从 `0.8.0` 升级到 `0.9.0`。
 
 ### Fixed
 
 - **定时任务临时会话的传输错误提示：** 临时会话（`later-<id>`，非持久化）在后端 acpx 会话缺失时，不再错误地建议 `/session new`/`attach` 该别名；缺失会话恢复也不再尝试按不存在的别名改写持久化状态。
+- **首次启动种入默认 `home` 工作区：** 旧版 `config.example.json` 附带两个 placeholder 工作区（其中一个泄漏了本地 worktree 路径），按用户反馈会被原样写进真实用户的首次配置；而运行时 seed 又把工作区清空成 `{}`，导致全新安装反而一个工作区都没有。现统一只种入单个可移植的 `home` 工作区（cwd `~`，加载时展开为真实 home 目录），并在内置默认模板、`normalizeDefaultConfigTemplate` 与 `config.example.json` 间保持一致；`isFirstUse` 现将「仅带种入的 home」的配置仍视为首次使用，使交互式 onboarding 继续触发，其创建的项目工作区与 home 并存。
 
 ## [0.5.0] - 2026-05-23
 

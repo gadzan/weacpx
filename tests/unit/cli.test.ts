@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { expect, test } from "bun:test";
 
 import { createMcpStdioIdentityResolver, prepareMcpCoordinatorStartup, resolveLoginChannelForCli, runCli } from "../../src/cli";
+import { normalizeWorkspacePath } from "../../src/commands/workspace-path";
 import { listAgentTemplates } from "../../src/config/agent-templates";
 import { createEmptyState } from "../../src/state/types";
 
@@ -600,10 +601,14 @@ test("workspace add error suggestion quotes a name that needs quoting", async ()
 });
 
 test("lists and removes workspaces from the CLI", async () => {
-  await withTempHome(async (home) => {
+  await withTempHome(async () => {
     const lines: string[] = [];
 
-    // First CLI call seeds the default home workspace (cwd `~` -> this temp home).
+    // First CLI call seeds the default `home` workspace (cwd `~`); load-config
+    // expands it via normalizeWorkspacePath, so derive the expected path the
+    // same way (os.homedir() rather than the test's $HOME override).
+    const homeWorkspace = normalizeWorkspacePath("~");
+
     await expect(runCli(["workspace", "add", "backend"], { cwd: () => "/repo/backend", print: () => {} })).resolves.toBe(0);
     await expect(runCli(["workspace", "add", "frontend"], { cwd: () => "/repo/frontend", print: () => {} })).resolves.toBe(0);
     await expect(runCli(["workspace", "list"], { print: (line) => lines.push(line) })).resolves.toBe(0);
@@ -612,12 +617,12 @@ test("lists and removes workspaces from the CLI", async () => {
 
     expect(lines).toEqual([
       "工作区列表：",
-      `- home: ${home}`,
+      `- home: ${homeWorkspace}`,
       "- backend: /repo/backend",
       "- frontend: /repo/frontend",
       "工作区「backend」已删除",
       "工作区列表：",
-      `- home: ${home}`,
+      `- home: ${homeWorkspace}`,
       "- frontend: /repo/frontend",
     ]);
   });
