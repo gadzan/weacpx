@@ -274,6 +274,99 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
   ]);
 });
 
+test("createOrchestrationTransport maps scheduledList/scheduledCancel onto the RPC client", async () => {
+  const calls: Array<{ method: string; input: unknown }> = [];
+  const fakeClient = {
+    delegateRequest: async () => ({ taskId: "task-1", status: "needs_confirmation" as const }),
+    createGroup: async () => ({ groupId: "g-1", coordinatorSession: "backend:main", title: "t", createdAt: "a", updatedAt: "a" }),
+    getTaskForCoordinator: async () => null,
+    listTasks: async () => [],
+    approveTask: async () => {
+      throw new Error("unused");
+    },
+    cancelTaskForCoordinator: async () => {
+      throw new Error("unused");
+    },
+    workerRaiseQuestion: async () => {
+      throw new Error("unused");
+    },
+    coordinatorAnswerQuestion: async () => {
+      throw new Error("unused");
+    },
+    coordinatorRequestHumanInput: async () => {
+      throw new Error("unused");
+    },
+    coordinatorReviewContestedResult: async () => {
+      throw new Error("unused");
+    },
+    scheduledList: async (input: unknown) => {
+      calls.push({ method: "scheduledList", input });
+      return [
+        {
+          id: "k8f2",
+          chat_key: "wx:user",
+          session_alias: "main",
+          session_mode: "temp" as const,
+          execute_at: "2026-05-25T02:00:00.000Z",
+          message: "检查 CI",
+          status: "pending" as const,
+          created_at: "2026-05-25T00:00:00.000Z",
+        },
+      ];
+    },
+    scheduledCancel: async (input: unknown) => {
+      calls.push({ method: "scheduledCancel", input });
+      return { id: "k8f2", cancelled: true };
+    },
+  };
+
+  const transport = createOrchestrationTransport({ kind: "unix", path: "/tmp/test.sock" }, { client: fakeClient });
+
+  await expect(transport.scheduledList({ coordinatorSession: "backend:main" })).resolves.toHaveLength(1);
+  await expect(
+    transport.scheduledCancel({ coordinatorSession: "backend:main", id: "k8f2" }),
+  ).resolves.toEqual({ id: "k8f2", cancelled: true });
+
+  expect(calls).toEqual([
+    { method: "scheduledList", input: { coordinatorSession: "backend:main" } },
+    { method: "scheduledCancel", input: { coordinatorSession: "backend:main", id: "k8f2" } },
+  ]);
+});
+
+test("createOrchestrationTransport scheduledList/scheduledCancel fail clearly when the client lacks them", async () => {
+  const fakeClient = {
+    delegateRequest: async () => ({ taskId: "task-1", status: "needs_confirmation" as const }),
+    createGroup: async () => ({ groupId: "g-1", coordinatorSession: "backend:main", title: "t", createdAt: "a", updatedAt: "a" }),
+    getTaskForCoordinator: async () => null,
+    listTasks: async () => [],
+    approveTask: async () => {
+      throw new Error("unused");
+    },
+    cancelTaskForCoordinator: async () => {
+      throw new Error("unused");
+    },
+    workerRaiseQuestion: async () => {
+      throw new Error("unused");
+    },
+    coordinatorAnswerQuestion: async () => {
+      throw new Error("unused");
+    },
+    coordinatorRequestHumanInput: async () => {
+      throw new Error("unused");
+    },
+    coordinatorReviewContestedResult: async () => {
+      throw new Error("unused");
+    },
+  };
+
+  const transport = createOrchestrationTransport({ kind: "unix", path: "/tmp/test.sock" }, { client: fakeClient });
+
+  await expect(transport.scheduledList({ coordinatorSession: "backend:main" })).rejects.toThrow(/scheduledList is not configured/);
+  await expect(
+    transport.scheduledCancel({ coordinatorSession: "backend:main", id: "k8f2" }),
+  ).rejects.toThrow(/scheduledCancel is not configured/);
+});
+
 test("createOrchestrationTransport workerRaiseQuestion fails clearly when no injected sourceHandle is provided", async () => {
   const calls: unknown[] = [];
   const fakeClient = {

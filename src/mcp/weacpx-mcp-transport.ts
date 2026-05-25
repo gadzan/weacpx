@@ -1,6 +1,10 @@
 import { OrchestrationClient } from "../orchestration/orchestration-client";
 import type { OrchestrationIpcEndpoint } from "../orchestration/orchestration-ipc";
 import type { ScheduledCreateFromRouteInput } from "../scheduled/scheduled-route-create";
+import type {
+  ScheduledCancelFromRouteInput,
+  ScheduledListFromRouteInput,
+} from "../scheduled/scheduled-route-manage";
 import type { ScheduledTaskRecord } from "../scheduled/scheduled-types";
 import type {
   CoordinatorRequestHumanInputResult,
@@ -84,6 +88,8 @@ export interface WeacpxMcpCoordinatorReviewContestedResultArgs {
 }
 
 export interface WeacpxMcpScheduledCreateArgs extends ScheduledCreateFromRouteInput {}
+export interface WeacpxMcpScheduledListArgs extends ScheduledListFromRouteInput {}
+export interface WeacpxMcpScheduledCancelArgs extends ScheduledCancelFromRouteInput {}
 
 export interface WeacpxMcpTransport {
   delegateRequest: (input: WeacpxMcpDelegateRequest) => Promise<RequestDelegateRpcResult>;
@@ -106,6 +112,8 @@ export interface WeacpxMcpTransport {
     input: WeacpxMcpCoordinatorReviewContestedResultArgs,
   ) => Promise<OrchestrationTaskRecord>;
   scheduledCreate: (input: WeacpxMcpScheduledCreateArgs) => Promise<ScheduledTaskRecord>;
+  scheduledList: (input: WeacpxMcpScheduledListArgs) => Promise<ScheduledTaskRecord[]>;
+  scheduledCancel: (input: WeacpxMcpScheduledCancelArgs) => Promise<{ id: string; cancelled: boolean }>;
 }
 
 interface OrchestrationClientLike {
@@ -122,6 +130,8 @@ interface OrchestrationClientLike {
   coordinatorRequestHumanInput: OrchestrationClient["coordinatorRequestHumanInput"];
   coordinatorReviewContestedResult: OrchestrationClient["coordinatorReviewContestedResult"];
   scheduledCreate?: OrchestrationClient["scheduledCreate"];
+  scheduledList?: OrchestrationClient["scheduledList"];
+  scheduledCancel?: OrchestrationClient["scheduledCancel"];
 }
 
 export function createOrchestrationTransport(
@@ -182,6 +192,18 @@ export function createOrchestrationTransport(
       }
       return await client.scheduledCreate(input);
     },
+    scheduledList: async (input) => {
+      if (!client.scheduledList) {
+        throw new Error("orchestration client scheduledList is not configured");
+      }
+      return await client.scheduledList(input);
+    },
+    scheduledCancel: async (input) => {
+      if (!client.scheduledCancel) {
+        throw new Error("orchestration client scheduledCancel is not configured");
+      }
+      return await client.scheduledCancel(input);
+    },
   };
 }
 
@@ -214,5 +236,9 @@ export function createMemoryTransport(
       ?? (unimplemented("coordinatorReviewContestedResult") as WeacpxMcpTransport["coordinatorReviewContestedResult"]),
     scheduledCreate:
       overrides.scheduledCreate ?? (unimplemented("scheduledCreate") as WeacpxMcpTransport["scheduledCreate"]),
+    scheduledList:
+      overrides.scheduledList ?? (unimplemented("scheduledList") as WeacpxMcpTransport["scheduledList"]),
+    scheduledCancel:
+      overrides.scheduledCancel ?? (unimplemented("scheduledCancel") as WeacpxMcpTransport["scheduledCancel"]),
   };
 }

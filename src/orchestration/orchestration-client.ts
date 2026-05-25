@@ -26,6 +26,10 @@ import type {
   OrchestrationTaskRecord,
 } from "./orchestration-types";
 import type { ScheduledCreateFromRouteInput } from "../scheduled/scheduled-route-create";
+import type {
+  ScheduledCancelFromRouteInput,
+  ScheduledListFromRouteInput,
+} from "../scheduled/scheduled-route-manage";
 import type { ScheduledTaskRecord } from "../scheduled/scheduled-types";
 import {
   DEFAULT_TASK_WATCH_TIMEOUT_MS,
@@ -170,6 +174,14 @@ export class OrchestrationClient {
 
   async scheduledCreate(input: ScheduledCreateFromRouteInput): Promise<ScheduledTaskRecord> {
     return await this.request<ScheduledTaskRecord>("scheduled.create", input);
+  }
+
+  async scheduledList(input: ScheduledListFromRouteInput): Promise<ScheduledTaskRecord[]> {
+    return await this.request<ScheduledTaskRecord[]>("scheduled.list", input);
+  }
+
+  async scheduledCancel(input: ScheduledCancelFromRouteInput): Promise<{ id: string; cancelled: boolean }> {
+    return await this.request<{ id: string; cancelled: boolean }>("scheduled.cancel", input);
   }
 
   async request<Result>(method: OrchestrationRpcMethod, params: unknown, timeoutMs = this.timeoutMs): Promise<Result> {
