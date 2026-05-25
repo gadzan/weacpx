@@ -85,6 +85,25 @@ test("listScheduledTasksFromRoute rejects non-owner group routes", async () => {
   ).rejects.toThrow("scheduled_list is owner-only in group chats");
 });
 
+test("rejects group routes with an absent isOwner field for both resolvers", async () => {
+  const state = createEmptyState();
+  groupRoute(state); // no isOwner key at all
+
+  await expect(
+    listScheduledTasksFromRoute(
+      { coordinatorSession: "backend:main" },
+      { state, scheduled: { listPending: () => [] } },
+    ),
+  ).rejects.toThrow("scheduled_list is owner-only in group chats");
+
+  await expect(
+    cancelScheduledTaskFromRoute(
+      { coordinatorSession: "backend:main", id: "k8f2" },
+      { state, scheduled: { cancelPending: async () => true } },
+    ),
+  ).rejects.toThrow("scheduled_cancel is owner-only in group chats");
+});
+
 test("listScheduledTasksFromRoute rejects routes missing chat metadata", async () => {
   const state = createEmptyState();
   state.orchestration.coordinatorRoutes["backend:main"] = {
