@@ -4220,6 +4220,37 @@ test("recordCoordinatorRouteContext preserves reply route when chatKey stays the
   });
 });
 
+test("recordCoordinatorRouteContext stores chat metadata used by internal session tools", async () => {
+  const harness = makeDeps({
+    now: () => new Date("2026-04-13T12:08:00.000Z"),
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const route = await service.recordCoordinatorRouteContext({
+    coordinatorSession: "backend:main",
+    chatKey: "wx:group",
+    channel: "weixin",
+    chatType: "group",
+    groupId: "group-1",
+    senderId: "user-1",
+    senderName: "Alice",
+    isOwner: false,
+  });
+
+  expect(route).toEqual({
+    coordinatorSession: "backend:main",
+    chatKey: "wx:group",
+    channel: "weixin",
+    chatType: "group",
+    groupId: "group-1",
+    senderId: "user-1",
+    senderName: "Alice",
+    isOwner: false,
+    updatedAt: "2026-04-13T12:08:00.000Z",
+  });
+  expect(harness.getState().orchestration.coordinatorRoutes["backend:main"]).toEqual(route);
+});
+
 test("recordCoordinatorRouteContext treats accountId and replyContextToken as an atomic reply route", async () => {
   const harness = makeDeps({
     now: () => new Date("2026-04-13T12:06:00.000Z"),

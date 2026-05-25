@@ -1387,6 +1387,50 @@ test("mcp-stdio identity resolution omits isExternalCoordinator when the session
   expect(registrations).toEqual([]);
 });
 
+test("mcp-stdio identity resolution enables internal session tools only for existing non-worker sessions", async () => {
+  const state = {
+    sessions: {
+      "user-a": {
+        alias: "main",
+        transport_session: "backend:main",
+        agent: "codex",
+        workspace: "backend",
+        chatKey: "wx:user-a",
+      },
+    },
+  };
+  const base = {
+    parsedCoordinatorSession: "backend:main",
+    workspace: null,
+    config: { workspaces: { backend: { cwd: "/repo/backend" } } },
+    state,
+    client: {
+      registerExternalCoordinator: async () => {
+        throw new Error("should not register existing sessions");
+      },
+    },
+    internalSessionTools: true,
+  };
+
+  const coordinatorResolver = createMcpStdioIdentityResolver({
+    ...base,
+    sourceHandle: null,
+  });
+  const workerResolver = createMcpStdioIdentityResolver({
+    ...base,
+    sourceHandle: "backend:worker",
+  });
+
+  await expect(coordinatorResolver({ clientName: "weacpx", listRoots: async () => [] })).resolves.toEqual({
+    coordinatorSession: "backend:main",
+    internalSessionTools: true,
+  });
+  await expect(workerResolver({ clientName: "weacpx", listRoots: async () => [] })).resolves.toEqual({
+    coordinatorSession: "backend:main",
+    sourceHandle: "backend:worker",
+  });
+});
+
 test("mcp-stdio returns a controlled startup error when workspace flag is missing a value", async () => {
   const stderr: string[] = [];
 

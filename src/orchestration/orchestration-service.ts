@@ -1497,8 +1497,15 @@ export class OrchestrationService {
   async recordCoordinatorRouteContext(input: {
     coordinatorSession: string;
     chatKey: string;
+    sessionAlias?: string;
     accountId?: string;
     replyContextToken?: string;
+    channel?: string;
+    chatType?: "direct" | "group";
+    senderId?: string;
+    senderName?: string;
+    groupId?: string;
+    isOwner?: boolean;
   }): Promise<OrchestrationCoordinatorRouteContextRecord> {
     if (input.coordinatorSession.trim().length === 0) {
       throw new Error("coordinatorSession must be a non-empty string");
@@ -1511,13 +1518,14 @@ export class OrchestrationService {
       const state = await this.deps.loadState();
       const now = this.deps.now().toISOString();
       const existing = this.ensureCoordinatorRoutes(state)[input.coordinatorSession];
+      const sameChat = existing?.chatKey === input.chatKey;
       const hasAccountId = input.accountId !== undefined;
       const hasReplyContextToken = input.replyContextToken !== undefined;
       const hasCompleteReplyRoute = hasAccountId && hasReplyContextToken;
       const shouldPreserveExistingReplyRoute =
         !hasAccountId &&
         !hasReplyContextToken &&
-        existing?.chatKey === input.chatKey;
+        sameChat;
       const replyRoute =
         hasCompleteReplyRoute
           ? {
@@ -1533,7 +1541,9 @@ export class OrchestrationService {
       const route: OrchestrationCoordinatorRouteContextRecord = {
         coordinatorSession: input.coordinatorSession,
         chatKey: input.chatKey,
+        ...(input.sessionAlias ? { sessionAlias: input.sessionAlias } : {}),
         ...(replyRoute ? replyRoute : {}),
+        ...buildCoordinatorRouteChatMetadata(input, sameChat ? existing : undefined),
         updatedAt: now,
       };
       this.ensureCoordinatorRoutes(state)[input.coordinatorSession] = route;
@@ -4690,6 +4700,36 @@ export class OrchestrationService {
   }
 }
 
+
+function buildCoordinatorRouteChatMetadata(
+  input: {
+    channel?: string;
+    chatType?: "direct" | "group";
+    senderId?: string;
+    senderName?: string;
+    groupId?: string;
+    isOwner?: boolean;
+  },
+  existing?: OrchestrationCoordinatorRouteContextRecord,
+): Pick<
+  OrchestrationCoordinatorRouteContextRecord,
+  "channel" | "chatType" | "senderId" | "senderName" | "groupId" | "isOwner"
+> {
+  const channel = input.channel ?? existing?.channel;
+  const chatType = input.chatType ?? existing?.chatType;
+  const senderId = input.senderId ?? existing?.senderId;
+  const senderName = input.senderName ?? existing?.senderName;
+  const groupId = input.groupId ?? existing?.groupId;
+  const isOwner = input.isOwner ?? existing?.isOwner;
+  return {
+    ...(channel !== undefined ? { channel } : {}),
+    ...(chatType !== undefined ? { chatType } : {}),
+    ...(senderId !== undefined ? { senderId } : {}),
+    ...(senderName !== undefined ? { senderName } : {}),
+    ...(groupId !== undefined ? { groupId } : {}),
+    ...(isOwner !== undefined ? { isOwner } : {}),
+  };
+}
 
 function isTerminalTaskStatus(status: OrchestrationTaskStatus): boolean {
   return status === "completed" || status === "failed" || status === "cancelled";

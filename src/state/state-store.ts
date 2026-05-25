@@ -253,8 +253,15 @@ function isCoordinatorRouteContextRecord(value: unknown): value is Orchestration
   return (
     isString(value.coordinatorSession) &&
     isString(value.chatKey) &&
+    isOptionalString(value.sessionAlias) &&
     isOptionalString(value.accountId) &&
     isOptionalString(value.replyContextToken) &&
+    isOptionalString(value.channel) &&
+    (value.chatType === undefined || value.chatType === "direct" || value.chatType === "group") &&
+    isOptionalString(value.senderId) &&
+    isOptionalString(value.senderName) &&
+    isOptionalString(value.groupId) &&
+    isOptionalBoolean(value.isOwner) &&
     isString(value.updatedAt)
   );
 }

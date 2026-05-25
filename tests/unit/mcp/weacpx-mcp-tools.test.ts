@@ -130,6 +130,97 @@ test("builds 11 MCP tools and appends blocker-loop actions after the original or
   });
 });
 
+test("registers scheduled_create only for internal non-worker session tools", async () => {
+  const scheduledCalls: unknown[] = [];
+  const transport = createMemoryTransport(
+    async () => ({ taskId: "task-1", status: "needs_confirmation" }),
+    {
+      scheduledCreate: async (input) => {
+        scheduledCalls.push(input);
+        return {
+          id: "k8f2",
+          chat_key: "wx:user",
+          session_alias: "main",
+          session_mode: "temp",
+          execute_at: "2026-05-25T02:00:00.000Z",
+          message: "检查 CI",
+          status: "pending",
+          created_at: "2026-05-25T00:00:00.000Z",
+        };
+      },
+    },
+  );
+
+  const registry = buildWeacpxMcpToolRegistry({
+    transport,
+    coordinatorSession: "backend:main",
+    internalSessionTools: true,
+  });
+  const workerRegistry = buildWeacpxMcpToolRegistry({
+    transport,
+    coordinatorSession: "backend:main",
+    sourceHandle: "backend:worker",
+    internalSessionTools: true,
+  });
+  const externalRegistry = buildWeacpxMcpToolRegistry({
+    transport,
+    coordinatorSession: "external_codex:backend",
+    isExternalCoordinator: true,
+    internalSessionTools: true,
+  });
+
+  expect(registry.map((tool) => tool.name)).toContain("scheduled_create");
+  expect(workerRegistry.map((tool) => tool.name)).not.toContain("scheduled_create");
+  expect(externalRegistry.map((tool) => tool.name)).not.toContain("scheduled_create");
+
+  const scheduledCreate = registry.find((tool) => tool.name === "scheduled_create");
+  expect(scheduledCreate).toBeDefined();
+  expect(
+    scheduledCreate?.inputSchema.safeParse({
+      timeText: "in 2h",
+      message: "检查 CI",
+      chatKey: "wx:user",
+    }).success,
+  ).toBe(false);
+  expect(
+    scheduledCreate?.inputSchema.safeParse({
+      timeText: "in 2h",
+      message: "检查 CI",
+      sessionAlias: "main",
+    }).success,
+  ).toBe(false);
+
+  const result = await scheduledCreate?.handler({
+    timeText: "in 2h",
+    message: "检查 CI",
+    mode: "temp",
+  });
+
+  expect(scheduledCalls).toEqual([
+    {
+      coordinatorSession: "backend:main",
+      timeText: "in 2h",
+      message: "检查 CI",
+      mode: "temp",
+    },
+  ]);
+  expect(result).toEqual({
+    content: [
+      {
+        type: "text",
+        text: "Scheduled task #k8f2 created for 2026-05-25T02:00:00.000Z.",
+      },
+    ],
+    structuredContent: {
+      id: "k8f2",
+      status: "pending",
+      executeAt: "2026-05-25T02:00:00.000Z",
+      sessionAlias: "main",
+      sessionMode: "temp",
+    },
+  });
+});
+
 test("worker_raise_question fails clearly when no host sourceHandle is bound", async () => {
   const calls: unknown[] = [];
   const registry = buildWeacpxMcpToolRegistry({

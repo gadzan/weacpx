@@ -16,7 +16,7 @@ test("builds coordinator MCP server spec from a session identity", () => {
     name: "weacpx-orchestration",
     type: "stdio",
     command: "node",
-    args: ["./dist/cli.js", "mcp-stdio", "--coordinator-session", "backend:main"],
+    args: ["./dist/cli.js", "mcp-stdio", "--coordinator-session", "backend:main", "--internal-session-tools"],
   });
 });
 
@@ -118,7 +118,7 @@ test("terminates existing owner then starts acpx queue owner with payload", asyn
   expect(payload.mcpServers[0]).toMatchObject({
     name: "weacpx-orchestration",
     command: "node",
-    args: ["./dist/cli.js", "mcp-stdio", "--coordinator-session", "backend:main"],
+    args: ["./dist/cli.js", "mcp-stdio", "--coordinator-session", "backend:main", "--internal-session-tools"],
   });
 });
 
@@ -174,7 +174,7 @@ test("parses quoted weacpx command paths with spaces", () => {
     name: "weacpx-orchestration",
     type: "stdio",
     command: "C:/Program Files/nodejs/node.exe",
-    args: ["E:/projects/weacpx/dist/cli.js", "mcp-stdio", "--coordinator-session", "backend:main"],
+    args: ["E:/projects/weacpx/dist/cli.js", "mcp-stdio", "--coordinator-session", "backend:main", "--internal-session-tools"],
   });
 });
 

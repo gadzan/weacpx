@@ -23,6 +23,7 @@ import { buildWorkerAnswerPrompt, buildWorkerTaskPrompt } from "./orchestration/
 import { ScheduledTaskScheduler } from "./scheduled/scheduled-scheduler";
 import { ScheduledTaskService } from "./scheduled/scheduled-service";
 import { buildScheduledDispatchTask } from "./scheduled/scheduled-dispatch";
+import { createScheduledTaskFromRoute } from "./scheduled/scheduled-route-create";
 import { SessionService } from "./sessions/session-service";
 import { DebouncedStateStore } from "./state/debounced-state-store";
 import { StateStore } from "./state/state-store";
@@ -658,7 +659,18 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
   const orchestrationEndpoint = createOrchestrationEndpoint(
     paths.orchestrationSocketPath ?? resolveOrchestrationSocketPathFromConfigPath(paths.configPath),
   );
-  const orchestrationServer = new OrchestrationServer(orchestrationEndpoint, orchestration);
+  const orchestrationServer = new OrchestrationServer(orchestrationEndpoint, orchestration, {
+    createScheduledTaskFromRoute: async (input) =>
+      await createScheduledTaskFromRoute(input, {
+        state,
+        config,
+        sessions,
+        scheduled: scheduledService,
+        ...(deps.channel?.supportsScheduledMessages
+          ? { supportsScheduledMessages: deps.channel.supportsScheduledMessages.bind(deps.channel) }
+          : {}),
+      }),
+  });
   const router = new CommandRouter(
     sessions,
     transport,

@@ -115,6 +115,90 @@ test("forwards task watch RPC to handlers", async () => {
   });
 });
 
+test("forwards scheduled.create RPC to the configured route-scoped handler", async () => {
+  const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
+  const createScheduledTaskFromRoute = mock(async (input: Record<string, unknown>) => ({
+    id: "k8f2",
+    chat_key: "wx:user",
+    session_alias: "main",
+    execute_at: "2026-05-25T02:00:00.000Z",
+    message: input.message,
+    status: "pending",
+    created_at: "2026-05-25T00:00:00.000Z",
+  }));
+  const server = new OrchestrationServer(endpoint, makeServerHandlers(), {
+    createScheduledTaskFromRoute,
+  });
+
+  await expect(
+    server.handleLine(JSON.stringify({
+      id: "req-scheduled-create",
+      method: "scheduled.create",
+      params: {
+        coordinatorSession: "backend:main",
+        timeText: "in 2h",
+        message: "检查 CI",
+        mode: "bound",
+      },
+    })),
+  ).resolves.toBe(`${JSON.stringify({
+    id: "req-scheduled-create",
+    ok: true,
+    result: {
+      id: "k8f2",
+      chat_key: "wx:user",
+      session_alias: "main",
+      execute_at: "2026-05-25T02:00:00.000Z",
+      message: "检查 CI",
+      status: "pending",
+      created_at: "2026-05-25T00:00:00.000Z",
+    },
+  })}\n`);
+
+  expect(createScheduledTaskFromRoute).toHaveBeenCalledWith({
+    coordinatorSession: "backend:main",
+    timeText: "in 2h",
+    message: "检查 CI",
+    mode: "bound",
+  });
+});
+
+test("rejects malformed scheduled.create params before dispatch", async () => {
+  const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
+  const createScheduledTaskFromRoute = mock(async () => ({
+    id: "k8f2",
+    chat_key: "wx:user",
+    session_alias: "main",
+    execute_at: "2026-05-25T02:00:00.000Z",
+    message: "检查 CI",
+    status: "pending",
+    created_at: "2026-05-25T00:00:00.000Z",
+  }));
+  const server = new OrchestrationServer(endpoint, makeServerHandlers(), {
+    createScheduledTaskFromRoute,
+  });
+
+  for (const params of [
+    { coordinatorSession: "backend:main", timeText: "in 2h", mode: "temp" },
+    { coordinatorSession: "backend:main", timeText: "in 2h", message: "检查 CI", mode: "bind" },
+    { coordinatorSession: "backend:main", timeText: "in 2h", message: "检查 CI", chatKey: "wx:user" },
+  ]) {
+    const response = JSON.parse(await server.handleLine(JSON.stringify({
+      id: "req-bad-scheduled-create",
+      method: "scheduled.create",
+      params,
+    })));
+
+    expect(response).toMatchObject({
+      id: "req-bad-scheduled-create",
+      ok: false,
+      error: { code: "ORCHESTRATION_INVALID_REQUEST" },
+    });
+  }
+
+  expect(createScheduledTaskFromRoute).not.toHaveBeenCalled();
+});
+
 test("rejects malformed task watch option ranges before dispatch", async () => {
   const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
   const watchTask = mock(async () => ({ status: "timeout", task: null, events: [], nextAfterSeq: 0 }));

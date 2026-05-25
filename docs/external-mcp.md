@@ -2,6 +2,8 @@
 
 `weacpx mcp-stdio` 是标准 MCP stdio server。Codex、Claude Code 等外部 MCP host 可以通过它调用 weacpx 的编排工具，例如 `delegate_request`、`task_get`、`task_list`、`task_watch`。如果 host 支持 MCP Tasks，`delegate_request` 和 `task_watch` 也支持原生 task execution：call now、fetch later。
 
+> 说明：定时任务的自然语言创建工具只给 weacpx 当前对话会话内部使用，用于复用当前聊天路由和群聊权限；外部 `weacpx mcp-stdio` 不会暴露该工具。
+
 核心目标：让“当前正在使用的 coding agent”成为 coordinator，把子任务派给其他 agent，同时让被派出去的 worker 明确知道自己应该在哪个目录工作。
 
 ## 一句话模型

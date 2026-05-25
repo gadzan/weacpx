@@ -22,6 +22,8 @@ import {
   MAX_TASK_WATCH_POLL_INTERVAL_MS,
   MAX_TASK_WATCH_TIMEOUT_MS,
 } from "./task-watch-timeouts";
+import type { ScheduledCreateFromRouteInput } from "../scheduled/scheduled-route-create";
+import type { ScheduledTaskRecord } from "../scheduled/scheduled-types";
 
 class OrchestrationInvalidRequestError extends Error {}
 
@@ -39,12 +41,14 @@ const ORCHESTRATION_RPC_METHODS = new Set<OrchestrationRpcMethod>([
   "coordinator.retract_answer",
   "coordinator.request_human_input",
   "coordinator.review_contested_result",
+  "scheduled.create",
   "group.new",
 ]);
 
 interface OrchestrationServerDeps {
   createServer?: typeof createServer;
   removeFile?: (path: string) => Promise<void>;
+  createScheduledTaskFromRoute?: (input: ScheduledCreateFromRouteInput) => Promise<ScheduledTaskRecord>;
 }
 
 export class OrchestrationServer {
@@ -217,6 +221,8 @@ export class OrchestrationServer {
           reviewId: requireString(params, "reviewId"),
           decision: requireEnum(params, "decision", ["accept", "discard"]),
         });
+      case "scheduled.create":
+        return await this.dispatchScheduledCreate(params);
       case "group.new":
         requireOnlyKeys(params, ["coordinatorSession", "title"], "params");
         return await this.handlers.createGroup({
@@ -228,6 +234,26 @@ export class OrchestrationServer {
     }
   }
 
+
+  private async dispatchScheduledCreate(params: Record<string, unknown>): Promise<ScheduledTaskRecord> {
+    const input = this.parseScheduledCreateInput(params);
+    const handler = this.deps.createScheduledTaskFromRoute ?? this.handlers.createScheduledTaskFromRoute;
+    if (!handler) {
+      throw new Error("scheduled task creation is not configured");
+    }
+    return await handler(input);
+  }
+
+  private parseScheduledCreateInput(params: Record<string, unknown>): ScheduledCreateFromRouteInput {
+    requireOnlyKeys(params, ["coordinatorSession", "timeText", "message", "mode"], "params");
+    const mode = requireOptionalEnum(params, "mode", ["temp", "bound"]);
+    return {
+      coordinatorSession: requireString(params, "coordinatorSession"),
+      timeText: requireString(params, "timeText"),
+      message: requireString(params, "message"),
+      ...(mode !== undefined ? { mode } : {}),
+    };
+  }
 
   private parseRegisterExternalCoordinatorInput(params: Record<string, unknown>): RegisterExternalCoordinatorInput {
     requireOnlyKeys(params, ["coordinatorSession", "workspace", "defaultTargetAgent"], "params");

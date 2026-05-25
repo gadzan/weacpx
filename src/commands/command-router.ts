@@ -339,6 +339,7 @@ export class CommandRouter {
               onToolEvent,
               onThought,
               perfSpan,
+              metadata,
             );
           }
           if (metadata?.scheduledSessionAlias) {
@@ -359,6 +360,7 @@ export class CommandRouter {
               onToolEvent,
               onThought,
               perfSpan,
+              metadata,
             );
           }
           return await handlePrompt(
@@ -373,6 +375,7 @@ export class CommandRouter {
             onToolEvent,
             onThought,
             perfSpan,
+            metadata,
           );
         }
       }

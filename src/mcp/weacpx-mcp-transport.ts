@@ -1,5 +1,7 @@
 import { OrchestrationClient } from "../orchestration/orchestration-client";
 import type { OrchestrationIpcEndpoint } from "../orchestration/orchestration-ipc";
+import type { ScheduledCreateFromRouteInput } from "../scheduled/scheduled-route-create";
+import type { ScheduledTaskRecord } from "../scheduled/scheduled-types";
 import type {
   CoordinatorRequestHumanInputResult,
   CoordinatorTaskQuestionRef,
@@ -81,6 +83,8 @@ export interface WeacpxMcpCoordinatorReviewContestedResultArgs {
   decision: "accept" | "discard";
 }
 
+export interface WeacpxMcpScheduledCreateArgs extends ScheduledCreateFromRouteInput {}
+
 export interface WeacpxMcpTransport {
   delegateRequest: (input: WeacpxMcpDelegateRequest) => Promise<RequestDelegateRpcResult>;
   createGroup: (input: WeacpxMcpGroupNewArgs) => Promise<OrchestrationGroupRecord>;
@@ -101,6 +105,7 @@ export interface WeacpxMcpTransport {
   coordinatorReviewContestedResult: (
     input: WeacpxMcpCoordinatorReviewContestedResultArgs,
   ) => Promise<OrchestrationTaskRecord>;
+  scheduledCreate: (input: WeacpxMcpScheduledCreateArgs) => Promise<ScheduledTaskRecord>;
 }
 
 interface OrchestrationClientLike {
@@ -116,6 +121,7 @@ interface OrchestrationClientLike {
   coordinatorAnswerQuestion: OrchestrationClient["coordinatorAnswerQuestion"];
   coordinatorRequestHumanInput: OrchestrationClient["coordinatorRequestHumanInput"];
   coordinatorReviewContestedResult: OrchestrationClient["coordinatorReviewContestedResult"];
+  scheduledCreate?: OrchestrationClient["scheduledCreate"];
 }
 
 export function createOrchestrationTransport(
@@ -170,6 +176,12 @@ export function createOrchestrationTransport(
     coordinatorAnswerQuestion: async (input) => await client.coordinatorAnswerQuestion(input),
     coordinatorRequestHumanInput: async (input) => await client.coordinatorRequestHumanInput(input),
     coordinatorReviewContestedResult: async (input) => await client.coordinatorReviewContestedResult(input),
+    scheduledCreate: async (input) => {
+      if (!client.scheduledCreate) {
+        throw new Error("orchestration client scheduledCreate is not configured");
+      }
+      return await client.scheduledCreate(input);
+    },
   };
 }
 
@@ -200,5 +212,7 @@ export function createMemoryTransport(
     coordinatorReviewContestedResult:
       overrides.coordinatorReviewContestedResult
       ?? (unimplemented("coordinatorReviewContestedResult") as WeacpxMcpTransport["coordinatorReviewContestedResult"]),
+    scheduledCreate:
+      overrides.scheduledCreate ?? (unimplemented("scheduledCreate") as WeacpxMcpTransport["scheduledCreate"]),
   };
 }

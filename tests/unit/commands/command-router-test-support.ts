@@ -447,8 +447,15 @@ export function createOrchestrationService(options?: {
     async (input: {
       coordinatorSession: string;
       chatKey: string;
+      sessionAlias?: string;
       accountId?: string;
       replyContextToken?: string;
+      channel?: string;
+      chatType?: "direct" | "group";
+      senderId?: string;
+      senderName?: string;
+      groupId?: string;
+      isOwner?: boolean;
     }) => {
       coordinatorRouteContexts.push({ ...input });
       return {

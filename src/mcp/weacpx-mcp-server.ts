@@ -44,6 +44,7 @@ export interface WeacpxMcpServerOptions {
   coordinatorSession?: string;
   sourceHandle?: string;
   isExternalCoordinator?: boolean;
+  internalSessionTools?: boolean;
   resolveIdentity?: (context: WeacpxMcpIdentityResolutionContext) => Promise<WeacpxMcpIdentity>;
   availableAgents?: string[];
 }
@@ -56,6 +57,7 @@ export interface WeacpxMcpIdentity {
   // coordinators cannot route through human-input packages, so those tools are
   // filtered out of the registry to avoid advertising calls that always throw.
   isExternalCoordinator?: boolean;
+  internalSessionTools?: boolean;
 }
 
 export interface WeacpxMcpIdentityResolutionContext {
@@ -116,6 +118,7 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
           coordinatorSession: identity.coordinatorSession,
           ...(identity.sourceHandle ? { sourceHandle: identity.sourceHandle } : {}),
           ...(identity.isExternalCoordinator ? { isExternalCoordinator: true } : {}),
+          ...(identity.internalSessionTools ? { internalSessionTools: true } : {}),
           ...(options.availableAgents ? { availableAgents: options.availableAgents } : {}),
         });
         return toolState;
@@ -213,6 +216,7 @@ function buildToolState(options: {
   coordinatorSession: string;
   sourceHandle?: string;
   isExternalCoordinator?: boolean;
+  internalSessionTools?: boolean;
   availableAgents?: string[];
 }) {
   const tools = buildWeacpxMcpToolRegistry(options);
@@ -674,6 +678,7 @@ async function resolveMcpIdentity(server: Server, options: WeacpxMcpServerOption
       coordinatorSession: options.coordinatorSession,
       ...(options.sourceHandle ? { sourceHandle: options.sourceHandle } : {}),
       ...(options.isExternalCoordinator ? { isExternalCoordinator: true } : {}),
+      ...(options.internalSessionTools ? { internalSessionTools: true } : {}),
     };
   }
   throw new McpError(
@@ -800,6 +805,7 @@ export async function runWeacpxMcpServer(options: {
   transport?: WeacpxMcpTransport;
   coordinatorSession?: string;
   sourceHandle?: string;
+  internalSessionTools?: boolean;
   resolveIdentity?: WeacpxMcpServerOptions["resolveIdentity"];
   availableAgents?: string[];
   onDiagnostic?: (event: string, context?: Record<string, unknown>) => void;
@@ -811,6 +817,7 @@ export async function runWeacpxMcpServer(options: {
     transport,
     ...(options.coordinatorSession ? { coordinatorSession: options.coordinatorSession } : {}),
     ...(options.sourceHandle ? { sourceHandle: options.sourceHandle } : {}),
+    ...(options.internalSessionTools ? { internalSessionTools: true } : {}),
     ...(options.resolveIdentity ? { resolveIdentity: options.resolveIdentity } : {}),
     ...(options.availableAgents ? { availableAgents: options.availableAgents } : {}),
   });

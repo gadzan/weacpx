@@ -25,6 +25,8 @@ import type {
   OrchestrationGroupRecord,
   OrchestrationTaskRecord,
 } from "./orchestration-types";
+import type { ScheduledCreateFromRouteInput } from "../scheduled/scheduled-route-create";
+import type { ScheduledTaskRecord } from "../scheduled/scheduled-types";
 import {
   DEFAULT_TASK_WATCH_TIMEOUT_MS,
   MAX_TASK_WATCH_TIMEOUT_MS,
@@ -164,6 +166,10 @@ export class OrchestrationClient {
 
   async createGroup(input: { coordinatorSession: string; title: string }): Promise<OrchestrationGroupRecord> {
     return await this.request<OrchestrationGroupRecord>("group.new", input);
+  }
+
+  async scheduledCreate(input: ScheduledCreateFromRouteInput): Promise<ScheduledTaskRecord> {
+    return await this.request<ScheduledTaskRecord>("scheduled.create", input);
   }
 
   async request<Result>(method: OrchestrationRpcMethod, params: unknown, timeoutMs = this.timeoutMs): Promise<Result> {

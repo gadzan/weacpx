@@ -10,6 +10,7 @@ import type { ReplyMode } from "../../config/types";
 import type { ToolUseEvent } from "../../channels/types.js";
 import type { PerfSpan } from "../../perf/perf-tracer";
 import type { HelpTopicMetadata } from "../help/help-types";
+import type { ChatRequestMetadata } from "../../weixin/agent/interface";
 import { buildCoordinatorPrompt } from "../../orchestration/build-coordinator-prompt";
 import { toDisplaySessionAlias, getChannelIdFromChatKey, toInternalSessionAlias, resolveSessionAliasForInput } from "../../channels/channel-scope";
 import { quoteWorkspaceNameIfNeeded } from "../workspace-name";
@@ -456,6 +457,7 @@ async function promptWithSession(
   onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
   onThought?: (chunk: string) => void | Promise<void>,
   perfSpan?: PerfSpan,
+  metadata?: ChatRequestMetadata,
 ): Promise<RouterResponse> {
 const effectiveReplyMode = session.replyMode ?? context.config?.channel.replyMode ?? "verbose";
   // Ensure the session carries the resolved value so downstream transports
@@ -467,8 +469,10 @@ const effectiveReplyMode = session.replyMode ?? context.config?.channel.replyMod
       await context.orchestration.recordCoordinatorRouteContext?.({
         coordinatorSession: session.transportSession,
         chatKey,
+        sessionAlias: session.alias,
         ...(replyContextToken ? { replyContextToken } : {}),
         ...(accountId ? { accountId } : {}),
+        ...toCoordinatorRouteChatMetadata(metadata),
       });
     } catch (error) {
       await context.logger.error(
@@ -481,6 +485,12 @@ const effectiveReplyMode = session.replyMode ?? context.config?.channel.replyMod
           error: error instanceof Error ? error.message : String(error),
         },
       );
+      return {
+        text: [
+          "无法记录当前会话路由，已取消本次发送。",
+          "请稍后重试；如果问题持续存在，请检查 weacpx 运行日志和 state.json 写入权限。",
+        ].join("\n"),
+      };
     }
   }
 
@@ -549,13 +559,14 @@ export async function handlePromptWithSession(
   onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
   onThought?: (chunk: string) => void | Promise<void>,
   perfSpan?: PerfSpan,
+  metadata?: ChatRequestMetadata,
 ): Promise<RouterResponse> {
   try {
-    return await promptWithSession(context, session, chatKey, text, reply, replyContextToken, accountId, media, abortSignal, onToolEvent, onThought, perfSpan);
+    return await promptWithSession(context, session, chatKey, text, reply, replyContextToken, accountId, media, abortSignal, onToolEvent, onThought, perfSpan, metadata);
   } catch (error) {
     const recovered = await context.recovery.tryRecoverMissingSession(session, error);
     if (recovered) {
-      return await promptWithSession(context, recovered, chatKey, text, reply, replyContextToken, accountId, media, abortSignal, onToolEvent, onThought, perfSpan);
+      return await promptWithSession(context, recovered, chatKey, text, reply, replyContextToken, accountId, media, abortSignal, onToolEvent, onThought, perfSpan, metadata);
     }
     return context.recovery.renderTransportError(session, error);
   }
@@ -573,13 +584,37 @@ export async function handlePrompt(
   onToolEvent?: (event: ToolUseEvent) => void | Promise<void>,
   onThought?: (chunk: string) => void | Promise<void>,
   perfSpan?: PerfSpan,
+  metadata?: ChatRequestMetadata,
 ): Promise<RouterResponse> {
   const session = await context.sessions.getCurrentSession(chatKey);
   if (!session) {
     return { text: NO_CURRENT_SESSION_TEXT };
   }
 
-  return await handlePromptWithSession(context, session, chatKey, text, reply, replyContextToken, accountId, media, abortSignal, onToolEvent, onThought, perfSpan);
+  return await handlePromptWithSession(context, session, chatKey, text, reply, replyContextToken, accountId, media, abortSignal, onToolEvent, onThought, perfSpan, metadata);
+}
+
+function toCoordinatorRouteChatMetadata(
+  metadata: ChatRequestMetadata | undefined,
+): {
+  channel?: string;
+  chatType?: "direct" | "group";
+  senderId?: string;
+  senderName?: string;
+  groupId?: string;
+  isOwner?: boolean;
+} {
+  if (!metadata) {
+    return {};
+  }
+  return {
+    ...(metadata.channel ? { channel: metadata.channel } : {}),
+    ...(metadata.chatType ? { chatType: metadata.chatType } : {}),
+    ...(metadata.senderId ? { senderId: metadata.senderId } : {}),
+    ...(metadata.senderName ? { senderName: metadata.senderName } : {}),
+    ...(metadata.groupId ? { groupId: metadata.groupId } : {}),
+    ...(metadata.isOwner !== undefined ? { isOwner: metadata.isOwner } : {}),
+  };
 }
 
 async function preparePromptWithFallback(

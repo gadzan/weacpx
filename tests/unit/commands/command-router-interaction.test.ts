@@ -108,6 +108,44 @@ test("binds the current coordinator session as MCP identity for plain prompts", 
   expect(promptedSession?.mcpSourceHandle).toBeUndefined();
 });
 
+test("records inbound chat metadata with coordinator route context for plain prompts", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const orchestration = createOrchestrationService();
+  const router = new CommandRouter(sessions, transport, config, undefined, undefined, undefined, orchestration);
+
+  await router.handle("wx:group", "/session new api-fix --agent codex --ws backend");
+  await router.handle(
+    "wx:group",
+    "提醒我明天看 CI",
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      channel: "weixin",
+      chatType: "group",
+      groupId: "group-1",
+      senderId: "user-1",
+      senderName: "Alice",
+      isOwner: false,
+    },
+  );
+
+  expect(getRecordCoordinatorRouteContextMock(orchestration).mock.calls.at(-1)?.[0]).toEqual({
+    coordinatorSession: "backend:api-fix",
+    chatKey: "wx:group",
+    sessionAlias: "api-fix",
+    channel: "weixin",
+    chatType: "group",
+    groupId: "group-1",
+    senderId: "user-1",
+    senderName: "Alice",
+    isOwner: false,
+  });
+});
+
 test("injects pending delegate results into the next coordinator prompt and marks them consumed", async () => {
   const config = createConfig();
   const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
@@ -420,6 +458,7 @@ test("treats the next human message as an active package reply when awaitingRepl
   expect(getRecordCoordinatorRouteContextMock(orchestration).mock.calls.at(-1)?.[0]).toEqual({
     coordinatorSession: "backend:coordinator",
     chatKey: "wx:user",
+    sessionAlias: "coordinator",
     replyContextToken: "ctx-2",
     accountId: "acc-1",
   });
@@ -535,7 +574,7 @@ test("does not mislabel a previously delivered package as undelivered after repl
   expect(promptText).toContain("继续下一步");
 });
 
-test("continues prompting even when route context recording fails", async () => {
+test("fails closed before prompting when route context recording fails", async () => {
   const config = createConfig();
   const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
   const transport = createTransport();
@@ -548,8 +587,8 @@ test("continues prompting even when route context recording fails", async () => 
   await router.handle("wx:user", "/session new coordinator --agent codex --ws backend");
   const reply = await router.handle("wx:user", "先解释一下当前状态", undefined, "ctx-2", "acc-1");
 
-  expect(reply.text).toContain("agent:coordinator:用户最新消息：");
-  expect(getPromptMock(transport).mock.calls.at(-1)?.[1]).toContain("先解释一下当前状态");
+  expect(reply.text).toContain("无法记录当前会话路由");
+  expect(getPromptMock(transport).mock.calls).toHaveLength(0);
 });
 
 test("routes delegate requests through the current session coordinator context", async () => {

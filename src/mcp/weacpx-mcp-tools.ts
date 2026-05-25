@@ -22,6 +22,7 @@ const sortSchema = z.enum(["updatedAt", "createdAt"]);
 const orderSchema = z.enum(["asc", "desc"]);
 const contestedDecisionSchema = z.enum(["accept", "discard"]);
 const taskWatchModeSchema = z.enum(["next_event", "until_attention_or_terminal"]);
+const scheduledModeSchema = z.enum(["temp", "bound"]);
 const taskQuestionSchema = z
   .object({
     taskId: z.string().min(1),
@@ -49,9 +50,13 @@ export function buildWeacpxMcpToolRegistry(input: {
   // coordinator_request_human_input. We filter that tool out of the registry
   // instead of advertising calls that would always fail.
   isExternalCoordinator?: boolean;
+  // Hidden, route-scoped tools for the current weacpx conversation session.
+  // Queue owners opt in with --internal-session-tools; external mcp-stdio
+  // clients and worker-bound tools must not see these tools.
+  internalSessionTools?: boolean;
   availableAgents?: string[];
 }): WeacpxMcpToolDefinition<unknown>[] {
-  const { transport, coordinatorSession, sourceHandle, isExternalCoordinator, availableAgents } = input;
+  const { transport, coordinatorSession, sourceHandle, isExternalCoordinator, internalSessionTools, availableAgents } = input;
 
   const tools: WeacpxMcpToolDefinition<unknown>[] = [
     {
@@ -371,6 +376,46 @@ export function buildWeacpxMcpToolRegistry(input: {
         }),
     },
   ];
+
+  if (internalSessionTools && !isExternalCoordinator && !sourceHandle) {
+    tools.push({
+      name: "scheduled_create",
+      description:
+        "Create a one-shot scheduled task for the current conversation session using the recorded chat route. Provide only the time expression and message; routing/session/account details are resolved by weacpx.",
+      inputSchema: z
+        .object({
+          timeText: z
+            .string()
+            .min(1)
+            .describe("Time expression, e.g. 'in 2h', '30分钟后', 'tomorrow 09:00', or '周五 09:00'."),
+          message: z.string().min(1).describe("Natural-language message to send to the current session at the scheduled time."),
+          mode: scheduledModeSchema
+            .describe("'temp' creates a temporary one-shot session; 'bound' sends to the current bound session.")
+            .optional(),
+        })
+        .strict(),
+      handler: async (args) =>
+        await asToolResult(async () => {
+          const input = args as { timeText: string; message: string; mode?: "temp" | "bound" };
+          const task = await transport.scheduledCreate({
+            coordinatorSession,
+            timeText: input.timeText,
+            message: input.message,
+            ...(input.mode ? { mode: input.mode } : {}),
+          });
+          return createSuccessResult(
+            `Scheduled task #${task.id} created for ${task.execute_at}.`,
+            {
+              id: task.id,
+              status: task.status,
+              executeAt: task.execute_at,
+              sessionAlias: task.session_alias,
+              sessionMode: task.session_mode ?? "bound",
+            },
+          );
+        }),
+    });
+  }
 
   if (isExternalCoordinator) {
     const externalCoordinatorIncompatibleTools = new Set([

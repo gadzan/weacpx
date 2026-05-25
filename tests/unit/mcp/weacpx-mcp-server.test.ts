@@ -74,6 +74,49 @@ test("lists 11 MCP tools and hides coordinator/source identity from input schema
   }
 });
 
+test("lists scheduled_create only when internal session tools are enabled", async () => {
+  const transport = createMemoryTransport(
+    async () => ({ taskId: "task-1", status: "needs_confirmation" }),
+    {
+      scheduledCreate: async () => ({
+        id: "k8f2",
+        chat_key: "wx:user",
+        session_alias: "main",
+        session_mode: "temp",
+        execute_at: "2026-05-25T02:00:00.000Z",
+        message: "检查 CI",
+        status: "pending",
+        created_at: "2026-05-25T00:00:00.000Z",
+      }),
+    },
+  );
+  const server = createWeacpxMcpServer({
+    transport,
+    coordinatorSession: "backend:main",
+    internalSessionTools: true,
+  });
+  const client = new Client({ name: "weacpx-test-client", version: "1.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    const list = await client.listTools();
+    expect(list.tools).toHaveLength(12);
+    const scheduledCreate = list.tools.find((tool) => tool.name === "scheduled_create");
+    expect(scheduledCreate?.inputSchema.properties).toHaveProperty("timeText");
+    expect(scheduledCreate?.inputSchema.properties).toHaveProperty("message");
+    expect(scheduledCreate?.inputSchema.properties).not.toHaveProperty("chatKey");
+    expect(scheduledCreate?.inputSchema.properties).not.toHaveProperty("sessionAlias");
+    expect(scheduledCreate?.inputSchema.properties).not.toHaveProperty("accountId");
+    expect(scheduledCreate?.inputSchema.properties).not.toHaveProperty("replyContextToken");
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
 test("delegate_request supports native MCP task execution", async () => {
   const task: OrchestrationTaskRecord = {
     taskId: "task-9",

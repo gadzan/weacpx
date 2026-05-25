@@ -20,6 +20,7 @@ import {
 } from "./mcp/infer-coordinator-identity";
 import { parseCoordinatorWorkspace } from "./mcp/parse-coordinator-workspace";
 import { parseCoordinatorSession } from "./mcp/parse-coordinator-session";
+import { parseInternalSessionToolsFlag } from "./mcp/parse-internal-session-tools";
 import { parseSourceHandle } from "./mcp/parse-source-handle";
 import { resolveDefaultOrchestrationEndpoint } from "./mcp/resolve-endpoint";
 import { createOrchestrationTransport } from "./mcp/weacpx-mcp-transport";
@@ -128,6 +129,7 @@ export function createMcpStdioIdentityResolver(input: {
     orchestration?: Pick<AppState["orchestration"], "externalCoordinators">;
   };
   client: PrepareMcpCoordinatorStartupInput["client"];
+  internalSessionTools?: boolean;
 }): NonNullable<Parameters<typeof runWeacpxMcpServer>[0]["resolveIdentity"]> {
   const instanceId = randomUUID().slice(0, 8);
   return async (context) => {
@@ -151,6 +153,9 @@ export function createMcpStdioIdentityResolver(input: {
       coordinatorSession: resolvedCoordinatorSession,
       ...(sourceHandle ? { sourceHandle } : {}),
       ...(startup.kind === "external-coordinator" ? { isExternalCoordinator: true } : {}),
+      ...(input.internalSessionTools && startup.kind === "existing-session" && !sourceHandle
+        ? { internalSessionTools: true }
+        : {}),
     };
   };
 }
@@ -982,10 +987,12 @@ async function defaultMcpStdio(
   let transport!: ReturnType<typeof createOrchestrationTransport>;
   let identityResolver: Parameters<typeof runWeacpxMcpServer>[0]["resolveIdentity"] | undefined;
   let availableAgents: string[] | undefined;
+  let internalSessionTools = false;
   try {
     const parsedCoordinatorSession = parseCoordinatorSession(args, process.env);
     sourceHandle = parseSourceHandle(args, process.env);
     const workspace = parseCoordinatorWorkspace(args, process.env);
+    const requestedInternalSessionTools = parseInternalSessionToolsFlag(args, process.env);
     endpoint = resolveDefaultOrchestrationEndpoint(process.env, process.platform);
     const client = new OrchestrationClient(endpoint);
     transport = createOrchestrationTransport(endpoint, { client });
@@ -1001,11 +1008,13 @@ async function defaultMcpStdio(
       config,
       state,
       client,
+      internalSessionTools: requestedInternalSessionTools,
     });
     const eagerIdentity = parsedCoordinatorSession
       ? await resolveIdentity({ clientName: undefined, listRoots: async () => [] })
       : null;
     coordinatorSession = eagerIdentity?.coordinatorSession ?? "";
+    internalSessionTools = eagerIdentity?.internalSessionTools ?? false;
     identityResolver = eagerIdentity ? undefined : resolveIdentity;
   } catch (error) {
     (deps.stderr ?? ((text: string) => process.stderr.write(text)))(
@@ -1018,6 +1027,7 @@ async function defaultMcpStdio(
     transport,
     ...(coordinatorSession ? { coordinatorSession } : {}),
     ...(sourceHandle ? { sourceHandle } : {}),
+    ...(internalSessionTools ? { internalSessionTools: true } : {}),
     ...(identityResolver ? { resolveIdentity: identityResolver } : {}),
     ...(availableAgents ? { availableAgents } : {}),
     onDiagnostic: (event, context) => {

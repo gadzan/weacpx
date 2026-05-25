@@ -349,6 +349,7 @@ opencode, qoder, qwen, trae
 - 默认临时会话执行，`--bind` 绑定当前会话；默认模式可用配置 `later.defaultMode`（`temp` / `bind`，默认 `temp`）修改
 - 只支持一次性任务，时间必须在 10 秒之后、7 天之内
 - 时间格式是固定白名单（相对时间 / 今天·明天·后天 / 星期几 + 时刻），不支持自然语言
+- 普通对话中 agent 也可以通过当前会话内部工具创建定时任务；路由和权限由 daemon 从当前聊天会话解析，外部 `mcp-stdio` 不暴露该工具
 - 终端里也可以用 `weacpx later list` / `weacpx later cancel <id>` 管理待执行任务；CLI 只做查看和取消，不创建定时任务
 - 完整时间格式、临时/绑定模式、任务状态与限制见 [docs/later-command.md](./docs/later-command.md)
 
@@ -411,6 +412,8 @@ README 里只保留用户视角的最常用命令。
 如果你想让 Codex、Claude Code 等外部 MCP host 直接使用 weacpx 的多 Agent 编排能力，可以把 `weacpx mcp-stdio` 配成一个 stdio MCP server。
 
 `delegate_request` 支持 MCP Tasks：支持该能力的 host 可以让委派请求立即返回原生 task handle，之后通过 `tasks/get` / `tasks/result` / `tasks/cancel` 获取状态、结果或取消任务；worker 输出的 `[PROGRESS] ...` 会显示在 `tasks/get` / `tasks/list` 的 `statusMessage` 里；`input_required` 状态下的 `tasks/result` 会返回下一步操作提示并结束本次 result stream，而不是长时间阻塞；client 按提示调用 `task_get` / `task_approve` / `coordinator_answer_question` 等工具后，再继续 `tasks/get` / `tasks/result` 轮询。不支持 MCP Tasks 的 host 仍可使用兼容工具 `task_get` / `task_list` / `task_watch` / `task_cancel`。
+
+定时任务的自然语言创建工具是 weacpx 当前会话内部能力，不会出现在外部 `weacpx mcp-stdio` 的工具列表里。
 
 先启动 daemon：
 

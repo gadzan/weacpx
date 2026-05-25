@@ -72,7 +72,9 @@ export function buildWeacpxMcpServerSpec(input: {
       "mcp-stdio",
       "--coordinator-session",
       input.coordinatorSession,
-      ...(input.sourceHandle ? ["--source-handle", input.sourceHandle] : []),
+      ...(input.sourceHandle
+        ? ["--source-handle", input.sourceHandle]
+        : ["--internal-session-tools"]),
     ],
   };
 }

@@ -155,8 +155,15 @@ export interface OrchestrationCoordinatorQuestionStateRecord {
 export interface OrchestrationCoordinatorRouteContextRecord {
   coordinatorSession: string;
   chatKey: string;
+  sessionAlias?: string;
   accountId?: string;
   replyContextToken?: string;
+  channel?: string;
+  chatType?: "direct" | "group";
+  senderId?: string;
+  senderName?: string;
+  groupId?: string;
+  isOwner?: boolean;
   updatedAt: string;
 }
 
