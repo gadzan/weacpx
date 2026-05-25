@@ -415,6 +415,42 @@ export function buildWeacpxMcpToolRegistry(input: {
           );
         }),
     });
+    tools.push({
+      name: "scheduled_list",
+      description:
+        "List pending one-shot scheduled tasks (global). Use to recover task ids before cancelling, or to see what is scheduled. Owner-only in group chats. Routing and account are resolved from the current session; pass no other arguments.",
+      inputSchema: z.object({}).strict(),
+      handler: async () =>
+        await asToolResult(async () => {
+          const tasks = await transport.scheduledList({ coordinatorSession });
+          return createSuccessResult(renderScheduledList(tasks), {
+            tasks: tasks.map((task) => ({
+              id: task.id,
+              executeAt: task.execute_at,
+              message: task.message,
+              sessionAlias: task.session_alias,
+              sessionMode: task.session_mode ?? "bound",
+              chatKey: task.chat_key,
+            })),
+          });
+        }),
+    });
+    tools.push({
+      name: "scheduled_cancel",
+      description:
+        "Cancel a pending scheduled task by id. Owner-only in group chats. Returns whether a pending task with that id was found and cancelled. Routing is resolved from the current session.",
+      inputSchema: z
+        .object({
+          id: z.string().min(1).describe("The scheduled task id, e.g. 'k8f2' (a leading # is allowed)."),
+        })
+        .strict(),
+      handler: async (args) =>
+        await asToolResult(async () => {
+          const { id } = args as { id: string };
+          const result = await transport.scheduledCancel({ coordinatorSession, id });
+          return createSuccessResult(renderScheduledCancel(result), { id: result.id, cancelled: result.cancelled });
+        }),
+    });
   }
 
   if (isExternalCoordinator) {
@@ -544,6 +580,34 @@ function renderTaskList(tasks: Array<{ taskId: string; status: string; targetAge
     return "There are no tasks under the current coordinator.";
   }
   return ["Tasks for the current coordinator:", ...tasks.map((task) => renderTaskListItem(task))].join("\n");
+}
+
+function renderScheduledList(
+  tasks: Array<{
+    id: string;
+    execute_at: string;
+    message: string;
+    session_alias: string;
+    session_mode?: string;
+    chat_key: string;
+  }>,
+): string {
+  if (tasks.length === 0) {
+    return "There are no pending scheduled tasks.";
+  }
+  return [
+    "Pending scheduled tasks:",
+    ...tasks.map(
+      (task) =>
+        `- #${task.id} at ${task.execute_at} [${task.session_mode ?? "bound"}] -> ${task.session_alias}: ${task.message}`,
+    ),
+  ].join("\n");
+}
+
+function renderScheduledCancel(result: { id: string; cancelled: boolean }): string {
+  return result.cancelled
+    ? `Scheduled task #${result.id} cancelled.`
+    : `No pending scheduled task #${result.id} found.`;
 }
 
 function renderTaskListItem(task: {

@@ -221,6 +221,89 @@ test("registers scheduled_create only for internal non-worker session tools", as
   });
 });
 
+test("registers scheduled_list and scheduled_cancel only for internal non-worker session tools", async () => {
+  const calls: Array<{ method: string; input: unknown }> = [];
+  const transport = createMemoryTransport(
+    async () => ({ taskId: "task-1", status: "needs_confirmation" }),
+    {
+      scheduledList: async (input) => {
+        calls.push({ method: "scheduledList", input });
+        return [
+          {
+            id: "k8f2",
+            chat_key: "wx:user",
+            session_alias: "main",
+            session_mode: "temp",
+            execute_at: "2026-05-25T02:00:00.000Z",
+            message: "检查 CI",
+            status: "pending",
+            created_at: "2026-05-25T00:00:00.000Z",
+          },
+        ];
+      },
+      scheduledCancel: async (input) => {
+        calls.push({ method: "scheduledCancel", input });
+        return { id: "k8f2", cancelled: true };
+      },
+    },
+  );
+
+  const registry = buildWeacpxMcpToolRegistry({ transport, coordinatorSession: "backend:main", internalSessionTools: true });
+  const workerRegistry = buildWeacpxMcpToolRegistry({
+    transport,
+    coordinatorSession: "backend:main",
+    sourceHandle: "backend:worker",
+    internalSessionTools: true,
+  });
+  const externalRegistry = buildWeacpxMcpToolRegistry({
+    transport,
+    coordinatorSession: "external_codex:backend",
+    isExternalCoordinator: true,
+    internalSessionTools: true,
+  });
+  const offRegistry = buildWeacpxMcpToolRegistry({ transport, coordinatorSession: "backend:main" });
+
+  for (const name of ["scheduled_list", "scheduled_cancel"]) {
+    expect(registry.map((tool) => tool.name)).toContain(name);
+    expect(workerRegistry.map((tool) => tool.name)).not.toContain(name);
+    expect(externalRegistry.map((tool) => tool.name)).not.toContain(name);
+    expect(offRegistry.map((tool) => tool.name)).not.toContain(name);
+  }
+
+  const listTool = registry.find((tool) => tool.name === "scheduled_list");
+  const listResult = await listTool?.handler({});
+  expect(calls).toContainEqual({ method: "scheduledList", input: { coordinatorSession: "backend:main" } });
+  expect(listResult).toEqual({
+    content: [
+      {
+        type: "text",
+        text: "Pending scheduled tasks:\n- #k8f2 at 2026-05-25T02:00:00.000Z [temp] -> main: 检查 CI",
+      },
+    ],
+    structuredContent: {
+      tasks: [
+        {
+          id: "k8f2",
+          executeAt: "2026-05-25T02:00:00.000Z",
+          message: "检查 CI",
+          sessionAlias: "main",
+          sessionMode: "temp",
+          chatKey: "wx:user",
+        },
+      ],
+    },
+  });
+
+  const cancelTool = registry.find((tool) => tool.name === "scheduled_cancel");
+  // The leading # and case are passed through verbatim; normalization happens in the resolver.
+  const cancelResult = await cancelTool?.handler({ id: "#K8F2" });
+  expect(calls).toContainEqual({ method: "scheduledCancel", input: { coordinatorSession: "backend:main", id: "#K8F2" } });
+  expect(cancelResult).toEqual({
+    content: [{ type: "text", text: "Scheduled task #k8f2 cancelled." }],
+    structuredContent: { id: "k8f2", cancelled: true },
+  });
+});
+
 test("worker_raise_question fails clearly when no host sourceHandle is bound", async () => {
   const calls: unknown[] = [];
   const registry = buildWeacpxMcpToolRegistry({

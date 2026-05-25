@@ -103,7 +103,9 @@ test("lists scheduled_create only when internal session tools are enabled", asyn
     await client.connect(clientTransport);
 
     const list = await client.listTools();
-    expect(list.tools).toHaveLength(12);
+    expect(list.tools).toHaveLength(14);
+    expect(list.tools.map((tool) => tool.name)).toContain("scheduled_list");
+    expect(list.tools.map((tool) => tool.name)).toContain("scheduled_cancel");
     const scheduledCreate = list.tools.find((tool) => tool.name === "scheduled_create");
     expect(scheduledCreate?.inputSchema.properties).toHaveProperty("timeText");
     expect(scheduledCreate?.inputSchema.properties).toHaveProperty("message");
