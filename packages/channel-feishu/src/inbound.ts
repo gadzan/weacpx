@@ -26,6 +26,28 @@ export function parseFeishuConversationId(chatKey: string): { accountId: string;
   return { accountId: parts[1], chatId: parts[2] };
 }
 
+/**
+ * Builds the chat-route metadata weacpx records for the current coordinator
+ * session. The host requires `chatType` to be `"direct"` or `"group"`, but
+ * Feishu reports `chat_type` as `"p2p"` (direct) or `"group"`, so `"p2p"` and
+ * any unexpected value normalize to `"direct"`. Without this, interactive
+ * Feishu turns recorded a route with no `chatType`, which blocked the in-session
+ * scheduled_create/list/cancel tools and group-owner command authorization.
+ */
+export function buildFeishuRouteMetadata(input: {
+  chatType: string | undefined;
+  senderOpenId?: string;
+  chatId: string;
+}): { channel: "feishu"; chatType: "direct" | "group"; senderId?: string; groupId?: string } {
+  const isGroup = input.chatType === "group";
+  return {
+    channel: "feishu",
+    chatType: isGroup ? "group" : "direct",
+    ...(input.senderOpenId ? { senderId: input.senderOpenId } : {}),
+    ...(isGroup ? { groupId: input.chatId } : {}),
+  };
+}
+
 export function shouldHandleFeishuMessage(input: {
   event: FeishuMessageEvent;
   botOpenId?: string;

@@ -13,7 +13,7 @@ import type { FeishuMessageEvent, FeishuResourceDescriptor } from "./types.js";
 import { createFeishuLarkClient, type FeishuLarkClient } from "./lark-client.js";
 import { MessageDedup } from "./message-dedup.js";
 import { buildFeishuQueueKey, clearFeishuQueueForAccount, enqueueFeishuChatTask } from "./chat-queue.js";
-import { buildFeishuConversationId, evaluateFeishuAccessPolicy, parseFeishuConversationId, shouldHandleFeishuMessage } from "./inbound.js";
+import { buildFeishuConversationId, buildFeishuRouteMetadata, evaluateFeishuAccessPolicy, parseFeishuConversationId, shouldHandleFeishuMessage } from "./inbound.js";
 import { isMessageExpired } from "./message-dedup.js";
 import { sendTextFeishu, sendMediaFeishu } from "./send.js";
 import { addTypingIndicator, removeTypingIndicator, type FeishuReactionClient, type TypingIndicatorState } from "./typing.js";
@@ -562,6 +562,7 @@ export class FeishuChannel implements MessageChannelRuntime {
           text: requestText,
           ...(media.length > 0 ? { media } : {}),
           replyContextToken: messageId,
+          metadata: buildFeishuRouteMetadata({ chatType, senderOpenId: active.senderOpenId, chatId }),
           reply: safeReply,
           // Only consume the structured tool-event side-channel when we actually
           // have a card to render into. Without this gate, static-mode turns would

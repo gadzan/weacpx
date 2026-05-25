@@ -8,7 +8,7 @@ import {
   handleWeixinMessageTurn,
   resolveMediaTempDir,
 } from "../../../src/weixin/messaging/handle-weixin-message-turn";
-import type { Agent, ChatResponse } from "../../../src/weixin/agent/interface";
+import type { Agent, ChatRequestMetadata, ChatResponse } from "../../../src/weixin/agent/interface";
 import type { HandleWeixinMessageTurnDeps } from "../../../src/weixin/messaging/handle-weixin-message-turn";
 import type { WeixinMessage } from "../../../src/weixin/api/types";
 import { MessageItemType } from "../../../src/weixin/api/types";
@@ -1872,4 +1872,58 @@ test("rejects outbound remote media urls per-item without aborting other sends",
     await rm(dir, { recursive: true, force: true });
     mock.restore();
   }
+});
+
+test("handleWeixinMessageTurn forwards direct-chat route metadata to agent.chat", async () => {
+  let captured: ChatRequestMetadata | undefined;
+  const agent: Agent = {
+    async chat(request): Promise<ChatResponse> {
+      captured = request.metadata;
+      return { text: "" };
+    },
+  };
+
+  await handleWeixinMessageTurn(makeMessage("hello"), {
+    accountId: "test-account",
+    agent,
+    baseUrl: "https://example.com",
+    cdnBaseUrl: "https://cdn.example.com",
+    token: "test-token",
+    log: () => {},
+    errLog: () => {},
+  });
+
+  expect(captured).toMatchObject({
+    channel: "weixin",
+    chatType: "direct",
+    senderId: "test-user",
+  });
+  expect(captured?.groupId).toBeUndefined();
+});
+
+test("handleWeixinMessageTurn forwards group-chat route metadata to agent.chat", async () => {
+  let captured: ChatRequestMetadata | undefined;
+  const agent: Agent = {
+    async chat(request): Promise<ChatResponse> {
+      captured = request.metadata;
+      return { text: "" };
+    },
+  };
+
+  await handleWeixinMessageTurn({ ...makeMessage("hello"), group_id: "group-42" }, {
+    accountId: "test-account",
+    agent,
+    baseUrl: "https://example.com",
+    cdnBaseUrl: "https://cdn.example.com",
+    token: "test-token",
+    log: () => {},
+    errLog: () => {},
+  });
+
+  expect(captured).toMatchObject({
+    channel: "weixin",
+    chatType: "group",
+    senderId: "test-user",
+    groupId: "group-42",
+  });
 });

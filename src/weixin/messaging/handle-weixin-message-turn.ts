@@ -415,6 +415,15 @@ export async function handleWeixinMessageTurn(
     text: requestText,
     ...(media.length > 0 ? { media } : {}),
     replyContextToken: contextToken,
+    // The in-session coordinator agent's scheduled_create/list/cancel tools and
+    // group-owner command authorization both require chatType on the recorded
+    // chat route. Built-in WeChat is direct unless the message carries group_id.
+    metadata: {
+      channel: "weixin",
+      chatType: full.group_id ? "group" : "direct",
+      ...(full.from_user_id ? { senderId: full.from_user_id } : {}),
+      ...(full.group_id ? { groupId: full.group_id } : {}),
+    },
     perfSpan,
   };
 
