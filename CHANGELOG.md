@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **`/later` 临时会话执行模式（默认）：** `/lt` 定时任务到点时默认在一个为该任务新建的**临时会话**里执行——沿用创建时当前会话的 agent 与工作区，但对话历史全新；单轮执行后通过 `transport.removeSession` 销毁该 acpx 会话，且全程不写入 `state.json`。新增互斥标志 `--bind`（发送到创建时绑定的当前会话，即旧行为）/ `--temp`（强制临时）在单条任务上覆盖模式，以及配置项 `later.defaultMode`（`"temp"` | `"bind"`，默认 `"temp"`）修改全局默认。任务记录新增 `session_mode`/`agent`/`workspace` 字段；缺省 `session_mode` 的旧任务按 `bound`（绑定当前会话）处理，无需迁移。创建回显、`/lt list` 与触发通知按模式分别显示「临时会话（工作区 · agent）」或「会话：<别名>」。
+
+### Fixed
+
+- **定时任务临时会话的传输错误提示：** 临时会话（`later-<id>`，非持久化）在后端 acpx 会话缺失时，不再错误地建议 `/session new`/`attach` 该别名；缺失会话恢复也不再尝试按不存在的别名改写持久化状态。
+
 ## [0.5.0] - 2026-05-23
 
 ### Added
