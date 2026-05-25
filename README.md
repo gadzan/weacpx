@@ -349,7 +349,7 @@ opencode, qoder, qwen, trae
 - 默认临时会话执行，`--bind` 绑定当前会话；默认模式可用配置 `later.defaultMode`（`temp` / `bind`，默认 `temp`）修改
 - 只支持一次性任务，时间必须在 10 秒之后、7 天之内
 - 时间格式是固定白名单（相对时间 / 今天·明天·后天 / 星期几 + 时刻），不支持自然语言
-- 普通对话中 agent 也可以通过当前会话内部工具创建定时任务；路由和权限由 daemon 从当前聊天会话解析，外部 `mcp-stdio` 不暴露该工具
+- 普通对话中 agent 也可以通过当前会话内部工具创建、查看与取消定时任务（`scheduled_create` / `scheduled_list` / `scheduled_cancel`）；路由和权限由 daemon 从当前聊天会话解析，外部 `mcp-stdio` 不暴露这些工具
 - 终端里也可以用 `weacpx later list` / `weacpx later cancel <id>` 管理待执行任务；CLI 只做查看和取消，不创建定时任务
 - 完整时间格式、临时/绑定模式、任务状态与限制见 [docs/later-command.md](./docs/later-command.md)
 
