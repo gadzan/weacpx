@@ -24,6 +24,7 @@ import { ScheduledTaskScheduler } from "./scheduled/scheduled-scheduler";
 import { ScheduledTaskService } from "./scheduled/scheduled-service";
 import { buildScheduledDispatchTask } from "./scheduled/scheduled-dispatch";
 import { createScheduledTaskFromRoute } from "./scheduled/scheduled-route-create";
+import { cancelScheduledTaskFromRoute, listScheduledTasksFromRoute } from "./scheduled/scheduled-route-manage";
 import { SessionService } from "./sessions/session-service";
 import { DebouncedStateStore } from "./state/debounced-state-store";
 import { StateStore } from "./state/state-store";
@@ -670,6 +671,10 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
           ? { supportsScheduledMessages: deps.channel.supportsScheduledMessages.bind(deps.channel) }
           : {}),
       }),
+    listScheduledTasksFromRoute: async (input) =>
+      await listScheduledTasksFromRoute(input, { state, scheduled: scheduledService }),
+    cancelScheduledTaskFromRoute: async (input) =>
+      await cancelScheduledTaskFromRoute(input, { state, scheduled: scheduledService }),
   });
   const router = new CommandRouter(
     sessions,
