@@ -23,6 +23,10 @@ import {
   MAX_TASK_WATCH_TIMEOUT_MS,
 } from "./task-watch-timeouts";
 import type { ScheduledCreateFromRouteInput } from "../scheduled/scheduled-route-create";
+import type {
+  ScheduledCancelFromRouteInput,
+  ScheduledListFromRouteInput,
+} from "../scheduled/scheduled-route-manage";
 import type { ScheduledTaskRecord } from "../scheduled/scheduled-types";
 
 class OrchestrationInvalidRequestError extends Error {}
@@ -42,6 +46,8 @@ const ORCHESTRATION_RPC_METHODS = new Set<OrchestrationRpcMethod>([
   "coordinator.request_human_input",
   "coordinator.review_contested_result",
   "scheduled.create",
+  "scheduled.list",
+  "scheduled.cancel",
   "group.new",
 ]);
 
@@ -49,6 +55,8 @@ interface OrchestrationServerDeps {
   createServer?: typeof createServer;
   removeFile?: (path: string) => Promise<void>;
   createScheduledTaskFromRoute?: (input: ScheduledCreateFromRouteInput) => Promise<ScheduledTaskRecord>;
+  listScheduledTasksFromRoute?: (input: ScheduledListFromRouteInput) => Promise<ScheduledTaskRecord[]>;
+  cancelScheduledTaskFromRoute?: (input: ScheduledCancelFromRouteInput) => Promise<{ id: string; cancelled: boolean }>;
 }
 
 export class OrchestrationServer {
@@ -223,6 +231,10 @@ export class OrchestrationServer {
         });
       case "scheduled.create":
         return await this.dispatchScheduledCreate(params);
+      case "scheduled.list":
+        return await this.dispatchScheduledList(params);
+      case "scheduled.cancel":
+        return await this.dispatchScheduledCancel(params);
       case "group.new":
         requireOnlyKeys(params, ["coordinatorSession", "title"], "params");
         return await this.handlers.createGroup({
@@ -253,6 +265,31 @@ export class OrchestrationServer {
       message: requireString(params, "message"),
       ...(mode !== undefined ? { mode } : {}),
     };
+  }
+
+  private async dispatchScheduledList(params: Record<string, unknown>): Promise<ScheduledTaskRecord[]> {
+    requireOnlyKeys(params, ["coordinatorSession"], "params");
+    const input: ScheduledListFromRouteInput = {
+      coordinatorSession: requireString(params, "coordinatorSession"),
+    };
+    const handler = this.deps.listScheduledTasksFromRoute ?? this.handlers.listScheduledTasksFromRoute;
+    if (!handler) {
+      throw new Error("scheduled task listing is not configured");
+    }
+    return await handler(input);
+  }
+
+  private async dispatchScheduledCancel(params: Record<string, unknown>): Promise<{ id: string; cancelled: boolean }> {
+    requireOnlyKeys(params, ["coordinatorSession", "id"], "params");
+    const input: ScheduledCancelFromRouteInput = {
+      coordinatorSession: requireString(params, "coordinatorSession"),
+      id: requireString(params, "id"),
+    };
+    const handler = this.deps.cancelScheduledTaskFromRoute ?? this.handlers.cancelScheduledTaskFromRoute;
+    if (!handler) {
+      throw new Error("scheduled task cancellation is not configured");
+    }
+    return await handler(input);
   }
 
   private parseRegisterExternalCoordinatorInput(params: Record<string, unknown>): RegisterExternalCoordinatorInput {

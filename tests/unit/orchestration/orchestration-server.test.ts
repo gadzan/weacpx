@@ -163,6 +163,74 @@ test("forwards scheduled.create RPC to the configured route-scoped handler", asy
   });
 });
 
+test("forwards scheduled.list RPC to the configured route-scoped handler", async () => {
+  const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
+  const listScheduledTasksFromRoute = mock(async (_input: Record<string, unknown>) => [
+    {
+      id: "k8f2",
+      chat_key: "wx:user",
+      session_alias: "main",
+      execute_at: "2026-05-25T02:00:00.000Z",
+      message: "检查 CI",
+      status: "pending",
+      created_at: "2026-05-25T00:00:00.000Z",
+    },
+  ]);
+  const server = new OrchestrationServer(endpoint, makeServerHandlers(), { listScheduledTasksFromRoute });
+
+  const response = JSON.parse(
+    await server.handleLine(
+      JSON.stringify({ id: "req-scheduled-list", method: "scheduled.list", params: { coordinatorSession: "backend:main" } }),
+    ),
+  );
+
+  expect(response).toMatchObject({ id: "req-scheduled-list", ok: true });
+  expect(response.result).toHaveLength(1);
+  expect(listScheduledTasksFromRoute).toHaveBeenCalledWith({ coordinatorSession: "backend:main" });
+});
+
+test("forwards scheduled.cancel RPC to the configured route-scoped handler", async () => {
+  const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
+  const cancelScheduledTaskFromRoute = mock(async (_input: Record<string, unknown>) => ({ id: "k8f2", cancelled: true }));
+  const server = new OrchestrationServer(endpoint, makeServerHandlers(), { cancelScheduledTaskFromRoute });
+
+  const response = JSON.parse(
+    await server.handleLine(
+      JSON.stringify({
+        id: "req-scheduled-cancel",
+        method: "scheduled.cancel",
+        params: { coordinatorSession: "backend:main", id: "k8f2" },
+      }),
+    ),
+  );
+
+  expect(response).toMatchObject({ id: "req-scheduled-cancel", ok: true, result: { id: "k8f2", cancelled: true } });
+  expect(cancelScheduledTaskFromRoute).toHaveBeenCalledWith({ coordinatorSession: "backend:main", id: "k8f2" });
+});
+
+test("rejects malformed scheduled.list / scheduled.cancel params before dispatch", async () => {
+  const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
+  const listScheduledTasksFromRoute = mock(async () => []);
+  const cancelScheduledTaskFromRoute = mock(async () => ({ id: "k8f2", cancelled: true }));
+  const server = new OrchestrationServer(endpoint, makeServerHandlers(), {
+    listScheduledTasksFromRoute,
+    cancelScheduledTaskFromRoute,
+  });
+
+  const bad: Array<{ method: "scheduled.list" | "scheduled.cancel"; params: Record<string, unknown> }> = [
+    { method: "scheduled.list", params: { coordinatorSession: "backend:main", extra: 1 } },
+    { method: "scheduled.cancel", params: { coordinatorSession: "backend:main" } },
+    { method: "scheduled.cancel", params: { coordinatorSession: "backend:main", id: "k8f2", extra: 1 } },
+  ];
+  for (const { method, params } of bad) {
+    const response = JSON.parse(await server.handleLine(JSON.stringify({ id: "req-bad", method, params })));
+    expect(response).toMatchObject({ id: "req-bad", ok: false, error: { code: "ORCHESTRATION_INVALID_REQUEST" } });
+  }
+
+  expect(listScheduledTasksFromRoute).not.toHaveBeenCalled();
+  expect(cancelScheduledTaskFromRoute).not.toHaveBeenCalled();
+});
+
 test("rejects malformed scheduled.create params before dispatch", async () => {
   const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
   const createScheduledTaskFromRoute = mock(async () => ({
@@ -197,6 +265,21 @@ test("rejects malformed scheduled.create params before dispatch", async () => {
   }
 
   expect(createScheduledTaskFromRoute).not.toHaveBeenCalled();
+});
+
+test("returns ORCHESTRATION_INTERNAL_ERROR when scheduled.list/scheduled.cancel handlers are not configured", async () => {
+  const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
+  const server = new OrchestrationServer(endpoint, makeServerHandlers(), {});
+
+  for (const [method, params] of [
+    ["scheduled.list", { coordinatorSession: "backend:main" }],
+    ["scheduled.cancel", { coordinatorSession: "backend:main", id: "k8f2" }],
+  ] as const) {
+    const response = JSON.parse(
+      await server.handleLine(JSON.stringify({ id: "req-unconfigured", method, params })),
+    );
+    expect(response).toMatchObject({ ok: false, error: { code: "ORCHESTRATION_INTERNAL_ERROR" } });
+  }
 });
 
 test("rejects malformed task watch option ranges before dispatch", async () => {

@@ -20,6 +20,10 @@ import type {
   OrchestrationTaskRecord,
 } from "./orchestration-types";
 import type { ScheduledCreateFromRouteInput } from "../scheduled/scheduled-route-create";
+import type {
+  ScheduledCancelFromRouteInput,
+  ScheduledListFromRouteInput,
+} from "../scheduled/scheduled-route-manage";
 import type { ScheduledTaskRecord } from "../scheduled/scheduled-types";
 
 export type OrchestrationRpcMethod =
@@ -37,6 +41,8 @@ export type OrchestrationRpcMethod =
   | "coordinator.request_human_input"
   | "coordinator.review_contested_result"
   | "scheduled.create"
+  | "scheduled.list"
+  | "scheduled.cancel"
   | "group.new";
 
 export interface OrchestrationIpcEndpoint {
@@ -106,6 +112,8 @@ export interface OrchestrationRpcHandlers {
   }) => Promise<OrchestrationTaskRecord>;
   createGroup: (input: { coordinatorSession: string; title: string }) => Promise<OrchestrationGroupRecord>;
   createScheduledTaskFromRoute?: (input: ScheduledCreateFromRouteInput) => Promise<ScheduledTaskRecord>;
+  listScheduledTasksFromRoute?: (input: ScheduledListFromRouteInput) => Promise<ScheduledTaskRecord[]>;
+  cancelScheduledTaskFromRoute?: (input: ScheduledCancelFromRouteInput) => Promise<{ id: string; cancelled: boolean }>;
 }
 
 export function resolveOrchestrationEndpoint(
