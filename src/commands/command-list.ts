@@ -15,6 +15,7 @@ export const WEACPX_KNOWN_COMMAND_PREFIXES = [
   "/pm",
   "/session",
   "/ss",
+  "/ssn",
   "/workspace",
   "/ws",
   "/use",

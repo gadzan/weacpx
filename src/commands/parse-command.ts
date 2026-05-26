@@ -57,6 +57,9 @@ export type ParsedCommand =
   | { kind: "session.shortcut"; agent: string; cwd?: string; workspace?: string }
   | { kind: "session.shortcut.new"; agent: string; cwd?: string; workspace?: string }
   | { kind: "session.attach"; alias: string; agent: string; workspace: string; transportSession: string }
+  | { kind: "session.native.list"; agent?: string; cwd?: string; workspace?: string; all?: boolean; cursor?: string }
+  | { kind: "session.native.select"; identifier: string }
+  | { kind: "session.native.attach"; identifier: string; alias?: string }
   | { kind: "later.help" }
   | { kind: "later.create"; tokens: string[] }
   | { kind: "later.list" }
@@ -122,6 +125,44 @@ export function parseCommand(input: string): ParsedCommand {
   }
   if (command === "/session" && parts[1] === "rm" && parts[2] && parts.length === 3) {
     return { kind: "session.rm", alias: parts[2] };
+  }
+  if (command === "/ssn") {
+    if (parts.length === 1) {
+      return { kind: "session.native.list" };
+    }
+
+    const identifier = parts[1] ?? "";
+    if (parts.length === 2 && /^\d+$/.test(identifier)) {
+      return { kind: "session.native.select", identifier };
+    }
+
+    if (parts[1] === "attach" && parts[2]) {
+      const attached = readNativeAttachCommand(parts, 2);
+      if (attached) {
+        return attached;
+      }
+      return { kind: "invalid", text: trimmed, recognizedCommand: "/ssn" };
+    }
+
+    const nativeList = readNativeListCommand(parts, 1);
+    if (nativeList) {
+      return nativeList;
+    }
+    return { kind: "invalid", text: trimmed, recognizedCommand: "/ssn" };
+  }
+  if (command === "/session" && parts[1] === "native") {
+    const nativeList = readNativeListCommand(parts, 2);
+    if (nativeList) {
+      return nativeList;
+    }
+    return { kind: "invalid", text: trimmed, recognizedCommand: "/session" };
+  }
+  if (command === "/session" && parts[1] === "attach" && parts[2] === "native" && parts[3]) {
+    const attached = readNativeAttachCommand(parts, 3);
+    if (attached) {
+      return attached;
+    }
+    return { kind: "invalid", text: trimmed, recognizedCommand: "/session" };
   }
 
   if (command === "/group" && parts[1] === "new" && parts.length > 2) {
@@ -448,6 +489,107 @@ function readSessionShortcutTarget(
   }
 
   return null;
+}
+
+function readNativeListCommand(
+  parts: string[],
+  startIndex: number,
+): { kind: "session.native.list"; agent?: string; cwd?: string; workspace?: string; all?: boolean; cursor?: string } | null {
+  let agent = "";
+  let cwd = "";
+  let workspace = "";
+  let all = false;
+  let cursor = "";
+  let invalid = false;
+
+  if (startIndex < parts.length && !parts[startIndex]?.startsWith("-")) {
+    agent = parts[startIndex] ?? "";
+    startIndex += 1;
+  }
+
+  for (let index = startIndex; index < parts.length; index += 1) {
+    const part = parts[index];
+    if (part === "--all") {
+      all = true;
+      continue;
+    }
+    if (part === "--cursor") {
+      if (index + 1 >= parts.length) {
+        invalid = true;
+        break;
+      }
+      cursor = parts[index + 1] ?? "";
+      index += 1;
+      continue;
+    }
+    if (part === "--cwd" || part === "-d") {
+      if (index + 1 >= parts.length || workspace) {
+        invalid = true;
+        break;
+      }
+      cwd = parts[index + 1] ?? "";
+      index += 1;
+      continue;
+    }
+    if (part === "--ws" || part === "-ws") {
+      if (index + 1 >= parts.length || cwd) {
+        invalid = true;
+        break;
+      }
+      workspace = parts[index + 1] ?? "";
+      index += 1;
+      continue;
+    }
+    invalid = true;
+    break;
+  }
+
+  if (invalid) {
+    return null;
+  }
+
+  const result: { kind: "session.native.list"; agent?: string; cwd?: string; workspace?: string; all?: boolean; cursor?: string } = {
+    kind: "session.native.list",
+  };
+
+  if (agent.trim().length > 0) result.agent = agent;
+  if (cwd.trim().length > 0) result.cwd = cwd;
+  if (workspace.trim().length > 0) result.workspace = workspace;
+  if (all) result.all = true;
+  if (cursor.trim().length > 0) result.cursor = cursor;
+
+  return Object.keys(result).length > 1 ? result : { kind: "session.native.list" };
+}
+
+function readNativeAttachCommand(
+  parts: string[],
+  identifierIndex: number,
+): { kind: "session.native.attach"; identifier: string; alias?: string } | null {
+  const identifier = parts[identifierIndex] ?? "";
+  let alias = "";
+
+  for (let index = identifierIndex + 1; index < parts.length; index += 1) {
+    if (parts[index] === "-a" || parts[index] === "--alias") {
+      if (index + 1 >= parts.length) {
+        return null;
+      }
+      alias = parts[index + 1] ?? "";
+      index += 1;
+      continue;
+    }
+
+    return null;
+  }
+
+  if (identifier.trim().length === 0) {
+    return null;
+  }
+
+  if (alias.trim().length > 0) {
+    return { kind: "session.native.attach", identifier, alias };
+  }
+
+  return { kind: "session.native.attach", identifier };
 }
 
 function normalizeCommand(command: string): string {

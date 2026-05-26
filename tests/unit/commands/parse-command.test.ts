@@ -107,6 +107,38 @@ test("parses session attach with the short workspace flag variant", () => {
   });
 });
 
+test("parses native session list commands", () => {
+  expect(parseCommand("/ssn")).toEqual({ kind: "session.native.list" });
+  expect(parseCommand("/ss native")).toEqual({ kind: "session.native.list" });
+  expect(parseCommand("/ssn --all")).toEqual({ kind: "session.native.list", all: true });
+  expect(parseCommand("/ssn codex --ws project")).toEqual({
+    kind: "session.native.list",
+    agent: "codex",
+    workspace: "project",
+  });
+  expect(parseCommand("/ssn codex -d /Users/me/project")).toEqual({
+    kind: "session.native.list",
+    agent: "codex",
+    cwd: "/Users/me/project",
+  });
+});
+
+test("parses native session select and attach commands", () => {
+  expect(parseCommand("/ssn 1")).toEqual({ kind: "session.native.select", identifier: "1" });
+  expect(parseCommand("/ssn attach 1")).toEqual({ kind: "session.native.attach", identifier: "1" });
+  expect(parseCommand("/ss attach native 1")).toEqual({ kind: "session.native.attach", identifier: "1" });
+  expect(parseCommand("/ssn attach 019e5d48 -a fix-ci")).toEqual({
+    kind: "session.native.attach",
+    identifier: "019e5d48",
+    alias: "fix-ci",
+  });
+  expect(parseCommand("/ss attach native 019e5d48 --alias fix-ci")).toEqual({
+    kind: "session.native.attach",
+    identifier: "019e5d48",
+    alias: "fix-ci",
+  });
+});
+
 test("parses use command", () => {
   expect(parseCommand("/use api-fix")).toEqual({
     kind: "session.use",

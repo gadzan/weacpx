@@ -531,10 +531,13 @@ export class CommandRouter {
     chatKey: string,
     kind: string,
     startedAt: number,
-    operation: () => Promise<RouterResponse>,
+    operation: () => Promise<RouterResponse | undefined>,
   ): Promise<RouterResponse> {
     try {
       const response = await operation();
+      if (!response) {
+        throw new Error(`command "${kind}" did not return a response`);
+      }
       await this.logger.info("command.completed", "completed command handling", {
         chatKey,
         kind,
