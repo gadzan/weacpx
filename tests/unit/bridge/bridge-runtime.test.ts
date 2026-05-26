@@ -654,3 +654,41 @@ test("bridge runtime lists and resumes native sessions", async () => {
     },
   ]);
 });
+
+test("bridge runtime retries native session listing without --filter-cwd when unsupported", async () => {
+  const calls: string[][] = [];
+  const runtime = new BridgeRuntime("acpx", async (_command, args) => {
+    calls.push(args);
+    if (args.includes("--filter-cwd")) {
+      return {
+        code: 1,
+        stdout: "",
+        stderr: "error: unknown option '--filter-cwd'",
+      };
+    }
+    return {
+      code: 0,
+      stdout: JSON.stringify({
+        source: "agent",
+        sessions: [
+          { sessionId: "thread-1", cwd: "/repo", title: "Fix CI" },
+          { sessionId: "thread-2", cwd: "/other", title: "Other" },
+        ],
+      }),
+      stderr: "",
+    };
+  });
+
+  await expect(runtime.listAgentSessions({
+    agent: "claude",
+    cwd: "/repo",
+    filterCwd: "/repo",
+  })).resolves.toEqual({
+    source: "agent",
+    sessions: [{ sessionId: "thread-1", cwd: "/repo", title: "Fix CI" }],
+  });
+
+  expect(calls).toHaveLength(2);
+  expect(calls[0]).toContain("--filter-cwd");
+  expect(calls[1]).not.toContain("--filter-cwd");
+});

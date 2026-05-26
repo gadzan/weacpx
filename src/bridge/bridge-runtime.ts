@@ -12,6 +12,7 @@ import { parseMissingOptionalDep } from "./parse-missing-optional-dep";
 import { deriveParentPackageName } from "../recovery/discover-parent-package-paths";
 import { AcpxQueueOwnerLauncher } from "../transport/acpx-queue-owner-launcher";
 import { permissionModeToFlag } from "../transport/permission-mode-flag";
+import { filterAgentSessionListByCwd, isUnknownFilterCwdOption } from "../transport/agent-session-list";
 import type {
   EnsureSessionProgress,
   MissingOptionalDepErrorData,
@@ -143,13 +144,21 @@ export class BridgeRuntime {
     cursor?: string;
     filterCwd?: string;
   }): Promise<AgentSessionListResult | undefined> {
-    const spawnSpec = resolveSpawnCommand(this.command, this.buildSessionArgs(input, [
+    const buildListSpawnSpec = (includeFilterCwd: boolean) => resolveSpawnCommand(this.command, this.buildSessionArgs(input, [
       "sessions",
       "list",
-      ...(input.filterCwd ? ["--filter-cwd", input.filterCwd] : []),
+      ...(includeFilterCwd && input.filterCwd ? ["--filter-cwd", input.filterCwd] : []),
       ...(input.cursor ? ["--cursor", input.cursor] : []),
     ], { format: "json" }));
-    const result = await this.run(spawnSpec.command, spawnSpec.args);
+    let spawnSpec = buildListSpawnSpec(true);
+    let result = await this.run(spawnSpec.command, spawnSpec.args);
+    let filterLocally = false;
+
+    if (result.code !== 0 && input.filterCwd && isUnknownFilterCwdOption(result.stdout + result.stderr)) {
+      spawnSpec = buildListSpawnSpec(false);
+      result = await this.run(spawnSpec.command, spawnSpec.args);
+      filterLocally = true;
+    }
 
     if (result.code !== 0) {
       if ((result.stdout + result.stderr).includes("sessionCapabilities.list")) {
@@ -163,7 +172,7 @@ export class BridgeRuntime {
       if (!isBridgeAgentSessionListResult(parsed)) {
         return undefined;
       }
-      return parsed;
+      return filterLocally && input.filterCwd ? filterAgentSessionListByCwd(parsed, input.filterCwd) : parsed;
     } catch {
       throw new Error("failed to parse acpx sessions list output");
     }

@@ -24,6 +24,7 @@ import { terminateProcessTree } from "../../process/terminate-process-tree";
 import { AcpxQueueOwnerLauncher } from "../acpx-queue-owner-launcher";
 import { permissionModeToFlag } from "../permission-mode-flag";
 import { resolveToolEventMode, type ToolEventMode } from "../tool-event-mode.js";
+import { filterAgentSessionListByCwd, isUnknownFilterCwdOption } from "../agent-session-list";
 
 interface AcpxCliTransportOptions {
   command?: string;
@@ -210,15 +211,22 @@ export class AcpxCliTransport implements SessionTransport {
   }
 
   async listAgentSessions(query: AgentSessionListQuery): Promise<AgentSessionListResult | undefined> {
-    const args = this.buildAgentQueryArgs(query, "json", [
+    const buildListArgs = (includeFilterCwd: boolean) => this.buildAgentQueryArgs(query, "json", [
       "sessions",
       "list",
-      ...(query.filterCwd ? ["--filter-cwd", query.filterCwd] : []),
+      ...(includeFilterCwd && query.filterCwd ? ["--filter-cwd", query.filterCwd] : []),
       ...(query.cursor ? ["--cursor", query.cursor] : []),
     ]);
-    const result = await this.runCommandWithTimeout(this.runCommand, args, {
+    let result = await this.runCommandWithTimeout(this.runCommand, buildListArgs(true), {
       timeoutMs: this.sessionInitTimeoutMs,
     });
+    let filterLocally = false;
+    if (result.code !== 0 && query.filterCwd && isUnknownFilterCwdOption(result.stdout + result.stderr)) {
+      result = await this.runCommandWithTimeout(this.runCommand, buildListArgs(false), {
+        timeoutMs: this.sessionInitTimeoutMs,
+      });
+      filterLocally = true;
+    }
     if (result.code !== 0) {
       if ((result.stdout + result.stderr).includes("sessionCapabilities.list")) {
         return undefined;
@@ -231,7 +239,7 @@ export class AcpxCliTransport implements SessionTransport {
       if (!isAgentSessionListResult(parsed)) {
         return undefined;
       }
-      return parsed;
+      return filterLocally && query.filterCwd ? filterAgentSessionListByCwd(parsed, query.filterCwd) : parsed;
     } catch {
       throw new Error("failed to parse acpx sessions list output");
     }

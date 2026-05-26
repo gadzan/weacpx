@@ -293,6 +293,42 @@ test("lists agent-side sessions through acpx json output", async () => {
   ], expect.objectContaining({ timeoutMs: 120_000 }));
 });
 
+test("lists agent-side sessions without --filter-cwd when acpx rejects the option", async () => {
+  const run = mock(async (_command: string, args: string[]) => {
+    if (args.includes("--filter-cwd")) {
+      return {
+        code: 1,
+        stdout: "",
+        stderr: "error: unknown option '--filter-cwd'",
+      };
+    }
+    return {
+      code: 0,
+      stdout: JSON.stringify({
+        source: "agent",
+        sessions: [
+          { sessionId: "thread-1", cwd: "/tmp/backend", title: "Fix CI" },
+          { sessionId: "thread-2", cwd: "/tmp/other", title: "Other" },
+        ],
+      }),
+      stderr: "",
+    };
+  });
+  const transport = new AcpxCliTransport({ command: "acpx" }, run);
+
+  await expect(transport.listAgentSessions?.({
+    agent: "claude",
+    cwd: "/tmp/backend",
+    filterCwd: "/tmp/backend",
+  })).resolves.toEqual({
+    source: "agent",
+    sessions: [{ sessionId: "thread-1", cwd: "/tmp/backend", title: "Fix CI" }],
+  });
+
+  expect(run).toHaveBeenCalledTimes(2);
+  expect(run.mock.calls[1][1]).not.toContain("--filter-cwd");
+});
+
 test("returns undefined when acpx falls back to local session records", async () => {
   const run = mock(async () => ({ code: 0, stdout: "[]", stderr: "" }));
   const transport = new AcpxCliTransport({ command: "acpx" }, run);
