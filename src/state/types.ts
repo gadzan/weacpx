@@ -1,11 +1,34 @@
 import { createEmptyOrchestrationState, type OrchestrationState } from "../orchestration/orchestration-types";
 import type { ScheduledTaskRecord } from "../scheduled/scheduled-types";
 
+export type LogicalSessionSource = "weacpx" | "agent-side";
+
+export interface NativeSessionCacheEntry {
+  session_id: string;
+  cwd?: string;
+  title?: string | null;
+  updated_at?: string;
+}
+
+export interface NativeSessionListCacheRecord {
+  created_at: string;
+  agent: string;
+  workspace?: string;
+  cwd: string;
+  sessions: NativeSessionCacheEntry[];
+  next_cursor?: string | null;
+}
+
 export interface LogicalSession {
   alias: string;
   agent: string;
   workspace: string;
   transport_session: string;
+  source?: LogicalSessionSource;
+  agent_session_id?: string;
+  agent_session_title?: string;
+  agent_session_updated_at?: string;
+  attached_at?: string;
   transport_agent_command?: string;
   mode_id?: string;
   reply_mode?: "stream" | "final" | "verbose";
@@ -20,6 +43,7 @@ export interface ChatContextState {
 export interface AppState {
   sessions: Record<string, LogicalSession>;
   chat_contexts: Record<string, ChatContextState>;
+  native_session_lists: Record<string, NativeSessionListCacheRecord>;
   orchestration: OrchestrationState;
   scheduled_tasks: Record<string, ScheduledTaskRecord>;
 }
@@ -28,6 +52,7 @@ export function createEmptyState(): AppState {
   return {
     sessions: {},
     chat_contexts: {},
+    native_session_lists: {},
     orchestration: createEmptyOrchestrationState(),
     scheduled_tasks: {},
   };

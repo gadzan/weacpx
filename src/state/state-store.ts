@@ -433,6 +433,10 @@ function isReplyMode(value: unknown): value is AppState["sessions"][string]["rep
   return value === "stream" || value === "final" || value === "verbose";
 }
 
+function isSessionSource(value: unknown): value is AppState["sessions"][string]["source"] {
+  return value === undefined || value === "weacpx" || value === "agent-side";
+}
+
 function isSessionRecord(value: unknown): value is AppState["sessions"][string] {
   if (!isRecord(value)) {
     return false;
@@ -443,6 +447,11 @@ function isSessionRecord(value: unknown): value is AppState["sessions"][string] 
     isString(value.agent) &&
     isString(value.workspace) &&
     isString(value.transport_session) &&
+    isSessionSource(value.source) &&
+    isOptionalString(value.agent_session_id) &&
+    isOptionalString(value.agent_session_title) &&
+    isOptionalString(value.agent_session_updated_at) &&
+    isOptionalString(value.attached_at) &&
     isOptionalString(value.transport_agent_command) &&
     isOptionalString(value.mode_id) &&
     (value.reply_mode === undefined || isReplyMode(value.reply_mode)) &&
@@ -475,6 +484,55 @@ function parseChatContexts(raw: Record<string, unknown>, path: string): AppState
     chatContexts[chatKey] = value;
   }
   return chatContexts;
+}
+
+function isNativeSessionCacheEntry(value: unknown): value is AppState["native_session_lists"][string]["sessions"][number] {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isString(value.session_id) &&
+    isOptionalString(value.cwd) &&
+    (value.title === undefined || value.title === null || isString(value.title)) &&
+    isOptionalString(value.updated_at)
+  );
+}
+
+function isNativeSessionListCacheRecord(
+  value: unknown,
+): value is AppState["native_session_lists"][string] {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return (
+    isString(value.created_at) &&
+    isString(value.agent) &&
+    isOptionalString(value.workspace) &&
+    isString(value.cwd) &&
+    Array.isArray(value.sessions) &&
+    value.sessions.every(isNativeSessionCacheEntry) &&
+    (value.next_cursor === undefined || value.next_cursor === null || isString(value.next_cursor))
+  );
+}
+
+function parseNativeSessionLists(raw: unknown, path: string): AppState["native_session_lists"] {
+  if (raw === undefined) {
+    return {};
+  }
+  if (!isRecord(raw)) {
+    throw new Error(`state file "${path}" must contain an object field "native_session_lists"`);
+  }
+
+  const nativeSessionLists: AppState["native_session_lists"] = {};
+  for (const [chatKey, value] of Object.entries(raw)) {
+    if (!isNativeSessionListCacheRecord(value)) {
+      throw new Error(`state file "${path}" contains malformed native session list "${chatKey}"`);
+    }
+    nativeSessionLists[chatKey] = value;
+  }
+  return nativeSessionLists;
 }
 
 function isScheduledTaskStatus(value: unknown): value is ScheduledTaskStatus {
@@ -554,6 +612,7 @@ export function parseState(raw: unknown, path: string): AppState {
   return {
     sessions: parsedSessions,
     chat_contexts: parseChatContexts(chatContexts, path),
+    native_session_lists: parseNativeSessionLists(raw.native_session_lists, path),
     orchestration,
     scheduled_tasks: parseScheduledTasks(raw.scheduled_tasks, path),
   };

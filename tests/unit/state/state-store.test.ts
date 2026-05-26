@@ -5,6 +5,105 @@ import { tmpdir } from "node:os";
 
 import { StateStore } from "../../../src/state/state-store";
 
+test("loads native session metadata and native session list cache records", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+
+  await Bun.write(
+    path,
+    JSON.stringify({
+      sessions: {
+        "project:codex": {
+          alias: "project:codex",
+          agent: "codex",
+          workspace: "project",
+          transport_session: "backend:project:codex",
+          source: "agent-side",
+          agent_session_id: "thread-1",
+          agent_session_title: "Fix CI",
+          agent_session_updated_at: "2026-05-26T10:00:00.000Z",
+          attached_at: "2026-05-26T10:01:00.000Z",
+          created_at: "2026-05-26T09:59:00.000Z",
+          last_used_at: "2026-05-26T10:02:00.000Z",
+        },
+      },
+      chat_contexts: {},
+      native_session_lists: {
+        "wx:user": {
+          created_at: "2026-05-26T10:00:00.000Z",
+          agent: "codex",
+          workspace: "project",
+          cwd: "/Users/example/project",
+          sessions: [
+            {
+              session_id: "thread-1",
+              cwd: "/Users/example/project",
+              title: "Fix CI",
+              updated_at: "2026-05-26T10:00:00.000Z",
+            },
+          ],
+          next_cursor: null,
+        },
+      },
+      orchestration: {
+        tasks: {},
+        workerBindings: {},
+        groups: {},
+      },
+    }),
+  );
+
+  await expect(store.load()).resolves.toMatchObject({
+    sessions: {
+      "project:codex": {
+        source: "agent-side",
+        agent_session_id: "thread-1",
+        agent_session_title: "Fix CI",
+      },
+    },
+    native_session_lists: {
+      "wx:user": {
+        agent: "codex",
+        workspace: "project",
+        sessions: [
+          {
+            session_id: "thread-1",
+            title: "Fix CI",
+          },
+        ],
+      },
+    },
+  });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("defaults missing native session lists to an empty cache", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+
+  await Bun.write(
+    path,
+    JSON.stringify({
+      sessions: {},
+      chat_contexts: {},
+      orchestration: {
+        tasks: {},
+        workerBindings: {},
+        groups: {},
+      },
+    }),
+  );
+
+  await expect(store.load()).resolves.toMatchObject({
+    native_session_lists: {},
+  });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
 test("returns an empty state when the file is missing", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
   const store = new StateStore(join(dir, "state.json"));
@@ -12,6 +111,7 @@ test("returns an empty state when the file is missing", async () => {
   await expect(store.load()).resolves.toEqual({
     sessions: {},
     chat_contexts: {},
+    native_session_lists: {},
     scheduled_tasks: {},
     orchestration: {
       tasks: {},
@@ -93,6 +193,7 @@ test("persists sessions and chat context", async () => {
   await store.save(state);
   await expect(store.load()).resolves.toEqual({
     ...state,
+    native_session_lists: {},
     scheduled_tasks: {},
   });
 
@@ -234,7 +335,10 @@ test("round-trips blocker-loop state records through load", async () => {
   };
 
   await store.save(state);
-  await expect(store.load()).resolves.toEqual(state);
+  await expect(store.load()).resolves.toEqual({
+    ...state,
+    native_session_lists: {},
+  });
 
   await rm(dir, { recursive: true, force: true });
 });
@@ -277,6 +381,7 @@ test("loads orchestration task records with coordinator injection metadata", asy
   await expect(store.load()).resolves.toEqual({
     sessions: {},
     chat_contexts: {},
+    native_session_lists: {},
     scheduled_tasks: {},
     orchestration: {
       tasks: {
@@ -416,6 +521,7 @@ test("loads orchestration task records with reliability metadata", async () => {
   await expect(store.load()).resolves.toEqual({
     sessions: {},
     chat_contexts: {},
+    native_session_lists: {},
     scheduled_tasks: {},
     orchestration: {
       tasks: {
@@ -465,6 +571,7 @@ test("treats an empty state file as empty state", async () => {
   await expect(store.load()).resolves.toEqual({
     sessions: {},
     chat_contexts: {},
+    native_session_lists: {},
     scheduled_tasks: {},
     orchestration: {
       tasks: {},
@@ -521,6 +628,7 @@ test("loads older states without orchestration as empty orchestration state", as
   await expect(store.load()).resolves.toEqual({
     sessions: {},
     chat_contexts: {},
+    native_session_lists: {},
     scheduled_tasks: {},
     orchestration: {
       tasks: {},

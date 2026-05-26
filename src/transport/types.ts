@@ -29,6 +29,11 @@ export interface ResolvedSession {
   agentCommand?: string;
   workspace: string;
   transportSession: string;
+  source?: "weacpx" | "agent-side";
+  agentSessionId?: string;
+  agentSessionTitle?: string;
+  agentSessionUpdatedAt?: string;
+  attachedAt?: string;
   mcpCoordinatorSession?: string;
   mcpSourceHandle?: string;
   modeId?: string;
@@ -41,6 +46,30 @@ export interface ResolvedSession {
    * persisted state by alias) does not apply.
    */
   transient?: boolean;
+}
+
+export interface AgentSession {
+  sessionId: string;
+  cwd?: string;
+  title?: string | null;
+  updatedAt?: string;
+  _meta?: Record<string, unknown>;
+}
+
+export interface AgentSessionListQuery {
+  agent: string;
+  agentCommand?: string;
+  cwd: string;
+  cursor?: string;
+  filterCwd?: string;
+}
+
+export interface AgentSessionListResult {
+  source: "agent";
+  sessions: AgentSession[];
+  cursor?: string;
+  nextCursor?: string | null;
+  cwd?: string;
 }
 
 export type EnsureSessionProgressStage = "spawn" | "initializing" | "ready";
@@ -105,6 +134,8 @@ export interface SessionTransport {
   setMode(session: ResolvedSession, modeId: string): Promise<void>;
   cancel(session: ResolvedSession): Promise<{ cancelled: boolean; message: string }>;
   hasSession(session: ResolvedSession): Promise<boolean>;
+  listAgentSessions?(query: AgentSessionListQuery): Promise<AgentSessionListResult | undefined>;
+  resumeAgentSession?(session: ResolvedSession, agentSessionId: string): Promise<void>;
   removeSession?(session: ResolvedSession): Promise<void>;
   updatePermissionPolicy?(policy: PermissionPolicy): Promise<void>;
   dispose?(): Promise<void>;
