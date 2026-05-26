@@ -139,6 +139,37 @@ test("parses native session select and attach commands", () => {
   });
 });
 
+test("rejects native session list flags with missing values", () => {
+  expect(parseCommand("/ssn --cursor --all")).toEqual({
+    kind: "invalid",
+    text: "/ssn --cursor --all",
+    recognizedCommand: "/ssn",
+  });
+  expect(parseCommand("/ssn --cwd --all")).toEqual({
+    kind: "invalid",
+    text: "/ssn --cwd --all",
+    recognizedCommand: "/ssn",
+  });
+  expect(parseCommand("/ssn codex --ws -d")).toEqual({
+    kind: "invalid",
+    text: "/ssn codex --ws -d",
+    recognizedCommand: "/ssn",
+  });
+});
+
+test("rejects native session attach flags with missing or flag-like values", () => {
+  expect(parseCommand("/ssn attach --alias")).toEqual({
+    kind: "invalid",
+    text: "/ssn attach --alias",
+    recognizedCommand: "/ssn",
+  });
+  expect(parseCommand("/ssn attach 1 --alias --foo")).toEqual({
+    kind: "invalid",
+    text: "/ssn attach 1 --alias --foo",
+    recognizedCommand: "/ssn",
+  });
+});
+
 test("parses use command", () => {
   expect(parseCommand("/use api-fix")).toEqual({
     kind: "session.use",

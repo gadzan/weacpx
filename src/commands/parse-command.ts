@@ -514,29 +514,32 @@ function readNativeListCommand(
       continue;
     }
     if (part === "--cursor") {
-      if (index + 1 >= parts.length) {
+      const value = parts[index + 1] ?? "";
+      if (index + 1 >= parts.length || value.startsWith("-")) {
         invalid = true;
         break;
       }
-      cursor = parts[index + 1] ?? "";
+      cursor = value;
       index += 1;
       continue;
     }
     if (part === "--cwd" || part === "-d") {
-      if (index + 1 >= parts.length || workspace) {
+      const value = parts[index + 1] ?? "";
+      if (index + 1 >= parts.length || value.startsWith("-") || workspace) {
         invalid = true;
         break;
       }
-      cwd = parts[index + 1] ?? "";
+      cwd = value;
       index += 1;
       continue;
     }
     if (part === "--ws" || part === "-ws") {
-      if (index + 1 >= parts.length || cwd) {
+      const value = parts[index + 1] ?? "";
+      if (index + 1 >= parts.length || value.startsWith("-") || cwd) {
         invalid = true;
         break;
       }
-      workspace = parts[index + 1] ?? "";
+      workspace = value;
       index += 1;
       continue;
     }
@@ -570,10 +573,11 @@ function readNativeAttachCommand(
 
   for (let index = identifierIndex + 1; index < parts.length; index += 1) {
     if (parts[index] === "-a" || parts[index] === "--alias") {
-      if (index + 1 >= parts.length) {
+      const value = parts[index + 1] ?? "";
+      if (index + 1 >= parts.length || value.startsWith("-")) {
         return null;
       }
-      alias = parts[index + 1] ?? "";
+      alias = value;
       index += 1;
       continue;
     }
@@ -581,7 +585,7 @@ function readNativeAttachCommand(
     return null;
   }
 
-  if (identifier.trim().length === 0) {
+  if (identifier.trim().length === 0 || identifier.startsWith("-")) {
     return null;
   }
 
