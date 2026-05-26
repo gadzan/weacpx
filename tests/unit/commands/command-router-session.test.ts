@@ -922,7 +922,7 @@ test("/ssn lists native sessions from the current session context", async () => 
   expect(reply.text).toContain("本地 Codex 会话（project）");
   expect(reply.text).toContain("【1】 Fix CI");
   expect(reply.text).toContain("时间：2026-05-26");
-  expect(reply.text).toContain("ID：…72bbe8e552e7");
+  expect(reply.text).toContain("ID：…e8e552e7");
   expect(reply.text).toContain("接入：/ssn 1");
   expect(reply.text).toContain("指定别名：/ssn attach <sessionId> -a fix-ci");
   expect(reply.text).not.toContain("| # | 标题 | 更新时间 | ID |");
@@ -953,8 +953,8 @@ test("/ssn renders long WeChat native session lists as cards with id tails", asy
   expect(reply.text).not.toContain("| # | 标题 | 更新时间 | ID |");
   expect(reply.text).toContain("【1】 修复一个很长的微信表格分页标题 1");
   expect(reply.text).toContain("【7】 修复一个很长的微信表格分页标题 7");
-  expect(reply.text).toContain("ID：…000000000001");
-  expect(reply.text).toContain("ID：…000000000007");
+  expect(reply.text).toContain("ID：…00000001");
+  expect(reply.text).toContain("ID：…00000007");
 });
 
 test("/ssn keeps one table header for long Feishu native session lists", async () => {
@@ -1013,20 +1013,20 @@ test("/ssn explicit target auto-attaches a single native session", async () => {
   config.workspaces.project = { cwd: "/tmp/project" };
   (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
     source: "agent",
-    sessions: [{ sessionId: "thread-1", cwd: "/tmp/project", title: "Fix CI" }],
+    sessions: [{ sessionId: "61456d60-b7e1-47e6-8641-72bbe8e552e7", cwd: "/tmp/project", title: "Fix CI" }],
   });
 
   const reply = await router.handle("wx:user", "/ssn codex --ws project");
 
   expect(reply.text).toContain("已接入本地 Codex 会话并切换");
   expect(transport.resumeAgentSession).toHaveBeenCalledWith(
-    expect.objectContaining({ alias: "project:codex", transportSession: "project:codex" }),
-    "thread-1",
+    expect.objectContaining({ alias: "codex-e8e552e7", transportSession: "codex-e8e552e7" }),
+    "61456d60-b7e1-47e6-8641-72bbe8e552e7",
   );
   await expect(sessions.getCurrentSession("wx:user")).resolves.toMatchObject({
-    alias: "project:codex",
+    alias: "codex-e8e552e7",
     source: "agent-side",
-    agentSessionId: "thread-1",
+    agentSessionId: "61456d60-b7e1-47e6-8641-72bbe8e552e7",
   });
 });
 
@@ -1034,23 +1034,23 @@ test("/ssn avoids clobbering an existing transport session owned by another alia
   const { router, transport, config, sessions } = buildRouter();
   config.workspaces.project = { cwd: "/tmp/project" };
 
-  await router.handle("wx:user", "/session new codex --agent codex --ws project");
+  await router.handle("wx:user", "/session new codex-e8e552e7 --agent codex --ws project");
   (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
     source: "agent",
-    sessions: [{ sessionId: "thread-1", cwd: "/tmp/project", title: "Fix CI" }],
+    sessions: [{ sessionId: "61456d60-b7e1-47e6-8641-72bbe8e552e7", cwd: "/tmp/project", title: "Fix CI" }],
   });
 
   const reply = await router.handle("wx:user", "/ssn codex --ws project");
 
   expect(reply.text).toContain("已接入本地 Codex 会话并切换");
   expect(transport.resumeAgentSession).toHaveBeenCalledWith(
-    expect.objectContaining({ alias: "project:codex-2", transportSession: "project:codex-2" }),
-    "thread-1",
+    expect.objectContaining({ alias: "codex-e8e552e7-2", transportSession: "codex-e8e552e7-2" }),
+    "61456d60-b7e1-47e6-8641-72bbe8e552e7",
   );
   await expect(sessions.getCurrentSession("wx:user")).resolves.toMatchObject({
-    alias: "project:codex-2",
+    alias: "codex-e8e552e7-2",
     source: "agent-side",
-    agentSessionId: "thread-1",
+    agentSessionId: "61456d60-b7e1-47e6-8641-72bbe8e552e7",
   });
 });
 
@@ -1230,8 +1230,8 @@ test("/ssn 1 switch response renders display alias for scoped channels", async (
   await router.handle("feishu:default:oc_chat", "/ssn");
   const reply = await router.handle("feishu:default:oc_chat", "/ssn 1");
 
-  expect(reply.text).toContain("已切换到已接入的本地会话：Codex · project:codex");
-  expect(reply.text).not.toContain("feishu:project:codex");
+  expect(reply.text).toContain("已切换到已接入的本地会话：Codex · codex-thread-1");
+  expect(reply.text).not.toContain("feishu:codex-thread-1");
   expect((transport.resumeAgentSession as ReturnType<typeof mock>).mock.calls).toHaveLength(1);
 });
 

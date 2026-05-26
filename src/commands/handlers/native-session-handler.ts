@@ -163,7 +163,7 @@ async function attachNativeSession(
     };
   }
 
-  const requestedAlias = alias?.trim() || `${nativeTarget.workspace}:${nativeTarget.agent}`;
+  const requestedAlias = alias?.trim() || buildDefaultNativeAlias(nativeTarget.agent, session.sessionId);
   const displayAlias = await allocateUniqueNativeAlias(context, chatKey, requestedAlias);
   const internalAlias = scopeAliasForChannel(chatKey, displayAlias);
   const transportSession = context.sessions.buildDefaultTransportSessionForChat(chatKey, displayAlias);
@@ -426,16 +426,21 @@ function renderNativeSessionTitle(title: string | null | undefined, fallback: st
   return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized;
 }
 
+function buildDefaultNativeAlias(agent: string, sessionId: string): string {
+  return `${agent}-${sessionIdTail(sessionId)}`;
+}
+
 function formatSessionIdTail(sessionId: string): string {
+  const tail = sessionIdTail(sessionId);
+  return tail.length < sessionId.trim().length ? `…${tail}` : tail;
+}
+
+function sessionIdTail(sessionId: string): string {
   const trimmed = sessionId.trim();
-  if (trimmed.length <= 16) {
+  if (trimmed.length <= 8) {
     return trimmed;
   }
-  const lastHyphen = trimmed.lastIndexOf("-");
-  const tail = lastHyphen >= 0 && lastHyphen < trimmed.length - 1
-    ? trimmed.slice(lastHyphen + 1)
-    : trimmed.slice(-8);
-  return `…${tail}`;
+  return trimmed.slice(-8);
 }
 
 function formatNativeSessionTime(value: string): string {

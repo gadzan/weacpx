@@ -23,7 +23,7 @@
 | 列出当前会话同 agent、同 workspace 下的本地原生会话 | `/ssn` |
 | 已知道原生 `sessionId`，想直接挂进 weacpx | `/ssn attach <sessionId> -a <alias>` |
 
-`/ss` 不会主动枚举或接入新的原生会话；它只管理 weacpx 逻辑会话。不过，如果某个 weacpx 逻辑会话本身是之前通过 `/ssn` 接入的，后续 `/ss codex --ws project` 可以像复用普通会话一样切回它。
+`/ss` 不会主动枚举或接入新的原生会话；它只管理 weacpx 逻辑会话。通过 `/ssn` 接入后，会生成一个普通 weacpx 逻辑会话别名（例如 `codex-e8e552e7`），后续可在 `/ss` 列表里看到，并用 `/session use <alias>` 切回。
 
 ## 前置条件
 
@@ -42,10 +42,10 @@
 如果只找到一个候选，weacpx 会直接接入并切换到该会话。默认别名是：
 
 ```text
-<workspace>:<agent>
+<agent>-<sessionId最后8位>
 ```
 
-例如 `project:codex`。如果这个别名或对应的底层 transport session 名已经被占用，weacpx 会自动追加 `-2`、`-3`，避免覆盖已有会话。
+例如 `codex-e8e552e7`。workspace 已经由 `/ssn` 查询上下文决定，别名优先突出原生 sessionId 尾号，方便和列表里的 `ID：…e8e552e7` 对应。如果这个别名或对应的底层 transport session 名已经被占用，weacpx 会自动追加 `-2`、`-3`，避免覆盖已有会话。
 
 ### 2. 多个候选时先选编号
 
@@ -135,7 +135,7 @@
 
 ### 接入失败会影响原来的 weacpx 会话吗？
 
-weacpx 会在接入前检查 alias 和底层 transport session 名，尽量避免覆盖已有映射。如果冲突，会自动分配后缀别名，例如 `project:codex-2`。
+weacpx 会在接入前检查 alias 和底层 transport session 名，尽量避免覆盖已有映射。如果冲突，会自动分配后缀别名，例如 `codex-e8e552e7-2`。
 
 ### 在手机里聊了几轮，本地 Agent 原生会话会有这些记录吗？
 
