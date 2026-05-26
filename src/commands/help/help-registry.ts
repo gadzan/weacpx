@@ -6,6 +6,7 @@ import { permissionHelp } from "../handlers/permission-handler";
 import {
   cancelHelp,
   modeHelp,
+  nativeSessionHelp,
   replyModeHelp,
   sessionHelp,
   statusHelp,
@@ -15,6 +16,7 @@ import { laterHelpMetadata } from "../handlers/later-handler";
 
 export const HELP_TOPICS: HelpTopicMetadata[] = [
   sessionHelp,
+  nativeSessionHelp,
   workspaceHelp,
   agentHelp,
   permissionHelp,

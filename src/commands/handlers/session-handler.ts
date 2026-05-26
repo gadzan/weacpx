@@ -27,8 +27,8 @@ const MAX_SESSION_TAIL_LINES = 500;
 
 export const sessionHelp: HelpTopicMetadata = {
   topic: "session",
-  aliases: ["ss", "ssn", "sessions"],
-  summary: "创建、恢复、切换和重置逻辑会话。",
+  aliases: ["ss", "sessions"],
+  summary: "创建、复用、切换和重置 weacpx 逻辑会话。",
   commands: [
     { usage: "/sessions", description: "查看当前会话列表" },
     { usage: "/session 或 /ss", description: "查看会话列表" },
@@ -36,9 +36,7 @@ export const sessionHelp: HelpTopicMetadata = {
     { usage: "/ss new <agent> (-d <path> | --ws <name>)", description: "强制新建会话" },
     { usage: "/ss new <alias> -a <name> --ws <name>", description: "按指定配置新建会话" },
     { usage: "/ss attach <alias> -a <name> --ws <name> --name <transport-session>", description: "绑定已有会话" },
-    { usage: "/ssn", description: "查看当前上下文的本地 native 会话" },
-    { usage: "/ssn 1", description: "接入/切换到 native 会话列表第 1 个" },
-    { usage: "/ssn codex --ws <workspace>", description: "查询指定工作区的本地 Codex 会话" },
+    { usage: "/ssn 或 /help ssn", description: "接入本地 native 会话（Codex 等 Agent 原生会话）" },
     { usage: "/session tail [N]", description: "补拉当前会话的历史输出（默认 50 行）" },
     { usage: "/session rm <alias>", description: "删除逻辑会话" },
     { usage: "/use <alias>", description: "切换当前会话" },
@@ -51,6 +49,34 @@ export const sessionHelp: HelpTopicMetadata = {
     "/use backend-fix",
     "/session rm old-session",
     "/session reset",
+  ],
+};
+
+export const nativeSessionHelp: HelpTopicMetadata = {
+  topic: "native",
+  aliases: ["ssn", "native-session"],
+  summary: "接入 Codex 等 Agent 的本地原生会话。",
+  commands: [
+    { usage: "/ssn", description: "按当前 weacpx 会话上下文查看本地 native 会话" },
+    { usage: "/ssn <agent> --ws <workspace>", description: "查询指定工作区的本地 native 会话；只有一个候选时自动接入" },
+    { usage: "/ssn <agent> -d <path>", description: "按本机绝对路径查询；只有一个候选时自动接入" },
+    { usage: "/ssn <agent> --ws <workspace> --all", description: "跨 cwd 查看该 agent 的 native 会话" },
+    { usage: "/ssn 1", description: "接入或切换到最近一次列表里的第 1 个候选" },
+    { usage: "/ssn attach <sessionId> -a <alias>", description: "按原生 sessionId 接入，并指定 weacpx 别名" },
+    { usage: "/ss attach native <sessionId> -a <alias>", description: "/ssn attach 的长写法" },
+  ],
+  examples: [
+    "/ssn codex --ws backend",
+    "/ssn codex -d /absolute/path/to/repo",
+    "/ssn",
+    "/ssn 1",
+    "/ssn attach 019e5d48 -a fix-ci",
+  ],
+  notes: [
+    "/ss 管 weacpx 逻辑会话；/ssn 只负责查询和接入 Agent 原生会话。",
+    "接入后继续发普通消息，会继续同一个 Agent 原生会话，不是复制一份新上下文。",
+    "如果当前 acpx 或 Agent 不支持 native 会话，请继续使用 /ss。",
+    "完整说明见 docs/native-sessions.md。",
   ],
 };
 

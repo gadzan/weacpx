@@ -54,7 +54,7 @@ export async function handleNativeSessionList(
 
   const listAgentSessions = context.transport.listAgentSessions;
   if (!listAgentSessions) {
-    return { text: "当前 transport 不支持列出本地会话，请继续使用 /ss。" };
+    return { text: "当前 transport 不支持列出本地会话，请继续使用 /ss。\n说明：/help ssn" };
   }
 
   const query: AgentSessionListQuery = {
@@ -72,7 +72,7 @@ export async function handleNativeSessionList(
     return { text: renderNativeListError(target, error) };
   }
   if (!result) {
-    return { text: "当前 transport 不支持列出本地会话，请继续使用 /ss。" };
+    return { text: "当前 transport 不支持列出本地会话，请继续使用 /ss。\n说明：/help ssn" };
   }
 
   await context.sessions.cacheNativeSessionList(chatKey, {
@@ -111,13 +111,13 @@ export async function handleNativeSessionSelect(
 ): Promise<RouterResponse> {
   const trimmed = identifier.trim();
   if (!trimmed) {
-    return { text: "请选择要切换的 native 会话编号或 sessionId。" };
+    return { text: "请选择要切换的 native 会话编号或 sessionId。\n说明：/help ssn" };
   }
 
   if (/^[0-9]+$/.test(trimmed)) {
     const cached = await context.sessions.getNativeSessionList(chatKey, NATIVE_SESSION_CACHE_TTL_MS);
     if (!cached || cached.sessions.length === 0) {
-      return { text: "当前没有可用的 native 会话列表，请先执行 /ssn 再选择。" };
+      return { text: "当前没有可用的 native 会话列表，请先执行 /ssn 再选择。\n说明：/help ssn" };
     }
 
     const index = Number(trimmed) - 1;
@@ -210,7 +210,7 @@ async function resolveNativeTarget(
   const agent = input.agent?.trim() || currentSession?.agent || "";
   if (!agent) {
     return {
-      text: "请先选择上下文，例如：\n/ssn codex --ws project\n/ssn codex -d /Users/me/project",
+      text: "请先选择上下文，例如：\n/ssn codex --ws project\n/ssn codex -d /Users/me/project\n说明：/help ssn",
     };
   }
 
@@ -313,7 +313,7 @@ async function resolveNativeWorkspace(
   }
 
   return {
-    text: "请先选择上下文，例如：\n/ssn codex --ws project\n/ssn codex -d /Users/me/project",
+    text: "请先选择上下文，例如：\n/ssn codex --ws project\n/ssn codex -d /Users/me/project\n说明：/help ssn",
   };
 }
 
@@ -365,6 +365,7 @@ function renderNativeSessionList(
 
   lines.push("切换：/ssn 1");
   lines.push("指定别名接入：/ssn attach <sessionId> -a fix-ci");
+  lines.push("说明：/help ssn");
   if (result.nextCursor) {
     lines.push(`更多：${renderNextPageCommand(target, result.nextCursor, includeAll)}`);
   }
@@ -421,6 +422,7 @@ function renderNativeListError(target: NativeTarget, error: unknown): string {
   return [
     `本地 ${target.agentDisplayName} 会话查询失败：${formatErrorMessage(error)}`,
     "请确认 acpx/Agent 支持 native 会话查询，或继续使用 /ss。",
+    "说明：/help ssn",
   ].join("\n");
 }
 
@@ -428,6 +430,7 @@ function renderNativeResumeError(target: NativeTarget, error: unknown): string {
   return [
     `本地 ${target.agentDisplayName} 会话接入失败：${formatErrorMessage(error)}`,
     "请确认 acpx/Agent 支持 native 会话恢复，或继续使用 /ss。",
+    "说明：/help ssn",
   ].join("\n");
 }
 

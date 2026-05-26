@@ -20,6 +20,7 @@ function renderHelpIndex(): string {
   return [
     "常用入口：",
     "- /ss <agent> (-d <path> | --ws <name>) - 快速新建或切到会话",
+    "- /ssn <agent> (-d <path> | --ws <name>) - 接入本地 Agent 原生会话",
     "- /use <alias> - 切换当前会话",
     "- /status - 查看当前会话状态",
     "",
@@ -28,7 +29,7 @@ function renderHelpIndex(): string {
     "",
     "查看专题说明：",
     "- /help <topic>",
-    "- 例如：/help ss、/help ws、/help pm",
+    "- 例如：/help ss、/help ssn、/help ws、/help pm",
   ].join("\n");
 }
 

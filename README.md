@@ -25,7 +25,7 @@
 
 `weacpx` 适合轻量临时使用多 Agent 办公的用户。你可以用微信、飞书或元宝盯任务、发指令、看结果，并在同一个聊天里管理多个会话。
 
-> `weacpx` 的会话是跟本地隔离的，它目前还不能使用 CLI 已有的会话，你在 weacpx 也无法看到本地的 CLI 会话记录。
+> 日常使用优先记 `/ss`：它负责创建或复用 weacpx 逻辑会话。如果你想接入本地 Codex 等 Agent 已有的原生会话，再用 `/ssn`；进阶说明见 [docs/native-sessions.md](./docs/native-sessions.md)。
 
 ## 5 分钟快速开始
 
@@ -305,6 +305,7 @@ opencode, qoder, qwen, trae
 | `/sessions` / `/session` / `/ss` | 查看会话列表 |
 | `/ss <agent> (-d <path> \| --ws <name>)` | 创建或复用当前最常用的会话 |
 | `/ss new <agent> (-d <path> \| --ws <name>)` | 强制新建会话 |
+| `/ssn <agent> (-d <path> \| --ws <name>)` | 接入本地已有的 Agent 原生会话，详见 [native sessions](./docs/native-sessions.md) |
 | `/use <alias>` | 切换当前会话 |
 | `/status` | 查看当前会话状态 |
 | `/mode` / `/mode <id>` | 查看或设置底层 `acpx` mode |
@@ -324,6 +325,8 @@ opencode, qoder, qwen, trae
 /use <alias>
 /cancel
 ```
+
+如果要接入本地 Codex 等 Agent 已有的原生会话，用 `/ssn codex -d /absolute/path/to/repo`；完整语义见 [docs/native-sessions.md](./docs/native-sessions.md)。
 
 ### 定时任务（/later）
 
@@ -477,6 +480,15 @@ Windows 上如果 MCP host 不会帮你解析带参数的 `command`，把 `node.
 /use backend:codex
 /use frontend:codex
 ```
+
+### 接入本地已有 Codex 原生会话
+
+```text
+/ssn codex -d /absolute/path/to/backend
+/ssn 1
+```
+
+更多筛选、别名和故障排查见 [docs/native-sessions.md](./docs/native-sessions.md)。
 
 ## 配置与运行文件
 

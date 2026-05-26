@@ -23,8 +23,10 @@ test("returns help text", async () => {
   const reply = await router.handle("wx:user", "/help");
 
   expect(reply.text).toContain("常用入口：");
+  expect(reply.text).toContain("/ssn <agent>");
   expect(reply.text).toContain("顶级命令：");
   expect(reply.text).toContain("- session -");
+  expect(reply.text).toContain("- native -");
   expect(reply.text).toContain("/help <topic>");
 });
 
@@ -50,6 +52,20 @@ test("returns topic help for permission aliases", async () => {
 
   expect(reply.text).toContain("帮助主题：permission");
   expect(reply.text).toContain("/pm set <allow|read|deny>");
+});
+
+test("returns topic help for native session aliases", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport);
+
+  const byAlias = await router.handle("wx:user", "/help ssn");
+  const byTopic = await router.handle("wx:user", "/help native");
+
+  expect(byAlias.text).toBe(byTopic.text);
+  expect(byAlias.text).toContain("帮助主题：native");
+  expect(byAlias.text).toContain("/ssn <agent> --ws <workspace>");
+  expect(byAlias.text).toContain("docs/native-sessions.md");
 });
 
 test("returns topic help for orchestration aliases", async () => {

@@ -18,6 +18,7 @@
 | 管理 agent | `/agents`、`/agent ...` |
 | 管理工作区 | `/workspaces`、`/workspace ...`、`/ws ...` |
 | 管理会话 | `/sessions`、`/session ...`、`/ss ...`、`/use ...` |
+| 接入本地 Agent 原生会话 | `/ssn ...`、`/ss attach native ...` |
 | 调整回复方式 | `/replymode ...` |
 | 调整 acpx mode | `/mode ...` |
 | 取消当前任务 | `/cancel`、`/stop` |
@@ -35,13 +36,14 @@
 | `/help` | 查看帮助主题列表和常用入口 |
 | `/help <topic>` | 查看某个主题的命令说明 |
 
-常用主题包括：`agent`、`workspace`、`session`、`replymode`、`mode`、`status`、`cancel`、`config`、`permission`、`orchestration`。
+常用主题包括：`agent`、`workspace`、`session`、`native`（或 `ssn`）、`replymode`、`mode`、`status`、`cancel`、`config`、`permission`、`orchestration`。
 
 示例：
 
 ```text
 /help
 /help ss
+/help ssn
 /help pm
 /help orchestration
 ```
@@ -141,23 +143,26 @@ Session 是你在微信里操作的逻辑会话。每个会话绑定一个 agent
 
 ### 接入本地 native 会话（Codex 等 Agent 原生会话）
 
-`/ss` 管 weacpx 逻辑会话；`/ssn` 管本地 native 会话。普通 `/ss codex --ws project` 仍然优先复用已有 weacpx 会话，不会自动枚举或接入新的 native 会话；如果这个逻辑会话本身是之前通过 `/ssn` 接入的 native 会话，`/ss` 会像复用普通会话一样切回它。裸 `/ssn` 会直接使用当前会话上下文；如果当前没有选中的会话，请改用 `/ssn codex --ws project` 或 `/ssn codex -d /Users/me/project` 先指定上下文。
+`/ss` 管 weacpx 逻辑会话；`/ssn` 管本地 native 会话。普通 `/ss codex --ws project` 不会自动枚举或接入新的 native 会话；如果这个逻辑会话本身是之前通过 `/ssn` 接入的 native 会话，`/ss` 会像复用普通会话一样切回它。
+
+裸 `/ssn` 会直接使用当前会话上下文；如果当前没有选中的会话，请改用 `/ssn codex --ws project` 或 `/ssn codex -d /Users/me/project` 先指定上下文。更完整的使用流程、`--all`、别名和排障见 [native-sessions.md](./native-sessions.md)。聊天内精简帮助可用 `/help ssn`。
 
 | 命令 | 说明 |
 |------|------|
 | `/ssn` | 查看当前上下文的本地 native 会话 |
-| `/ssn 1` | 接入或切换到列表第 1 个 native 会话 |
 | `/ssn codex --ws project` | 查询 project 工作区的本地 Codex 会话；只有一个候选时直接接入 |
 | `/ssn codex -d /Users/me/project` | 按路径查询本地 Codex 会话；只有一个候选时直接接入 |
+| `/ssn codex --ws project --all` | 跨 cwd 查询该 agent 的 native 会话 |
+| `/ssn 1` | 接入或切换到最近一次列表的第 1 个 native 会话 |
 | `/ssn attach <sessionId> -a fix-ci` | 用指定 weacpx 别名接入 native 会话 |
 | `/ss attach native <sessionId> -a fix-ci` | 上一条的长写法 |
 
 示例：
 
 ```text
-/ssn
-/ssn 1
 /ssn codex --ws project
+/ssn 1
+/ssn codex -d /Users/me/project
 /ssn attach 019e5d48 -a fix-ci
 ```
 

@@ -240,13 +240,15 @@ test("session help mentions /ssn native sessions", async () => {
   expect(reply.text).toContain("本地 native 会话");
 });
 
-test("session help alias ssn mentions /ssn native sessions", async () => {
+test("ssn help alias renders native session guidance", async () => {
   const { router } = buildRouter();
 
   const reply = await router.handle("wx:user", "/help ssn");
 
+  expect(reply.text).toContain("帮助主题：native");
   expect(reply.text).toContain("/ssn");
   expect(reply.text).toContain("本地 native 会话");
+  expect(reply.text).toContain("docs/native-sessions.md");
 });
 
 test("creates a session via the short alias and agent flag", async () => {
