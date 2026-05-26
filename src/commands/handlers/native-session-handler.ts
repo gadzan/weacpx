@@ -41,6 +41,7 @@ interface NativeCandidateEntry {
 }
 
 const NATIVE_SESSION_CACHE_TTL_MS = 10 * 60 * 1000;
+const WEIXIN_NATIVE_SESSION_TABLE_GROUP_SIZE = 5;
 
 export async function handleNativeSessionList(
   context: CommandRouterContext & { lifecycle: SessionLifecycleOps },
@@ -98,8 +99,13 @@ export async function handleNativeSessionList(
   }
 
   const attachedEntries = await buildAttachedEntries(context, chatKey, target.agent, result.sessions);
+  const nativeSessionListOptions = {
+    tableGroupSize: getChannelIdFromChatKey(chatKey) === "weixin"
+      ? WEIXIN_NATIVE_SESSION_TABLE_GROUP_SIZE
+      : undefined,
+  };
   return {
-    text: renderNativeSessionList(target, result, attachedEntries, Boolean(input.all)),
+    text: renderNativeSessionList(target, result, attachedEntries, Boolean(input.all), nativeSessionListOptions),
   };
 }
 
@@ -347,11 +353,18 @@ function renderNativeSessionList(
   result: AgentSessionListResult,
   entries: NativeCandidateEntry[],
   includeAll: boolean,
+  options: { tableGroupSize?: number } = {},
 ): string {
   const lines = [`本地 ${target.agentDisplayName} 会话（${target.workspaceLabel}）：`];
-  lines.push("| # | 标题 | 更新时间 | ID |");
-  lines.push("|---|---|---|---|");
+  const tableGroupSize = Math.max(1, Math.floor(options.tableGroupSize ?? entries.length));
   entries.forEach((entry, index) => {
+    if (index % tableGroupSize === 0) {
+      if (index > 0) {
+        lines.push("");
+      }
+      lines.push("| # | 标题 | 更新时间 | ID |");
+      lines.push("|---|---|---|---|");
+    }
     const title = escapeMarkdownTableCell(renderNativeSessionTitle(entry.session.title, entry.session.sessionId));
     const updatedAt = entry.session.updatedAt ? formatNativeSessionTime(entry.session.updatedAt) : "-";
     const idParts: string[] = [entry.session.sessionId];

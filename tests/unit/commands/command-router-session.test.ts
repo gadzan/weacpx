@@ -929,6 +929,46 @@ test("/ssn lists native sessions from the current session context", async () => 
   });
 });
 
+test("/ssn repeats table headers for long WeChat native session lists", async () => {
+  const { router, transport, config } = buildRouter();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
+    source: "agent",
+    sessions: Array.from({ length: 7 }, (_, index) => ({
+      sessionId: `thread-${index + 1}`,
+      cwd: "/tmp/project",
+      title: `修复一个很长的微信表格分页标题 ${index + 1}`,
+      updatedAt: "2026-05-26T01:00:00.000Z",
+    })),
+    nextCursor: null,
+  });
+
+  const reply = await router.handle("wx:user", "/ssn codex --ws project");
+
+  expect(reply.text?.match(/\| # \| 标题 \| 更新时间 \| ID \|/g)).toHaveLength(2);
+  expect(reply.text).toContain("| 6 | 修复一个很长的微信表格分页标题 6 |");
+});
+
+test("/ssn keeps one table header for long Feishu native session lists", async () => {
+  const { router, transport, config } = buildRouter();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
+    source: "agent",
+    sessions: Array.from({ length: 7 }, (_, index) => ({
+      sessionId: `thread-${index + 1}`,
+      cwd: "/tmp/project",
+      title: `修复一个很长的飞书表格分页标题 ${index + 1}`,
+      updatedAt: "2026-05-26T01:00:00.000Z",
+    })),
+    nextCursor: null,
+  });
+
+  const reply = await router.handle("feishu:default:oc_chat", "/ssn codex --ws project");
+
+  expect(reply.text?.match(/\| # \| 标题 \| 更新时间 \| ID \|/g)).toHaveLength(1);
+  expect(reply.text).toContain("| 7 | 修复一个很长的飞书表格分页标题 7 |");
+});
+
 test("/ssn preserves transport method this binding when listing native sessions", async () => {
   const config = createConfig();
   config.workspaces.project = { cwd: "/tmp/project" };
