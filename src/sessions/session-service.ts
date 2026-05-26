@@ -124,10 +124,10 @@ export class SessionService {
       input.transportSession,
       input.transportAgentCommand,
       {
-      source: "agent-side",
-      agentSessionId: input.agentSessionId,
-      title: input.title,
-      updatedAt: input.updatedAt,
+        source: "agent-side",
+        agentSessionId: input.agentSessionId,
+        title: input.title,
+        updatedAt: input.updatedAt,
       },
     );
   }
@@ -454,11 +454,11 @@ export class SessionService {
         agent,
         workspace,
         transport_session: transportSession,
-        source: native?.source ?? existingSession?.source,
-        agent_session_id: native?.agentSessionId ?? existingSession?.agent_session_id,
-        agent_session_title: native?.title ?? existingSession?.agent_session_title,
-        agent_session_updated_at: native?.updatedAt ?? existingSession?.agent_session_updated_at,
-        attached_at: native ? now : existingSession?.attached_at,
+        source: native?.source,
+        agent_session_id: native?.agentSessionId,
+        agent_session_title: native?.title ?? undefined,
+        agent_session_updated_at: native?.updatedAt,
+        attached_at: native ? now : undefined,
         ...(normalizedTransportAgentCommand
           ? { transport_agent_command: normalizedTransportAgentCommand }
           : existingSession?.transport_agent_command

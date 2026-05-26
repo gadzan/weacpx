@@ -441,6 +441,33 @@ test("stores a native transport agent command when attaching a native session", 
   );
 });
 
+test("clears native metadata when rewriting a native session as a normal logical session", async () => {
+  const config = createConfig();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  const state = createEmptyState();
+  const sessions = new SessionService(config, new MemoryStateStore(), state);
+
+  await sessions.attachNativeSession({
+    alias: "project:codex",
+    agent: "codex",
+    workspace: "project",
+    transportSession: "project:codex",
+    agentSessionId: "thread-1",
+    title: "Fix CI",
+  });
+
+  await sessions.attachSession("project:codex", "codex", "project", "project:codex-plain");
+
+  expect(state.sessions["project:codex"]).toMatchObject({
+    source: undefined,
+    agent_session_id: undefined,
+    agent_session_title: undefined,
+    agent_session_updated_at: undefined,
+    attached_at: undefined,
+  });
+  await expect(sessions.findAttachedNativeSession("wx:user", "codex", "thread-1")).resolves.toBeNull();
+});
+
 test("finds attached native sessions visible in the current channel", async () => {
   const config = createConfig();
   config.workspaces.project = { cwd: "/tmp/project" };
