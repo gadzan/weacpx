@@ -396,3 +396,101 @@ test("listAllResolvedSessions resolves all sessions, dedups by transport session
   expect(transportSessions).toEqual(["backend:api-fix", "backend:docs"]);
   expect(resolved.every((s) => s.cwd === "/tmp/backend")).toBe(true);
 });
+
+test("stores native metadata when attaching a native session", async () => {
+  const config = createConfig();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  const state = createEmptyState();
+  const sessions = new SessionService(config, new MemoryStateStore(), state);
+
+  await sessions.attachNativeSession({
+    alias: "project:codex",
+    agent: "codex",
+    workspace: "project",
+    transportSession: "project:codex",
+    agentSessionId: "thread-1",
+    title: "Fix CI",
+    updatedAt: "2026-05-26T01:00:00.000Z",
+  });
+
+  expect(state.sessions["project:codex"]).toMatchObject({
+    source: "agent-side",
+    agent_session_id: "thread-1",
+    agent_session_title: "Fix CI",
+    agent_session_updated_at: "2026-05-26T01:00:00.000Z",
+  });
+});
+
+test("stores a native transport agent command when attaching a native session", async () => {
+  const config = createConfig();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  const state = createEmptyState();
+  const sessions = new SessionService(config, new MemoryStateStore(), state);
+
+  await sessions.attachNativeSession({
+    alias: "project:codex",
+    agent: "codex",
+    workspace: "project",
+    transportSession: "project:codex",
+    transportAgentCommand: "npx @zed-industries/codex-acp@^0.9.5",
+    agentSessionId: "thread-1",
+  });
+
+  expect(state.sessions["project:codex"]?.transport_agent_command).toBe(
+    "npx @zed-industries/codex-acp@^0.9.5",
+  );
+});
+
+test("finds attached native sessions visible in the current channel", async () => {
+  const config = createConfig();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  const state = createEmptyState();
+  state.sessions["project:codex"] = {
+    alias: "project:codex",
+    agent: "codex",
+    workspace: "project",
+    transport_session: "project:codex",
+    source: "agent-side",
+    agent_session_id: "thread-1",
+    created_at: "2026-05-26T01:00:00.000Z",
+    last_used_at: "2026-05-26T01:00:00.000Z",
+  };
+  state.sessions["feishu:project:codex"] = {
+    alias: "feishu:project:codex",
+    agent: "codex",
+    workspace: "project",
+    transport_session: "feishu:project:codex",
+    source: "agent-side",
+    agent_session_id: "thread-2",
+    created_at: "2026-05-26T01:00:00.000Z",
+    last_used_at: "2026-05-26T01:00:00.000Z",
+  };
+  const sessions = new SessionService(config, new MemoryStateStore(), state);
+
+  await expect(sessions.findAttachedNativeSession("wx:user", "codex", "thread-1")).resolves.toMatchObject({
+    alias: "project:codex",
+    agentSessionId: "thread-1",
+  });
+  await expect(sessions.findAttachedNativeSession("wx:user", "codex", "thread-2")).resolves.toBeNull();
+});
+
+test("caches and expires native session lists", async () => {
+  const state = createEmptyState();
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), state, { now: () => 1_000 });
+
+  await sessions.cacheNativeSessionList("wx:user", {
+    agent: "codex",
+    workspace: "backend",
+    cwd: "/tmp/backend",
+    sessions: [{ sessionId: "thread-1", title: "Fix CI", cwd: "/tmp/backend" }],
+    nextCursor: null,
+  });
+
+  expect(await sessions.getNativeSessionList("wx:user", 10_000)).toMatchObject({
+    agent: "codex",
+    sessions: [{ sessionId: "thread-1", title: "Fix CI" }],
+  });
+
+  const expired = new SessionService(createConfig(), new MemoryStateStore(), state, { now: () => 20_000 });
+  expect(await expired.getNativeSessionList("wx:user", 10_000)).toBeNull();
+});

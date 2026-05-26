@@ -3,7 +3,7 @@ import type { AppConfig, WechatReplyMode } from "../config/types";
 import { AsyncMutex } from "../orchestration/async-mutex";
 import type { StateStore } from "../state/state-store";
 import type { AppState, LogicalSession } from "../state/types";
-import type { ResolvedSession } from "../transport/types";
+import type { AgentSession, ResolvedSession } from "../transport/types";
 import {
   buildDefaultTransportSession,
   getChannelIdFromChatKey,
@@ -20,12 +20,41 @@ interface SessionListItem {
   isCurrent: boolean;
 }
 
+interface NativeSessionAttachmentInput {
+  alias: string;
+  agent: string;
+  workspace: string;
+  transportSession: string;
+  transportAgentCommand?: string;
+  agentSessionId: string;
+  title?: string | null;
+  updatedAt?: string;
+}
+
+interface NativeSessionListInput {
+  agent: string;
+  workspace?: string;
+  cwd: string;
+  sessions: AgentSession[];
+  nextCursor?: string | null;
+}
+
+interface NativeSessionListResult {
+  agent: string;
+  workspace?: string;
+  cwd: string;
+  sessions: AgentSession[];
+  nextCursor?: string | null;
+}
+
 interface SessionServiceOptions {
   stateMutex?: AsyncMutex;
+  now?: () => number;
 }
 
 export class SessionService {
   private readonly stateMutex: AsyncMutex;
+  private readonly now: () => number;
 
   constructor(
     private readonly config: AppConfig,
@@ -34,6 +63,7 @@ export class SessionService {
     options: SessionServiceOptions = {},
   ) {
     this.stateMutex = options.stateMutex ?? new AsyncMutex();
+    this.now = options.now ?? (() => Date.now());
   }
 
   async createSession(alias: string, agent: string, workspace: string): Promise<ResolvedSession> {
@@ -86,6 +116,22 @@ export class SessionService {
     return await this.createLogicalSession(alias, agent, workspace, transportSession, transportAgentCommand);
   }
 
+  async attachNativeSession(input: NativeSessionAttachmentInput): Promise<ResolvedSession> {
+    return await this.createLogicalSession(
+      input.alias,
+      input.agent,
+      input.workspace,
+      input.transportSession,
+      input.transportAgentCommand,
+      {
+      source: "agent-side",
+      agentSessionId: input.agentSessionId,
+      title: input.title,
+      updatedAt: input.updatedAt,
+      },
+    );
+  }
+
   async getSession(alias: string): Promise<ResolvedSession | null> {
     const session = this.state.sessions[alias];
     if (!session) {
@@ -107,6 +153,27 @@ export class SessionService {
         (session) => session.alias === expectedAlias && session.workspace === expectedWorkspace,
       ) ?? matches[0];
     return preferred ? this.toResolvedSession(preferred) : null;
+  }
+
+  async findAttachedNativeSession(
+    chatKey: string,
+    agent: string,
+    agentSessionId: string,
+  ): Promise<ResolvedSession | null> {
+    const channelId = getChannelIdFromChatKey(chatKey);
+    for (const session of Object.values(this.state.sessions)) {
+      if (session.source !== "agent-side") {
+        continue;
+      }
+      if (session.agent !== agent || session.agent_session_id !== agentSessionId) {
+        continue;
+      }
+      if (!isSessionAliasVisibleInChannel(session.alias, channelId)) {
+        continue;
+      }
+      return this.toResolvedSession(session);
+    }
+    return null;
   }
 
   async useSession(chatKey: string, alias: string): Promise<void> {
@@ -255,6 +322,53 @@ export class SessionService {
     });
   }
 
+  async cacheNativeSessionList(chatKey: string, input: NativeSessionListInput): Promise<void> {
+    await this.mutate(async () => {
+      this.state.native_session_lists[chatKey] = {
+        created_at: new Date(this.now()).toISOString(),
+        agent: input.agent,
+        ...(input.workspace !== undefined ? { workspace: input.workspace } : {}),
+        cwd: input.cwd,
+        sessions: input.sessions.map((session) => ({
+          session_id: session.sessionId,
+          ...(session.cwd !== undefined ? { cwd: session.cwd } : {}),
+          ...(session.title !== undefined ? { title: session.title } : {}),
+          ...(session.updatedAt !== undefined ? { updated_at: session.updatedAt } : {}),
+        })),
+        ...(input.nextCursor !== undefined ? { next_cursor: input.nextCursor } : {}),
+      };
+      await this.persist();
+    });
+  }
+
+  async getNativeSessionList(chatKey: string, ttlMs = 10 * 60 * 1000): Promise<NativeSessionListResult | null> {
+    const cached = this.state.native_session_lists[chatKey];
+    if (!cached) {
+      return null;
+    }
+
+    const createdAt = Date.parse(cached.created_at);
+    if (Number.isNaN(createdAt)) {
+      return null;
+    }
+    if (this.now() - createdAt > ttlMs) {
+      return null;
+    }
+
+    return {
+      agent: cached.agent,
+      ...(cached.workspace !== undefined ? { workspace: cached.workspace } : {}),
+      cwd: cached.cwd,
+      sessions: cached.sessions.map((session) => ({
+        sessionId: session.session_id,
+        ...(session.cwd !== undefined ? { cwd: session.cwd } : {}),
+        ...(session.title !== undefined ? { title: session.title } : {}),
+        ...(session.updated_at !== undefined ? { updatedAt: session.updated_at } : {}),
+      })),
+      ...(cached.next_cursor !== undefined ? { nextCursor: cached.next_cursor } : {}),
+    };
+  }
+
   private toResolvedSession(session: LogicalSession): ResolvedSession {
     const agentConfig = this.config.agents[session.agent];
     if (!agentConfig) {
@@ -276,6 +390,11 @@ export class SessionService {
       agentCommand: session.transport_agent_command ?? resolveAgentCommand(agentConfig.driver, agentConfig.command),
       workspace: session.workspace,
       transportSession: session.transport_session,
+      source: session.source,
+      agentSessionId: session.agent_session_id,
+      agentSessionTitle: session.agent_session_title,
+      agentSessionUpdatedAt: session.agent_session_updated_at,
+      attachedAt: session.attached_at,
       modeId: session.mode_id,
       replyMode: session.reply_mode,
       cwd: workspaceConfig.cwd,
@@ -315,6 +434,12 @@ export class SessionService {
     workspace: string,
     transportSession: string,
     transportAgentCommand?: string,
+    native?: {
+      source?: LogicalSession["source"];
+      agentSessionId?: string;
+      title?: string | null;
+      updatedAt?: string;
+    },
   ): Promise<ResolvedSession> {
     return await this.mutate(async () => {
       this.validateSession(alias, agent, workspace);
@@ -322,13 +447,18 @@ export class SessionService {
         throw new Error(`transport session "${transportSession}" conflicts with an external coordinator`);
       }
       const existingSession = this.state.sessions[alias];
-      const now = new Date().toISOString();
+      const now = new Date(this.now()).toISOString();
       const normalizedTransportAgentCommand = transportAgentCommand?.trim();
       const session: LogicalSession = {
         alias,
         agent,
         workspace,
         transport_session: transportSession,
+        source: native?.source ?? existingSession?.source,
+        agent_session_id: native?.agentSessionId ?? existingSession?.agent_session_id,
+        agent_session_title: native?.title ?? existingSession?.agent_session_title,
+        agent_session_updated_at: native?.updatedAt ?? existingSession?.agent_session_updated_at,
+        attached_at: native ? now : existingSession?.attached_at,
         ...(normalizedTransportAgentCommand
           ? { transport_agent_command: normalizedTransportAgentCommand }
           : existingSession?.transport_agent_command
