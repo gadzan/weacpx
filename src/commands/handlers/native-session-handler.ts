@@ -349,21 +349,16 @@ function renderNativeSessionList(
   includeAll: boolean,
 ): string {
   const lines = [`本地 ${target.agentDisplayName} 会话（${target.workspaceLabel}）：`];
+  lines.push("| # | 标题 | 更新时间 | ID |");
+  lines.push("|---|---|---|---|");
   entries.forEach((entry, index) => {
-    const title = renderNativeSessionTitle(entry.session.title, entry.session.sessionId);
-    if (index > 0) {
-      lines.push("");
-    }
-    lines.push(`【${index + 1}】 ${title}`);
-    const detailParts: string[] = [];
-    detailParts.push(`ID: ${entry.session.sessionId}`);
+    const title = escapeMarkdownTableCell(renderNativeSessionTitle(entry.session.title, entry.session.sessionId));
+    const updatedAt = entry.session.updatedAt ? formatNativeSessionTime(entry.session.updatedAt) : "-";
+    const idParts: string[] = [entry.session.sessionId];
     if (entry.attached) {
-      detailParts.push(`已接入：${entry.attached.displayAlias}${entry.attached.isCurrent ? " [当前]" : ""}`);
+      idParts.push(`已接入：${entry.attached.displayAlias}${entry.attached.isCurrent ? " [当前]" : ""}`);
     }
-    if (entry.session.updatedAt) {
-      detailParts.push(entry.session.updatedAt);
-    }
-    lines.push(detailParts.join(" · "));
+    lines.push(`| ${index + 1} | ${title} | ${escapeMarkdownTableCell(updatedAt)} | ${escapeMarkdownTableCell(idParts.join(" · "))} |`);
   });
 
   lines.push("");
@@ -379,8 +374,21 @@ function renderNativeSessionList(
 
 function renderNativeSessionTitle(title: string | null | undefined, fallback: string): string {
   const normalized = (title?.trim() || fallback).replace(/\s+/g, " ");
-  const maxLength = 80;
+  const maxLength = 60;
   return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized;
+}
+
+function formatNativeSessionTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  const pad = (input: number) => String(input).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function escapeMarkdownTableCell(value: string): string {
+  return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 }
 
 function renderNextPageCommand(target: NativeTarget, nextCursor: string, includeAll: boolean): string {
