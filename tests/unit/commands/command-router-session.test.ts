@@ -867,3 +867,98 @@ test("/session use resolves display alias inside current channel", async () => {
   const current = await sessions.getCurrentSession("feishu:default:oc_chat");
   expect(current?.alias).toBe("feishu:backend:codex");
 });
+
+
+test("/ss keeps reusing existing logical sessions without listing native sessions", async () => {
+  const { router, transport, config } = buildRouter();
+  config.workspaces.project = { cwd: "/tmp/project" };
+
+  await router.handle("wx:user", "/ss codex --ws project");
+  const reply = await router.handle("wx:user", "/ss codex --ws project");
+
+  expect(reply.text).toContain("已切换到会话");
+  expect((transport.listAgentSessions as ReturnType<typeof mock>).mock.calls).toHaveLength(0);
+});
+
+test("/ssn lists native sessions from the current session context", async () => {
+  const { router, transport, config } = buildRouter();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
+    source: "agent",
+    sessions: [
+      { sessionId: "thread-1", cwd: "/tmp/project", title: "Fix CI", updatedAt: "2026-05-26T01:00:00.000Z" },
+    ],
+    nextCursor: null,
+  });
+
+  await router.handle("wx:user", "/ss codex --ws project");
+  const reply = await router.handle("wx:user", "/ssn");
+
+  expect(reply.text).toContain("本地 Codex 会话（project）");
+  expect(reply.text).toContain("1. Fix CI");
+  expect(reply.text).toContain("切换：/ssn 1");
+  expect(transport.listAgentSessions).toHaveBeenCalledWith({
+    agent: "codex",
+    cwd: "/tmp/project",
+    filterCwd: "/tmp/project",
+  });
+});
+
+test("/ssn explicit target auto-attaches a single native session", async () => {
+  const { router, transport, config, sessions } = buildRouter();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
+    source: "agent",
+    sessions: [{ sessionId: "thread-1", cwd: "/tmp/project", title: "Fix CI" }],
+  });
+
+  const reply = await router.handle("wx:user", "/ssn codex --ws project");
+
+  expect(reply.text).toContain("已接入本地 Codex 会话并切换");
+  expect(transport.resumeAgentSession).toHaveBeenCalledWith(
+    expect.objectContaining({ alias: "project:codex", transportSession: "project:codex" }),
+    "thread-1",
+  );
+  await expect(sessions.getCurrentSession("wx:user")).resolves.toMatchObject({
+    alias: "project:codex",
+    source: "agent-side",
+    agentSessionId: "thread-1",
+  });
+});
+
+test("/ssn caches multiple candidates and /ssn 1 attaches the cached item", async () => {
+  const { router, transport, config, sessions } = buildRouter();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
+    source: "agent",
+    sessions: [
+      { sessionId: "thread-1", cwd: "/tmp/project", title: "Fix CI" },
+      { sessionId: "thread-2", cwd: "/tmp/project", title: "Refactor" },
+    ],
+  });
+
+  const listReply = await router.handle("wx:user", "/ssn codex --ws project");
+  const attachReply = await router.handle("wx:user", "/ssn 2");
+
+  expect(listReply.text).toContain("1. Fix CI");
+  expect(listReply.text).toContain("2. Refactor");
+  expect(attachReply.text).toContain("已接入本地 Codex 会话并切换");
+  expect(transport.resumeAgentSession).toHaveBeenCalledWith(expect.any(Object), "thread-2");
+  await expect(sessions.getCurrentSession("wx:user")).resolves.toMatchObject({ agentSessionId: "thread-2" });
+});
+
+test("/ssn 1 switches to an already attached native session", async () => {
+  const { router, transport, config } = buildRouter();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
+    source: "agent",
+    sessions: [{ sessionId: "thread-1", cwd: "/tmp/project", title: "Fix CI" }],
+  });
+
+  await router.handle("wx:user", "/ssn codex --ws project");
+  await router.handle("wx:user", "/ssn");
+  const reply = await router.handle("wx:user", "/ssn 1");
+
+  expect(reply.text).toContain("已切换到已接入的本地会话");
+  expect((transport.resumeAgentSession as ReturnType<typeof mock>).mock.calls).toHaveLength(1);
+});

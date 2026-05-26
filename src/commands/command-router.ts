@@ -60,6 +60,7 @@ import { handleHelp } from "./handlers/help-handler";
 import { handleAgents, handleAgentAdd, handleAgentRemove } from "./handlers/agent-handler";
 import { handleWorkspaces, handleWorkspaceCreate, handleWorkspaceRemove } from "./handlers/workspace-handler";
 import { handleSessionShortcutCommand } from "./handlers/session-shortcut-handler";
+import { handleNativeSessionList, handleNativeSessionSelect } from "./handlers/native-session-handler";
 import { handleLaterHelp, handleLaterCreate, handleLaterList, handleLaterCancel } from "./handlers/later-handler";
 import { renderSessionCreationError, renderSessionCreationVerificationError, renderTransportError, tryRecoverMissingSession } from "./handlers/session-recovery-handler";
 import { autoInstallOptionalDep as defaultAutoInstall } from "../recovery/auto-install-optional-dep";
@@ -220,9 +221,11 @@ export class CommandRouter {
             command.transportSession,
           );
         case "session.native.list":
+          return await handleNativeSessionList(this.createSessionHandlerContext(undefined, perfSpan), chatKey, command);
         case "session.native.select":
+          return await handleNativeSessionSelect(this.createSessionHandlerContext(undefined, perfSpan), chatKey, command.identifier);
         case "session.native.attach":
-          return { text: "原生会话命令暂未接入。" };
+          return await handleNativeSessionSelect(this.createSessionHandlerContext(undefined, perfSpan), chatKey, command.identifier, command.alias);
         case "session.use":
           return await handleSessionUse(this.createSessionHandlerContext(undefined, perfSpan), chatKey, command.alias);
         case "mode.show":

@@ -139,6 +139,8 @@ export function createTransport(): SessionTransport {
       message: "cancelled",
     })),
     hasSession: mock(async () => true),
+    listAgentSessions: mock(async () => ({ source: "agent" as const, sessions: [] })),
+    resumeAgentSession: mock(async (_session: ResolvedSession, _agentSessionId: string) => {}),
     removeSession: mock(async (_session: ResolvedSession) => {}),
     updatePermissionPolicy: mock(async (_policy) => {}),
   };
