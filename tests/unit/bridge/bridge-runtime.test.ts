@@ -596,21 +596,29 @@ test("bridge runtime omitting toolEvents and toolEventMode defaults to 'text' mo
 
 test("bridge runtime lists and resumes native sessions", async () => {
   const calls: string[][] = [];
-  const runtime = new BridgeRuntime("acpx", async (_command, args) => {
-    calls.push(args);
-    if (args.includes("list")) {
-      return {
-        code: 0,
-        stdout: JSON.stringify({
-          source: "agent",
-          sessions: [{ sessionId: "thread-1", cwd: "/repo", title: "Fix CI" }],
-          nextCursor: null,
-        }),
-        stderr: "",
-      };
-    }
-    return { code: 0, stdout: "", stderr: "" };
-  });
+  const createCalls: Array<{ command: string; args: string[]; cwd: string }> = [];
+  const runtime = new BridgeRuntime(
+    "acpx",
+    async (_command, args) => {
+      calls.push(args);
+      if (args.includes("list")) {
+        return {
+          code: 0,
+          stdout: JSON.stringify({
+            source: "agent",
+            sessions: [{ sessionId: "thread-1", cwd: "/repo", title: "Fix CI" }],
+            nextCursor: null,
+          }),
+          stderr: "",
+        };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    },
+    async (command, args, cwd) => {
+      createCalls.push({ command, args, cwd });
+      return { code: 0, stdout: "", stderr: "" };
+    },
+  );
 
   await expect(runtime.listAgentSessions({
     agent: "codex",
@@ -634,9 +642,15 @@ test("bridge runtime lists and resumes native sessions", async () => {
       "--format", "json", "--cwd", "/repo", "--approve-all", "--non-interactive-permissions", "deny",
       "codex", "sessions", "list", "--filter-cwd", "/repo",
     ],
-    [
-      "--format", "quiet", "--cwd", "/repo", "--approve-all", "--non-interactive-permissions", "deny",
-      "codex", "sessions", "new", "--name", "project:codex", "--resume-session", "thread-1",
-    ],
+  ]);
+  expect(createCalls).toEqual([
+    {
+      command: "acpx",
+      args: [
+        "--format", "quiet", "--cwd", "/repo", "--approve-all", "--non-interactive-permissions", "deny",
+        "codex", "sessions", "new", "--name", "project:codex", "--resume-session", "thread-1",
+      ],
+      cwd: "/repo",
+    },
   ]);
 });

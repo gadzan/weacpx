@@ -578,6 +578,6 @@ test("bridge transport proxies native session methods", async () => {
 
   expect(requests).toEqual([
     { method: "listAgentSessions", params: { agent: "codex", cwd: "/repo", filterCwd: "/repo" } },
-    { method: "resumeAgentSession", params: { agent: "codex", agentCommand: undefined, cwd: "/repo", mcpCoordinatorSession: undefined, mcpSourceHandle: undefined, name: "project:codex", replyMode: "verbose", agentSessionId: "thread-1" } },
+    { method: "resumeAgentSession", params: { agent: "codex", cwd: "/repo", name: "project:codex", agentSessionId: "thread-1" } },
   ]);
 });

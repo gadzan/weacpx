@@ -43,17 +43,20 @@ export class AcpxBridgeTransport implements SessionTransport {
       lines,
     });
   }
+
   async listAgentSessions(query: AgentSessionListQuery): Promise<AgentSessionListResult | undefined> {
     return await this.client.request("listAgentSessions", { ...query });
   }
 
   async resumeAgentSession(session: ResolvedSession, agentSessionId: string): Promise<void> {
     await this.client.request("resumeAgentSession", {
-      ...this.toParams(session),
+      agent: session.agent,
+      ...(session.agentCommand ? { agentCommand: session.agentCommand } : {}),
+      cwd: session.cwd,
+      name: session.transportSession,
       agentSessionId,
     });
   }
-
 
   async prompt(
     session: ResolvedSession,
@@ -193,7 +196,6 @@ export class AcpxBridgeTransport implements SessionTransport {
     const result = await this.client.request<{ exists: boolean }>("hasSession", this.toParams(session));
     return result.exists;
   }
-
 
   async updatePermissionPolicy(policy: PermissionPolicy): Promise<void> {
     await this.client.request("updatePermissionPolicy", { ...policy });

@@ -184,7 +184,7 @@ export class BridgeRuntime {
       "--resume-session",
       input.agentSessionId,
     ], { format: "quiet" }));
-    const result = await this.run(spawnSpec.command, spawnSpec.args);
+    const result = await this.runSessionCreate(spawnSpec.command, spawnSpec.args, input.cwd);
     if (result.code !== 0) {
       throw new Error(result.stderr || result.stdout || "sessions resume failed");
     }
