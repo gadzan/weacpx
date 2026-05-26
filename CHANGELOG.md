@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.2] - 2026-05-26
+
+### Fixed
+
+- **交互回合补全聊天路由元数据（修复飞书/内置微信下 `scheduled_*` 工具与群主鉴权失效）：** 当前会话内部的 `scheduled_create` / `scheduled_list` / `scheduled_cancel` 工具以及群主命令鉴权依赖 daemon 记录的「协调会话聊天路由」中的 `chatType`，而该字段只来自频道在**交互回合**传给 `agent.chat` 的 `ChatRequestMetadata`。此前仅元宝插件在交互回合转发该元数据，飞书与内置微信只在定时回合设置、在交互回合丢弃，导致路由缺少 `chatType`，`scheduled_create` 报错 `requires current chat route metadata`，自然语言创建定时任务在这两个频道完全不可用。现飞书（新增 `buildFeishuRouteMetadata`，并把飞书 `chat_type` 的 `p2p` 归一为 `direct`）与内置微信（按 `group_id` 推导 `chatType`）均在交互回合补全 `chatType`/`senderId`/`groupId`，与元宝一致。飞书侧修复随 `@ganglion/weacpx-channel-feishu` `0.2.2` 一同发布。
+- **`scheduled_create` 默认使用临时会话（与 `/later` 一致）：** 工具描述原先写作「为当前会话创建定时任务」，诱导 agent 显式传 `mode: "bound"` 把任务绑定到正在使用的会话；实际创建路径早已默认 `temp`。重写工具与 `mode` 参数描述，使 agent 默认省略 `mode`（→ 临时会话：快照当前 agent 与工作区、对话历史全新、跑完即销毁，回复仍推回原聊天），仅当用户明确要求「在当前会话里执行」时才使用 `bound`。
+
+### Changed
+
+- **queue owner MCP server 改名 `weacpx-orchestration` → `weacpx`：** 注入给 acpx 当前会话 queue owner 的 stdio MCP server 名称改为 `weacpx`，工具前缀因此由 `mcp__weacpx-orchestration__*` 变为 `mcp__weacpx__*`（例如 `mcp__weacpx__scheduled_create`、`mcp__weacpx__delegate_request`），与外部协调器 MCP 命名统一，也不再把定时任务工具误归入 orchestration。该 server 每次发 prompt 前临时启动、无持久化配置引用，无需迁移。
+
+### Docs
+
+- 新增 agent 侧原生会话 UX 设计文档（`docs/2026-05-26-agent-side-native-session-ux-design.md`）；`config-reference.md` 的「orchestration MCP 自动注入」小节更新为新命名与工具前缀示例。
+
 ## [0.5.1] - 2026-05-25
 
 ### Added
