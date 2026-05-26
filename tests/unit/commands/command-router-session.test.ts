@@ -945,6 +945,45 @@ test("/ssn explicit target auto-attaches a single native session", async () => {
   });
 });
 
+test("/ssn avoids clobbering an existing transport session owned by another alias", async () => {
+  const { router, transport, config, sessions } = buildRouter();
+  config.workspaces.project = { cwd: "/tmp/project" };
+
+  await router.handle("wx:user", "/session new codex --agent codex --ws project");
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
+    source: "agent",
+    sessions: [{ sessionId: "thread-1", cwd: "/tmp/project", title: "Fix CI" }],
+  });
+
+  const reply = await router.handle("wx:user", "/ssn codex --ws project");
+
+  expect(reply.text).toContain("已接入本地 Codex 会话并切换");
+  expect(transport.resumeAgentSession).toHaveBeenCalledWith(
+    expect.objectContaining({ alias: "project:codex-2", transportSession: "project:codex-2" }),
+    "thread-1",
+  );
+  await expect(sessions.getCurrentSession("wx:user")).resolves.toMatchObject({
+    alias: "project:codex-2",
+    source: "agent-side",
+    agentSessionId: "thread-1",
+  });
+});
+
+test("/ssn with only an agent lists a single candidate instead of auto-attaching", async () => {
+  const { router, transport, config } = buildRouter();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  await router.handle("wx:user", "/ss codex --ws project");
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
+    source: "agent",
+    sessions: [{ sessionId: "thread-1", cwd: "/tmp/project", title: "Fix CI" }],
+  });
+
+  const reply = await router.handle("wx:user", "/ssn codex");
+
+  expect(reply.text).toContain("1. Fix CI");
+  expect(transport.resumeAgentSession).not.toHaveBeenCalled();
+});
+
 test("/ssn caches multiple candidates and /ssn 1 attaches the cached item", async () => {
   const { router, transport, config, sessions } = buildRouter();
   config.workspaces.project = { cwd: "/tmp/project" };
@@ -1004,6 +1043,53 @@ test("/ssn renders a direct cwd next page command for explicit cwd lists", async
   }
 });
 
+test("/ssn --all preserves all scope in next page commands", async () => {
+  const { router, transport, config } = buildRouter();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
+    source: "agent",
+    sessions: [
+      { sessionId: "thread-1", cwd: "/tmp/project", title: "Fix CI" },
+      { sessionId: "thread-2", cwd: "/tmp/other", title: "Other" },
+    ],
+    nextCursor: "cursor-2",
+  });
+
+  const reply = await router.handle("wx:user", "/ssn codex --ws project --all");
+
+  expect(reply.text).toContain("更多：/ssn codex --ws project --all --cursor cursor-2");
+  expect(transport.listAgentSessions).toHaveBeenCalledWith({
+    agent: "codex",
+    cwd: "/tmp/project",
+  });
+});
+
+test("/ssn --all cached selection resumes using the selected candidate cwd", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-native-all-"));
+  const { router, transport, config } = buildRouter();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
+    source: "agent",
+    sessions: [
+      { sessionId: "thread-1", cwd: "/tmp/project", title: "Fix CI" },
+      { sessionId: "thread-2", cwd: dir, title: "Other repo" },
+    ],
+  });
+
+  try {
+    await router.handle("wx:user", "/ssn codex --ws project --all");
+    const reply = await router.handle("wx:user", "/ssn 2");
+
+    expect(reply.text).toContain("已接入本地 Codex 会话并切换");
+    expect(transport.resumeAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({ cwd: normalizeWorkspacePath(dir) }),
+      "thread-2",
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("/ssn 1 switches to an already attached native session", async () => {
   const { router, transport, config } = buildRouter();
   config.workspaces.project = { cwd: "/tmp/project" };
@@ -1045,6 +1131,28 @@ test("/ssn 1 switch response renders display alias for scoped channels", async (
   expect((transport.resumeAgentSession as ReturnType<typeof mock>).mock.calls).toHaveLength(1);
 });
 
+
+test("/ssn renders friendly messages for native list and resume failures", async () => {
+  const { router, transport, config } = buildRouter();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockRejectedValueOnce(new Error("list unsupported"));
+
+  const listReply = await router.handle("wx:user", "/ssn codex --ws project");
+
+  expect(listReply.text).toContain("本地 Codex 会话查询失败：list unsupported");
+  expect(listReply.text).toContain("继续使用 /ss");
+
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
+    source: "agent",
+    sessions: [{ sessionId: "thread-1", cwd: "/tmp/project", title: "Fix CI" }],
+  });
+  (transport.resumeAgentSession as ReturnType<typeof mock>).mockRejectedValueOnce(new Error("resume unsupported"));
+
+  const resumeReply = await router.handle("wx:user", "/ssn codex --ws project");
+
+  expect(resumeReply.text).toContain("本地 Codex 会话接入失败：resume unsupported");
+  expect(resumeReply.text).toContain("继续使用 /ss");
+});
 
 test("/ssn clears stale cached native sessions after an empty list response", async () => {
   const { router, transport, config } = buildRouter();

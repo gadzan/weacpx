@@ -141,7 +141,7 @@ Session 是你在微信里操作的逻辑会话。每个会话绑定一个 agent
 
 ### 接入本地 native 会话（Codex 等 Agent 原生会话）
 
-`/ss` 管 weacpx 逻辑会话；`/ssn` 管本地 native 会话。普通 `/ss codex --ws project` 仍然优先复用已有 weacpx 会话，不会自动切到 native 会话。裸 `/ssn` 会直接使用当前会话上下文；如果当前没有选中的会话，请改用 `/ssn codex --ws project` 或 `/ssn codex -d /Users/me/project` 先指定上下文。
+`/ss` 管 weacpx 逻辑会话；`/ssn` 管本地 native 会话。普通 `/ss codex --ws project` 仍然优先复用已有 weacpx 会话，不会自动枚举或接入新的 native 会话；如果这个逻辑会话本身是之前通过 `/ssn` 接入的 native 会话，`/ss` 会像复用普通会话一样切回它。裸 `/ssn` 会直接使用当前会话上下文；如果当前没有选中的会话，请改用 `/ssn codex --ws project` 或 `/ssn codex -d /Users/me/project` 先指定上下文。
 
 | 命令 | 说明 |
 |------|------|

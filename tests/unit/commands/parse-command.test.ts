@@ -158,6 +158,16 @@ test("rejects native session list flags with missing values", () => {
 });
 
 test("rejects native session attach flags with missing or flag-like values", () => {
+  expect(parseCommand("/ssn attach")).toEqual({
+    kind: "invalid",
+    text: "/ssn attach",
+    recognizedCommand: "/ssn",
+  });
+  expect(parseCommand("/ss attach native")).toEqual({
+    kind: "invalid",
+    text: "/ss attach native",
+    recognizedCommand: "/session",
+  });
   expect(parseCommand("/ssn attach --alias")).toEqual({
     kind: "invalid",
     text: "/ssn attach --alias",

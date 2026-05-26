@@ -136,7 +136,10 @@ export function parseCommand(input: string): ParsedCommand {
       return { kind: "session.native.select", identifier };
     }
 
-    if (parts[1] === "attach" && parts[2]) {
+    if (parts[1] === "attach") {
+      if (!parts[2]) {
+        return { kind: "invalid", text: trimmed, recognizedCommand: "/ssn" };
+      }
       const attached = readNativeAttachCommand(parts, 2);
       if (attached) {
         return attached;
@@ -157,7 +160,10 @@ export function parseCommand(input: string): ParsedCommand {
     }
     return { kind: "invalid", text: trimmed, recognizedCommand: "/session" };
   }
-  if (command === "/session" && parts[1] === "attach" && parts[2] === "native" && parts[3]) {
+  if (command === "/session" && parts[1] === "attach" && parts[2] === "native") {
+    if (!parts[3]) {
+      return { kind: "invalid", text: trimmed, recognizedCommand: "/session" };
+    }
     const attached = readNativeAttachCommand(parts, 3);
     if (attached) {
       return attached;

@@ -65,7 +65,12 @@ export async function handleNativeSessionList(
     ...(input.all ? {} : { filterCwd: target.cwd }),
   };
 
-  const result = await listAgentSessions(query);
+  let result: AgentSessionListResult | undefined;
+  try {
+    result = await listAgentSessions(query);
+  } catch (error) {
+    return { text: renderNativeListError(target, error) };
+  }
   if (!result) {
     return { text: "当前 transport 不支持列出本地会话，请继续使用 /ss。" };
   }
@@ -87,14 +92,14 @@ export async function handleNativeSessionList(
     };
   }
 
-  const explicitTarget = Boolean(input.agent || input.workspace || input.cwd);
-  if (explicitTarget && !input.all && !input.cursor && result.sessions.length === 1) {
+  const explicitAttachTarget = Boolean(input.workspace || input.cwd);
+  if (explicitAttachTarget && !input.all && !input.cursor && result.sessions.length === 1) {
     return await attachNativeSession(context, chatKey, target, result.sessions[0]!, undefined);
   }
 
   const attachedEntries = await buildAttachedEntries(context, chatKey, target.agent, result.sessions);
   return {
-    text: renderNativeSessionList(target, result, attachedEntries),
+    text: renderNativeSessionList(target, result, attachedEntries, Boolean(input.all)),
   };
 }
 
@@ -121,7 +126,7 @@ export async function handleNativeSessionSelect(
       return { text: "编号超出范围，请先执行 /ssn 重新获取列表。" };
     }
 
-    const target = await resolveTargetFromCachedList(context, chatKey, cached);
+    const target = await resolveTargetFromCachedSession(context, chatKey, cached, session);
     if (isRouterResponse(target)) {
       return target;
     }
@@ -153,7 +158,7 @@ async function attachNativeSession(
     await context.sessions.useSession(chatKey, existing.alias);
     const displayAlias = toDisplaySessionAlias(existing.alias);
     return {
-      text: `已切换到已接入的本地会话：${nativeTarget.agentDisplayName} · ${displayAlias}${existing.alias === (await context.sessions.getCurrentSession(chatKey))?.alias ? " [当前]" : ""}`,
+      text: `已切换到已接入的本地会话：${nativeTarget.agentDisplayName} · ${displayAlias}`,
     };
   }
 
@@ -165,7 +170,11 @@ async function attachNativeSession(
   const releaseReservation = await context.lifecycle.reserveTransportSession(resolvedSession.transportSession);
 
   try {
-    await context.transport.resumeAgentSession(resolvedSession, session.sessionId);
+    try {
+      await context.transport.resumeAgentSession(resolvedSession, session.sessionId);
+    } catch (error) {
+      return { text: renderNativeResumeError(target, error) };
+    }
     const verified = await context.lifecycle.checkTransportSession(resolvedSession);
     if (!verified) {
       return { text: `本地 ${target.agentDisplayName} 会话接入失败：未检测到已恢复的后端会话。` };
@@ -226,15 +235,22 @@ async function resolveNativeTarget(
   };
 }
 
-async function resolveTargetFromCachedList(
+async function resolveTargetFromCachedSession(
   context: CommandRouterContext,
   chatKey: string,
   cached: CachedNativeSessionList,
+  session: AgentSession,
 ): Promise<NativeTarget | RouterResponse> {
+  if (session.cwd && !sameWorkspacePath(session.cwd, cached.cwd)) {
+    return await resolveNativeTarget(context, chatKey, {
+      agent: cached.agent,
+      cwd: session.cwd,
+    });
+  }
+
   return await resolveNativeTarget(context, chatKey, {
     agent: cached.agent,
-    workspace: cached.workspace,
-    cwd: cached.cwd,
+    ...(cached.workspace ? { workspace: cached.workspace } : { cwd: cached.cwd }),
   });
 }
 
@@ -330,6 +346,7 @@ function renderNativeSessionList(
   target: NativeTarget,
   result: AgentSessionListResult,
   entries: NativeCandidateEntry[],
+  includeAll: boolean,
 ): string {
   const lines = [`本地 ${target.agentDisplayName} 会话（${target.workspaceLabel}）：`];
   entries.forEach((entry, index) => {
@@ -349,16 +366,17 @@ function renderNativeSessionList(
   lines.push("切换：/ssn 1");
   lines.push("指定别名接入：/ssn attach <sessionId> -a fix-ci");
   if (result.nextCursor) {
-    lines.push(`更多：${renderNextPageCommand(target, result.nextCursor)}`);
+    lines.push(`更多：${renderNextPageCommand(target, result.nextCursor, includeAll)}`);
   }
   return lines.join("\n");
 }
 
-function renderNextPageCommand(target: NativeTarget, nextCursor: string): string {
-  if (target.source === "workspace" && target.workspace) {
-    return `/ssn ${target.agent} --ws ${target.workspace} --cursor ${nextCursor}`;
-  }
-  return `/ssn ${target.agent} -d ${target.cwd} --cursor ${nextCursor}`;
+function renderNextPageCommand(target: NativeTarget, nextCursor: string, includeAll: boolean): string {
+  const scope = target.source === "workspace" && target.workspace
+    ? `--ws ${target.workspace}`
+    : `-d ${target.cwd}`;
+  const allFlag = includeAll ? " --all" : "";
+  return `/ssn ${target.agent} ${scope}${allFlag} --cursor ${nextCursor}`;
 }
 
 async function allocateUniqueNativeAlias(
@@ -369,14 +387,17 @@ async function allocateUniqueNativeAlias(
   const visible = await context.sessions.listSessions(chatKey);
   const existing = new Set(visible.map((session) => session.internalAlias));
   const base = baseDisplayAlias.trim() || "native-session";
-  let candidate = base;
+  const transportFor = (candidate: string) => context.sessions.buildDefaultTransportSessionForChat(chatKey, candidate);
+  const isFree = (candidate: string) =>
+    !existing.has(scopeAliasForChannel(chatKey, candidate)) &&
+    context.sessions.countAliasesSharingTransport(transportFor(candidate)) === 0;
 
-  if (!existing.has(scopeAliasForChannel(chatKey, candidate))) {
-    return candidate;
+  if (isFree(base)) {
+    return base;
   }
 
   let suffix = 2;
-  while (existing.has(scopeAliasForChannel(chatKey, `${base}-${suffix}`))) {
+  while (!isFree(`${base}-${suffix}`)) {
     suffix += 1;
   }
   return `${base}-${suffix}`;
@@ -394,6 +415,24 @@ async function refreshAgentCommandBestEffort(
       error: error instanceof Error ? error.message : String(error),
     });
   }
+}
+
+function renderNativeListError(target: NativeTarget, error: unknown): string {
+  return [
+    `本地 ${target.agentDisplayName} 会话查询失败：${formatErrorMessage(error)}`,
+    "请确认 acpx/Agent 支持 native 会话查询，或继续使用 /ss。",
+  ].join("\n");
+}
+
+function renderNativeResumeError(target: NativeTarget, error: unknown): string {
+  return [
+    `本地 ${target.agentDisplayName} 会话接入失败：${formatErrorMessage(error)}`,
+    "请确认 acpx/Agent 支持 native 会话恢复，或继续使用 /ss。",
+  ].join("\n");
+}
+
+function formatErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function scopeAliasForChannel(chatKey: string, displayAlias: string): string {
