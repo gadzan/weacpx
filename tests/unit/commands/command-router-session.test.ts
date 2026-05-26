@@ -915,9 +915,12 @@ test("/ssn lists native sessions from the current session context", async () => 
   const reply = await router.handle("wx:user", "/ssn");
 
   expect(reply.text).toContain("本地 Codex 会话（project）");
-  expect(reply.text).toContain("1. Fix CI");
-  expect(reply.text).toContain("切换：/ssn 1");
-  expect(reply.text).toContain("指定别名接入：/ssn attach <sessionId> -a fix-ci");
+  expect(reply.text).toContain("【1】 Fix CI");
+  expect(reply.text).toContain("ID: thread-1 · 2026-05-26T01:00:00.000Z");
+  expect(reply.text).toContain("接入：/ssn 1");
+  expect(reply.text).toContain("指定别名：/ssn attach <sessionId> -a fix-ci");
+  expect(reply.text).not.toContain("1. Fix CI");
+  expect(reply.text).not.toContain("   thread-1");
   expect(transport.listAgentSessions).toHaveBeenCalledWith({
     agent: "codex",
     cwd: "/tmp/project",
@@ -1013,7 +1016,7 @@ test("/ssn with only an agent lists a single candidate instead of auto-attaching
 
   const reply = await router.handle("wx:user", "/ssn codex");
 
-  expect(reply.text).toContain("1. Fix CI");
+  expect(reply.text).toContain("【1】 Fix CI");
   expect(transport.resumeAgentSession).not.toHaveBeenCalled();
 });
 
@@ -1050,8 +1053,8 @@ test("/ssn caches multiple candidates and /ssn 1 attaches the cached item", asyn
   const listReply = await router.handle("wx:user", "/ssn codex --ws project");
   const attachReply = await router.handle("wx:user", "/ssn 2");
 
-  expect(listReply.text).toContain("1. Fix CI");
-  expect(listReply.text).toContain("2. Refactor");
+  expect(listReply.text).toContain("【1】 Fix CI");
+  expect(listReply.text).toContain("【2】 Refactor");
   expect(attachReply.text).toContain("已接入本地 Codex 会话并切换");
   expect(transport.resumeAgentSession).toHaveBeenCalledWith(expect.any(Object), "thread-2");
   await expect(sessions.getCurrentSession("wx:user")).resolves.toMatchObject({ agentSessionId: "thread-2" });
@@ -1236,7 +1239,7 @@ test("/ssn clears stale cached native sessions after an empty list response", as
   const emptyReply = await router.handle("wx:user", "/ssn codex --ws project");
   const selectReply = await router.handle("wx:user", "/ssn 1");
 
-  expect(firstReply.text).toContain("1. Fix CI");
+  expect(firstReply.text).toContain("【1】 Fix CI");
   expect(emptyReply.text).toContain("没有找到本地 Codex 会话");
   expect(selectReply.text).toContain("当前没有可用的 native 会话列表");
   expect(transport.resumeAgentSession).not.toHaveBeenCalled();

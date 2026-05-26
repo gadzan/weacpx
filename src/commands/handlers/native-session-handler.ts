@@ -350,26 +350,37 @@ function renderNativeSessionList(
 ): string {
   const lines = [`本地 ${target.agentDisplayName} 会话（${target.workspaceLabel}）：`];
   entries.forEach((entry, index) => {
-    const title = (entry.session.title?.trim() || entry.session.sessionId).trim();
-    lines.push(`${index + 1}. ${title}`);
+    const title = renderNativeSessionTitle(entry.session.title, entry.session.sessionId);
+    if (index > 0) {
+      lines.push("");
+    }
+    lines.push(`【${index + 1}】 ${title}`);
     const detailParts: string[] = [];
-    detailParts.push(entry.session.sessionId);
+    detailParts.push(`ID: ${entry.session.sessionId}`);
     if (entry.attached) {
       detailParts.push(`已接入：${entry.attached.displayAlias}${entry.attached.isCurrent ? " [当前]" : ""}`);
     }
     if (entry.session.updatedAt) {
       detailParts.push(entry.session.updatedAt);
     }
-    lines.push(`   ${detailParts.join(" · ")}`);
+    lines.push(detailParts.join(" · "));
   });
 
-  lines.push("切换：/ssn 1");
-  lines.push("指定别名接入：/ssn attach <sessionId> -a fix-ci");
+  lines.push("");
+  lines.push("操作：");
+  lines.push("接入：/ssn 1");
+  lines.push("指定别名：/ssn attach <sessionId> -a fix-ci");
   lines.push("说明：/help ssn");
   if (result.nextCursor) {
     lines.push(`更多：${renderNextPageCommand(target, result.nextCursor, includeAll)}`);
   }
   return lines.join("\n");
+}
+
+function renderNativeSessionTitle(title: string | null | undefined, fallback: string): string {
+  const normalized = (title?.trim() || fallback).replace(/\s+/g, " ");
+  const maxLength = 80;
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized;
 }
 
 function renderNextPageCommand(target: NativeTarget, nextCursor: string, includeAll: boolean): string {
