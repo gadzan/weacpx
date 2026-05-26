@@ -984,6 +984,25 @@ test("/ssn with only an agent lists a single candidate instead of auto-attaching
   expect(transport.resumeAgentSession).not.toHaveBeenCalled();
 });
 
+test("/ssn attach by raw session id uses the requested alias", async () => {
+  const { router, transport, config, sessions } = buildRouter();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  await router.handle("wx:user", "/ss codex --ws project");
+
+  const reply = await router.handle("wx:user", "/ssn attach thread-raw -a fix-ci");
+
+  expect(reply.text).toContain("已接入本地 Codex 会话并切换");
+  expect(transport.resumeAgentSession).toHaveBeenCalledWith(
+    expect.objectContaining({ alias: "fix-ci", transportSession: "fix-ci" }),
+    "thread-raw",
+  );
+  await expect(sessions.getCurrentSession("wx:user")).resolves.toMatchObject({
+    alias: "fix-ci",
+    source: "agent-side",
+    agentSessionId: "thread-raw",
+  });
+});
+
 test("/ssn caches multiple candidates and /ssn 1 attaches the cached item", async () => {
   const { router, transport, config, sessions } = buildRouter();
   config.workspaces.project = { cwd: "/tmp/project" };
