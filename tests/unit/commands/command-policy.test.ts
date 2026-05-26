@@ -49,6 +49,13 @@ test("command policy lets prompt pass in group for non-owner", () => {
   expect(authorizeCommandForChat(parseCommand("hello world"), { chatType: "group", isOwner: false })).toEqual({ allowed: true });
 });
 
+test("command policy blocks native session commands for non-owner group members", () => {
+  expect(authorizeCommandForChat(parseCommand("/ssn"), { chatType: "group", isOwner: false })).toMatchObject({ allowed: false });
+  expect(authorizeCommandForChat(parseCommand("/ssn attach 1"), { chatType: "group", isOwner: false })).toMatchObject({ allowed: false });
+  expect(renderCommandAccessDenied(parseCommand("/ssn"))).toContain("/ssn");
+  expect(renderCommandAccessDenied(parseCommand("/ssn attach 1"))).toContain("/ssn attach");
+});
+
 test("command policy lets invalid (recognized command with bad args) pass in group for non-owner", () => {
   expect(authorizeCommandForChat(parseCommand("/session"), { chatType: "group", isOwner: false })).toEqual({ allowed: true });
   expect(authorizeCommandForChat(parseCommand("/permission bad"), { chatType: "group", isOwner: false })).toMatchObject({ allowed: true });

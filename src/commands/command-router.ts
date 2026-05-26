@@ -219,6 +219,10 @@ export class CommandRouter {
             command.workspace,
             command.transportSession,
           );
+        case "session.native.list":
+        case "session.native.select":
+        case "session.native.attach":
+          return { text: "原生会话命令暂未接入。" };
         case "session.use":
           return await handleSessionUse(this.createSessionHandlerContext(undefined, perfSpan), chatKey, command.alias);
         case "mode.show":
@@ -531,13 +535,10 @@ export class CommandRouter {
     chatKey: string,
     kind: string,
     startedAt: number,
-    operation: () => Promise<RouterResponse | undefined>,
+    operation: () => Promise<RouterResponse>,
   ): Promise<RouterResponse> {
     try {
       const response = await operation();
-      if (!response) {
-        throw new Error(`command "${kind}" did not return a response`);
-      }
       await this.logger.info("command.completed", "completed command handling", {
         chatKey,
         kind,
