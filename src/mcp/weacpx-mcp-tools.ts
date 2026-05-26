@@ -381,16 +381,18 @@ export function buildWeacpxMcpToolRegistry(input: {
     tools.push({
       name: "scheduled_create",
       description:
-        "Create a one-shot scheduled task for the current conversation session using the recorded chat route. Provide only the time expression and message; routing/session/account details are resolved by weacpx.",
+        "Schedule a one-shot task to run a natural-language message at a future time, using the recorded chat route. By default — and like /later — the task runs in a FRESH TEMPORARY session (it snapshots the current agent and workspace but starts with brand-new history and is destroyed after running, so it does not pollute this conversation); the reply is still pushed back to this chat. Provide only timeText and message and OMIT mode to get this default. Routing, session, and account are resolved by weacpx.",
       inputSchema: z
         .object({
           timeText: z
             .string()
             .min(1)
             .describe("Time expression, e.g. 'in 2h', '30分钟后', 'tomorrow 09:00', or '周五 09:00'."),
-          message: z.string().min(1).describe("Natural-language message to send to the current session at the scheduled time."),
+          message: z.string().min(1).describe("Natural-language message to run at the scheduled time."),
           mode: scheduledModeSchema
-            .describe("'temp' creates a temporary one-shot session; 'bound' sends to the current bound session.")
+            .describe(
+              "Optional; leave UNSET for the default temporary session (recommended). Set 'bound' ONLY when the user explicitly asks for the task to run inside this conversation's current session and share its context. 'temp' forces the temporary session.",
+            )
             .optional(),
         })
         .strict(),
