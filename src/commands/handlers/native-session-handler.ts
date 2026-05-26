@@ -150,8 +150,9 @@ async function attachNativeSession(
   const existing = await context.sessions.findAttachedNativeSession(chatKey, nativeTarget.agent, session.sessionId);
   if (existing) {
     await context.sessions.useSession(chatKey, existing.alias);
+    const displayAlias = toDisplaySessionAlias(existing.alias);
     return {
-      text: `已切换到已接入的本地会话：${nativeTarget.agentDisplayName} · ${existing.alias}${existing.alias === (await context.sessions.getCurrentSession(chatKey))?.alias ? " [当前]" : ""}`,
+      text: `已切换到已接入的本地会话：${nativeTarget.agentDisplayName} · ${displayAlias}${existing.alias === (await context.sessions.getCurrentSession(chatKey))?.alias ? " [当前]" : ""}`,
     };
   }
 
@@ -342,9 +343,16 @@ function renderNativeSessionList(
   lines.push("切换：/ssn 1");
   lines.push("指定别名接入：/ssn attach <sessionId> -a fix-ci");
   if (result.nextCursor) {
-    lines.push(`更多：/ssn --cursor ${result.nextCursor}`);
+    lines.push(`更多：${renderNextPageCommand(target, result.nextCursor)}`);
   }
   return lines.join("\n");
+}
+
+function renderNextPageCommand(target: NativeTarget, nextCursor: string): string {
+  if (target.workspace) {
+    return `/ssn ${target.agent} --ws ${target.workspace} --cursor ${nextCursor}`;
+  }
+  return `/ssn ${target.agent} -d ${target.cwd} --cursor ${nextCursor}`;
 }
 
 async function allocateUniqueNativeAlias(

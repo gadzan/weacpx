@@ -966,6 +966,23 @@ test("/ssn caches multiple candidates and /ssn 1 attaches the cached item", asyn
   await expect(sessions.getCurrentSession("wx:user")).resolves.toMatchObject({ agentSessionId: "thread-2" });
 });
 
+test("/ssn renders a context-preserving next page command for explicit workspace lists", async () => {
+  const { router, transport, config } = buildRouter();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
+    source: "agent",
+    sessions: [
+      { sessionId: "thread-1", cwd: "/tmp/project", title: "Fix CI" },
+      { sessionId: "thread-2", cwd: "/tmp/project", title: "Refactor" },
+    ],
+    nextCursor: "cursor-2",
+  });
+
+  const reply = await router.handle("wx:user", "/ssn codex --ws project");
+
+  expect(reply.text).toContain("更多：/ssn codex --ws project --cursor cursor-2");
+});
+
 test("/ssn 1 switches to an already attached native session", async () => {
   const { router, transport, config } = buildRouter();
   config.workspaces.project = { cwd: "/tmp/project" };
@@ -983,6 +1000,27 @@ test("/ssn 1 switches to an already attached native session", async () => {
   const reply = await router.handle("wx:user", "/ssn 1");
 
   expect(reply.text).toContain("已切换到已接入的本地会话");
+  expect((transport.resumeAgentSession as ReturnType<typeof mock>).mock.calls).toHaveLength(1);
+});
+
+test("/ssn 1 switch response renders display alias for scoped channels", async () => {
+  const { router, transport, config } = buildRouter();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
+    source: "agent",
+    sessions: [{ sessionId: "thread-1", cwd: "/tmp/project", title: "Fix CI" }],
+  });
+
+  await router.handle("feishu:default:oc_chat", "/ssn codex --ws project");
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
+    source: "agent",
+    sessions: [{ sessionId: "thread-1", cwd: "/tmp/project", title: "Fix CI" }],
+  });
+  await router.handle("feishu:default:oc_chat", "/ssn");
+  const reply = await router.handle("feishu:default:oc_chat", "/ssn 1");
+
+  expect(reply.text).toContain("已切换到已接入的本地会话：Codex · project:codex");
+  expect(reply.text).not.toContain("feishu:project:codex");
   expect((transport.resumeAgentSession as ReturnType<typeof mock>).mock.calls).toHaveLength(1);
 });
 
