@@ -27,7 +27,7 @@ const MAX_SESSION_TAIL_LINES = 500;
 
 export const sessionHelp: HelpTopicMetadata = {
   topic: "session",
-  aliases: ["ss", "sessions"],
+  aliases: ["ss", "ssn", "sessions"],
   summary: "创建、恢复、切换和重置逻辑会话。",
   commands: [
     { usage: "/sessions", description: "查看当前会话列表" },
