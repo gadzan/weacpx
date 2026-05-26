@@ -983,6 +983,27 @@ test("/ssn renders a context-preserving next page command for explicit workspace
   expect(reply.text).toContain("更多：/ssn codex --ws project --cursor cursor-2");
 });
 
+test("/ssn renders a direct cwd next page command for explicit cwd lists", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-native-page-"));
+  const { router, transport } = buildRouter();
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
+    source: "agent",
+    sessions: [
+      { sessionId: "thread-1", cwd: dir, title: "Fix CI" },
+      { sessionId: "thread-2", cwd: dir, title: "Refactor" },
+    ],
+    nextCursor: "cursor-2",
+  });
+
+  try {
+    const reply = await router.handle("wx:user", `/ssn codex -d ${dir}`);
+
+    expect(reply.text).toContain(`更多：/ssn codex -d ${normalizeWorkspacePath(dir)} --cursor cursor-2`);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("/ssn 1 switches to an already attached native session", async () => {
   const { router, transport, config } = buildRouter();
   config.workspaces.project = { cwd: "/tmp/project" };

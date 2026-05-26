@@ -20,6 +20,7 @@ interface NativeTarget {
   workspace: string;
   workspaceLabel: string;
   cwd: string;
+  source: "workspace" | "cwd";
 }
 
 interface CachedNativeSessionList {
@@ -221,6 +222,7 @@ async function resolveNativeTarget(
     workspace: workspaceResolution.workspace,
     workspaceLabel: workspaceResolution.workspaceLabel,
     cwd: workspaceResolution.cwd,
+    source: workspaceResolution.source,
   };
 }
 
@@ -240,7 +242,7 @@ async function resolveNativeWorkspace(
   context: CommandRouterContext,
   input: NativeSessionListCommand,
   currentSession: ResolvedSession | null,
-): Promise<{ workspace: string; workspaceLabel: string; cwd: string } | RouterResponse> {
+): Promise<{ workspace: string; workspaceLabel: string; cwd: string; source: "workspace" | "cwd" } | RouterResponse> {
   if (input.workspace) {
     const workspaceConfig = context.config?.workspaces[input.workspace];
     if (!workspaceConfig) {
@@ -250,6 +252,7 @@ async function resolveNativeWorkspace(
       workspace: input.workspace,
       workspaceLabel: input.workspace,
       cwd: workspaceConfig.cwd,
+      source: "workspace",
     };
   }
 
@@ -261,6 +264,7 @@ async function resolveNativeWorkspace(
         workspace: existing[0],
         workspaceLabel: existing[0],
         cwd: existing[1].cwd,
+        source: "cwd",
       };
     }
 
@@ -279,6 +283,7 @@ async function resolveNativeWorkspace(
       workspace: workspaceName,
       workspaceLabel: workspaceName,
       cwd,
+      source: "cwd",
     };
   }
 
@@ -287,6 +292,7 @@ async function resolveNativeWorkspace(
       workspace: currentSession.workspace,
       workspaceLabel: currentSession.workspace,
       cwd: currentSession.cwd,
+      source: "workspace",
     };
   }
 
@@ -349,7 +355,7 @@ function renderNativeSessionList(
 }
 
 function renderNextPageCommand(target: NativeTarget, nextCursor: string): string {
-  if (target.workspace) {
+  if (target.source === "workspace" && target.workspace) {
     return `/ssn ${target.agent} --ws ${target.workspace} --cursor ${nextCursor}`;
   }
   return `/ssn ${target.agent} -d ${target.cwd} --cursor ${nextCursor}`;
@@ -396,7 +402,7 @@ function scopeAliasForChannel(chatKey: string, displayAlias: string): string {
   return channelId === "weixin" ? normalized : `${channelId}:${normalized}`;
 }
 
-function isRouterResponse(value: RouterResponse | NativeTarget | { workspace: string; workspaceLabel: string; cwd: string }): value is RouterResponse {
+function isRouterResponse(value: RouterResponse | NativeTarget | { workspace: string; workspaceLabel: string; cwd: string; source: "workspace" | "cwd" }): value is RouterResponse {
   return typeof (value as RouterResponse).text === "string";
 }
 
