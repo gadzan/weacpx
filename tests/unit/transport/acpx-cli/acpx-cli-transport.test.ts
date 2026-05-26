@@ -327,6 +327,32 @@ test("resumes an agent-side session using sessions new --resume-session", async 
   expect(runPty).not.toHaveBeenCalled();
 });
 
+test("uses PTY when resuming an alias-based session", async () => {
+  const run = mock(async () => ({ code: 0, stdout: "", stderr: "" }));
+  const runPty = mock(async () => ({ code: 0, stdout: "", stderr: "" }));
+  const transport = new AcpxCliTransport({ command: "acpx" }, run, runPty);
+
+  await transport.resumeAgentSession(aliasSession, "thread-1");
+
+  expect(run).not.toHaveBeenCalled();
+  expect(runPty).toHaveBeenCalledWith("acpx", [
+    "--format",
+    "quiet",
+    "--cwd",
+    "/tmp/backend",
+    "--approve-all",
+    "--non-interactive-permissions",
+    "deny",
+    "codex",
+    "sessions",
+    "new",
+    "--name",
+    "backend:api-fix",
+    "--resume-session",
+    "thread-1",
+  ], expect.objectContaining({ timeoutMs: 120_000 }));
+});
+
 test("tails session history by invoking sessions history quiet", async () => {
   const run = mock(async () => ({ code: 0, stdout: "history", stderr: "" }));
   const transport = new AcpxCliTransport({ command: "acpx" }, run);

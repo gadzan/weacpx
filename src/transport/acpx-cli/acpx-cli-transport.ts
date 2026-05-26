@@ -336,14 +336,16 @@ export class AcpxCliTransport implements SessionTransport {
   }
 
   async resumeAgentSession(session: ResolvedSession, agentSessionId: string): Promise<void> {
-    await this.run(this.buildArgs(session, [
+    const args = this.buildArgs(session, [
       "sessions",
       "new",
       "--name",
       session.transportSession,
       "--resume-session",
       agentSessionId,
-    ]), {
+    ]);
+    const runResume = session.agentCommand ? this.run : this.runWithPty;
+    await runResume.call(this, args, {
       timeoutMs: this.sessionInitTimeoutMs,
     });
   }
