@@ -897,6 +897,7 @@ test("/ssn lists native sessions from the current session context", async () => 
   expect(reply.text).toContain("本地 Codex 会话（project）");
   expect(reply.text).toContain("1. Fix CI");
   expect(reply.text).toContain("切换：/ssn 1");
+  expect(reply.text).toContain("指定别名接入：/ssn attach <sessionId> -a fix-ci");
   expect(transport.listAgentSessions).toHaveBeenCalledWith({
     agent: "codex",
     cwd: "/tmp/project",
@@ -956,9 +957,39 @@ test("/ssn 1 switches to an already attached native session", async () => {
   });
 
   await router.handle("wx:user", "/ssn codex --ws project");
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
+    source: "agent",
+    sessions: [{ sessionId: "thread-1", cwd: "/tmp/project", title: "Fix CI" }],
+  });
   await router.handle("wx:user", "/ssn");
   const reply = await router.handle("wx:user", "/ssn 1");
 
   expect(reply.text).toContain("已切换到已接入的本地会话");
   expect((transport.resumeAgentSession as ReturnType<typeof mock>).mock.calls).toHaveLength(1);
+});
+
+
+test("/ssn clears stale cached native sessions after an empty list response", async () => {
+  const { router, transport, config } = buildRouter();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
+    source: "agent",
+    sessions: [
+      { sessionId: "thread-1", cwd: "/tmp/project", title: "Fix CI" },
+      { sessionId: "thread-2", cwd: "/tmp/project", title: "Refactor" },
+    ],
+  });
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
+    source: "agent",
+    sessions: [],
+  });
+
+  const firstReply = await router.handle("wx:user", "/ssn codex --ws project");
+  const emptyReply = await router.handle("wx:user", "/ssn codex --ws project");
+  const selectReply = await router.handle("wx:user", "/ssn 1");
+
+  expect(firstReply.text).toContain("1. Fix CI");
+  expect(emptyReply.text).toContain("没有找到本地 Codex 会话");
+  expect(selectReply.text).toContain("当前没有可用的 native 会话列表");
+  expect(transport.resumeAgentSession).not.toHaveBeenCalled();
 });

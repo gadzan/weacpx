@@ -69,15 +69,13 @@ export async function handleNativeSessionList(
     return { text: "当前 transport 不支持列出本地会话，请继续使用 /ss。" };
   }
 
-  if (result.sessions.length > 0) {
-    await context.sessions.cacheNativeSessionList(chatKey, {
-      agent: target.agent,
-      workspace: target.workspace,
-      cwd: target.cwd,
-      sessions: result.sessions,
-      ...(result.nextCursor !== undefined ? { nextCursor: result.nextCursor } : {}),
-    });
-  }
+  await context.sessions.cacheNativeSessionList(chatKey, {
+    agent: target.agent,
+    workspace: target.workspace,
+    cwd: target.cwd,
+    sessions: result.sessions,
+    ...(result.nextCursor !== undefined ? { nextCursor: result.nextCursor } : {}),
+  });
 
   if (result.sessions.length === 0) {
     return {
@@ -342,6 +340,7 @@ function renderNativeSessionList(
   });
 
   lines.push("切换：/ssn 1");
+  lines.push("指定别名接入：/ssn attach <sessionId> -a fix-ci");
   if (result.nextCursor) {
     lines.push(`更多：/ssn --cursor ${result.nextCursor}`);
   }
