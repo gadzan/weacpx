@@ -27,6 +27,8 @@ const BRIDGE_METHODS = new Set<BridgeMethod>([
   "hasSession",
   "ensureSession",
   "tailSessionHistory",
+  "listAgentSessions",
+  "resumeAgentSession",
   "prompt",
   "setMode",
   "cancel",
@@ -37,6 +39,7 @@ const SESSION_SCOPED_METHODS = new Set<BridgeMethod>([
   "hasSession",
   "ensureSession",
   "tailSessionHistory",
+  "resumeAgentSession",
   "prompt",
   "setMode",
   "cancel",
@@ -137,6 +140,14 @@ export class BridgeServer {
           name: requireString(params, "name"),
           lines: requirePositiveInt(params, "lines"),
         });
+      case "listAgentSessions":
+        return await this.runtime.listAgentSessions({
+          agent: requireString(params, "agent"),
+          agentCommand: asOptionalString(params.agentCommand),
+          cwd: requireString(params, "cwd"),
+          cursor: asOptionalString(params.cursor),
+          filterCwd: asOptionalString(params.filterCwd),
+        });
       case "ensureSession":
         return await this.runtime.ensureSession({
           agent: requireString(params, "agent"),
@@ -196,6 +207,14 @@ export class BridgeServer {
               text: event.text,
             }));
           }
+        });
+      case "resumeAgentSession":
+        return await this.runtime.resumeAgentSession({
+          agent: requireString(params, "agent"),
+          agentCommand: asOptionalString(params.agentCommand),
+          cwd: requireString(params, "cwd"),
+          name: requireString(params, "name"),
+          agentSessionId: requireString(params, "agentSessionId"),
         });
       case "setMode":
         return await this.runtime.setMode({

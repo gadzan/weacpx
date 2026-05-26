@@ -1,4 +1,6 @@
 import type {
+  AgentSessionListQuery,
+  AgentSessionListResult,
   EnsureSessionProgress,
   EnsureSessionProgressStage,
   PermissionPolicy,
@@ -41,6 +43,17 @@ export class AcpxBridgeTransport implements SessionTransport {
       lines,
     });
   }
+  async listAgentSessions(query: AgentSessionListQuery): Promise<AgentSessionListResult | undefined> {
+    return await this.client.request("listAgentSessions", { ...query });
+  }
+
+  async resumeAgentSession(session: ResolvedSession, agentSessionId: string): Promise<void> {
+    await this.client.request("resumeAgentSession", {
+      ...this.toParams(session),
+      agentSessionId,
+    });
+  }
+
 
   async prompt(
     session: ResolvedSession,

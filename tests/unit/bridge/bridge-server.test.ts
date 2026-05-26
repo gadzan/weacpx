@@ -1524,3 +1524,24 @@ test("updates bridge runtime permission policy for later commands", async () => 
     "hello",
   ]]);
 });
+
+
+test("handles native session bridge methods over ndjson", async () => {
+  const runtime = {
+    listAgentSessions: async (input: Record<string, unknown>) => ({ source: "agent", sessions: [{ sessionId: "thread:" + String(input.agent) }] }),
+    resumeAgentSession: async () => ({}),
+  } as unknown as BridgeRuntime;
+  const server = new BridgeServer(runtime);
+
+  await expect(server.handleLine(JSON.stringify({
+    id: "native-list-1",
+    method: "listAgentSessions",
+    params: { agent: "codex", cwd: "/repo", filterCwd: "/repo" },
+  }))).resolves.toBe('{"id":"native-list-1","ok":true,"result":{"source":"agent","sessions":[{"sessionId":"thread:codex"}]}}\n' );
+
+  await expect(server.handleLine(JSON.stringify({
+    id: "native-resume-1",
+    method: "resumeAgentSession",
+    params: { agent: "codex", cwd: "/repo", name: "project:codex", agentSessionId: "thread-1" },
+  }))).resolves.toBe('{"id":"native-resume-1","ok":true,"result":{}}\n' );
+});

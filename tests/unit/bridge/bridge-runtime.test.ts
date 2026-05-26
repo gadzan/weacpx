@@ -592,3 +592,51 @@ test("bridge runtime omitting toolEvents and toolEventMode defaults to 'text' mo
 
   expect(capturedToolEventMode).toBe("text");
 });
+
+
+test("bridge runtime lists and resumes native sessions", async () => {
+  const calls: string[][] = [];
+  const runtime = new BridgeRuntime("acpx", async (_command, args) => {
+    calls.push(args);
+    if (args.includes("list")) {
+      return {
+        code: 0,
+        stdout: JSON.stringify({
+          source: "agent",
+          sessions: [{ sessionId: "thread-1", cwd: "/repo", title: "Fix CI" }],
+          nextCursor: null,
+        }),
+        stderr: "",
+      };
+    }
+    return { code: 0, stdout: "", stderr: "" };
+  });
+
+  await expect(runtime.listAgentSessions({
+    agent: "codex",
+    cwd: "/repo",
+    filterCwd: "/repo",
+  })).resolves.toEqual({
+    source: "agent",
+    sessions: [{ sessionId: "thread-1", cwd: "/repo", title: "Fix CI" }],
+    nextCursor: null,
+  });
+
+  await expect(runtime.resumeAgentSession({
+    agent: "codex",
+    cwd: "/repo",
+    name: "project:codex",
+    agentSessionId: "thread-1",
+  })).resolves.toEqual({});
+
+  expect(calls).toEqual([
+    [
+      "--format", "json", "--cwd", "/repo", "--approve-all", "--non-interactive-permissions", "deny",
+      "codex", "sessions", "list", "--filter-cwd", "/repo",
+    ],
+    [
+      "--format", "quiet", "--cwd", "/repo", "--approve-all", "--non-interactive-permissions", "deny",
+      "codex", "sessions", "new", "--name", "project:codex", "--resume-session", "thread-1",
+    ],
+  ]);
+});

@@ -16,7 +16,7 @@ import type {
   EnsureSessionProgress,
   MissingOptionalDepErrorData,
 } from "../transport/acpx-bridge/acpx-bridge-protocol";
-import type { PromptMediaInput } from "../transport/types";
+import type { AgentSessionListResult, PromptMediaInput } from "../transport/types";
 import type { ToolEventMode } from "../transport/tool-event-mode.js";
 import type { ToolUseEvent } from "../channels/types.js";
 
@@ -133,6 +133,61 @@ export class BridgeRuntime {
     this.options.permissionMode = policy.permissionMode;
     this.options.nonInteractivePermissions = policy.nonInteractivePermissions;
     this.options.permissionPolicy = policy.permissionPolicy;
+    return {};
+  }
+
+  async listAgentSessions(input: {
+    agent: string;
+    agentCommand?: string;
+    cwd: string;
+    cursor?: string;
+    filterCwd?: string;
+  }): Promise<AgentSessionListResult | undefined> {
+    const spawnSpec = resolveSpawnCommand(this.command, this.buildSessionArgs(input, [
+      "sessions",
+      "list",
+      ...(input.filterCwd ? ["--filter-cwd", input.filterCwd] : []),
+      ...(input.cursor ? ["--cursor", input.cursor] : []),
+    ], { format: "json" }));
+    const result = await this.run(spawnSpec.command, spawnSpec.args);
+
+    if (result.code !== 0) {
+      if ((result.stdout + result.stderr).includes("sessionCapabilities.list")) {
+        return undefined;
+      }
+      throw new Error(result.stderr || result.stdout || `sessions list failed with exit code ${result.code}`);
+    }
+
+    try {
+      const parsed = JSON.parse(result.stdout) as unknown;
+      if (!isBridgeAgentSessionListResult(parsed)) {
+        return undefined;
+      }
+      return parsed;
+    } catch {
+      throw new Error("failed to parse acpx sessions list output");
+    }
+  }
+
+  async resumeAgentSession(input: {
+    agent: string;
+    agentCommand?: string;
+    cwd: string;
+    name: string;
+    agentSessionId: string;
+  }): Promise<Record<string, never>> {
+    const spawnSpec = resolveSpawnCommand(this.command, this.buildSessionArgs(input, [
+      "sessions",
+      "new",
+      "--name",
+      input.name,
+      "--resume-session",
+      input.agentSessionId,
+    ], { format: "quiet" }));
+    const result = await this.run(spawnSpec.command, spawnSpec.args);
+    if (result.code !== 0) {
+      throw new Error(result.stderr || result.stdout || "sessions resume failed");
+    }
     return {};
   }
 
@@ -444,14 +499,14 @@ export class BridgeRuntime {
       agent: string;
       agentCommand?: string;
       cwd: string;
-      name: string;
+      name?: string;
     },
     tail: string[],
-    options: { verbose?: boolean } = {},
+    options: { verbose?: boolean; format?: "quiet" | "json" } = {},
   ): string[] {
     const prefix: string[] = [
       "--format",
-      "quiet",
+      options.format ?? "quiet",
       "--cwd",
       input.cwd,
       ...this.buildPermissionArgs(),
@@ -741,4 +796,15 @@ function isMissingBridgeSessionError(stderr: string, stdout: string): boolean {
     combined.includes("unknown session") ||
     combined.includes("no acpx session found")
   );
+}
+
+function isBridgeAgentSessionListResult(value: unknown): value is AgentSessionListResult {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (record.source !== "agent" || !Array.isArray(record.sessions)) return false;
+  return record.sessions.every((session) => {
+    if (!session || typeof session !== "object" || Array.isArray(session)) return false;
+    const item = session as Record<string, unknown>;
+    return typeof item.sessionId === "string";
+  });
 }

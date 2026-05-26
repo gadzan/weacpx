@@ -550,3 +550,34 @@ test("first onThought handler error wins when multiple handlers throw", async ()
     }),
   ).rejects.toThrow("error-1");
 });
+
+
+test("bridge transport proxies native session methods", async () => {
+  const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const transport = new AcpxBridgeTransport({
+    request: async (method, params) => {
+      requests.push({ method, params });
+      if (method === "listAgentSessions") {
+        return { source: "agent", sessions: [{ sessionId: "thread-1" }] };
+      }
+      return {};
+    },
+  });
+
+  await expect(transport.listAgentSessions?.({ agent: "codex", cwd: "/repo", filterCwd: "/repo" })).resolves.toEqual({
+    source: "agent",
+    sessions: [{ sessionId: "thread-1" }],
+  });
+  await transport.resumeAgentSession?.({
+    alias: "project:codex",
+    agent: "codex",
+    workspace: "project",
+    transportSession: "project:codex",
+    cwd: "/repo",
+  }, "thread-1");
+
+  expect(requests).toEqual([
+    { method: "listAgentSessions", params: { agent: "codex", cwd: "/repo", filterCwd: "/repo" } },
+    { method: "resumeAgentSession", params: { agent: "codex", agentCommand: undefined, cwd: "/repo", mcpCoordinatorSession: undefined, mcpSourceHandle: undefined, name: "project:codex", replyMode: "verbose", agentSessionId: "thread-1" } },
+  ]);
+});

@@ -7,6 +7,8 @@ export type BridgeMethod =
   | "ensureSession"
   | "hasSession"
   | "tailSessionHistory"
+  | "listAgentSessions"
+  | "resumeAgentSession"
   | "prompt"
   | "setMode"
   | "cancel"
