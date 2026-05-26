@@ -251,6 +251,82 @@ test("uses the normal command runner for setMode", async () => {
   expect(runPty).not.toHaveBeenCalled();
 });
 
+test("lists agent-side sessions through acpx json output", async () => {
+  const run = mock(async () => ({
+    code: 0,
+    stdout: JSON.stringify({
+      source: "agent",
+      sessions: [{ sessionId: "thread-1", cwd: "/tmp/backend", title: "Fix CI", updatedAt: "2026-05-26T01:00:00.000Z" }],
+      nextCursor: null,
+      cwd: "/tmp/backend",
+    }),
+    stderr: "",
+  }));
+  const transport = new AcpxCliTransport({ command: "acpx" }, run);
+
+  await expect(transport.listAgentSessions?.({
+    agent: "codex",
+    agentCommand: "./node_modules/.bin/codex-acp",
+    cwd: "/tmp/backend",
+    filterCwd: "/tmp/backend",
+  })).resolves.toEqual({
+    source: "agent",
+    sessions: [{ sessionId: "thread-1", cwd: "/tmp/backend", title: "Fix CI", updatedAt: "2026-05-26T01:00:00.000Z" }],
+    nextCursor: null,
+    cwd: "/tmp/backend",
+  });
+
+  expect(run).toHaveBeenCalledWith("acpx", [
+    "--format",
+    "json",
+    "--cwd",
+    "/tmp/backend",
+    "--approve-all",
+    "--non-interactive-permissions",
+    "deny",
+    "--agent",
+    "./node_modules/.bin/codex-acp",
+    "sessions",
+    "list",
+    "--filter-cwd",
+    "/tmp/backend",
+  ], expect.objectContaining({ timeoutMs: 120_000 }));
+});
+
+test("returns undefined when acpx falls back to local session records", async () => {
+  const run = mock(async () => ({ code: 0, stdout: "[]", stderr: "" }));
+  const transport = new AcpxCliTransport({ command: "acpx" }, run);
+
+  await expect(transport.listAgentSessions?.({ agent: "codex", cwd: "/tmp/backend" })).resolves.toBeUndefined();
+});
+
+test("resumes an agent-side session using sessions new --resume-session", async () => {
+  const run = mock(async () => ({ code: 0, stdout: "", stderr: "" }));
+  const runPty = mock(async () => ({ code: 0, stdout: "", stderr: "" }));
+  const transport = new AcpxCliTransport({ command: "acpx" }, run, runPty);
+
+  await transport.resumeAgentSession?.(session, "thread-1");
+
+  expect(run).toHaveBeenCalledWith("acpx", [
+    "--format",
+    "quiet",
+    "--cwd",
+    "/tmp/backend",
+    "--approve-all",
+    "--non-interactive-permissions",
+    "deny",
+    "--agent",
+    "./node_modules/.bin/codex-acp",
+    "sessions",
+    "new",
+    "--name",
+    "backend:api-fix",
+    "--resume-session",
+    "thread-1",
+  ], expect.objectContaining({ timeoutMs: 120_000 }));
+  expect(runPty).not.toHaveBeenCalled();
+});
+
 test("tails session history by invoking sessions history quiet", async () => {
   const run = mock(async () => ({ code: 0, stdout: "history", stderr: "" }));
   const transport = new AcpxCliTransport({ command: "acpx" }, run);

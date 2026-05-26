@@ -6,6 +6,8 @@ import { resolveSpawnCommand } from "../../process/spawn-command";
 import type { NonInteractivePermissions, PermissionMode } from "../../config/types";
 import type { ToolUseEvent } from "../../channels/types.js";
 import type {
+  AgentSessionListQuery,
+  AgentSessionListResult,
   EnsureSessionProgress,
   PermissionPolicy,
   PromptOptions,
@@ -207,6 +209,34 @@ export class AcpxCliTransport implements SessionTransport {
     });
   }
 
+  async listAgentSessions(query: AgentSessionListQuery): Promise<AgentSessionListResult | undefined> {
+    const args = this.buildAgentQueryArgs(query, "json", [
+      "sessions",
+      "list",
+      ...(query.filterCwd ? ["--filter-cwd", query.filterCwd] : []),
+      ...(query.cursor ? ["--cursor", query.cursor] : []),
+    ]);
+    const result = await this.runCommandWithTimeout(this.runCommand, args, {
+      timeoutMs: this.sessionInitTimeoutMs,
+    });
+    if (result.code !== 0) {
+      if ((result.stdout + result.stderr).includes("sessionCapabilities.list")) {
+        return undefined;
+      }
+      const detail = normalizeCommandError(result) ?? `command failed with exit code ${result.code}`;
+      throw new Error(detail);
+    }
+    try {
+      const parsed = JSON.parse(result.stdout) as unknown;
+      if (!isAgentSessionListResult(parsed)) {
+        return undefined;
+      }
+      return parsed;
+    } catch {
+      throw new Error("failed to parse acpx sessions list output");
+    }
+  }
+
   async tailSessionHistory(session: ResolvedSession, lines: number): Promise<{ text: string }> {
     const candidates = [
       ["sessions", "history", "quiet", "-s", session.transportSession, String(lines)],
@@ -303,6 +333,19 @@ export class AcpxCliTransport implements SessionTransport {
       cancelled: true,
       message: output.trim(),
     };
+  }
+
+  async resumeAgentSession(session: ResolvedSession, agentSessionId: string): Promise<void> {
+    await this.run(this.buildArgs(session, [
+      "sessions",
+      "new",
+      "--name",
+      session.transportSession,
+      "--resume-session",
+      agentSessionId,
+    ]), {
+      timeoutMs: this.sessionInitTimeoutMs,
+    });
   }
 
 
@@ -607,6 +650,14 @@ export class AcpxCliTransport implements SessionTransport {
     return [...prefix, session.agent, ...tail];
   }
 
+  private buildAgentQueryArgs(query: AgentSessionListQuery, format: "json" | "quiet", tail: string[]): string[] {
+    const prefix = ["--format", format, "--cwd", query.cwd, ...this.buildPermissionArgs()];
+    if (query.agentCommand) {
+      return [...prefix, "--agent", query.agentCommand, ...tail];
+    }
+    return [...prefix, query.agent, ...tail];
+  }
+
   private buildPromptArgs(session: ResolvedSession, text: string, promptFile?: string): string[] {
     const prefix = [
       "--format",
@@ -682,4 +733,15 @@ function renderCommandForError(args: string[]): string {
   }
 
   return rendered.join(" ");
+}
+
+function isAgentSessionListResult(value: unknown): value is AgentSessionListResult {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (record.source !== "agent" || !Array.isArray(record.sessions)) return false;
+  return record.sessions.every((session) => {
+    if (!session || typeof session !== "object" || Array.isArray(session)) return false;
+    const item = session as Record<string, unknown>;
+    return typeof item.sessionId === "string";
+  });
 }
