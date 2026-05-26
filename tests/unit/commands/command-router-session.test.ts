@@ -906,7 +906,12 @@ test("/ssn lists native sessions from the current session context", async () => 
   (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
     source: "agent",
     sessions: [
-      { sessionId: "thread-1", cwd: "/tmp/project", title: "Fix CI", updatedAt: "2026-05-26T01:00:00.000Z" },
+      {
+        sessionId: "61456d60-b7e1-47e6-8641-72bbe8e552e7",
+        cwd: "/tmp/project",
+        title: "Fix CI",
+        updatedAt: "2026-05-26T01:00:00.000Z",
+      },
     ],
     nextCursor: null,
   });
@@ -915,13 +920,13 @@ test("/ssn lists native sessions from the current session context", async () => 
   const reply = await router.handle("wx:user", "/ssn");
 
   expect(reply.text).toContain("本地 Codex 会话（project）");
-  expect(reply.text).toContain("| # | 标题 | 更新时间 | ID |");
-  expect(reply.text).toContain("| 1 | Fix CI | 2026-05-26");
-  expect(reply.text).toContain("thread-1");
+  expect(reply.text).toContain("【1】 Fix CI");
+  expect(reply.text).toContain("时间：2026-05-26");
+  expect(reply.text).toContain("ID：…72bbe8e552e7");
   expect(reply.text).toContain("接入：/ssn 1");
   expect(reply.text).toContain("指定别名：/ssn attach <sessionId> -a fix-ci");
-  expect(reply.text).not.toContain("1. Fix CI");
-  expect(reply.text).not.toContain("   thread-1");
+  expect(reply.text).not.toContain("| # | 标题 | 更新时间 | ID |");
+  expect(reply.text).not.toContain("61456d60-b7e1-47e6-8641-72bbe8e552e7");
   expect(transport.listAgentSessions).toHaveBeenCalledWith({
     agent: "codex",
     cwd: "/tmp/project",
@@ -929,13 +934,13 @@ test("/ssn lists native sessions from the current session context", async () => 
   });
 });
 
-test("/ssn repeats table headers for long WeChat native session lists", async () => {
+test("/ssn renders long WeChat native session lists as cards with id tails", async () => {
   const { router, transport, config } = buildRouter();
   config.workspaces.project = { cwd: "/tmp/project" };
   (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
     source: "agent",
     sessions: Array.from({ length: 7 }, (_, index) => ({
-      sessionId: `thread-${index + 1}`,
+      sessionId: `61456d60-b7e1-47e6-8641-00000000000${index + 1}`,
       cwd: "/tmp/project",
       title: `修复一个很长的微信表格分页标题 ${index + 1}`,
       updatedAt: "2026-05-26T01:00:00.000Z",
@@ -945,8 +950,11 @@ test("/ssn repeats table headers for long WeChat native session lists", async ()
 
   const reply = await router.handle("wx:user", "/ssn codex --ws project");
 
-  expect(reply.text?.match(/\| # \| 标题 \| 更新时间 \| ID \|/g)).toHaveLength(2);
-  expect(reply.text).toContain("| 6 | 修复一个很长的微信表格分页标题 6 |");
+  expect(reply.text).not.toContain("| # | 标题 | 更新时间 | ID |");
+  expect(reply.text).toContain("【1】 修复一个很长的微信表格分页标题 1");
+  expect(reply.text).toContain("【7】 修复一个很长的微信表格分页标题 7");
+  expect(reply.text).toContain("ID：…000000000001");
+  expect(reply.text).toContain("ID：…000000000007");
 });
 
 test("/ssn keeps one table header for long Feishu native session lists", async () => {
@@ -1057,7 +1065,7 @@ test("/ssn with only an agent lists a single candidate instead of auto-attaching
 
   const reply = await router.handle("wx:user", "/ssn codex");
 
-  expect(reply.text).toContain("| 1 | Fix CI |");
+  expect(reply.text).toContain("【1】 Fix CI");
   expect(transport.resumeAgentSession).not.toHaveBeenCalled();
 });
 
@@ -1094,8 +1102,8 @@ test("/ssn caches multiple candidates and /ssn 1 attaches the cached item", asyn
   const listReply = await router.handle("wx:user", "/ssn codex --ws project");
   const attachReply = await router.handle("wx:user", "/ssn 2");
 
-  expect(listReply.text).toContain("| 1 | Fix CI |");
-  expect(listReply.text).toContain("| 2 | Refactor |");
+  expect(listReply.text).toContain("【1】 Fix CI");
+  expect(listReply.text).toContain("【2】 Refactor");
   expect(attachReply.text).toContain("已接入本地 Codex 会话并切换");
   expect(transport.resumeAgentSession).toHaveBeenCalledWith(expect.any(Object), "thread-2");
   await expect(sessions.getCurrentSession("wx:user")).resolves.toMatchObject({ agentSessionId: "thread-2" });
@@ -1280,7 +1288,7 @@ test("/ssn clears stale cached native sessions after an empty list response", as
   const emptyReply = await router.handle("wx:user", "/ssn codex --ws project");
   const selectReply = await router.handle("wx:user", "/ssn 1");
 
-  expect(firstReply.text).toContain("| 1 | Fix CI |");
+  expect(firstReply.text).toContain("【1】 Fix CI");
   expect(emptyReply.text).toContain("没有找到本地 Codex 会话");
   expect(selectReply.text).toContain("当前没有可用的 native 会话列表");
   expect(transport.resumeAgentSession).not.toHaveBeenCalled();

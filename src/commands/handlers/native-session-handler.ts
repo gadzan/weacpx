@@ -41,7 +41,6 @@ interface NativeCandidateEntry {
 }
 
 const NATIVE_SESSION_CACHE_TTL_MS = 10 * 60 * 1000;
-const WEIXIN_NATIVE_SESSION_TABLE_GROUP_SIZE = 5;
 
 export async function handleNativeSessionList(
   context: CommandRouterContext & { lifecycle: SessionLifecycleOps },
@@ -99,11 +98,7 @@ export async function handleNativeSessionList(
   }
 
   const attachedEntries = await buildAttachedEntries(context, chatKey, target.agent, result.sessions);
-  const nativeSessionListOptions = {
-    tableGroupSize: getChannelIdFromChatKey(chatKey) === "weixin"
-      ? WEIXIN_NATIVE_SESSION_TABLE_GROUP_SIZE
-      : undefined,
-  };
+  const nativeSessionListOptions = { format: getChannelIdFromChatKey(chatKey) === "weixin" ? "cards" : "table" } as const;
   return {
     text: renderNativeSessionList(target, result, attachedEntries, Boolean(input.all), nativeSessionListOptions),
   };
@@ -353,18 +348,24 @@ function renderNativeSessionList(
   result: AgentSessionListResult,
   entries: NativeCandidateEntry[],
   includeAll: boolean,
-  options: { tableGroupSize?: number } = {},
+  options: { format?: "cards" | "table" } = {},
+): string {
+  if (options.format === "cards") {
+    return renderNativeSessionCardList(target, result, entries, includeAll);
+  }
+  return renderNativeSessionTableList(target, result, entries, includeAll);
+}
+
+function renderNativeSessionTableList(
+  target: NativeTarget,
+  result: AgentSessionListResult,
+  entries: NativeCandidateEntry[],
+  includeAll: boolean,
 ): string {
   const lines = [`本地 ${target.agentDisplayName} 会话（${target.workspaceLabel}）：`];
-  const tableGroupSize = Math.max(1, Math.floor(options.tableGroupSize ?? entries.length));
+  lines.push("| # | 标题 | 更新时间 | ID |");
+  lines.push("|---|---|---|---|");
   entries.forEach((entry, index) => {
-    if (index % tableGroupSize === 0) {
-      if (index > 0) {
-        lines.push("");
-      }
-      lines.push("| # | 标题 | 更新时间 | ID |");
-      lines.push("|---|---|---|---|");
-    }
     const title = escapeMarkdownTableCell(renderNativeSessionTitle(entry.session.title, entry.session.sessionId));
     const updatedAt = entry.session.updatedAt ? formatNativeSessionTime(entry.session.updatedAt) : "-";
     const idParts: string[] = [entry.session.sessionId];
@@ -385,10 +386,56 @@ function renderNativeSessionList(
   return lines.join("\n");
 }
 
+function renderNativeSessionCardList(
+  target: NativeTarget,
+  result: AgentSessionListResult,
+  entries: NativeCandidateEntry[],
+  includeAll: boolean,
+): string {
+  const lines = [
+    `本地 ${target.agentDisplayName} 会话（${target.workspaceLabel}）：`,
+    "回复编号接入，ID 尾号用于区分。",
+  ];
+
+  entries.forEach((entry, index) => {
+    const title = renderNativeSessionTitle(entry.session.title, entry.session.sessionId);
+    const updatedAt = entry.session.updatedAt ? formatNativeSessionTime(entry.session.updatedAt) : "-";
+    lines.push("");
+    lines.push(`【${index + 1}】 ${title}`);
+    lines.push(`时间：${updatedAt}`);
+    lines.push(`ID：${formatSessionIdTail(entry.session.sessionId)}`);
+    if (entry.attached) {
+      lines.push(`已接入：${entry.attached.displayAlias}${entry.attached.isCurrent ? " [当前]" : ""}`);
+    }
+  });
+
+  lines.push("");
+  lines.push("操作：");
+  lines.push("接入：/ssn 1");
+  lines.push("指定别名：/ssn attach <sessionId> -a fix-ci");
+  lines.push("说明：/help ssn");
+  if (result.nextCursor) {
+    lines.push(`更多：${renderNextPageCommand(target, result.nextCursor, includeAll)}`);
+  }
+  return lines.join("\n");
+}
+
 function renderNativeSessionTitle(title: string | null | undefined, fallback: string): string {
   const normalized = (title?.trim() || fallback).replace(/\s+/g, " ");
   const maxLength = 60;
   return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized;
+}
+
+function formatSessionIdTail(sessionId: string): string {
+  const trimmed = sessionId.trim();
+  if (trimmed.length <= 16) {
+    return trimmed;
+  }
+  const lastHyphen = trimmed.lastIndexOf("-");
+  const tail = lastHyphen >= 0 && lastHyphen < trimmed.length - 1
+    ? trimmed.slice(lastHyphen + 1)
+    : trimmed.slice(-8);
+  return `…${tail}`;
 }
 
 function formatNativeSessionTime(value: string): string {
