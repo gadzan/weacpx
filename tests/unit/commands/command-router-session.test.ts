@@ -925,6 +925,37 @@ test("/ssn lists native sessions from the current session context", async () => 
   });
 });
 
+test("/ssn preserves transport method this binding when listing native sessions", async () => {
+  const config = createConfig();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = {
+    ...createTransport(),
+    client: {
+      calls: [] as unknown[],
+    },
+    async listAgentSessions(query: unknown) {
+      this.client.calls.push(query);
+      return {
+        source: "agent" as const,
+        sessions: [{ sessionId: "thread-1", cwd: "/tmp/project", title: "Fix CI" }],
+      };
+    },
+  };
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle("wx:user", "/ssn codex --ws project");
+
+  expect(reply.text).toContain("已接入本地 Codex 会话并切换");
+  expect(transport.client.calls).toEqual([
+    {
+      agent: "codex",
+      cwd: "/tmp/project",
+      filterCwd: "/tmp/project",
+    },
+  ]);
+});
+
 test("/ssn explicit target auto-attaches a single native session", async () => {
   const { router, transport, config, sessions } = buildRouter();
   config.workspaces.project = { cwd: "/tmp/project" };

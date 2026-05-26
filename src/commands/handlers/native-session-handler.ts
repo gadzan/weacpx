@@ -52,7 +52,7 @@ export async function handleNativeSessionList(
     return target;
   }
 
-  const listAgentSessions = context.transport.listAgentSessions;
+  const listAgentSessions = context.transport.listAgentSessions?.bind(context.transport);
   if (!listAgentSessions) {
     return { text: "当前 transport 不支持列出本地会话，请继续使用 /ss。\n说明：/help ssn" };
   }
