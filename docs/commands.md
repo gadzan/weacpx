@@ -139,6 +139,28 @@ Session 是你在微信里操作的逻辑会话。每个会话绑定一个 agent
 /ss attach demo -a codex --ws backend --name existing-demo
 ```
 
+### 接入本地 native 会话（Codex 等 Agent 原生会话）
+
+`/ss` 管 weacpx 逻辑会话；`/ssn` 管本地 native 会话。普通 `/ss codex --ws project` 仍然优先复用已有 weacpx 会话，不会自动切到 native 会话。
+
+| 命令 | 说明 |
+|------|------|
+| `/ssn` | 查看当前上下文的本地 native 会话 |
+| `/ssn 1` | 接入或切换到列表第 1 个 native 会话 |
+| `/ssn codex --ws project` | 查询 project 工作区的本地 Codex 会话；只有一个候选时直接接入 |
+| `/ssn codex -d /Users/me/project` | 按路径查询本地 Codex 会话；只有一个候选时直接接入 |
+| `/ssn attach <sessionId> -a fix-ci` | 用指定 weacpx 别名接入 native 会话 |
+| `/ss attach native <sessionId> -a fix-ci` | 上一条的长写法 |
+
+示例：
+
+```text
+/ssn
+/ssn 1
+/ssn codex --ws project
+/ssn attach 019e5d48 -a fix-ci
+```
+
 ### 状态、重置、取消
 
 | 命令 | 说明 |

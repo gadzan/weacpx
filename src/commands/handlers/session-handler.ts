@@ -36,12 +36,22 @@ export const sessionHelp: HelpTopicMetadata = {
     { usage: "/ss new <agent> (-d <path> | --ws <name>)", description: "强制新建会话" },
     { usage: "/ss new <alias> -a <name> --ws <name>", description: "按指定配置新建会话" },
     { usage: "/ss attach <alias> -a <name> --ws <name> --name <transport-session>", description: "绑定已有会话" },
+    { usage: "/ssn", description: "查看当前上下文的本地 native 会话" },
+    { usage: "/ssn 1", description: "接入/切换到 native 会话列表第 1 个" },
+    { usage: "/ssn codex --ws <workspace>", description: "查询指定工作区的本地 Codex 会话" },
     { usage: "/session tail [N]", description: "补拉当前会话的历史输出（默认 50 行）" },
     { usage: "/session rm <alias>", description: "删除逻辑会话" },
     { usage: "/use <alias>", description: "切换当前会话" },
     { usage: "/session reset 或 /clear", description: "重置当前会话上下文" },
   ],
-  examples: ["/ss codex -d /absolute/path/to/repo", "/use backend-fix", "/session rm old-session", "/session reset"],
+  examples: [
+    "/ss codex -d /absolute/path/to/repo",
+    "/ssn",
+    "/ssn 1",
+    "/use backend-fix",
+    "/session rm old-session",
+    "/session reset",
+  ],
 };
 
 export const modeHelp: HelpTopicMetadata = {

@@ -231,6 +231,15 @@ test("lists sessions for bare session commands and aliases", async () => {
   expect(aliasReply.text).toBe(["会话列表：", "- api-fix (codex @ backend) [当前]"].join("\n"));
 });
 
+test("session help mentions /ssn native sessions", async () => {
+  const { router } = buildRouter();
+
+  const reply = await router.handle("wx:user", "/help session");
+
+  expect(reply.text).toContain("/ssn");
+  expect(reply.text).toContain("本地 native 会话");
+});
+
 test("creates a session via the short alias and agent flag", async () => {
   const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
   const transport = createTransport();
