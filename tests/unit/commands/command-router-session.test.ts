@@ -1151,6 +1151,17 @@ test("/ssn 1 switch response renders display alias for scoped channels", async (
 });
 
 
+test("/ssn reports unsupported native listing when transport returns undefined", async () => {
+  const { router, transport, config } = buildRouter();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce(undefined);
+
+  const reply = await router.handle("wx:user", "/ssn codex --ws project");
+
+  expect(reply.text).toContain("当前 transport 不支持列出本地会话");
+  expect(reply.text).toContain("/ss");
+});
+
 test("/ssn renders friendly messages for native list and resume failures", async () => {
   const { router, transport, config } = buildRouter();
   config.workspaces.project = { cwd: "/tmp/project" };
