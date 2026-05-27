@@ -24,7 +24,7 @@ import { terminateProcessTree } from "../../process/terminate-process-tree";
 import { AcpxQueueOwnerLauncher } from "../acpx-queue-owner-launcher";
 import { permissionModeToFlag } from "../permission-mode-flag";
 import { resolveToolEventMode, type ToolEventMode } from "../tool-event-mode.js";
-import { filterAgentSessionListByCwd, isUnknownFilterCwdOption } from "../agent-session-list";
+import { runAgentSessionList } from "../agent-session-list";
 
 interface AcpxCliTransportOptions {
   command?: string;
@@ -211,38 +211,21 @@ export class AcpxCliTransport implements SessionTransport {
   }
 
   async listAgentSessions(query: AgentSessionListQuery): Promise<AgentSessionListResult | undefined> {
-    const buildListArgs = (includeFilterCwd: boolean) => this.buildAgentQueryArgs(query, "json", [
-      "sessions",
-      "list",
-      ...(includeFilterCwd && query.filterCwd ? ["--filter-cwd", query.filterCwd] : []),
-      ...(query.cursor ? ["--cursor", query.cursor] : []),
-    ]);
-    let result = await this.runCommandWithTimeout(this.runCommand, buildListArgs(true), {
-      timeoutMs: this.sessionInitTimeoutMs,
+    return await runAgentSessionList({
+      filterCwd: query.filterCwd,
+      runList: async (includeFilterCwd) => {
+        const args = this.buildAgentQueryArgs(query, "json", [
+          "sessions",
+          "list",
+          ...(includeFilterCwd && query.filterCwd ? ["--filter-cwd", query.filterCwd] : []),
+          ...(query.cursor ? ["--cursor", query.cursor] : []),
+        ]);
+        return await this.runCommandWithTimeout(this.runCommand, args, {
+          timeoutMs: this.sessionInitTimeoutMs,
+        });
+      },
+      formatError: (result) => normalizeCommandError(result) ?? `command failed with exit code ${result.code}`,
     });
-    let filterLocally = false;
-    if (result.code !== 0 && query.filterCwd && isUnknownFilterCwdOption(result.stdout + result.stderr)) {
-      result = await this.runCommandWithTimeout(this.runCommand, buildListArgs(false), {
-        timeoutMs: this.sessionInitTimeoutMs,
-      });
-      filterLocally = true;
-    }
-    if (result.code !== 0) {
-      if ((result.stdout + result.stderr).includes("sessionCapabilities.list")) {
-        return undefined;
-      }
-      const detail = normalizeCommandError(result) ?? `command failed with exit code ${result.code}`;
-      throw new Error(detail);
-    }
-    try {
-      const parsed = JSON.parse(result.stdout) as unknown;
-      if (!isAgentSessionListResult(parsed)) {
-        return undefined;
-      }
-      return filterLocally && query.filterCwd ? filterAgentSessionListByCwd(parsed, query.filterCwd) : parsed;
-    } catch {
-      throw new Error("failed to parse acpx sessions list output");
-    }
   }
 
   async tailSessionHistory(session: ResolvedSession, lines: number): Promise<{ text: string }> {
@@ -743,15 +726,4 @@ function renderCommandForError(args: string[]): string {
   }
 
   return rendered.join(" ");
-}
-
-function isAgentSessionListResult(value: unknown): value is AgentSessionListResult {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const record = value as Record<string, unknown>;
-  if (record.source !== "agent" || !Array.isArray(record.sessions)) return false;
-  return record.sessions.every((session) => {
-    if (!session || typeof session !== "object" || Array.isArray(session)) return false;
-    const item = session as Record<string, unknown>;
-    return typeof item.sessionId === "string";
-  });
 }
