@@ -262,9 +262,9 @@ sequenceDiagram
 外部 coordinator 常用工具：
 
 - `delegate_request`：派出一个子任务。推荐传 `workingDirectory`。支持 MCP Tasks 的 host 可以请求 task execution，让该调用立即返回原生 task handle。
-- `task_get`：查看单个任务。
+- `task_get`：查看单个任务的摘要、最新进展，以及终态后 worker 的最终结果。默认**不回显**派遣时的原始 prompt（仅 `needs_confirmation` 任务会显示，便于审批者确认将要执行的内容）；需要重读原文时传 `includePrompt: true`。跟随任务优先用 `task_watch`（终态自带结果），`task_get` 主要用于找回任务、查看待处理项或重读 prompt。
 - `task_list`：列出当前 coordinator 的任务。
-- `task_watch`：长轮询一个任务，直到出现下一条事件、任务需要处理、任务结束或超时。返回 `events` 和 `nextAfterSeq`；继续监听时把 `nextAfterSeq` 作为下一次 `afterSeq`。默认最多等待 1 分钟；可传 `timeoutMs` 调整，最大 20 分钟。支持 MCP Tasks 的 host 可以对 `task_watch` 请求 task execution，让 watcher 作为后台 native MCP task 运行，之后用 `tasks/get` / `tasks/result` 取结果。
+- `task_watch`：长轮询一个任务，直到出现下一条事件、任务需要处理、任务结束或超时。返回 `events` 和 `nextAfterSeq`；继续监听时把 `nextAfterSeq` 作为下一次 `afterSeq`。**终态时直接带上 worker 的最终结果（`- Result:`），attention 时带上待回答的问题（`- Open question:`），所以正常情况下无需再调用 `task_get` 收尾。** 默认最多等待 1 分钟；可传 `timeoutMs` 调整，最大 20 分钟。支持 MCP Tasks 的 host 可以对 `task_watch` 请求 task execution，让 watcher 作为后台 native MCP task 运行，之后用 `tasks/get` / `tasks/result` 取结果。
 - `task_cancel`：取消任务。取消一个尚未批准的任务（状态为 `needs_confirmation`）等同于拒绝。取消一个 `queued` 任务（正在等待并行 slot）同样有效，立即生效，适合 coordinator 在任务开始执行前改变主意的场景。
 - `delegate_batch`：一次派发多个子任务。传入一个 `tasks` 数组（每个条目含 `targetAgent`、`task`、`workingDirectory`），2 个及以上任务自动归入同一个组，所有任务达到终态后结果一并回注，无需手动维护 groupId 状态机。单个任务失败时带 `error` 字段返回，不影响其余任务。
 
@@ -329,6 +329,8 @@ sequenceDiagram
 - `timeoutMs`：单次 watch 的最长等待时间，默认 60 秒，最大 20 分钟。
 
 如果 host 支持 MCP Tasks，推荐对 `task_watch` 本身启用 task execution：调用会立即返回一个 watcher task handle，主 agent 可以继续推理；watch 条件满足后，host 可通过该 watcher 的 `tasks/result` 取到事件包。如果 host 不支持 MCP Tasks，就把 `task_watch` 当作长轮询工具，按 `nextAfterSeq` 续查。
+
+watch 的返回已携带完整任务记录，因此 **terminal 停止时直接给出 `- Result:`、attention 停止时直接给出 `- Open question:`**，coordinator 无需再单独调用 `task_get` 收尾——`task_get` 退化为“找回任务 / 重读 prompt / 查看更多细节”的按需工具。要监听“有多久就多久”的长任务，不是把单次 `timeoutMs` 调到无限，而是按 `nextAfterSeq` 续查（总时长不受限，每次调用仍有界），或在支持 MCP Tasks 的 host 上用后台 watcher（无需主 agent 反复发起调用）。
 
 ## `sourceHandle` 的复用规则
 

@@ -2,7 +2,27 @@ import { expect, test } from "bun:test";
 
 import { buildWeacpxMcpToolRegistry } from "../../../src/mcp/weacpx-mcp-tools";
 import { createMemoryTransport } from "../../../src/mcp/weacpx-mcp-transport";
+import type { OrchestrationTaskRecord } from "../../../src/orchestration/orchestration-types";
 import { QuotaDeferredError } from "../../../src/weixin/messaging/quota-errors";
+
+function makeTaskRecord(overrides: Partial<OrchestrationTaskRecord> = {}): OrchestrationTaskRecord {
+  return {
+    taskId: "task-1",
+    sourceHandle: "backend:main",
+    sourceKind: "coordinator",
+    coordinatorSession: "backend:main",
+    workerSession: "backend:worker",
+    workspace: "backend",
+    targetAgent: "claude",
+    task: "review the module",
+    status: "running",
+    summary: "",
+    resultText: "",
+    createdAt: "2026-05-16T00:00:00.000Z",
+    updatedAt: "2026-05-16T00:00:01.000Z",
+    ...overrides,
+  };
+}
 
 test("builds 11 MCP tools and appends blocker-loop actions after the original orchestration tools", async () => {
   const calls: unknown[] = [];
@@ -442,6 +462,121 @@ test("task_get renders not-found as text plus structured null wrapper", async ()
   });
 });
 
+test("task_get omits the delegated prompt by default but keeps it for needs_confirmation / includePrompt", async () => {
+  const longPrompt = "PROMPT-LINE-".repeat(40);
+  const getText = async (task: OrchestrationTaskRecord, args: Record<string, unknown>) => {
+    const registry = buildWeacpxMcpToolRegistry({
+      transport: createMemoryTransport(async () => ({ taskId: "task-1", status: "running" }), {
+        getTask: async () => task,
+      }),
+      coordinatorSession: "backend:main",
+    });
+    const tool = registry.find((entry) => entry.name === "task_get");
+    return ((await tool?.handler(args))?.content[0] as { text: string }).text;
+  };
+
+  // Terminal task: the coordinator wrote the prompt, so we echo the result, not the prompt.
+  const terminal = await getText(
+    makeTaskRecord({ status: "completed", task: longPrompt, summary: "done", resultText: "FINAL-OUTPUT" }),
+    { taskId: "task-1" },
+  );
+  expect(terminal).not.toContain(longPrompt);
+  expect(terminal).toContain("- Result: FINAL-OUTPUT");
+
+  // needs_confirmation: the approver must see exactly what will run.
+  const confirm = await getText(
+    makeTaskRecord({ status: "needs_confirmation", task: longPrompt }),
+    { taskId: "task-1" },
+  );
+  expect(confirm).toContain(`- Task: ${longPrompt}`);
+
+  // includePrompt: explicit opt-in to re-read the prompt for any status.
+  const withPrompt = await getText(
+    makeTaskRecord({ status: "running", task: longPrompt }),
+    { taskId: "task-1", includePrompt: true },
+  );
+  expect(withPrompt).toContain(`- Task: ${longPrompt}`);
+});
+
+test("task_watch surfaces the result on a terminal stop instead of pointing at task_get", async () => {
+  const registry = buildWeacpxMcpToolRegistry({
+    transport: createMemoryTransport(async () => ({ taskId: "task-1", status: "running" }), {
+      watchTask: async () => ({
+        status: "terminal" as const,
+        task: makeTaskRecord({ status: "completed", summary: "done", resultText: "ALL-DONE" }),
+        events: [
+          { seq: 2, at: "2026-05-16T00:00:05.000Z", type: "status_changed", status: "completed", message: "Task completed" },
+        ],
+        nextAfterSeq: 2,
+      }),
+    }),
+    coordinatorSession: "backend:main",
+  });
+
+  const watch = registry.find((entry) => entry.name === "task_watch");
+  const text = ((await watch?.handler({ taskId: "task-1" }))?.content[0] as { text: string }).text;
+
+  expect(text).toContain("- Result: ALL-DONE");
+  expect(text).toContain("Next: summarize this result for the user.");
+  expect(text).not.toContain("task_get");
+});
+
+test("task_watch falls back to the summary on a terminal stop with no result text", async () => {
+  const registry = buildWeacpxMcpToolRegistry({
+    transport: createMemoryTransport(async () => ({ taskId: "task-1", status: "running" }), {
+      watchTask: async () => ({
+        status: "terminal" as const,
+        task: makeTaskRecord({ status: "cancelled", summary: "cancelled before output", resultText: "" }),
+        events: [
+          { seq: 2, at: "2026-05-16T00:00:05.000Z", type: "status_changed", status: "cancelled", message: "Task cancelled" },
+        ],
+        nextAfterSeq: 2,
+      }),
+    }),
+    coordinatorSession: "backend:main",
+  });
+
+  const watch = registry.find((entry) => entry.name === "task_watch");
+  const text = ((await watch?.handler({ taskId: "task-1" }))?.content[0] as { text: string }).text;
+
+  expect(text).toContain("- Summary: cancelled before output");
+  expect(text).not.toContain("- Result:");
+  expect(text).toContain("Next: summarize this result for the user.");
+});
+
+test("task_watch surfaces the open question on an attention stop", async () => {
+  const registry = buildWeacpxMcpToolRegistry({
+    transport: createMemoryTransport(async () => ({ taskId: "task-1", status: "running" }), {
+      watchTask: async () => ({
+        status: "attention_required" as const,
+        task: makeTaskRecord({
+          status: "blocked",
+          summary: "needs input",
+          openQuestion: {
+            questionId: "q-1",
+            question: "Which branch should I target?",
+            whyBlocked: "ambiguous",
+            whatIsNeeded: "branch name",
+            askedAt: "2026-05-16T00:00:03.000Z",
+            status: "open",
+          },
+        }),
+        events: [
+          { seq: 3, at: "2026-05-16T00:00:03.000Z", type: "attention_required", status: "blocked", message: "Which branch?" },
+        ],
+        nextAfterSeq: 3,
+      }),
+    }),
+    coordinatorSession: "backend:main",
+  });
+
+  const watch = registry.find((entry) => entry.name === "task_watch");
+  const text = ((await watch?.handler({ taskId: "task-1" }))?.content[0] as { text: string }).text;
+
+  expect(text).toContain("- Open question: Which branch should I target?");
+  expect(text).toContain("coordinator_answer_question");
+});
+
 test("delegate_request running result appends a non-blocking Next hint", async () => {
   const registry = buildWeacpxMcpToolRegistry({
     transport: createMemoryTransport(
@@ -473,8 +608,10 @@ test("delegate_request running result appends a non-blocking Next hint", async (
   expect(text).toContain("- Status: running");
   expect(text).toContain("Next: task \"task-running\" is running.");
   expect(text).toContain("Return this taskId to the user");
-  expect(text).toContain("task_get/task_list for non-blocking progress snapshots");
-  expect(text).toContain("task_watch to long-poll for the next event or terminal state");
+  expect(text).toContain("call task_watch to long-poll until it finishes");
+  expect(text).toContain("the terminal watch carries the worker's result");
+  expect(text).toContain("no follow-up task_get is needed");
+  expect(text).not.toContain("non-blocking progress snapshots");
 });
 
 test("task_watch description states the native watcher is single-shot", async () => {
@@ -511,7 +648,8 @@ test("tool descriptions reference the next step in the lifecycle", () => {
   expect(byName.get("delegate_request")?.description).toContain("Supports MCP Tasks");
   expect(byName.get("task_watch")?.description).toContain("Long-poll a task");
   expect(byName.get("task_watch")?.description).toContain("single-shot");
-  expect(byName.get("task_get")?.description).toContain("inspect a task snapshot non-blockingly");
+  expect(byName.get("task_get")?.description).toContain("recover a task you lost track of");
+  expect(byName.get("task_get")?.description).toContain("includePrompt:true");
   expect(byName.get("task_approve")?.description).toContain("needs_confirmation");
   expect(byName.get("coordinator_answer_question")?.description).toContain("task_get shows a pending question");
   expect(byName.get("worker_raise_question")?.description).toContain("Worker-side only");
@@ -540,8 +678,9 @@ test("task_approve result text points the coordinator back to task_watch", async
 
   expect(text).toContain("Task \"task-approved\" approved.");
   expect(text).toContain("- Current status: running");
-  expect(text).toContain("Next: use task_get/task_list for non-blocking progress snapshots");
-  expect(text).toContain("task_watch to long-poll until the worker finishes");
+  expect(text).toContain("Next: call task_watch to long-poll until the worker finishes");
+  expect(text).toContain("the terminal watch returns the result directly");
+  expect(text).not.toContain("non-blocking progress snapshots");
 });
 
 test("registry hides human-input package tools when the coordinator is external", () => {

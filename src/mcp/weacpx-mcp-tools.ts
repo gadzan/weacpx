@@ -163,19 +163,21 @@ export function buildWeacpxMcpToolRegistry(input: {
     },
     {
       name: "task_get",
-      description: "Fetch a single task under the current coordinator, including the worker's final result and any pending question. Use to inspect a task snapshot non-blockingly, read the actual output after completion, or inspect a task that requires attention.",
+      description: "Fetch a single task under the current coordinator: its summary, latest progress, and — once terminal — the worker's final result. Prefer task_watch to follow a task; its terminal result already carries the output, so a follow-up task_get is unnecessary. Reach for task_get to recover a task you lost track of, to inspect one that requires attention, or to re-read the original delegated prompt. The full prompt is included only for needs_confirmation tasks unless you pass includePrompt:true.",
       inputSchema: z
         .object({
           taskId: z.string().min(1),
+          includePrompt: z.boolean().optional(),
         })
         .strict(),
       handler: async (args) =>
         await asToolResult(async () => {
-          const task = await transport.getTask({
-            coordinatorSession,
-            taskId: (args as { taskId: string }).taskId,
-          });
-          return createSuccessResult(task ? renderTaskSummary(task) : "Task not found.", { task });
+          const { taskId, includePrompt } = args as { taskId: string; includePrompt?: boolean };
+          const task = await transport.getTask({ coordinatorSession, taskId });
+          return createSuccessResult(
+            task ? renderTaskSummary(task, { includePrompt: includePrompt ?? false }) : "Task not found.",
+            { task },
+          );
         }),
     },
     {
@@ -500,7 +502,15 @@ async function asToolResult(
 
 function renderTaskWatchResult(result: {
   status: "event" | "attention_required" | "terminal" | "timeout" | "not_found";
-  task: { taskId: string; status: string } | null;
+  task:
+    | {
+        taskId: string;
+        status: string;
+        resultText?: string;
+        summary?: string;
+        openQuestion?: { question: string };
+      }
+    | null;
   events: Array<{ seq: number; type: string; at: string; summary?: string; message?: string; status?: string }>;
   nextAfterSeq: number;
   historyTruncated?: boolean;
@@ -522,12 +532,25 @@ function renderTaskWatchResult(result: {
         }),
       ]
     : ["- Events: none"];
+  // The watch payload already carries the full record, so surface the result on a
+  // terminal stop (and the open question on an attention stop) right here — the
+  // coordinator no longer needs a follow-up task_get. Only emit on the matching
+  // status so mid-flight (event / timeout) cycles stay light.
+  const detail: string[] = [];
+  if (result.status === "terminal") {
+    const resultText = result.task.resultText?.trim() ?? "";
+    const summary = result.task.summary?.trim() ?? "";
+    if (resultText.length > 0) detail.push(`- Result: ${resultText}`);
+    else if (summary.length > 0) detail.push(`- Summary: ${summary}`);
+  } else if (result.status === "attention_required" && result.task.openQuestion) {
+    detail.push(`- Open question: ${result.task.openQuestion.question}`);
+  }
   const next = result.status === "terminal"
-    ? "Next: call task_get to read the final result."
+    ? "Next: summarize this result for the user."
     : result.status === "attention_required"
-      ? "Next: call task_get to inspect openQuestion / reviewPending, then resolve it with the recommended action tool."
+      ? "Next: resolve the pending question / contested review with the recommended action tool (coordinator_answer_question or coordinator_review_contested_result); call task_get only if you need more detail."
       : `Next: call task_watch again with afterSeq=${result.nextAfterSeq} to keep watching, preferably as an MCP task if your client supports background task execution.`;
-  return [...header, ...events, next].join("\n");
+  return [...header, ...events, ...detail, next].join("\n");
 }
 
 function createSuccessResult(
@@ -552,8 +575,8 @@ function renderDelegateSuccess(result: { taskId: string; status: string }): stri
     result.status === "needs_confirmation"
       ? `Next: this delegation requires user approval. Tell the user, then call task_approve or task_cancel based on their response.`
       : result.status === "queued"
-        ? `Next: task "${result.taskId}" is queued (agent at parallel capacity). It will start automatically when a slot frees. Call task_watch to long-poll for the transition to running, or task_get/task_list for non-blocking snapshots.`
-        : `Next: task "${result.taskId}" is running. Return this taskId to the user, call task_get/task_list for non-blocking progress snapshots, or task_watch to long-poll for the next event or terminal state.`;
+        ? `Next: task "${result.taskId}" is queued (agent at parallel capacity). It will start automatically when a slot frees. Call task_watch to long-poll until it runs and then finishes — the terminal watch carries the result. Use task_list only to resurvey in-flight tasks.`
+        : `Next: task "${result.taskId}" is running. Return this taskId to the user, then call task_watch to long-poll until it finishes — the terminal watch carries the worker's result, so no follow-up task_get is needed. Use task_list only to resurvey in-flight tasks.`;
   return [`Delegation task "${result.taskId}" created.`, `- Status: ${result.status}`, next].join("\n");
 }
 
@@ -667,7 +690,7 @@ function renderTaskSummary(task: {
   lastInjectionError?: string;
   noticePending?: boolean;
   injectionPending?: boolean;
-}): string {
+}, options: { includePrompt?: boolean } = {}): string {
   const header = [
     `Task "${task.taskId}"`,
     `- Status: ${task.status}`,
@@ -680,7 +703,12 @@ function renderTaskSummary(task: {
   if (task.status === "needs_confirmation") {
     header.push(`- Source: ${task.sourceKind} / ${task.sourceHandle}${task.role ? ` / ${task.role}` : ""}`);
   }
-  header.push(`- Task: ${task.task}`);
+  // The coordinator authored this prompt via delegate_request, so echoing it on
+  // every snapshot just burns context. Keep it for needs_confirmation (where the
+  // approver must see what will run) and behind the explicit includePrompt opt-in.
+  if (task.status === "needs_confirmation" || options.includePrompt) {
+    header.push(`- Task: ${task.task}`);
+  }
   if (task.summary.trim().length > 0) header.push(`- Summary: ${task.summary}`);
   if (task.lastProgressSummary) header.push(`- Latest progress: ${task.lastProgressSummary}`);
   if (task.resultText.trim().length > 0) header.push(`- Result: ${task.resultText}`);
@@ -719,7 +747,7 @@ function renderTaskApprovalSuccess(task: { taskId: string; status: string }): st
   return [
     `Task "${task.taskId}" approved.`,
     `- Current status: ${task.status}`,
-    `Next: use task_get/task_list for non-blocking progress snapshots, or task_watch to long-poll until the worker finishes; then task_get to read the final result.`,
+    `Next: call task_watch to long-poll until the worker finishes — the terminal watch returns the result directly, so no follow-up task_get is needed. Use task_list only to resurvey in-flight tasks.`,
   ].join("\n");
 }
 

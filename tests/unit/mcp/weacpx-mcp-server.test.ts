@@ -1116,6 +1116,10 @@ test("task_watch native MCP task surfaces the watch result and is purged once co
     expect(text).toContain("Watched task task-1 is completed");
     expect(text).toContain("nextAfterSeq: 2");
     expect(text).toContain("#2 status_changed");
+    // The terminal watch carries the result inline so the coordinator skips a follow-up task_get.
+    expect(text).toContain("Result: All good.");
+    expect(text).toContain("Next: summarize this result for the user.");
+    expect(text).not.toContain("call task_get");
     expect(final?.result?._meta).toEqual({ [RELATED_TASK_META_KEY]: { taskId: "task-1" } });
 
     // Leak guard: a one-shot watcher must not linger in the registry once its
@@ -1143,6 +1147,14 @@ test("task_watch native MCP task maps attention_required to input_required", asy
     resultText: "",
     createdAt: "2026-05-16T00:00:00.000Z",
     updatedAt: "2026-05-16T00:00:02.000Z",
+    openQuestion: {
+      questionId: "q-1",
+      question: "Which branch?",
+      whyBlocked: "ambiguous target",
+      whatIsNeeded: "branch name",
+      askedAt: "2026-05-16T00:00:02.000Z",
+      status: "open",
+    },
   };
   const server = createWeacpxMcpServer({
     transport: createMemoryTransport(
@@ -1184,7 +1196,9 @@ test("task_watch native MCP task maps attention_required to input_required", asy
     expect(final?.type).toBe("result");
     const text = final?.result?.content?.[0]?.text ?? "";
     expect(text).toContain("finished with attention required");
-    expect(text).toContain("call task_get on the watched task");
+    expect(text).toContain("Open question: Which branch?");
+    expect(text).toContain("coordinator_answer_question");
+    expect(text).not.toContain("call task_get");
   } finally {
     await client.close();
     await server.close();

@@ -416,13 +416,25 @@ function renderWatchMcpTaskResult(result: {
         }),
       ]
     : ["Events: none"];
+  // Surface the result on a terminal stop (and the open question on an attention
+  // stop) directly from the watched record, so the coordinator does not have to
+  // follow up with a separate task_get.
+  const detail: string[] = [];
+  if (result.status === "terminal") {
+    const resultText = result.task.resultText.trim();
+    const summary = result.task.summary.trim();
+    if (resultText.length > 0) detail.push(`Result: ${resultText}`);
+    else if (summary.length > 0) detail.push(`Summary: ${summary}`);
+  } else if (result.status === "attention_required" && result.task.openQuestion) {
+    detail.push(`Open question: ${result.task.openQuestion.question}`);
+  }
   const next = result.status === "terminal"
-    ? "Next: call task_get on the watched task to read the final result."
+    ? "Next: summarize this result for the user."
     : result.status === "attention_required"
-      ? "Next: call task_get on the watched task, then resolve openQuestion / reviewPending with the recommended action tool."
+      ? "Next: resolve the pending question / contested review with the recommended action tool (coordinator_answer_question or coordinator_review_contested_result)."
       : `Next: call task_watch again with afterSeq=${result.nextAfterSeq} to keep watching.`;
   return {
-    content: [{ type: "text", text: [...header, ...events, next].join("\n") }],
+    content: [{ type: "text", text: [...header, ...events, ...detail, next].join("\n") }],
     structuredContent: { watchTaskId, ...result },
   } as CallToolResult;
 }
