@@ -104,6 +104,69 @@ test("defaults missing native session lists to an empty cache", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test("defaults a non-object native session list field to an empty cache", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+
+  await Bun.write(
+    path,
+    JSON.stringify({
+      sessions: {},
+      chat_contexts: {},
+      native_session_lists: "not-an-object",
+      orchestration: {
+        tasks: {},
+        workerBindings: {},
+        groups: {},
+      },
+    }),
+  );
+
+  await expect(store.load()).resolves.toMatchObject({
+    native_session_lists: {},
+  });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("drops malformed native session list cache entries but keeps valid ones", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+
+  await Bun.write(
+    path,
+    JSON.stringify({
+      sessions: {},
+      chat_contexts: {},
+      native_session_lists: {
+        "wx:good": {
+          created_at: "2026-05-26T10:00:00.000Z",
+          agent: "codex",
+          cwd: "/Users/example/project",
+          sessions: [{ session_id: "thread-1" }],
+        },
+        "wx:bad": {
+          created_at: "2026-05-26T10:00:00.000Z",
+          sessions: "not-an-array",
+        },
+      },
+      orchestration: {
+        tasks: {},
+        workerBindings: {},
+        groups: {},
+      },
+    }),
+  );
+
+  const state = await store.load();
+  expect(state.native_session_lists["wx:good"]).toBeDefined();
+  expect(state.native_session_lists["wx:bad"]).toBeUndefined();
+
+  await rm(dir, { recursive: true, force: true });
+});
+
 test("returns an empty state when the file is missing", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
   const store = new StateStore(join(dir, "state.json"));

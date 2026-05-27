@@ -517,20 +517,20 @@ function isNativeSessionListCacheRecord(
   );
 }
 
-function parseNativeSessionLists(raw: unknown, path: string): AppState["native_session_lists"] {
-  if (raw === undefined) {
-    return {};
-  }
+function parseNativeSessionLists(raw: unknown): AppState["native_session_lists"] {
+  // native_session_lists is a regenerable, TTL'd cache — a corrupt entry must
+  // never fail the whole state load (which would block daemon startup). A
+  // missing or non-object field resets to empty; individual malformed entries
+  // are silently dropped. Real state (sessions/chat_contexts) stays strict.
   if (!isRecord(raw)) {
-    throw new Error(`state file "${path}" must contain an object field "native_session_lists"`);
+    return {};
   }
 
   const nativeSessionLists: AppState["native_session_lists"] = {};
   for (const [chatKey, value] of Object.entries(raw)) {
-    if (!isNativeSessionListCacheRecord(value)) {
-      throw new Error(`state file "${path}" contains malformed native session list "${chatKey}"`);
+    if (isNativeSessionListCacheRecord(value)) {
+      nativeSessionLists[chatKey] = value;
     }
-    nativeSessionLists[chatKey] = value;
   }
   return nativeSessionLists;
 }
@@ -612,7 +612,7 @@ export function parseState(raw: unknown, path: string): AppState {
   return {
     sessions: parsedSessions,
     chat_contexts: parseChatContexts(chatContexts, path),
-    native_session_lists: parseNativeSessionLists(raw.native_session_lists, path),
+    native_session_lists: parseNativeSessionLists(raw.native_session_lists),
     orchestration,
     scheduled_tasks: parseScheduledTasks(raw.scheduled_tasks, path),
   };
