@@ -397,7 +397,7 @@ weacpx doctor --verbose
  tail -n 200 ~/.weacpx/runtime/app.log
 
 # Windows PowerShell
-Get-Content C:\Users\you\.weacpx\runtime\app.log -Tail 200
+Get-Content ~/.weacpx/runtime/app.log -Tail 200
 ```
 
 常见原因：目标 agent 不可用、底层 acpx 启动失败、worker 会话被占用、权限策略阻止执行。
