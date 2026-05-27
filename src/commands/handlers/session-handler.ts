@@ -12,7 +12,7 @@ import type { PerfSpan } from "../../perf/perf-tracer";
 import type { HelpTopicMetadata } from "../help/help-types";
 import type { ChatRequestMetadata } from "../../weixin/agent/interface";
 import { buildCoordinatorPrompt } from "../../orchestration/build-coordinator-prompt";
-import { toDisplaySessionAlias, getChannelIdFromChatKey, toInternalSessionAlias, resolveSessionAliasForInput } from "../../channels/channel-scope";
+import { toDisplaySessionAlias, getChannelIdFromChatKey, scopeDisplayAliasToInternal, resolveSessionAliasForInput } from "../../channels/channel-scope";
 import { quoteWorkspaceNameIfNeeded } from "../workspace-name";
 
 export interface SessionHandlerContext extends CommandRouterContext {
@@ -164,7 +164,7 @@ export async function handleSessionNew(
   workspace: string,
 ): Promise<RouterResponse> {
   const channelId = getChannelIdFromChatKey(chatKey);
-  const internalAlias = channelId === "weixin" ? alias : toInternalSessionAlias(channelId, alias);
+  const internalAlias = scopeDisplayAliasToInternal(channelId, alias);
   const session = context.lifecycle.resolveSession(internalAlias, agent, workspace, `${workspace}:${internalAlias}`);
   const releaseTransportReservation = await context.lifecycle.reserveTransportSession(session.transportSession);
   try {
@@ -211,7 +211,7 @@ export async function handleSessionAttach(
   transportSession: string,
 ): Promise<RouterResponse> {
   const channelId = getChannelIdFromChatKey(chatKey);
-  const internalAlias = channelId === "weixin" ? alias : toInternalSessionAlias(channelId, alias);
+  const internalAlias = scopeDisplayAliasToInternal(channelId, alias);
   const attached = context.lifecycle.resolveSession(internalAlias, agent, workspace, transportSession);
   const releaseTransportReservation = await context.lifecycle.reserveTransportSession(attached.transportSession);
   try {

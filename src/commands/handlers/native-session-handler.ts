@@ -1,5 +1,5 @@
 import { resolveAgentCommand } from "../../config/resolve-agent-command";
-import { getChannelIdFromChatKey, toDisplaySessionAlias } from "../../channels/channel-scope";
+import { getChannelIdFromChatKey, scopeDisplayAliasToInternal, toDisplaySessionAlias } from "../../channels/channel-scope";
 import type { AgentSession, AgentSessionListQuery, AgentSessionListResult, ResolvedSession } from "../../transport/types";
 import { allocateWorkspaceName, sanitizeWorkspaceName } from "../workspace-name";
 import { basenameForWorkspacePath, normalizeWorkspacePath, pathExists, sameWorkspacePath } from "../workspace-path";
@@ -98,6 +98,12 @@ export async function handleNativeSessionList(
   }
 
   const attachedEntries = await buildAttachedEntries(context, chatKey, target.agent, result.sessions);
+  // KNOWN SEAM: list rendering format is hardcoded by channel id (weixin renders
+  // markdown tables poorly, so it gets "cards"; every other channel gets "table").
+  // This binary check doesn't scale as plugin channels are added. The intended
+  // fix is a channel-declared capability (e.g. `nativeSessionListFormat`,
+  // defaulting to "table") read here instead of comparing the channel id. Deferred
+  // until a non-weixin channel actually needs "cards". See docs/code-wiki.md.
   const nativeSessionListOptions = { format: getChannelIdFromChatKey(chatKey) === "weixin" ? "cards" : "table" } as const;
   return {
     text: renderNativeSessionList(target, result, attachedEntries, Boolean(input.all), nativeSessionListOptions),
@@ -165,7 +171,7 @@ async function attachNativeSession(
 
   const requestedAlias = alias?.trim() || buildDefaultNativeAlias(nativeTarget.agent, session.sessionId);
   const displayAlias = await allocateUniqueNativeAlias(context, chatKey, requestedAlias);
-  const internalAlias = scopeAliasForChannel(chatKey, displayAlias);
+  const internalAlias = scopeDisplayAliasToInternal(getChannelIdFromChatKey(chatKey), displayAlias);
   const transportSession = context.sessions.buildDefaultTransportSessionForChat(chatKey, displayAlias);
   const resolvedSession = context.lifecycle.resolveSession(internalAlias, nativeTarget.agent, nativeTarget.workspace, transportSession);
   const releaseReservation = await context.lifecycle.reserveTransportSession(resolvedSession.transportSession);
@@ -469,12 +475,13 @@ async function allocateUniqueNativeAlias(
   chatKey: string,
   baseDisplayAlias: string,
 ): Promise<string> {
+  const channelId = getChannelIdFromChatKey(chatKey);
   const visible = await context.sessions.listSessions(chatKey);
   const existing = new Set(visible.map((session) => session.internalAlias));
   const base = baseDisplayAlias.trim() || "native-session";
   const transportFor = (candidate: string) => context.sessions.buildDefaultTransportSessionForChat(chatKey, candidate);
   const isFree = (candidate: string) =>
-    !existing.has(scopeAliasForChannel(chatKey, candidate)) &&
+    !existing.has(scopeDisplayAliasToInternal(channelId, candidate)) &&
     context.sessions.countAliasesSharingTransport(transportFor(candidate)) === 0;
 
   if (isFree(base)) {
@@ -520,12 +527,6 @@ function renderNativeResumeError(target: NativeTarget, error: unknown): string {
 
 function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function scopeAliasForChannel(chatKey: string, displayAlias: string): string {
-  const channelId = getChannelIdFromChatKey(chatKey);
-  const normalized = displayAlias.trim();
-  return channelId === "weixin" ? normalized : `${channelId}:${normalized}`;
 }
 
 function isRouterResponse(value: RouterResponse | NativeTarget | { workspace: string; workspaceLabel: string; cwd: string; source: "workspace" | "cwd" }): value is RouterResponse {

@@ -2,7 +2,7 @@ import { allocateWorkspaceName, sanitizeWorkspaceName } from "../workspace-name"
 import { basenameForWorkspacePath, normalizeWorkspacePath, pathExists, sameWorkspacePath } from "../workspace-path";
 import type { CommandRouterContext, RouterResponse, SessionShortcutOps } from "../router-types";
 import { AutoInstallFailedError } from "../../recovery/errors";
-import { getChannelIdFromChatKey, toDisplaySessionAlias } from "../../channels/channel-scope";
+import { getChannelIdFromChatKey, scopeDisplayAliasToInternal, toDisplaySessionAlias } from "../../channels/channel-scope";
 
 interface ShortcutWorkspaceResolution {
   name: string;
@@ -43,7 +43,7 @@ export async function handleSessionShortcutCommand(
 
   const baseAlias = `${workspace.name}:${agent}`;
   const channelId = getChannelIdFromChatKey(chatKey);
-  const scopedBase = channelId === "weixin" ? baseAlias : `${channelId}:${baseAlias}`;
+  const scopedBase = scopeDisplayAliasToInternal(channelId, baseAlias);
   const alias = createNew ? await allocateUniqueSessionAlias(context, scopedBase, chatKey) : scopedBase;
   const display = toDisplaySessionAlias(alias);
 

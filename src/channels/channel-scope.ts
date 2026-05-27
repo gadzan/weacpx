@@ -72,6 +72,21 @@ export function resolveSessionAliasForInput(
   return scopedAlias;
 }
 
+/**
+ * Internal alias for a display alias entered in `channelId`. The default
+ * channel (weixin) stays unprefixed for backwards compatibility; every other
+ * channel is namespaced as `channelId:alias`. Idempotent — an already-scoped
+ * alias is not double-prefixed. This is the single home for the rule that
+ * handlers must not re-implement inline.
+ */
+export function scopeDisplayAliasToInternal(channelId: string, displayAlias: string): string {
+  const normalized = displayAlias.trim();
+  if (normalized.length === 0) {
+    throw new Error("display session alias must be non-empty");
+  }
+  return channelId === "weixin" ? normalized : toInternalSessionAlias(channelId, normalized);
+}
+
 export function buildDefaultTransportSession(channelId: string, displayAlias: string): string {
   const normalized = displayAlias.trim();
   if (normalized.length === 0) {

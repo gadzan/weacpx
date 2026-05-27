@@ -7,6 +7,7 @@ import {
   isSessionAliasVisibleInChannel,
   registerKnownChannelId,
   resolveSessionAliasForInput,
+  scopeDisplayAliasToInternal,
   toDisplaySessionAlias,
   toInternalSessionAlias,
 } from "../../../src/channels/channel-scope";
@@ -56,6 +57,14 @@ test("resolves input aliases with legacy weixin preference", () => {
   expect(resolveSessionAliasForInput("feishu", "backend:codex", ["backend:codex"])).toBe("feishu:backend:codex");
   expect(resolveSessionAliasForInput("feishu", "backend:codex", [])).toBe("feishu:backend:codex");
   expect(resolveSessionAliasForInput("feishu", "feishu:backend:codex", [])).toBe("feishu:backend:codex");
+});
+
+test("scopes a display alias to an internal alias, leaving the default weixin channel unprefixed", () => {
+  expect(scopeDisplayAliasToInternal("weixin", "fix-ci")).toBe("fix-ci");
+  expect(scopeDisplayAliasToInternal("feishu", "fix-ci")).toBe("feishu:fix-ci");
+  // Idempotent: an already-scoped alias must not be double-prefixed.
+  expect(scopeDisplayAliasToInternal("feishu", "feishu:fix-ci")).toBe("feishu:fix-ci");
+  expect(() => scopeDisplayAliasToInternal("feishu", "   ")).toThrow();
 });
 
 test("builds default transport session names per channel", () => {
