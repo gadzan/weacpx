@@ -82,6 +82,7 @@ interface RuntimeDeps {
   channel?: Pick<MessageChannelRuntime, "notifyTaskCompletion" | "notifyTaskProgress" | "sendCoordinatorMessage" | "sendScheduledMessage"> & {
     configureOrchestration?: MessageChannelRuntime["configureOrchestration"];
     supportsScheduledMessages?: (chatKey: string) => boolean;
+    nativeSessionListFormat?: (chatKey: string) => "cards" | "table";
   };
   sendOrchestrationNotice?: (task: OrchestrationTaskRecord) => Promise<void>;
   sendCoordinatorMessage?: (input: CoordinatorMessageInput) => Promise<void>;
@@ -687,6 +688,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     quota,
     scheduledService,
     deps.channel?.supportsScheduledMessages ? { supportsScheduledMessages: deps.channel.supportsScheduledMessages.bind(deps.channel) } : undefined,
+    deps.channel?.nativeSessionListFormat ? deps.channel.nativeSessionListFormat.bind(deps.channel) : undefined,
   );
   const agent = new ConsoleAgent(router, logger);
   const scheduledScheduler = new ScheduledTaskScheduler(scheduledService, {

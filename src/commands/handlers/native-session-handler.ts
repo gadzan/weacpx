@@ -98,13 +98,10 @@ export async function handleNativeSessionList(
   }
 
   const attachedEntries = await buildAttachedEntries(context, chatKey, target.agent, result.sessions);
-  // KNOWN SEAM: list rendering format is hardcoded by channel id (weixin renders
-  // markdown tables poorly, so it gets "cards"; every other channel gets "table").
-  // This binary check doesn't scale as plugin channels are added. The intended
-  // fix is a channel-declared capability (e.g. `nativeSessionListFormat`,
-  // defaulting to "table") read here instead of comparing the channel id. Deferred
-  // until a non-weixin channel actually needs "cards". See docs/code-wiki.md.
-  const nativeSessionListOptions = { format: getChannelIdFromChatKey(chatKey) === "weixin" ? "cards" : "table" } as const;
+  // Render format is a channel-declared capability (MessageChannelRuntime
+  // `nativeSessionListFormat`): weixin renders markdown tables poorly and declares
+  // "cards"; channels that don't declare it default to "table".
+  const nativeSessionListOptions = { format: context.resolveNativeSessionListFormat?.(chatKey) ?? "table" } as const;
   return {
     text: renderNativeSessionList(target, result, attachedEntries, Boolean(input.all), nativeSessionListOptions),
   };

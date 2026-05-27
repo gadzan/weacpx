@@ -82,6 +82,10 @@ export class MessageChannelRegistry {
     await channel.sendScheduledMessage(input);
   }
 
+  nativeSessionListFormat(chatKey: string): "cards" | "table" {
+    return this.getByChatKey(chatKey)?.nativeSessionListFormat ?? "table";
+  }
+
   createConsumerLocks(): Array<{ channel: MessageChannelRuntime; create: NonNullable<MessageChannelRuntime["createConsumerLock"]> }> {
     const result: Array<{ channel: MessageChannelRuntime; create: NonNullable<MessageChannelRuntime["createConsumerLock"]> }> = [];
     for (const channel of this.channels.values()) {

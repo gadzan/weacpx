@@ -60,6 +60,12 @@ export interface CommandRouterContext {
   logger: AppLogger;
   replaceConfig: (updated: AppConfig) => void;
   quota?: QuotaManager;
+  /**
+   * Resolves the render format for a chat's `/ssn` native session list. Backed
+   * by the channel's declared capability (see MessageChannelRuntime
+   * `nativeSessionListFormat`); handlers default to "table" when unset.
+   */
+  resolveNativeSessionListFormat?: (chatKey: string) => "cards" | "table";
 }
 
 export interface OrchestrationRouterOps {

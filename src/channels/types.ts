@@ -105,6 +105,13 @@ export interface MessageChannelRuntime {
   notifyTaskProgress(task: OrchestrationTaskRecord, text: string): Promise<void>;
   sendCoordinatorMessage(input: CoordinatorMessageInput): Promise<void>;
   sendScheduledMessage?(input: ScheduledChannelMessageInput): Promise<void>;
+
+  /**
+   * Preferred render format for `/ssn` native session lists. weixin renders
+   * markdown tables poorly and declares "cards"; channels that omit this are
+   * treated as "table".
+   */
+  nativeSessionListFormat?: "cards" | "table";
 }
 
 // Structured tool-use event. The transport emits one of these per acpx

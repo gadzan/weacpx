@@ -30,6 +30,8 @@ import { createWeixinConsumerLock } from "../weixin/monitor/consumer-lock.js";
 
 export class WeixinChannel implements MessageChannelRuntime {
   readonly id = "weixin";
+  // WeChat renders markdown tables poorly; native session lists use cards here.
+  readonly nativeSessionListFormat: "cards" | "table" = "cards";
 
   private agent: ChatAgent | null = null;
   private quota: OutboundQuota | null = null;

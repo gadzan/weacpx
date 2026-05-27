@@ -190,7 +190,7 @@ Core ships only the Weixin runtime plus generic channel/plugin infrastructure. F
 - `startAll()` 并行启动 channel，允许部分失败，但全部失败会 throw：[channel-registry.ts](../src/channels/channel-registry.ts#L27-L41)
 - 按 chatKey 路由 outbound：`notifyTaskProgress/notifyTaskCompletion/sendCoordinatorMessage`：[channel-registry.ts](../src/channels/channel-registry.ts#L53-L65)
 
-> 已知 seam（待办）：`/ssn` native 会话列表的渲染格式目前按 channel id 硬编码（weixin→cards，其它→table），见 [native-session-handler.ts](../src/commands/handlers/native-session-handler.ts)。该二元判断不随插件 channel 扩展，预期改为 channel 声明的能力位（如 `nativeSessionListFormat`，缺省 `table`）。暂缓到有非 weixin channel 真正需要 cards 时再做。
+> Channel 能力位：`/ssn` native 会话列表的渲染格式由 channel 声明的 `MessageChannelRuntime.nativeSessionListFormat`（`"cards" | "table"`，缺省 `table`）决定；weixin 声明 `cards`。registry 暴露 `nativeSessionListFormat(chatKey)`，经 `CommandRouter` 注入到 `CommandRouterContext.resolveNativeSessionListFormat`，由 [native-session-handler.ts](../src/commands/handlers/native-session-handler.ts) 读取。新增 channel 想用卡片式渲染时声明该能力位即可，无需改 handler。
 
 #### 5.4.1 ConsoleAgent（src/console-agent.ts）
 

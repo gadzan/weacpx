@@ -188,3 +188,19 @@ test("throws clear error when no channel owns a chat key", async () => {
     registry.sendCoordinatorMessage({ coordinatorSession: "c", chatKey: "dingtalk:default:conv", text: "hello" }),
   ).rejects.toThrow("no message channel registered for chatKey: dingtalk:default:conv");
 });
+
+test("resolves the native session list format declared by the owning channel", () => {
+  const events: string[] = [];
+  const weixin = { ...fakeChannel("weixin", events), nativeSessionListFormat: "cards" as const };
+  const feishu = fakeChannel("feishu", events); // declares nothing
+  const registry = new MessageChannelRegistry([weixin, feishu]);
+
+  expect(registry.nativeSessionListFormat("weixin:default:wxid_alice")).toBe("cards");
+  expect(registry.nativeSessionListFormat("feishu:default:oc_chat")).toBe("table");
+});
+
+test("defaults native session list format to table when no channel owns the chat key", () => {
+  const registry = new MessageChannelRegistry([fakeChannel("feishu", [])]);
+
+  expect(registry.nativeSessionListFormat("weixin:default:wxid_alice")).toBe("table");
+});

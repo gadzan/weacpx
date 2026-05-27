@@ -112,6 +112,7 @@ export class CommandRouter {
     private readonly quota?: QuotaManager,
     private readonly scheduled?: ScheduledRouterOps,
     private readonly scheduledDelivery?: ScheduledDeliveryCapabilityOps,
+    private readonly resolveNativeSessionListFormat?: (chatKey: string) => "cards" | "table",
   ) {
     this.logger = logger ?? createNoopAppLogger();
   }
@@ -403,6 +404,7 @@ export class CommandRouter {
       logger: this.logger,
       replaceConfig: (updated) => this.replaceConfig(updated),
       ...(this.quota ? { quota: this.quota } : {}),
+      ...(this.resolveNativeSessionListFormat ? { resolveNativeSessionListFormat: this.resolveNativeSessionListFormat } : {}),
     };
   }
 

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { CommandRouter } from "../../../src/commands/command-router";
-import { registerKnownChannelId } from "../../../src/channels/channel-scope";
+import { getChannelIdFromChatKey, registerKnownChannelId } from "../../../src/channels/channel-scope";
 import { QuotaManager } from "../../../src/weixin/messaging/quota-manager";
 
 beforeAll(() => {
@@ -24,13 +24,30 @@ import {
   getSetModeMock,
 } from "./command-router-test-support";
 
-function buildRouter() {
+function buildRouter(options?: { nativeSessionListFormat?: (chatKey: string) => "cards" | "table" }) {
   const config = createConfig();
   config.agents.opencode = { driver: "opencode" };
   config.workspaces.weacpx = { cwd: "/tmp/weacpx" };
   const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
   const transport = createTransport();
-  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+  // Mirror the production registry: the built-in weixin channel declares "cards";
+  // every other channel defaults to "table". Tests can override per channel.
+  const resolveNativeSessionListFormat =
+    options?.nativeSessionListFormat ??
+    ((chatKey: string): "cards" | "table" => (getChannelIdFromChatKey(chatKey) === "weixin" ? "cards" : "table"));
+  const router = new CommandRouter(
+    sessions,
+    transport,
+    config,
+    new MemoryConfigStore(config),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    resolveNativeSessionListFormat,
+  );
   // Default test-friendly path discovery: just echo the seed (avoid spawning real npm/pnpm/yarn).
   router.__setDiscoverPathsForTest(async (_pkg, seed) => (seed ? [{ path: seed, manager: "npm" as const }] : []));
   return { router, transport, sessions, config };
@@ -975,6 +992,25 @@ test("/ssn keeps one table header for long Feishu native session lists", async (
 
   expect(reply.text?.match(/\| # \| 标题 \| 更新时间 \| ID \|/g)).toHaveLength(1);
   expect(reply.text).toContain("| 7 | 修复一个很长的飞书表格分页标题 7 |");
+});
+
+test("/ssn renders cards for a non-weixin channel that declares the cards format", async () => {
+  const { router, transport, config } = buildRouter({ nativeSessionListFormat: () => "cards" });
+  config.workspaces.project = { cwd: "/tmp/project" };
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
+    source: "agent",
+    sessions: [
+      { sessionId: "thread-1", cwd: "/tmp/project", title: "Fix CI", updatedAt: "2026-05-26T01:00:00.000Z" },
+      { sessionId: "thread-2", cwd: "/tmp/project", title: "Add tests", updatedAt: "2026-05-26T02:00:00.000Z" },
+    ],
+    nextCursor: null,
+  });
+
+  const reply = await router.handle("feishu:default:oc_chat", "/ssn codex --ws project");
+
+  expect(reply.text).not.toContain("| # | 标题 | 更新时间 | ID |");
+  expect(reply.text).toContain("【1】 Fix CI");
+  expect(reply.text).toContain("【2】 Add tests");
 });
 
 test("/ssn preserves transport method this binding when listing native sessions", async () => {
