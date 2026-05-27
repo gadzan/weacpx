@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.6.0] - 2026-05-27
+
+### Added
+
+- **接入 Agent 本地原生会话（`/ssn`）：** 新增一组命令，把本机上 Codex 等 Agent 已有的**原生会话**接到 weacpx 里——接入后在微信/飞书/元宝继续发普通消息，会继续同一个 Agent 原生 session，而不是复制一份新上下文。查询：`/ssn`（按当前会话上下文）、`/ssn <agent> --ws <workspace>` / `-d <path>`（按工作区或路径，唯一候选时自动接入）、`... --all`（跨 cwd），底层返回分页时列表末尾给出「更多」命令。接入：`/ssn <编号>`、`/ssn <编号> -a <别名>`（按编号接入并指定别名，**微信里看不到完整 id 时用这个**）、`/ssn attach <sessionId> -a <别名>`（已知完整 id）。`acpx-cli` 与 `acpx-bridge` 两种 transport 均支持（依赖 acpx 的 agent-side `sessions list` 与 `--resume-session`）；当前 acpx/Agent 不支持时提示降级到 `/ss`。接入后会生成普通 weacpx 逻辑会话别名（默认 `<agent>-<sessionId尾号>`，冲突自动追加后缀），可在 `/ss` 列表里看到、用 `/use` 切回；群聊中 `/ssn` 仅群主可用。完整说明见 `docs/native-sessions.md`。
+
+### Changed
+
+- **native 会话列表渲染格式改为 channel 声明的能力位：** 列表渲染（微信用卡片、其它频道用 markdown 表格）不再按 channel id 硬编码，改由 channel 通过 `MessageChannelRuntime.nativeSessionListFormat`（`"cards" | "table"`，缺省 `table`）声明；内置微信声明 `cards`。新增频道想用卡片渲染，声明该能力位即可，无需改命令层。
+- **内部重构（无行为变化）：** 抽取两个 transport 共享的 `sessions list` 编排与结果校验到 `agent-session-list.ts`（消除重复、防止两侧实现漂移）；把「默认频道 weixin 的逻辑会话别名不加前缀」这条 scoping 规则收敛到单一 `scopeDisplayAliasToInternal`，顺带修正 shortcut/native 路径上的双前缀边界。
+
+### Fixed
+
+- **损坏的 native 会话列表缓存不再阻塞 daemon 启动：** `state.json` 的 `native_session_lists` 是可再生的带 TTL 缓存；现非对象字段重置为空、单条损坏条目跳过，不再因一条脏缓存抛错中断整个状态加载（`sessions` / `chat_contexts` 等真实状态仍严格校验）。
+- 一批 native 会话的边界与渲染修复：跨 cwd 分页保留查询上下文、列表绑定与陈旧缓存清理、`--filter-cwd` 不被支持时去掉重试并本地过滤、拒绝非法标志、微信卡片渲染与飞书表头重复、按 sessionId 尾号生成别名等。
+
+### Docs
+
+- 新增 `docs/native-sessions.md`（`/ssn` 完整语义、使用流程与排障）；`README` / `docs/commands.md` / `docs/code-wiki.md` 补充 native 会话能力与命令速查。
+- 文档脱敏：把 MCP 配置示例里写死的本机路径（nvmd 下的 `node.exe`、`E:\projects\weacpx\dist\cli.js` 等）替换为占位符，日志查看示例统一用 `~`。
+
+### Tests
+
+- 新增大量单测，覆盖 native 会话的命令解析、路由、两种 transport 的 list/resume、状态缓存宽松解析、channel 渲染能力位解析与 alias scoping。
+
 ## [0.5.2] - 2026-05-26
 
 ### Fixed
