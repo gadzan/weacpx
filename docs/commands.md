@@ -154,7 +154,8 @@ Session 是你在微信里操作的逻辑会话。每个会话绑定一个 agent
 | `/ssn codex -d /Users/me/project` | 按路径查询本地 Codex 会话；只有一个候选时直接接入 |
 | `/ssn codex --ws project --all` | 跨 cwd 查询该 agent 的 native 会话 |
 | `/ssn 1` | 接入或切换到最近一次列表的第 1 个 native 会话 |
-| `/ssn attach <sessionId> -a fix-ci` | 用指定 weacpx 别名接入 native 会话 |
+| `/ssn 1 -a fix-ci` | 选列表第 N 个候选并指定 weacpx 别名（微信里看不到完整 id 时用） |
+| `/ssn attach <sessionId> -a fix-ci` | 用指定 weacpx 别名接入 native 会话（适合已知完整 id） |
 | `/ss attach native <sessionId> -a fix-ci` | 上一条的长写法 |
 
 示例：

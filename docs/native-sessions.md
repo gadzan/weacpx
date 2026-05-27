@@ -56,6 +56,8 @@
 
 第一次命令会列出候选并缓存一个短时间列表；`/ssn 1`、`/ssn 2` 会选择最近一次列表里的对应项。如果列表过期或被新的查询覆盖，请重新执行 `/ssn ...`。
 
+想在接入时直接指定别名，用 `/ssn <编号> -a <alias>`，例如 `/ssn 1 -a fix-ci`。微信里列表只显示 sessionId 尾号、看不到完整 id，按编号指定别名比 `/ssn attach <sessionId> -a ...` 更顺手。
+
 ### 3. 直接按路径查询
 
 ```text
@@ -110,7 +112,8 @@
 | `/ssn codex -d /Users/me/project` | 按本机绝对路径查询 |
 | `/ssn codex --ws project --all` | 跨 cwd 查询该 agent 的原生会话 |
 | `/ssn 1` | 接入或切换到列表第 1 个候选 |
-| `/ssn attach <sessionId> -a <alias>` | 按原生 sessionId 接入并指定 weacpx 别名 |
+| `/ssn 1 -a <alias>` | 接入列表第 1 个候选并指定 weacpx 别名（微信里看不到完整 id 时用这个） |
+| `/ssn attach <sessionId> -a <alias>` | 按原生 sessionId 接入并指定 weacpx 别名（适合已知完整 id） |
 | `/ss attach native <sessionId> -a <alias>` | `/ssn attach` 的长写法 |
 | `/help ssn` | 在聊天里查看精简帮助 |
 

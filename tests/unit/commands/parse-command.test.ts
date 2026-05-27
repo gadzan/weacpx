@@ -139,6 +139,23 @@ test("parses native session select and attach commands", () => {
   });
 });
 
+test("parses native session select with an alias", () => {
+  expect(parseCommand("/ssn 1 -a fix-ci")).toEqual({
+    kind: "session.native.select",
+    identifier: "1",
+    alias: "fix-ci",
+  });
+  expect(parseCommand("/ssn 2 --alias fix-ci")).toEqual({
+    kind: "session.native.select",
+    identifier: "2",
+    alias: "fix-ci",
+  });
+  // bare numeric select still carries no alias
+  expect(parseCommand("/ssn 1")).toEqual({ kind: "session.native.select", identifier: "1" });
+  // trailing junk after the number is still invalid
+  expect(parseCommand("/ssn 1 2")).toEqual({ kind: "invalid", text: "/ssn 1 2", recognizedCommand: "/ssn" });
+});
+
 test("rejects native session list flags with missing values", () => {
   expect(parseCommand("/ssn --cursor --all")).toEqual({
     kind: "invalid",

@@ -381,7 +381,7 @@ function renderNativeSessionTableList(
   lines.push("");
   lines.push("操作：");
   lines.push("接入：/ssn 1");
-  lines.push("指定别名：/ssn attach <sessionId> -a fix-ci");
+  lines.push("指定别名：/ssn 1 -a fix-ci");
   lines.push("说明：/help ssn");
   if (result.nextCursor) {
     lines.push(`更多：${renderNextPageCommand(target, result.nextCursor, includeAll)}`);
@@ -415,7 +415,7 @@ function renderNativeSessionCardList(
   lines.push("");
   lines.push("操作：");
   lines.push("接入：/ssn 1");
-  lines.push("指定别名：/ssn attach <sessionId> -a fix-ci");
+  lines.push("指定别名：/ssn 1 -a fix-ci");
   lines.push("说明：/help ssn");
   if (result.nextCursor) {
     lines.push(`更多：${renderNextPageCommand(target, result.nextCursor, includeAll)}`);

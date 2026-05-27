@@ -62,7 +62,8 @@ export const nativeSessionHelp: HelpTopicMetadata = {
     { usage: "/ssn <agent> -d <path>", description: "按本机绝对路径查询；只有一个候选时自动接入" },
     { usage: "/ssn <agent> --ws <workspace> --all", description: "跨 cwd 查看该 agent 的 native 会话" },
     { usage: "/ssn 1", description: "接入或切换到最近一次列表里的第 1 个候选" },
-    { usage: "/ssn attach <sessionId> -a <alias>", description: "按原生 sessionId 接入，并指定 weacpx 别名" },
+    { usage: "/ssn 1 -a <alias>", description: "接入第 1 个候选并指定 weacpx 别名（推荐，无需完整 sessionId）" },
+    { usage: "/ssn attach <sessionId> -a <alias>", description: "按原生 sessionId 接入（适合已知完整 id），并指定 weacpx 别名" },
     { usage: "/ss attach native <sessionId> -a <alias>", description: "/ssn attach 的长写法" },
   ],
   examples: [
@@ -70,7 +71,7 @@ export const nativeSessionHelp: HelpTopicMetadata = {
     "/ssn codex -d /absolute/path/to/repo",
     "/ssn",
     "/ssn 1",
-    "/ssn attach 019e5d48 -a fix-ci",
+    "/ssn 1 -a fix-ci",
   ],
   notes: [
     "/ss 管 weacpx 逻辑会话；/ssn 只负责查询和接入 Agent 原生会话。",

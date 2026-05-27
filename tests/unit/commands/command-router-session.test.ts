@@ -941,7 +941,7 @@ test("/ssn lists native sessions from the current session context", async () => 
   expect(reply.text).toContain("时间：2026-05-26");
   expect(reply.text).toContain("ID：…e8e552e7");
   expect(reply.text).toContain("接入：/ssn 1");
-  expect(reply.text).toContain("指定别名：/ssn attach <sessionId> -a fix-ci");
+  expect(reply.text).toContain("指定别名：/ssn 1 -a fix-ci");
   expect(reply.text).not.toContain("| # | 标题 | 更新时间 | ID |");
   expect(reply.text).not.toContain("61456d60-b7e1-47e6-8641-72bbe8e552e7");
   expect(transport.listAgentSessions).toHaveBeenCalledWith({
@@ -1143,6 +1143,31 @@ test("/ssn caches multiple candidates and /ssn 1 attaches the cached item", asyn
   expect(attachReply.text).toContain("已接入本地 Codex 会话并切换");
   expect(transport.resumeAgentSession).toHaveBeenCalledWith(expect.any(Object), "thread-2");
   await expect(sessions.getCurrentSession("wx:user")).resolves.toMatchObject({ agentSessionId: "thread-2" });
+});
+
+test("/ssn 1 -a sets the alias when attaching a cached candidate", async () => {
+  const { router, transport, config, sessions } = buildRouter();
+  config.workspaces.project = { cwd: "/tmp/project" };
+  (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
+    source: "agent",
+    sessions: [
+      { sessionId: "thread-1", cwd: "/tmp/project", title: "Fix CI" },
+      { sessionId: "thread-2", cwd: "/tmp/project", title: "Refactor" },
+    ],
+  });
+
+  await router.handle("wx:user", "/ssn codex --ws project");
+  const reply = await router.handle("wx:user", "/ssn 2 -a fix-ci");
+
+  expect(reply.text).toContain("已接入本地 Codex 会话并切换");
+  expect(transport.resumeAgentSession).toHaveBeenCalledWith(
+    expect.objectContaining({ alias: "fix-ci", transportSession: "fix-ci" }),
+    "thread-2",
+  );
+  await expect(sessions.getCurrentSession("wx:user")).resolves.toMatchObject({
+    alias: "fix-ci",
+    agentSessionId: "thread-2",
+  });
 });
 
 test("/ssn renders a context-preserving next page command for explicit workspace lists", async () => {

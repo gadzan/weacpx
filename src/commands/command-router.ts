@@ -224,7 +224,7 @@ export class CommandRouter {
         case "session.native.list":
           return await handleNativeSessionList(this.createSessionHandlerContext(undefined, perfSpan), chatKey, command);
         case "session.native.select":
-          return await handleNativeSessionSelect(this.createSessionHandlerContext(undefined, perfSpan), chatKey, command.identifier);
+          return await handleNativeSessionSelect(this.createSessionHandlerContext(undefined, perfSpan), chatKey, command.identifier, command.alias);
         case "session.native.attach":
           return await handleNativeSessionSelect(this.createSessionHandlerContext(undefined, perfSpan), chatKey, command.identifier, command.alias);
         case "session.use":

@@ -58,7 +58,7 @@ export type ParsedCommand =
   | { kind: "session.shortcut.new"; agent: string; cwd?: string; workspace?: string }
   | { kind: "session.attach"; alias: string; agent: string; workspace: string; transportSession: string }
   | { kind: "session.native.list"; agent?: string; cwd?: string; workspace?: string; all?: boolean; cursor?: string }
-  | { kind: "session.native.select"; identifier: string }
+  | { kind: "session.native.select"; identifier: string; alias?: string }
   | { kind: "session.native.attach"; identifier: string; alias?: string }
   | { kind: "later.help" }
   | { kind: "later.create"; tokens: string[] }
@@ -132,8 +132,15 @@ export function parseCommand(input: string): ParsedCommand {
     }
 
     const identifier = parts[1] ?? "";
-    if (parts.length === 2 && /^\d+$/.test(identifier)) {
-      return { kind: "session.native.select", identifier };
+    if (/^\d+$/.test(identifier)) {
+      // /ssn <n> [-a <alias>] — reuse the attach tail parser for the optional alias.
+      const selected = readNativeAttachCommand(parts, 1);
+      if (!selected) {
+        return { kind: "invalid", text: trimmed, recognizedCommand: "/ssn" };
+      }
+      return selected.alias
+        ? { kind: "session.native.select", identifier, alias: selected.alias }
+        : { kind: "session.native.select", identifier };
     }
 
     if (parts[1] === "attach") {
