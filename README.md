@@ -452,9 +452,9 @@ Windows 上如果 MCP host 不会帮你解析带参数的 `command`，把 `node.
 ```json
 {
   "type": "stdio",
-  "command": "D:\\Users\\you\\.nvmd\\versions\\22.19.0\\node.exe",
+  "command": "C:\\Program Files\\nodejs\\node.exe",
   "args": [
-    "E:\\projects\\weacpx\\dist\\cli.js",
+    "C:\\path\\to\\weacpx\\dist\\cli.js",
     "mcp-stdio"
   ]
 }

@@ -83,7 +83,7 @@ Windows 示例：
 {
   "targetAgent": "claude",
   "task": "审查当前改动，找出 3 个高风险点",
-  "workingDirectory": "E:\\projects\\weacpx"
+  "workingDirectory": "C:\\path\\to\\your\\repo"
 }
 ```
 
@@ -141,7 +141,7 @@ external_<client-name>:<process-instance-id>
 
 ## Windows 配置示例
 
-不要把 `node E:\projects\weacpx\dist\cli.js` 整串写进 `command`。很多 MCP host 会把 `command` 当成文件名执行，从而报：
+不要把 `node C:\path\to\weacpx\dist\cli.js` 整串写进 `command`。很多 MCP host 会把 `command` 当成文件名执行，从而报：
 
 ```text
 文件名、目录名或卷标语法不正确。 (os error 123)
@@ -152,9 +152,9 @@ external_<client-name>:<process-instance-id>
 ```json
 {
   "type": "stdio",
-  "command": "D:\\Users\\you\\.nvmd\\versions\\22.19.0\\node.exe",
+  "command": "C:\\Program Files\\nodejs\\node.exe",
   "args": [
-    "E:\\projects\\weacpx\\dist\\cli.js",
+    "C:\\path\\to\\weacpx\\dist\\cli.js",
     "mcp-stdio"
   ]
 }
@@ -372,7 +372,7 @@ sequenceDiagram
 脚本路径不存在或写错。先在终端里直接验证：
 
 ```powershell
-& "D:\Users\you\.nvmd\versions\22.19.0\node.exe" "E:\projects\weacpx\dist\cli.js" "mcp-stdio"
+& "C:\Program Files\nodejs\node.exe" "C:\path\to\weacpx\dist\cli.js" "mcp-stdio"
 ```
 
 如果本地开发版本还没 build，先运行：
