@@ -1,3 +1,4 @@
+import { truncateText } from "../util/text.js";
 import type { OrchestrationGroupRecord, OrchestrationTaskRecord } from "./orchestration-types";
 import { renderDelegateGroupResultBlocks } from "./render-delegate-group-result";
 import { renderDelegateQuestionPackage } from "./render-delegate-question-package";
@@ -278,7 +279,7 @@ export async function buildCoordinatorPrompt(input: {
   let promptText = sections.length > 0 ? sections.join("\n\n") : (input.userText ?? "");
 
   if (input.maxPromptLength && promptText.length > input.maxPromptLength) {
-    promptText = promptText.slice(0, input.maxPromptLength - 3) + "...";
+    promptText = truncateText(promptText, input.maxPromptLength, "...");
   }
 
   return {

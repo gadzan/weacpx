@@ -4,6 +4,7 @@ import { basename, isAbsolute, normalize } from "node:path";
 import type { AppConfig } from "../config/types";
 import type { AppLogger } from "../logging/app-logger";
 import type { AppState } from "../state/types";
+import { sanitizeString } from "../util/sanitize.js";
 import type {
   ExternalCoordinatorRecord,
   OrchestrationCoordinatorQuestionStateRecord,
@@ -3487,7 +3488,11 @@ export class OrchestrationService {
 
   private workspaceLabelFromCwd(cwd: string): string {
     const base = basename(cwd).trim() || "cwd";
-    return base.replace(/[^a-zA-Z0-9._-]+/g, "_") || "cwd";
+    return sanitizeString(base, {
+      allow: /[a-zA-Z0-9._-]/,
+      replacement: "_",
+      fallback: "cwd",
+    });
   }
 
   private cwdWorkerSessionPart(cwd: string): string {

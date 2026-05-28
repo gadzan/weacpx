@@ -1,10 +1,15 @@
+import { sanitizeString } from "../util/sanitize.js";
+import { quoteIfNeeded } from "../util/text.js";
+
 const VALID_WORKSPACE_NAME_RE = /^[a-zA-Z0-9._-]+$/;
-const UNSAFE_RUN_RE = /[^a-zA-Z0-9._-]+/g;
-const TRIM_DASHES_RE = /^-+|-+$/g;
 
 export function sanitizeWorkspaceName(input: string, fallback = "workspace"): string {
-  const sanitized = input.trim().replace(UNSAFE_RUN_RE, "-").replace(TRIM_DASHES_RE, "");
-  return sanitized.length > 0 ? sanitized : fallback;
+  return sanitizeString(input.trim(), {
+    allow: /[a-zA-Z0-9._-]/,
+    replacement: "-",
+    trim: true,
+    fallback,
+  });
 }
 
 export function allocateWorkspaceName(base: string, existing: Record<string, unknown>): string {
@@ -20,5 +25,5 @@ export function isWorkspaceNameValid(input: string): boolean {
 
 export function quoteWorkspaceNameIfNeeded(input: string): string {
   if (isWorkspaceNameValid(input)) return input;
-  return `"${input.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  return quoteIfNeeded(input);
 }

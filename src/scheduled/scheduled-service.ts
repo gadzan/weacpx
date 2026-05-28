@@ -1,4 +1,5 @@
 import { AsyncMutex } from "../orchestration/async-mutex";
+import { sanitizeString } from "../util/sanitize.js";
 import type { StateStore } from "../state/state-store";
 import type { AppState } from "../state/types";
 import type { ScheduledSessionMode, ScheduledTaskRecord } from "./scheduled-types";
@@ -151,7 +152,10 @@ export class ScheduledTaskService {
 
   private nextId(): string {
     for (let attempt = 0; attempt < 20; attempt += 1) {
-      const id = normalizeId(this.generateId()).replace(/[^0-9a-z]/g, "").slice(0, 6);
+      const id = sanitizeString(normalizeId(this.generateId()), {
+        allow: /[0-9a-z]/,
+        replacement: "",
+      }).slice(0, 6);
       if (id.length >= 4 && !this.state.scheduled_tasks[id]) return id;
     }
     throw new Error("failed to generate unique scheduled task id");
@@ -167,5 +171,9 @@ export class ScheduledTaskService {
 }
 
 export function normalizeId(input: string): string {
-  return input.trim().replace(/^#/, "").toLowerCase();
+  return sanitizeString(input.trim(), {
+    deny: /^#/,
+    replacement: "",
+    lowercase: true,
+  });
 }

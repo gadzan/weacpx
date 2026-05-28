@@ -4,6 +4,7 @@ import path from "node:path";
 import { ensureDirSync } from "../storage/ensure-dir.js";
 import { resolveStateDir } from "../storage/state-dir.js";
 import { logger } from "../util/logger.js";
+import { sanitizeString } from "../../util/sanitize.js";
 
 /**
  * Resolve the framework credentials directory (mirrors core resolveOAuthDir).
@@ -15,13 +16,13 @@ function resolveCredentialsDir(): string {
   return path.join(resolveStateDir(), "credentials");
 }
 
-/**
- * Sanitize a channel/account key for safe use in filenames (mirrors core safeChannelKey).
- */
 function safeKey(raw: string): string {
   const trimmed = raw.trim().toLowerCase();
   if (!trimmed) throw new Error("invalid key for allowFrom path");
-  const safe = trimmed.replace(/[\\/:*?"<>|]/g, "_").replace(/\.\./g, "_");
+  const safe = sanitizeString(trimmed, {
+    deny: /[\\/:*?"<>|]|\\.\\./g,
+    replacement: "_",
+  });
   if (!safe || safe === "_") throw new Error("invalid key for allowFrom path");
   return safe;
 }

@@ -1,6 +1,7 @@
 import { access, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { sanitizeString } from "../util/sanitize.js";
 import type { ChannelId, ChannelMediaAttachment, ChannelMediaKind } from "./media-types";
 
 export const DEFAULT_IMAGE_MAX_BYTES = 20 * 1024 * 1024;
@@ -77,16 +78,24 @@ export class RuntimeMediaStore {
 
 export function sanitizeMediaFileName(fileName: string, mimeType: string): string {
   const base = path.basename(fileName.trim() || "attachment");
-  const replaced = base.replace(/[\\/:*?"<>|\s]+/g, "-").replace(/^-+|-+$/g, "");
-  const safe = replaced || "attachment";
+  const safe = sanitizeString(base, {
+    deny: /[\\/:*?"<>|\s]+/g,
+    replacement: "-",
+    trim: true,
+    fallback: "attachment",
+  });
   const ext = path.extname(safe);
   if (ext) return safe;
   return `${safe}${extensionFromMime(mimeType)}`;
 }
 
 function safePathSegment(value: string): string {
-  const safe = value.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "");
-  return safe || "unknown";
+  return sanitizeString(value, {
+    allow: /[A-Za-z0-9._-]/,
+    replacement: "_",
+    trim: true,
+    fallback: "unknown",
+  });
 }
 
 async function uniqueFileName(dir: string, baseName: string): Promise<string> {

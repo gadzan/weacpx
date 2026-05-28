@@ -5,13 +5,17 @@ import { ensureDirSync } from "../storage/ensure-dir.js";
 import { resolveStateDir } from "../storage/state-dir.js";
 import { logger } from "../util/logger.js";
 import { writePrivateFileSync } from "../../util/private-file.js";
+import { sanitizeString } from "../../util/sanitize.js";
 
 export const DEFAULT_BASE_URL = "https://ilinkai.weixin.qq.com";
 export const CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
 
-/** Normalize an account ID to a filesystem-safe string. */
 export function normalizeAccountId(raw: string): string {
-  return raw.trim().toLowerCase().replace(/[@.]/g, "-");
+  return sanitizeString(raw.trim(), {
+    deny: /[@.]/g,
+    replacement: "-",
+    lowercase: true,
+  });
 }
 
 

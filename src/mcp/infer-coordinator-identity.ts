@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 
 import type { AppConfig } from "../config/types";
 import { normalizeWorkspacePath } from "../commands/workspace-path";
+import { sanitizeString } from "../util/sanitize.js";
 
 export interface McpRootLike {
   uri: string;
@@ -78,13 +79,14 @@ export function inferExternalCoordinatorSession(input: InferCoordinatorSessionIn
 }
 
 function sanitizeMcpClientName(input: string | undefined): string {
-  const normalized = (input ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-  return normalized.length > 0 ? normalized : "mcp-host";
+  return sanitizeString((input ?? "").trim(), {
+    allow: /[a-z0-9._-]/,
+    replacement: "-",
+    lowercase: true,
+    collapse: true,
+    trim: true,
+    fallback: "mcp-host",
+  });
 }
 
 function fileUriToPathOrNull(uri: string): string | null {

@@ -1,3 +1,4 @@
+import { truncateText } from "../util/text.js";
 import type { ScheduledTaskRecord } from "./scheduled-types";
 import { LATER_MESSAGE_PREVIEW_CHARS } from "./scheduled-types";
 
@@ -67,9 +68,7 @@ export function renderLaterList(tasks: ScheduledTaskRecord[], displaySession: (i
 }
 
 export function preview(text: string): string {
-  return text.length <= LATER_MESSAGE_PREVIEW_CHARS
-    ? text
-    : `${text.slice(0, LATER_MESSAGE_PREVIEW_CHARS - 1)}…`;
+  return truncateText(text, LATER_MESSAGE_PREVIEW_CHARS);
 }
 
 export function formatLocalDateTime(date: Date): string {

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import type { NonInteractivePermissions, PermissionMode } from "../config/types";
 import { resolveSpawnCommand } from "../process/spawn-command";
 import { terminateProcessTree } from "../process/terminate-process-tree";
+import { quoteIfNeeded } from "../util/text.js";
 
 export interface AcpxMcpServerSpec {
   name: string;
@@ -277,5 +278,5 @@ function resolveDefaultWeacpxCommand(env: NodeJS.ProcessEnv): string {
 }
 
 function quoteCommandPart(value: string): string {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")}"`;
+  return quoteIfNeeded(value);
 }

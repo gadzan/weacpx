@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 
 import { resolveSpawnCommand } from "../process/spawn-command";
+import { settleWithinTimeout } from "../util/async.js";
 import { terminateAcpxQueueOwner } from "./acpx-queue-owner-launcher";
 
 /**
@@ -72,32 +73,6 @@ export async function reapQueueOwners(
 
   await settleWithinTimeout(Promise.all(unique.map(reapOne)), timeoutMs);
   return { terminated, attempted: unique.length };
-}
-
-function settleWithinTimeout(work: Promise<unknown>, timeoutMs: number): Promise<void> {
-  return new Promise<void>((resolve) => {
-    let settled = false;
-    const finish = () => {
-      if (!settled) {
-        settled = true;
-        resolve();
-      }
-    };
-    const timer = setTimeout(finish, timeoutMs);
-    if (typeof (timer as NodeJS.Timeout).unref === "function") {
-      (timer as NodeJS.Timeout).unref();
-    }
-    work.then(
-      () => {
-        clearTimeout(timer);
-        finish();
-      },
-      () => {
-        clearTimeout(timer);
-        finish();
-      },
-    );
-  });
 }
 
 async function defaultResolveRecordId(acpxCommand: string, target: ReapTarget): Promise<string | null> {
