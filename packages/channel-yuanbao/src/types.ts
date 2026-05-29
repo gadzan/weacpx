@@ -82,7 +82,7 @@ export interface YuanbaoGatewayStartInput {
   commandSync?: {
     botVersion: string;
     pluginVersion: string;
-    botCommands: WsSyncCommand[];
+    commands: WsSyncCommand[];
   };
 }
 

@@ -10,7 +10,8 @@ const SYNC_TYPE_COMMANDS = 1;
 export interface YuanbaoCommandSyncInput {
   botVersion: string;
   pluginVersion: string;
-  botCommands: WsSyncCommand[];
+  /** weacpx 的命令清单（走 pluginCommands 自由桶，见下） */
+  commands: WsSyncCommand[];
 }
 
 /** 把命令同步入参映射为元宝 WS 的 SyncInformation 请求数据。 */
@@ -20,8 +21,12 @@ export function toSyncInformationData(input: YuanbaoCommandSyncInput): WsSyncInf
     botVersion: input.botVersion,
     pluginVersion: input.pluginVersion,
     commandData: {
-      botCommands: input.botCommands,
-      pluginCommands: [],
+      // 元宝/OpenClaw 后端把 botCommands 校验进它**内置的框架命令词表**，不认识的名字
+      // 会被丢弃——我们把全部 13 个塞进 botCommands 时，只有 /help、/status（词表交集）
+      // 留下了。自定义命令必须走 pluginCommands —— 这是后端按原样渲染的自由桶
+      // （OpenClaw 自己的 /yuanbaobot-upgrade、/issue-log 就是这样出现的）。
+      botCommands: [],
+      pluginCommands: input.commands,
     },
   };
 }
@@ -43,7 +48,7 @@ export async function syncCommandsOnReady(
   logger: Pick<AppLogger, "info" | "error">,
   accountId: string,
 ): Promise<void> {
-  if (!client || !commandSync || commandSync.botCommands.length === 0) {
+  if (!client || !commandSync || commandSync.commands.length === 0) {
     return;
   }
   try {
@@ -52,13 +57,13 @@ export async function syncCommandsOnReady(
       await logger.info("yuanbao.ws.sync_commands", "synced command hints", {
         accountId,
         code: rsp.code,
-        count: commandSync.botCommands.length,
+        count: commandSync.commands.length,
       });
     } else {
       await logger.error("yuanbao.ws.sync_commands_rejected", "command hint sync rejected by backend", {
         accountId,
         code: rsp.code,
-        count: commandSync.botCommands.length,
+        count: commandSync.commands.length,
       });
     }
   } catch (err) {
