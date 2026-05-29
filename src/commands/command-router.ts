@@ -56,7 +56,7 @@ import {
   summarizeTransportError,
   summarizeTransportNdjson,
 } from "./transport-diagnostics";
-import { handleHelp } from "./handlers/help-handler";
+import { handleHelp, handleInvalidCommand } from "./handlers/help-handler";
 import { handleAgents, handleAgentAdd, handleAgentRemove } from "./handlers/agent-handler";
 import { handleWorkspaces, handleWorkspaceCreate, handleWorkspaceRemove } from "./handlers/workspace-handler";
 import { handleSessionShortcutCommand } from "./handlers/session-shortcut-handler";
@@ -156,17 +156,7 @@ export class CommandRouter {
     return await this.executeCommand(chatKey, command.kind, startedAt, async () => {
       switch (command.kind) {
         case "invalid":
-          return {
-            text: [
-              "无法识别的命令格式。",
-              "",
-              "正确的会话创建格式：",
-              "/session new <别名> --agent <Agent名> --ws <工作区名>",
-              "",
-              "例如：",
-              "/session new demo --agent claude --ws weacpx",
-            ].join("\n"),
-          };
+          return handleInvalidCommand(command.recognizedCommand);
         case "help":
           return handleHelp(command.topic);
         case "agents":
