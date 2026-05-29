@@ -1,5 +1,6 @@
 import type { AppLogger } from "weacpx/plugin-api";
 import type { YuanbaoResolvedAccountConfig } from "./config.js";
+import type { WsSyncCommand } from "./access/ws/types.js";
 
 export type YuanbaoChatType = "direct" | "group";
 
@@ -77,6 +78,12 @@ export interface YuanbaoGatewayStartInput {
   abortSignal: AbortSignal;
   logger: AppLogger;
   onMessage: (message: YuanbaoGatewayInboundMessage) => Promise<void>;
+  /** 可选：连接就绪后向元宝后端同步的命令提示；自定义网关可忽略。 */
+  commandSync?: {
+    botVersion: string;
+    pluginVersion: string;
+    botCommands: WsSyncCommand[];
+  };
 }
 
 export interface YuanbaoGatewaySendTextInput {
