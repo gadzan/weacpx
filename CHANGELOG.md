@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.6.1] - 2026-05-29
+
+### Added
+
+- **元宝输入框命令提示：** weacpx 内置命令（`/session`、`/ssn`、`/workspace`、`/agent`、`/permission`、`/config`、`/delegate`、`/mode`、`/replymode`、`/status`、`/cancel`、`/later`、`/help`）现在会在元宝输入框输入 `/` 时作为提示出现。命令目录由核心从 `HELP_TOPICS` 派生（`listWeacpxCommandHints()`），经 `ChannelStartInput` 注入频道（核心拥有目录、插件只读注入数据）；元宝频道在 WS 连接就绪（含每次重连）后通过 `SyncInformation` 协议推送给后端，best-effort、失败仅记日志。
+
+### Changed
+
+- **MCP `task_watch` / `task_get`：** `task_watch` 到达终态时直接带回结果；`task_get` 默认不再回显 prompt。
+- 内部重构（无行为变化）：新增并复用 sanitize / path / text / async 等共享工具模块，消除重复实现。
+
+### Fixed
+
+- **元宝自定义命令此前无法在输入框显示：** 命令原先全部塞进 `SyncInformation.botCommands`，而该桶会被元宝/OpenClaw 后端按其内置框架命令词表过滤，导致只有 `/help`、`/status` 能出现。改为走 `pluginCommands` 自由桶后，全部内置命令均可显示。
+- **`/delegate` 等命令的错误提示误导：** 被识别但参数不全的命令（如裸 `/delegate`）此前一律误报“会话创建格式”；现按命令显示其自身帮助主题。
+- **`weacpx plugin add` 不识别 Windows 路径：** `looksLikePath` 仅认 POSIX 前缀（`./`、`../`、`/`），导致 Windows 反斜杠相对路径（`.\pkg`）被当作 npm 包名传给 `bun add` 而失败（`Could not find package.json`）；现识别 `.\`、`..\`、`\` 及盘符绝对路径（`C:\`、`C:/`）。
+- **插件目录重复依赖损坏锁文件：** 同一包先后以 npm 版本与本地路径安装，会在 `~/.weacpx/plugins/package.json` 留下重复依赖键，进而使 `bun.lock` 解析失败（`InvalidPackageKey: failed to parse lockfile`）。`installPluginPackage` 现在安装前归一化该文件、塌缩重复键（后者值生效），既修复既有损坏也防止复发。
+
+### Tests
+
+- 新增：命令提示导出器、核心版本常量防漂移、元宝命令同步映射与 `syncCommandsOnReady`（重连/后端拒绝/异常路径）、`looksLikePath` 跨平台识别、插件目录去重（含安装路径接线）、`invalid` 命令帮助渲染。
+
 ## [0.6.0] - 2026-05-27
 
 ### Added
