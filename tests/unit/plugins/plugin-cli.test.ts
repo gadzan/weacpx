@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
 import type { AppConfig } from "../../../src/config/types";
-import { handlePluginCli } from "../../../src/plugins/plugin-cli";
+import { handlePluginCli, looksLikePath } from "../../../src/plugins/plugin-cli";
 
 function baseConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
@@ -56,6 +56,26 @@ function createHarness(initial: AppConfig) {
     },
   };
 }
+
+test("looksLikePath recognizes POSIX and Windows local paths", () => {
+  // POSIX-style
+  expect(looksLikePath("./packages/channel-yuanbao")).toBe(true);
+  expect(looksLikePath("../foo")).toBe(true);
+  expect(looksLikePath("/abs/path")).toBe(true);
+  expect(looksLikePath(".")).toBe(true);
+  // Windows-style (the bug: backslash relative paths weren't recognized)
+  expect(looksLikePath(".\\packages\\channel-yuanbao")).toBe(true);
+  expect(looksLikePath("..\\foo")).toBe(true);
+  expect(looksLikePath("C:\\projects\\weacpx")).toBe(true);
+  expect(looksLikePath("E:/projects/weacpx")).toBe(true);
+  expect(looksLikePath("\\\\server\\share")).toBe(true);
+});
+
+test("looksLikePath treats npm package specs as non-paths", () => {
+  expect(looksLikePath("weacpx-channel-demo")).toBe(false);
+  expect(looksLikePath("@ganglion/weacpx-channel-yuanbao")).toBe(false);
+  expect(looksLikePath("@scope/pkg")).toBe(false);
+});
 
 test("plugin list prints configured plugins", async () => {
   const harness = createHarness(baseConfig({ plugins: [{ name: "weacpx-channel-demo", version: "1.0.0", enabled: true }] }));
