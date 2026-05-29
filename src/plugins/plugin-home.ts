@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -24,6 +24,42 @@ export function resolvePluginHome(input: { home?: string; pluginHome?: string } 
   if (envOverride) return envOverride;
   const home = coerceMissing(input.home) ?? coerceMissing(process.env.HOME) ?? homedir();
   return join(home, ".weacpx", "plugins");
+}
+
+/**
+ * Collapse duplicate keys in the plugin home `package.json`.
+ *
+ * A package manager can leave the same dependency under two keys/spec-forms —
+ * notably `bun add` on Windows recording a package once as an npm version and
+ * once as an absolute local path — which is invalid JSON (duplicate key) and
+ * corrupts `bun.lock` (`InvalidPackageKey: failed to parse lockfile`). Node's
+ * `JSON.parse` tolerates duplicate keys and keeps the *last* value, so a
+ * parse → stringify round-trip physically removes the duplicates.
+ *
+ * Returns `true` when the file was rewritten (i.e. it had been changed),
+ * `false` when there was nothing to fix (clean, missing, or unparseable for
+ * some other reason — in which case the file is left untouched).
+ */
+export async function normalizePluginHomeManifest(pluginHome: string): Promise<boolean> {
+  const manifestPath = join(pluginHome, "package.json");
+  let raw: string;
+  try {
+    raw = await readFile(manifestPath, "utf8");
+  } catch {
+    return false;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // Unparseable for a reason other than duplicate keys (which JSON.parse
+    // accepts). Don't clobber a manifest we can't safely understand.
+    return false;
+  }
+  const normalized = JSON.stringify(parsed, null, 2) + "\n";
+  if (normalized === raw) return false;
+  await writeFile(manifestPath, normalized, { mode: 0o600 });
+  return true;
 }
 
 export async function ensurePluginHome(pluginHome: string): Promise<void> {

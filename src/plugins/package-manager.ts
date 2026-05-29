@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
 
+import { normalizePluginHomeManifest } from "./plugin-home.js";
+
 export type PluginPackageManager = "bun" | "npm";
 
 export interface RunCommandOptions {
@@ -51,6 +53,10 @@ export async function installPluginPackage(input: {
 }): Promise<void> {
   const runCommand = input.runCommand ?? defaultRunCommand;
   const packageManager = input.packageManager ?? await detectPackageManager();
+  // Repair any duplicate dependency keys a prior add may have left (e.g. bun on
+  // Windows recording a package under both an npm version and a local path),
+  // which would otherwise make the package manager choke on the lockfile.
+  await normalizePluginHomeManifest(input.pluginHome);
   const spec = input.version ? `${input.packageName}@${input.version}` : input.packageName;
   if (packageManager === "bun") {
     await runCommand("bun", ["add", spec], { cwd: input.pluginHome });
