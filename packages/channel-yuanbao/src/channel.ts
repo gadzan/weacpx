@@ -10,6 +10,7 @@ import type { YuanbaoGateway, YuanbaoGatewayFactory, YuanbaoGatewayInboundMessag
 import { buildYuanbaoChatKey, extractYuanbaoContent, parseYuanbaoChatKey } from "./inbound.js";
 import { loadYuanbaoGatewayFromModule } from "./gateway-loader.js";
 import { createBuiltinYuanbaoGateway } from "./builtin-gateway.js";
+import { PLUGIN_VERSION } from "./command-sync.js";
 import { normalizeMediaArray, type ChannelMediaAttachment } from "./media-types.js";
 import { MessageDedup } from "./message-dedup.js";
 import { enqueueYuanbaoChatTask } from "./chat-queue.js";
@@ -107,11 +108,22 @@ export class YuanbaoChannel implements MessageChannelRuntime {
     this.gateway = await this.resolveGateway();
     const accounts = this.config.accounts.filter((account) => account.enabled && account.configured);
     await input.logger.info("yuanbao.start", "starting yuanbao channel", { accounts: accounts.map((account) => account.accountId).join(",") });
+
+    const hints = input.commandHints ?? [];
+    const commandSync = hints.length > 0
+      ? {
+          botVersion: input.coreVersion ?? "unknown",
+          pluginVersion: PLUGIN_VERSION,
+          botCommands: hints.map((h) => ({ name: h.name, description: h.description })),
+        }
+      : undefined;
+
     await this.gateway.start({
       accounts,
       abortSignal: input.abortSignal,
       logger: input.logger,
       onMessage: (message) => this.handleInboundMessage(message),
+      ...(commandSync ? { commandSync } : {}),
     });
   }
 
