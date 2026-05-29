@@ -166,6 +166,27 @@ test("forwards ttlMs of 0 (keep alive forever) into the queue owner payload", as
   expect(payload.ttlMs).toBe(0);
 });
 
+test("cleans per-record launch locks after launch settles", async () => {
+  const launcher = new AcpxQueueOwnerLauncher({
+    acpxCommand: "acpx",
+    spawnOwner: async () => {},
+    terminateOwner: async () => {},
+  });
+
+  for (let i = 0; i < 3; i++) {
+    await launcher.launch({
+      acpxRecordId: `record-${i}`,
+      coordinatorSession: "backend:main",
+      permissionMode: "approve-all",
+      nonInteractivePermissions: "deny",
+    });
+  }
+  await Promise.resolve();
+
+  const internals = launcher as unknown as { launchLocks: Map<string, Promise<void>> };
+  expect(internals.launchLocks.size).toBe(0);
+});
+
 test("parses quoted weacpx command paths with spaces", () => {
   expect(buildWeacpxMcpServerSpec({
     weacpxCommand: '"C:/Program Files/nodejs/node.exe" "E:/projects/weacpx/dist/cli.js"',

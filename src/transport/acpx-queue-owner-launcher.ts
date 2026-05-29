@@ -131,7 +131,13 @@ export class AcpxQueueOwnerLauncher {
       () => this.doLaunch(input),
     );
     // Store a swallowed version so the chain never rejects for the next waiter.
-    this.launchLocks.set(key, next.catch(() => {}));
+    const tracked = next.catch(() => {});
+    this.launchLocks.set(key, tracked);
+    void tracked.finally(() => {
+      if (this.launchLocks.get(key) === tracked) {
+        this.launchLocks.delete(key);
+      }
+    });
     return next;
   }
 
