@@ -1,4 +1,5 @@
 import type { Agent as ChatAgent } from "../weixin/agent/interface.js";
+import type { CommandHint } from "../commands/command-hints.js";
 import type { OrchestrationTaskRecord } from "../orchestration/orchestration-types.js";
 import type { AppLogger } from "../logging/app-logger.js";
 import type { PendingFinalChunk } from "../weixin/messaging/quota-manager.js";
@@ -59,6 +60,10 @@ export interface ChannelStartInput {
   quota: OutboundQuota;
   logger: AppLogger;
   perfTracer?: PerfTracer;
+  /** weacpx 内置命令目录，供支持输入框命令提示的频道（如元宝）使用。 */
+  commandHints?: CommandHint[];
+  /** weacpx 核心版本，用作命令同步的 botVersion。 */
+  coreVersion?: string;
 }
 
 export interface OrchestrationDeliveryCallbacks {

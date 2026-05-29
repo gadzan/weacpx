@@ -1,6 +1,8 @@
 import type { AppRuntime, RuntimePaths } from "./main";
 import type { ChannelStartInput, ConsumerLock, ConsumerLockMetadata } from "./channels/types.js";
 import { ActiveWeixinConsumerLockError } from "./weixin/monitor/consumer-lock";
+import { listWeacpxCommandHints } from "./commands/command-hints.js";
+import { WEACPX_CORE_VERSION } from "./version.js";
 
 interface DaemonLifecycle {
   start: (input: { configPath: string; statePath: string }) => Promise<void>;
@@ -180,6 +182,8 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
       quota: runtime.quota,
       logger: runtime.logger,
       perfTracer: runtime.perfTracer,
+      commandHints: listWeacpxCommandHints(),
+      coreVersion: WEACPX_CORE_VERSION,
     });
     // Observe rejections immediately so a channel failure cannot become an
     // unhandled rejection while the scheduler startup path is still running.

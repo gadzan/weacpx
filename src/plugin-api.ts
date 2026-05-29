@@ -22,6 +22,7 @@ export type {
   ChannelCliValidationIssue,
 } from "./channels/cli/provider.js";
 export type { ChannelRuntimeConfig } from "./config/types.js";
+export type { CommandHint } from "./commands/command-hints.js";
 export type { AppLogger } from "./logging/app-logger.js";
 export type { WeacpxPlugin } from "./plugins/types.js";
 export {
