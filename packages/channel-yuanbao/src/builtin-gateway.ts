@@ -10,7 +10,7 @@ import type {
   YuanbaoMsgBodyElement,
 } from "./types.js";
 import { decodeInboundMessage } from "./access/ws/biz-codec.js";
-import { toSyncInformationData } from "./command-sync.js";
+import { syncCommandsOnReady } from "./command-sync.js";
 import { YuanbaoWsClient } from "./access/ws/client.js";
 import type { WsConnectionConfig, WsPushEvent } from "./access/ws/types.js";
 import { getYuanbaoSignToken, refreshYuanbaoSignToken } from "./sign-token.js";
@@ -137,25 +137,13 @@ export class BuiltinYuanbaoGateway implements YuanbaoGateway {
                 accountId: account.accountId,
                 connectId: data.connectId,
               });
-              const sync = input.commandSync;
-              if (sync && sync.botCommands.length > 0) {
-                const readyClient = this.clients.get(account.accountId);
-                void readyClient
-                  ?.syncInformation(toSyncInformationData(sync))
-                  .then((rsp) =>
-                    input.logger.info("yuanbao.ws.sync_commands", "synced command hints", {
-                      accountId: account.accountId,
-                      code: rsp.code,
-                      count: sync.botCommands.length,
-                    }),
-                  )
-                  .catch((err) =>
-                    input.logger.error("yuanbao.ws.sync_commands_failed", "command hint sync failed", {
-                      accountId: account.accountId,
-                      message: err instanceof Error ? err.message : String(err),
-                    }),
-                  );
-              }
+              // 每次（重）连就绪都重推命令提示——重连后后端可能已丢失状态，重推是幂等且期望的。
+              void syncCommandsOnReady(
+                this.clients.get(account.accountId),
+                input.commandSync,
+                input.logger,
+                account.accountId,
+              );
             },
             onDispatch: (push) => {
               void this.handleDispatch(account, push, input.onMessage, input.logger);

@@ -60,9 +60,9 @@ export interface ChannelStartInput {
   quota: OutboundQuota;
   logger: AppLogger;
   perfTracer?: PerfTracer;
-  /** weacpx 内置命令目录，供支持输入框命令提示的频道（如元宝）使用。 */
+  /** weacpx 内置命令目录，供支持输入框命令提示的频道使用。 */
   commandHints?: CommandHint[];
-  /** weacpx 核心版本，用作命令同步的 botVersion。 */
+  /** weacpx 核心版本字符串，供需要它的频道（如命令同步元数据）使用。 */
   coreVersion?: string;
 }
 
