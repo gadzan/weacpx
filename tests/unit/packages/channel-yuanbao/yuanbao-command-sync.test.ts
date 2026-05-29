@@ -41,17 +41,19 @@ function createNoopLogger() {
 
 const stubAgent: ChatAgent = { async chat() { return { text: "" }; } };
 
-test("toSyncInformationData maps hints to commands with syncType=1 and empty pluginCommands", () => {
+test("toSyncInformationData routes commands into pluginCommands (free-form bucket), not botCommands", () => {
   const data = toSyncInformationData({
     botVersion: "0.6.0",
     pluginVersion: "0.2.0",
-    botCommands: [{ name: "/help", description: "查看命令帮助。" }],
+    commands: [{ name: "/help", description: "查看命令帮助。" }],
   });
   expect(data.syncType).toBe(1);
   expect(data.botVersion).toBe("0.6.0");
   expect(data.pluginVersion).toBe("0.2.0");
-  expect(data.commandData?.botCommands).toEqual([{ name: "/help", description: "查看命令帮助。" }]);
-  expect(data.commandData?.pluginCommands).toEqual([]);
+  // botCommands is validated against the platform's framework vocabulary and
+  // drops unknown names; custom weacpx commands must go in pluginCommands.
+  expect(data.commandData?.botCommands).toEqual([]);
+  expect(data.commandData?.pluginCommands).toEqual([{ name: "/help", description: "查看命令帮助。" }]);
 });
 
 test("PLUGIN_VERSION matches the channel package.json", () => {
@@ -61,7 +63,7 @@ test("PLUGIN_VERSION matches the channel package.json", () => {
 const SYNC_INPUT = {
   botVersion: "0.6.0",
   pluginVersion: PLUGIN_VERSION,
-  botCommands: [{ name: "/help", description: "查看命令帮助。" }],
+  commands: [{ name: "/help", description: "查看命令帮助。" }],
 };
 
 test("syncCommandsOnReady sends mapped data when hints present", async () => {
@@ -74,7 +76,7 @@ test("syncCommandsOnReady sends mapped data when hints present", async () => {
 
   expect(calls).toHaveLength(1);
   expect(calls[0]!.syncType).toBe(1);
-  expect(calls[0]!.commandData?.botCommands).toEqual([{ name: "/help", description: "查看命令帮助。" }]);
+  expect(calls[0]!.commandData?.pluginCommands).toEqual([{ name: "/help", description: "查看命令帮助。" }]);
   expect(logs).toContain("yuanbao.ws.sync_commands");
 });
 
@@ -85,7 +87,7 @@ test("syncCommandsOnReady skips when no client, no commandSync, or empty command
 
   await syncCommandsOnReady(undefined, SYNC_INPUT, noop, "a1");
   await syncCommandsOnReady(client, undefined, noop, "a1");
-  await syncCommandsOnReady(client, { ...SYNC_INPUT, botCommands: [] }, noop, "a1");
+  await syncCommandsOnReady(client, { ...SYNC_INPUT, commands: [] }, noop, "a1");
 
   expect(called).toBe(0);
 });
@@ -125,7 +127,7 @@ test("channel.start forwards injected command hints into gateway.commandSync", a
   expect(captured).not.toBeNull();
   expect(captured!.commandSync?.botVersion).toBe("0.6.0");
   expect(captured!.commandSync?.pluginVersion).toBe(PLUGIN_VERSION);
-  expect(captured!.commandSync?.botCommands).toEqual([{ name: "/help", description: "查看命令帮助。" }]);
+  expect(captured!.commandSync?.commands).toEqual([{ name: "/help", description: "查看命令帮助。" }]);
 });
 
 test("channel.start omits commandSync when no hints injected", async () => {

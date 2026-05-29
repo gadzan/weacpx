@@ -114,7 +114,7 @@ export class YuanbaoChannel implements MessageChannelRuntime {
       ? {
           botVersion: input.coreVersion ?? "unknown",
           pluginVersion: PLUGIN_VERSION,
-          botCommands: hints.map((h) => ({ name: h.name, description: h.description })),
+          commands: hints.map((h) => ({ name: h.name, description: h.description })),
         }
       : undefined;
 
