@@ -15,6 +15,33 @@ export function handleHelp(topic?: string): RouterResponse {
   return { text: renderHelpTopic(entry) };
 }
 
+/**
+ * Render the response for a recognized-but-malformed command (parse kind
+ * "invalid"). Shows that specific command's help when a help topic exists
+ * (e.g. a bare `/delegate` → orchestration help, instead of the misleading
+ * session-creation message). Falls back to the session-creation hint only for
+ * recognized commands without a dedicated topic.
+ */
+export function handleInvalidCommand(recognizedCommand: string): RouterResponse {
+  const topicName = recognizedCommand.replace(/^\//, "");
+  const entry = getHelpTopic(topicName);
+  if (entry) {
+    return { text: `命令格式不正确，请参考下面的用法：\n\n${renderHelpTopic(entry)}` };
+  }
+
+  return {
+    text: [
+      "无法识别的命令格式。",
+      "",
+      "正确的会话创建格式：",
+      "/session new <别名> --agent <Agent名> --ws <工作区名>",
+      "",
+      "例如：",
+      "/session new demo --agent claude --ws weacpx",
+    ].join("\n"),
+  };
+}
+
 function renderHelpIndex(): string {
   const topics = listHelpTopics();
   return [
