@@ -21,7 +21,22 @@ import { writePrivateFileSync } from "../../util/private-file.js";
  * so daemon restarts can recover existing user→token associations and the
  * first reply after restart does not fail with "contextToken is required".
  */
-const contextTokenStore = new Map<string, string>();
+interface ContextTokenEntry {
+  token: string;
+  updatedAt: number;
+}
+
+interface ContextTokenRetentionOptions {
+  maxTokensPerAccount?: number;
+  tokenTtlMs?: number;
+  now?: () => number;
+}
+
+const DEFAULT_CONTEXT_TOKEN_MAX_PER_ACCOUNT = 5000;
+const DEFAULT_CONTEXT_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+const contextTokenStore = new Map<string, ContextTokenEntry>();
+let contextTokenRetention = normalizeContextTokenRetention();
 
 function contextTokenKey(accountId: string, userId: string): string {
   return `${accountId}:${userId}`;
@@ -36,11 +51,18 @@ function resolveContextTokenFilePath(accountId: string): string {
   );
 }
 
+export function configureContextTokenRetentionForTests(options: ContextTokenRetentionOptions = {}): void {
+  contextTokenRetention = normalizeContextTokenRetention(options);
+}
+
 function persistContextTokens(accountId: string): void {
+  pruneContextTokensForAccount(accountId);
   const prefix = `${accountId}:`;
-  const tokens: Record<string, string> = {};
-  for (const [k, v] of contextTokenStore) {
-    if (k.startsWith(prefix)) tokens[k.slice(prefix.length)] = v;
+  const tokens: Record<string, { token: string; updatedAt: number }> = {};
+  for (const [k, entry] of contextTokenStore) {
+    if (k.startsWith(prefix)) {
+      tokens[k.slice(prefix.length)] = { token: entry.token, updatedAt: entry.updatedAt };
+    }
   }
   const filePath = resolveContextTokenFilePath(accountId);
   try {
@@ -60,14 +82,17 @@ export function restoreContextTokens(accountId: string): void {
   try {
     if (!fs.existsSync(filePath)) return;
     const raw = fs.readFileSync(filePath, "utf-8");
-    const tokens = JSON.parse(raw) as Record<string, string>;
+    const tokens = JSON.parse(raw) as Record<string, unknown>;
     let count = 0;
-    for (const [userId, token] of Object.entries(tokens)) {
-      if (typeof token === "string" && token) {
-        contextTokenStore.set(contextTokenKey(accountId, userId), token);
+    for (const [userId, value] of Object.entries(tokens)) {
+      const entry = parsePersistedContextToken(value);
+      if (entry) {
+        contextTokenStore.set(contextTokenKey(accountId, userId), entry);
         count++;
       }
     }
+    pruneContextTokensForAccount(accountId);
+    persistContextTokens(accountId);
     logger.info(`restoreContextTokens: restored ${count} tokens for account=${accountId}`);
   } catch (err) {
     logger.warn(`restoreContextTokens: failed to read ${filePath}: ${String(err)}`);
@@ -96,14 +121,15 @@ export function clearContextTokensForAccount(accountId: string): void {
 export function setContextToken(accountId: string, userId: string, token: string): void {
   const k = contextTokenKey(accountId, userId);
   logger.debug(`setContextToken: key=${k}`);
-  contextTokenStore.set(k, token);
+  contextTokenStore.set(k, { token, updatedAt: contextTokenRetention.now() });
   persistContextTokens(accountId);
 }
 
 /** Retrieve the cached context token for a given account+user pair. */
 export function getContextToken(accountId: string, userId: string): string | undefined {
   const k = contextTokenKey(accountId, normalizeWeixinUserIdFromChatKey(userId));
-  const val = contextTokenStore.get(k);
+  pruneContextTokensForAccount(accountId);
+  const val = contextTokenStore.get(k)?.token;
   logger.debug(
     `getContextToken: key=${k} found=${val !== undefined} storeSize=${contextTokenStore.size}`,
   );
@@ -120,7 +146,67 @@ export function findAccountIdsByContextToken(
   userId: string,
 ): string[] {
   const u = normalizeWeixinUserIdFromChatKey(userId);
+  for (const accountId of accountIds) {
+    pruneContextTokensForAccount(accountId);
+  }
   return accountIds.filter((id) => contextTokenStore.has(contextTokenKey(id, u)));
+}
+
+function parsePersistedContextToken(value: unknown): ContextTokenEntry | null {
+  if (typeof value === "string" && value) {
+    return { token: value, updatedAt: contextTokenRetention.now() };
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.token !== "string" || record.token.length === 0) {
+    return null;
+  }
+  const updatedAt = typeof record.updatedAt === "number" && Number.isFinite(record.updatedAt)
+    ? record.updatedAt
+    : contextTokenRetention.now();
+  return { token: record.token, updatedAt };
+}
+
+function pruneContextTokensForAccount(accountId: string): void {
+  const prefix = `${accountId}:`;
+  const now = contextTokenRetention.now();
+  const entries = [...contextTokenStore.entries()].filter(([key]) => key.startsWith(prefix));
+  for (const [key, entry] of entries) {
+    if (now - entry.updatedAt > contextTokenRetention.tokenTtlMs) {
+      contextTokenStore.delete(key);
+    }
+  }
+  const freshEntries = [...contextTokenStore.entries()]
+    .filter(([key]) => key.startsWith(prefix))
+    .sort((a, b) => a[1].updatedAt - b[1].updatedAt);
+  const excess = freshEntries.length - contextTokenRetention.maxTokensPerAccount;
+  for (let i = 0; i < excess; i++) {
+    const key = freshEntries[i]?.[0];
+    if (key) contextTokenStore.delete(key);
+  }
+}
+
+function normalizeContextTokenRetention(options: ContextTokenRetentionOptions = {}): Required<ContextTokenRetentionOptions> {
+  return {
+    maxTokensPerAccount: normalizePositiveInt(
+      options.maxTokensPerAccount,
+      DEFAULT_CONTEXT_TOKEN_MAX_PER_ACCOUNT,
+    ),
+    tokenTtlMs: normalizeNonNegativeMs(options.tokenTtlMs, DEFAULT_CONTEXT_TOKEN_TTL_MS),
+    now: options.now ?? (() => Date.now()),
+  };
+}
+
+function normalizePositiveInt(value: number | undefined, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 1) return fallback;
+  return Math.floor(value);
+}
+
+function normalizeNonNegativeMs(value: number | undefined, fallback: number): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return fallback;
+  return value;
 }
 
 /** Strip the `weixin:accountId:` prefix from a chat key, returning the bare user id. */

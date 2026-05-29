@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import {
   clearContextTokensForAccount,
+  configureContextTokenRetentionForTests,
   findAccountIdsByContextToken,
   getContextToken,
   restoreContextTokens,
@@ -39,6 +40,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  configureContextTokenRetentionForTests();
   if (prevStateDir === undefined) delete process.env.OPENCLAW_STATE_DIR;
   else process.env.OPENCLAW_STATE_DIR = prevStateDir;
   try {
@@ -60,8 +62,9 @@ describe("contextToken disk persistence", () => {
     // Verify file was written.
     const filePath = tokenFilePath("acct-A1");
     expect(fs.existsSync(filePath)).toBe(true);
-    const onDisk = JSON.parse(fs.readFileSync(filePath, "utf-8")) as Record<string, string>;
-    expect(onDisk).toEqual({ "user-1": "tok-111", "user-2": "tok-222" });
+    const onDisk = JSON.parse(fs.readFileSync(filePath, "utf-8")) as Record<string, { token: string }>;
+    expect(onDisk["user-1"]?.token).toBe("tok-111");
+    expect(onDisk["user-2"]?.token).toBe("tok-222");
 
     // Simulate daemon restart: use a *new* account id whose in-memory map is
     // empty, but seed disk with the same tokens we expect to see restored.
@@ -115,5 +118,39 @@ describe("contextToken disk persistence", () => {
     expect(findAccountIdsByContextToken(["acct-D1"], "weixin:acct-D1:user-1")).toEqual([
       "acct-D1",
     ]);
+  });
+
+  it("evicts excess context tokens per account from memory and disk", () => {
+    configureContextTokenRetentionForTests({ maxTokensPerAccount: 2 });
+
+    setContextToken("acct-evict", "user-1", "tok-1");
+    setContextToken("acct-evict", "user-2", "tok-2");
+    setContextToken("acct-evict", "user-3", "tok-3");
+
+    expect(getContextToken("acct-evict", "user-1")).toBeUndefined();
+    expect(getContextToken("acct-evict", "user-2")).toBe("tok-2");
+    expect(getContextToken("acct-evict", "user-3")).toBe("tok-3");
+    const onDisk = JSON.parse(fs.readFileSync(tokenFilePath("acct-evict"), "utf-8")) as Record<string, unknown>;
+    expect(Object.keys(onDisk).sort()).toEqual(["user-2", "user-3"]);
+  });
+
+  it("prunes stale context tokens when restoring new-format persistence", () => {
+    configureContextTokenRetentionForTests({
+      tokenTtlMs: 100,
+      now: () => 1_000,
+    });
+    const restorePath = tokenFilePath("acct-stale");
+    fs.mkdirSync(path.dirname(restorePath), { recursive: true });
+    fs.writeFileSync(restorePath, JSON.stringify({
+      fresh: { token: "fresh-token", updatedAt: 950 },
+      old: { token: "old-token", updatedAt: 800 },
+    }));
+
+    restoreContextTokens("acct-stale");
+
+    expect(getContextToken("acct-stale", "fresh")).toBe("fresh-token");
+    expect(getContextToken("acct-stale", "old")).toBeUndefined();
+    const onDisk = JSON.parse(fs.readFileSync(restorePath, "utf-8")) as Record<string, unknown>;
+    expect(Object.keys(onDisk)).toEqual(["fresh"]);
   });
 });
