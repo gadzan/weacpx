@@ -232,4 +232,55 @@ describe("QuotaManager v1.3", () => {
       remaining: 8,
     });
   });
+
+  test("prunes stale chat states lazily", () => {
+    let now = 1_000;
+    const quota = new QuotaManager(undefined, undefined, {
+      now: () => now,
+      stateTtlMs: 100,
+    });
+
+    quota.reserveMidSegment("wx:old");
+    now = 1_200;
+    quota.reserveMidSegment("wx:new");
+
+    expect(quota.snapshot("wx:old").midUsed).toBe(0);
+    expect(quota.snapshot("wx:new").midUsed).toBe(1);
+  });
+
+  test("caps chat states by evicting least recently touched entries", () => {
+    let now = 1_000;
+    const quota = new QuotaManager(undefined, undefined, {
+      now: () => now,
+      maxStates: 2,
+    });
+
+    quota.reserveMidSegment("wx:a");
+    now += 1;
+    quota.reserveMidSegment("wx:b");
+    now += 1;
+    quota.reserveMidSegment("wx:c");
+
+    expect(quota.snapshot("wx:a").midUsed).toBe(0);
+    expect(quota.snapshot("wx:b").midUsed).toBe(1);
+    expect(quota.snapshot("wx:c").midUsed).toBe(1);
+  });
+
+  test("caps pending final chunks per chat", () => {
+    const quota = new QuotaManager(undefined, undefined, {
+      maxPendingFinalChunksPerChat: 2,
+    });
+
+    quota.enqueuePendingFinal("wx:pending", [
+      { text: "old", seq: 1, total: 3 },
+      { text: "keep-2", seq: 2, total: 3 },
+      { text: "keep-3", seq: 3, total: 3 },
+    ]);
+
+    expect(quota.countPendingFinal("wx:pending")).toBe(2);
+    expect(quota.drainPendingFinalUpToBudget("wx:pending", 10).map((c) => c.text)).toEqual([
+      "keep-2",
+      "keep-3",
+    ]);
+  });
 });
