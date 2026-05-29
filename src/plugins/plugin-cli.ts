@@ -9,8 +9,17 @@ import { validateWeacpxPlugin } from "./validate-plugin.js";
 import { inspectPlugins, type PluginDoctorIssue } from "./plugin-doctor.js";
 import { listKnownPlugins } from "./known-plugins.js";
 
-function looksLikePath(spec: string): boolean {
-  return spec.startsWith("./") || spec.startsWith("../") || spec.startsWith("/") || isAbsolute(spec) || spec === ".";
+export function looksLikePath(spec: string): boolean {
+  return (
+    spec === "." ||
+    // POSIX-style relative / absolute
+    spec.startsWith("./") || spec.startsWith("../") || spec.startsWith("/") ||
+    // Windows-style relative / UNC (backslash forms cmd/PowerShell produce)
+    spec.startsWith(".\\") || spec.startsWith("..\\") || spec.startsWith("\\") ||
+    // Windows drive-absolute, e.g. C:\path or C:/path
+    /^[a-zA-Z]:[\\/]/.test(spec) ||
+    isAbsolute(spec)
+  );
 }
 
 async function readDependencyEntries(pluginHome: string): Promise<Record<string, string>> {
