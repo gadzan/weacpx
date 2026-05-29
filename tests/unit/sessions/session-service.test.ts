@@ -503,7 +503,8 @@ test("finds attached native sessions visible in the current channel", async () =
 
 test("caches and expires native session lists", async () => {
   const state = createEmptyState();
-  const sessions = new SessionService(createConfig(), new MemoryStateStore(), state, { now: () => 1_000 });
+  const store = new MemoryStateStore();
+  const sessions = new SessionService(createConfig(), store, state, { now: () => 1_000 });
 
   await sessions.cacheNativeSessionList("wx:user", {
     agent: "codex",
@@ -518,6 +519,8 @@ test("caches and expires native session lists", async () => {
     sessions: [{ sessionId: "thread-1", title: "Fix CI" }],
   });
 
-  const expired = new SessionService(createConfig(), new MemoryStateStore(), state, { now: () => 20_000 });
+  const expired = new SessionService(createConfig(), store, state, { now: () => 20_000 });
   expect(await expired.getNativeSessionList("wx:user", 10_000)).toBeNull();
+  expect(state.native_session_lists["wx:user"]).toBeUndefined();
+  expect(store.savedStates.at(-1)?.native_session_lists["wx:user"]).toBeUndefined();
 });

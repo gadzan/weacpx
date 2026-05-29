@@ -349,9 +349,11 @@ export class SessionService {
 
     const createdAt = Date.parse(cached.created_at);
     if (Number.isNaN(createdAt)) {
+      await this.deleteNativeSessionListIfCurrent(chatKey, cached);
       return null;
     }
     if (this.now() - createdAt > ttlMs) {
+      await this.deleteNativeSessionListIfCurrent(chatKey, cached);
       return null;
     }
 
@@ -367,6 +369,19 @@ export class SessionService {
       })),
       ...(cached.next_cursor !== undefined ? { nextCursor: cached.next_cursor } : {}),
     };
+  }
+
+  private async deleteNativeSessionListIfCurrent(
+    chatKey: string,
+    cached: AppState["native_session_lists"][string],
+  ): Promise<void> {
+    await this.mutate(async () => {
+      if (this.state.native_session_lists[chatKey] !== cached) {
+        return;
+      }
+      delete this.state.native_session_lists[chatKey];
+      await this.persist();
+    });
   }
 
   private toResolvedSession(session: LogicalSession): ResolvedSession {
