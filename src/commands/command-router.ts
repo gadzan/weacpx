@@ -32,6 +32,7 @@ import {
   handleSessions,
   handleSessionShortcut,
   handleSessionUse,
+  handleSessionUsePrevious,
   handleStatus,
   type SessionHandlerContext,
 } from "./handlers/session-handler";
@@ -219,6 +220,8 @@ export class CommandRouter {
           return await handleNativeSessionSelect(this.createSessionHandlerContext(undefined, perfSpan), chatKey, command.identifier, command.alias);
         case "session.use":
           return await handleSessionUse(this.createSessionHandlerContext(undefined, perfSpan), chatKey, command.alias);
+        case "session.use.previous":
+          return await handleSessionUsePrevious(this.createSessionHandlerContext(undefined, perfSpan), chatKey);
         case "mode.show":
           return await handleModeShow(this.createSessionHandlerContext(undefined, perfSpan), chatKey);
         case "mode.set":

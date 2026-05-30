@@ -204,6 +204,17 @@ test("parses use command", () => {
   });
 });
 
+test("parses /use - as session.use.previous", () => {
+  expect(parseCommand("/use -")).toEqual({ kind: "session.use.previous" });
+});
+
+test("parses /use <fragment> as session.use without matching", () => {
+  expect(parseCommand("/use api")).toEqual({
+    kind: "session.use",
+    alias: "api",
+  });
+});
+
 test("parses workspace creation flags", () => {
   expect(parseCommand("/workspace new backend --cwd /tmp/backend")).toEqual({
     kind: "workspace.new",
