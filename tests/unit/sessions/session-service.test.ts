@@ -633,3 +633,21 @@ test("setBackgroundResult overwrites a prior unread result for the same alias", 
   expect(taken?.text).toBe("second");
   expect(taken?.status).toBe("error");
 });
+
+test("peekCurrentSessionAlias returns the current internal alias without mutating", async () => {
+  const store = new MemoryStateStore();
+  const service = new SessionService(createConfig(), store, createEmptyState());
+  await service.createSession("api-fix", "codex", "backend");
+  const chatKey = "weixin:acc:user";
+  await service.useSession(chatKey, "api-fix");
+  const first = service.peekCurrentSessionAlias(chatKey);
+  expect(typeof first).toBe("string");
+  expect(service.peekCurrentSessionAlias(chatKey)).toBe(first);
+  expect(service.getResolvedSessionByInternalAlias(first!)).not.toBeNull();
+});
+
+test("peekCurrentSessionAlias returns undefined for unknown chat", async () => {
+  const store = new MemoryStateStore();
+  const service = new SessionService(createConfig(), store, createEmptyState());
+  expect(service.peekCurrentSessionAlias("weixin:nope:nope")).toBeUndefined();
+});

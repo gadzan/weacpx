@@ -173,6 +173,13 @@ export class SessionService {
     }
   }
 
+  // Read-only peek at the chat's current internal session alias. Unlike
+  // getCurrentSession it does NOT touch last_used_at or persist, so it is safe to
+  // call on the hot dispatch path for every inbound message.
+  peekCurrentSessionAlias(chatKey: string): string | undefined {
+    return this.state.chat_contexts[chatKey]?.current_session;
+  }
+
   async getPreferredSessionForTransport(transportSession: string): Promise<ResolvedSession | null> {
     const matches = Object.values(this.state.sessions)
       .filter((session) => session.transport_session === transportSession)
