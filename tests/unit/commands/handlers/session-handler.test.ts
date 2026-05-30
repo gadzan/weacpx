@@ -200,6 +200,94 @@ test("handleCancel with an unknown alias does not cancel anything", async () => 
   expect(res.text).toContain("nope");
 });
 
+test("handleCancel returns the same none message as /use and does not cancel when the alias resolves to none", async () => {
+  // Mirrors handleSessionUse: resolveFuzzyAlias -> kind "none" short-circuits
+  // with the shared "没有匹配...的会话" text before any transport interaction.
+  const cancelled: any[] = [];
+  const useNoneText = (await handleSessionUse(
+    {
+      sessions: { resolveFuzzyAlias: () => ({ kind: "none" }) },
+    } as any,
+    "weixin:a:u",
+    "ghost",
+  )).text;
+
+  const context = {
+    sessions: {
+      // getSession/resolveAliasForChat must NOT be consulted on the none path.
+      getCurrentSession: async () => {
+        throw new Error("should not read foreground session on alias none path");
+      },
+      resolveFuzzyAlias: (_chatKey: string, fragment: string) => {
+        expect(fragment).toBe("ghost");
+        return { kind: "none" };
+      },
+      resolveAliasForChat: async () => {
+        throw new Error("should not resolve alias for a none result");
+      },
+      getSession: async () => {
+        throw new Error("should not fetch session for a none result");
+      },
+    },
+    interaction: {
+      cancelTransportSession: async (session: any) => {
+        cancelled.push(session);
+        return { cancelled: true, message: "已取消" };
+      },
+    },
+    recovery: {},
+  } as any;
+
+  const res = await handleCancel(context, "weixin:a:u", "ghost");
+  // Same user-facing none message as /use, and nothing was cancelled.
+  expect(res.text).toBe(useNoneText);
+  expect(res.text).toContain("没有匹配");
+  expect(res.text).toContain("ghost");
+  expect(cancelled).toEqual([]);
+});
+
+test("handleCancel returns the ambiguous message and does not cancel when the alias matches multiple sessions", async () => {
+  // Mirrors handleSessionUse: resolveFuzzyAlias -> kind "ambiguous" short-circuits
+  // with the shared "匹配到多个会话" text plus the candidate list, before any
+  // transport interaction.
+  const candidates = [
+    { alias: "api-a", agent: "codex", workspace: "backend" },
+    { alias: "api-b", agent: "codex", workspace: "backend" },
+  ];
+  const cancelled: any[] = [];
+  const context = {
+    sessions: {
+      getCurrentSession: async () => {
+        throw new Error("should not read foreground session on alias ambiguous path");
+      },
+      resolveFuzzyAlias: (_chatKey: string, fragment: string) => {
+        expect(fragment).toBe("api");
+        return { kind: "ambiguous", candidates };
+      },
+      resolveAliasForChat: async () => {
+        throw new Error("should not resolve alias for an ambiguous result");
+      },
+      getSession: async () => {
+        throw new Error("should not fetch session for an ambiguous result");
+      },
+    },
+    interaction: {
+      cancelTransportSession: async (session: any) => {
+        cancelled.push(session);
+        return { cancelled: true, message: "已取消" };
+      },
+    },
+    recovery: {},
+  } as any;
+
+  const res = await handleCancel(context, "weixin:a:u", "api");
+  expect(res.text).toContain("匹配到多个会话");
+  // Candidate aliases are surfaced so the user can disambiguate.
+  expect(res.text).toContain("api-a");
+  expect(res.text).toContain("api-b");
+  expect(cancelled).toEqual([]);
+});
+
 test("handleSessions marks session with unread background result with ● prefix", async () => {
   const context = {
     sessions: {
