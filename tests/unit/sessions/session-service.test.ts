@@ -607,3 +607,29 @@ test("previous_session is isolated per chat", async () => {
   expect(await service.usePreviousSession("weixin:room2")).toBeNull();
   expect((await service.usePreviousSession("weixin:room1"))?.alias).toBe("a");
 });
+
+test("setBackgroundResult then takeBackgroundResult returns and clears it", async () => {
+  const store = new MemoryStateStore();
+  const service = new SessionService(createConfig(), store, createEmptyState());
+  const chatKey = "weixin:acc:user";
+  await service.setBackgroundResult(chatKey, "backend", {
+    text: "build finished", status: "done", finished_at: "2026-05-30T01:00:00.000Z",
+  });
+  expect(service.listBackgroundResultAliases(chatKey)).toEqual(["backend"]);
+  const taken = await service.takeBackgroundResult(chatKey, "backend");
+  expect(taken?.text).toBe("build finished");
+  expect(service.listBackgroundResultAliases(chatKey)).toEqual([]);
+  const again = await service.takeBackgroundResult(chatKey, "backend");
+  expect(again).toBeNull();
+});
+
+test("setBackgroundResult overwrites a prior unread result for the same alias", async () => {
+  const store = new MemoryStateStore();
+  const service = new SessionService(createConfig(), store, createEmptyState());
+  const chatKey = "weixin:acc:user";
+  await service.setBackgroundResult(chatKey, "backend", { text: "first", status: "done", finished_at: "2026-05-30T01:00:00.000Z" });
+  await service.setBackgroundResult(chatKey, "backend", { text: "second", status: "error", finished_at: "2026-05-30T02:00:00.000Z" });
+  const taken = await service.takeBackgroundResult(chatKey, "backend");
+  expect(taken?.text).toBe("second");
+  expect(taken?.status).toBe("error");
+});
