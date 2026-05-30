@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { handlePrompt, handleSessionUse, handleSessions } from "../../../../src/commands/handlers/session-handler";
+import { handleCancel, handlePrompt, handleSessionUse, handleSessions } from "../../../../src/commands/handlers/session-handler";
 
 /**
  * Minimal fake SessionHandlerContext.
@@ -116,6 +116,88 @@ test("switching to a still-running session appends a running hint", async () => 
   } as any;
   const res = await handleSessionUse(context, "weixin:a:u", "backend");
   expect(res.text).toContain("仍在执行中");
+});
+
+test("handleCancel without an alias cancels the foreground session", async () => {
+  const foreground = { alias: "frontend", transportSession: "ts-frontend" };
+  const cancelled: any[] = [];
+  const context = {
+    sessions: {
+      getCurrentSession: async (_chatKey: string) => foreground,
+      // Resolver/getSession must NOT be consulted on the bare path.
+      resolveFuzzyAlias: () => {
+        throw new Error("should not resolve alias for bare /cancel");
+      },
+      getSession: async () => {
+        throw new Error("should not fetch session for bare /cancel");
+      },
+    },
+    interaction: {
+      cancelTransportSession: async (session: any) => {
+        cancelled.push(session);
+        return { cancelled: true, message: "已取消" };
+      },
+    },
+    recovery: {},
+  } as any;
+
+  const res = await handleCancel(context, "weixin:a:u");
+  expect(cancelled).toEqual([foreground]);
+  expect(res.text).toBe("已取消");
+});
+
+test("handleCancel with an alias cancels the named (background) session", async () => {
+  const foreground = { alias: "frontend", transportSession: "ts-frontend" };
+  const backend = { alias: "backend", transportSession: "ts-backend" };
+  const cancelled: any[] = [];
+  const context = {
+    sessions: {
+      getCurrentSession: async (_chatKey: string) => foreground,
+      resolveFuzzyAlias: (_chatKey: string, fragment: string) => {
+        expect(fragment).toBe("backend");
+        return { kind: "match", alias: "backend" };
+      },
+      resolveAliasForChat: async (_chatKey: string, displayAlias: string) =>
+        `weixin:${displayAlias}`,
+      getSession: async (internalAlias: string) => {
+        expect(internalAlias).toBe("weixin:backend");
+        return backend;
+      },
+    },
+    interaction: {
+      cancelTransportSession: async (session: any) => {
+        cancelled.push(session);
+        return { cancelled: true, message: "已取消 backend" };
+      },
+    },
+    recovery: {},
+  } as any;
+
+  const res = await handleCancel(context, "weixin:a:u", "backend");
+  // The named (background) session was cancelled, NOT the foreground one.
+  expect(cancelled).toEqual([backend]);
+  expect(res.text).toBe("已取消 backend");
+});
+
+test("handleCancel with an unknown alias does not cancel anything", async () => {
+  const cancelled: any[] = [];
+  const context = {
+    sessions: {
+      getCurrentSession: async () => ({ alias: "frontend", transportSession: "ts-frontend" }),
+      resolveFuzzyAlias: () => ({ kind: "none" }),
+    },
+    interaction: {
+      cancelTransportSession: async (session: any) => {
+        cancelled.push(session);
+        return { cancelled: true, message: "已取消" };
+      },
+    },
+    recovery: {},
+  } as any;
+
+  const res = await handleCancel(context, "weixin:a:u", "nope");
+  expect(cancelled).toEqual([]);
+  expect(res.text).toContain("nope");
 });
 
 test("handleSessions marks session with unread background result with ● prefix", async () => {

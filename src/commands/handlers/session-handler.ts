@@ -124,12 +124,14 @@ export const statusHelp: HelpTopicMetadata = {
 export const cancelHelp: HelpTopicMetadata = {
   topic: "cancel",
   aliases: ["stop"],
-  summary: "取消当前会话里正在执行的任务。",
+  summary: "取消会话里正在执行的任务。",
   commands: [
-    { usage: "/cancel", description: "取消当前任务" },
+    { usage: "/cancel", description: "取消当前前台会话的任务" },
+    { usage: "/cancel <alias>", description: "取消指定（含后台）会话的任务" },
     { usage: "/stop", description: "取消当前任务（/cancel 别名）" },
+    { usage: "/stop <alias>", description: "取消指定会话的任务（/cancel <alias> 别名）" },
   ],
-  examples: ["/cancel"],
+  examples: ["/cancel", "/cancel backend"],
 };
 
 export async function handleSessions(context: SessionHandlerContext, chatKey: string): Promise<RouterResponse> {
@@ -421,7 +423,47 @@ export async function handleStatus(context: SessionHandlerContext, chatKey: stri
   };
 }
 
-export async function handleCancel(context: SessionHandlerContext, chatKey: string): Promise<RouterResponse> {
+export async function handleCancel(
+  context: SessionHandlerContext,
+  chatKey: string,
+  alias?: string,
+): Promise<RouterResponse> {
+  // With an explicit alias, target that session's in-flight turn — even when it
+  // is a backgrounded session we have switched away from. Resolution mirrors
+  // handleSessionUse (fuzzy: exact > prefix > substring) and reuses the same
+  // user-facing none/ambiguous messages. Without an alias we keep cancelling the
+  // foreground session. The cancel mechanism itself is unchanged.
+  if (alias !== undefined) {
+    const result = context.sessions.resolveFuzzyAlias(chatKey, alias);
+    if (result.kind === "none") {
+      return { text: `没有匹配「${alias}」的会话。发 /sessions 看看有哪些。` };
+    }
+    if (result.kind === "ambiguous") {
+      const lines = result.candidates.map(
+        (candidate) => `• ${candidate.alias} · ${candidate.agent} · ${candidate.workspace}`,
+      );
+      return { text: [`「${alias}」匹配到多个会话，请指定：`, ...lines].join("\n") };
+    }
+
+    const internalAlias = await context.sessions.resolveAliasForChat(chatKey, result.alias);
+    const target = await context.sessions.getSession(internalAlias);
+    if (!target) {
+      return { text: `没有匹配「${alias}」的会话。发 /sessions 看看有哪些。` };
+    }
+
+    try {
+      const cancelResult = await context.interaction.cancelTransportSession(target);
+      return { text: cancelResult.message || "cancelled" };
+    } catch (error) {
+      const recovered = await context.recovery.tryRecoverMissingSession(target, error);
+      if (recovered) {
+        const cancelResult = await context.interaction.cancelTransportSession(recovered);
+        return { text: cancelResult.message || "cancelled" };
+      }
+      return context.recovery.renderTransportError(target, error);
+    }
+  }
+
   const session = await context.sessions.getCurrentSession(chatKey);
   if (!session) {
     return { text: NO_CURRENT_SESSION_TEXT };

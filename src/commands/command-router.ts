@@ -240,7 +240,7 @@ export class CommandRouter {
         case "status":
           return await handleStatus(this.createSessionHandlerContext(undefined, perfSpan), chatKey);
         case "cancel":
-          return await handleCancel(this.createSessionHandlerContext(undefined, perfSpan), chatKey);
+          return await handleCancel(this.createSessionHandlerContext(undefined, perfSpan), chatKey, command.alias);
         case "session.reset":
           return await handleSessionReset(this.createSessionHandlerContext(reply, perfSpan), chatKey);
         case "session.tail":
