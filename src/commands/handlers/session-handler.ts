@@ -41,6 +41,8 @@ export const sessionHelp: HelpTopicMetadata = {
     { usage: "/session tail [N]", description: "补拉当前会话的历史输出（默认 50 行）" },
     { usage: "/session rm <alias>", description: "删除逻辑会话" },
     { usage: "/use <alias>", description: "切换当前会话" },
+    { usage: "/use <片段>", description: "按别名片段切换（精确>前缀>子串；多命中会列候选）" },
+    { usage: "/use -", description: "切回上一个会话（像 shell 的 cd -）" },
     { usage: "/session reset 或 /clear", description: "重置当前会话上下文" },
   ],
   examples: [
@@ -48,6 +50,8 @@ export const sessionHelp: HelpTopicMetadata = {
     "/ssn",
     "/ssn 1",
     "/use backend-fix",
+    "/use back",
+    "/use -",
     "/session rm old-session",
     "/session reset",
   ],

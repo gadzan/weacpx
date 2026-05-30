@@ -113,7 +113,11 @@ Session 是你在微信里操作的逻辑会话。每个会话绑定一个 agent
 | `/session new <alias> --agent <agent> --ws <workspace>` | 用指定别名创建会话 |
 | `/session new <alias> -a <agent> --ws <workspace>` | 指定别名创建会话的短写法 |
 | `/use <alias>` | 切换当前会话 |
+| `/use <片段>` | 按别名片段切换：精确 > 前缀 > 子串；多命中会列出候选让你再选 |
+| `/use -` | 在当前会话和上一个会话之间切换（像 shell 的 `cd -`） |
 | `/session rm <alias>` | 删除逻辑会话 |
+
+切换成功会回显当前身份，例如 `已切到 api-review · codex · backend（上一个：frontend-fix）`，不用再记别名或序号。
 
 示例：
 
@@ -123,6 +127,8 @@ Session 是你在微信里操作的逻辑会话。每个会话绑定一个 agent
 /ss new codex -d /Users/me/projects/frontend
 /session new api-review --agent codex --ws backend
 /use api-review
+/use api          # 片段匹配：唯一命中 api-review 即切换；多命中会列候选
+/use -            # 切回上一个会话
 /session rm old-review
 ```
 
