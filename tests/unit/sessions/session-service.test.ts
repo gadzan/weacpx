@@ -524,3 +524,86 @@ test("caches and expires native session lists", async () => {
   expect(state.native_session_lists["wx:user"]).toBeUndefined();
   expect(store.savedStates.at(-1)?.native_session_lists["wx:user"]).toBeUndefined();
 });
+
+function createSwitchConfig(): AppConfig {
+  const config = createConfig();
+  config.workspaces.frontend = { cwd: "/tmp/frontend" };
+  return config;
+}
+
+test("useSession records previous_session and usePreviousSession toggles", async () => {
+  const service = new SessionService(createSwitchConfig(), new MemoryStateStore(), createEmptyState());
+  await service.createSession("a", "codex", "backend");
+  await service.createSession("b", "codex", "backend");
+
+  await service.useSession("weixin:room1", "a");
+  await service.useSession("weixin:room1", "b");
+
+  const prev = await service.usePreviousSession("weixin:room1");
+  expect(prev?.alias).toBe("a");
+
+  const back = await service.usePreviousSession("weixin:room1");
+  expect(back?.alias).toBe("b");
+});
+
+test("usePreviousSession returns null when there is no previous", async () => {
+  const service = new SessionService(createSwitchConfig(), new MemoryStateStore(), createEmptyState());
+  await service.createSession("a", "codex", "backend");
+  await service.useSession("weixin:room1", "a");
+
+  expect(await service.usePreviousSession("weixin:room1")).toBeNull();
+});
+
+test("useSession returns switch info with previousAlias", async () => {
+  const service = new SessionService(createSwitchConfig(), new MemoryStateStore(), createEmptyState());
+  await service.createSession("a", "codex", "backend");
+  await service.createSession("b", "claude", "frontend");
+
+  await service.useSession("weixin:room1", "a");
+  const result = await service.useSession("weixin:room1", "b");
+
+  expect(result).toEqual({ alias: "b", agent: "claude", workspace: "frontend", previousAlias: "a" });
+});
+
+test("resolveFuzzyAlias matches exact / prefix / substring / ambiguous / none", async () => {
+  const service = new SessionService(createSwitchConfig(), new MemoryStateStore(), createEmptyState());
+  await service.createSession("api-review", "codex", "backend");
+  await service.createSession("api-smoke", "claude", "backend");
+  await service.createSession("docs", "codex", "backend");
+
+  expect(service.resolveFuzzyAlias("weixin:room1", "docs")).toEqual({ kind: "match", alias: "docs" });
+  expect(service.resolveFuzzyAlias("weixin:room1", "api-r")).toEqual({ kind: "match", alias: "api-review" });
+  expect(service.resolveFuzzyAlias("weixin:room1", "review")).toEqual({ kind: "match", alias: "api-review" });
+
+  const ambiguous = service.resolveFuzzyAlias("weixin:room1", "api");
+  expect(ambiguous.kind).toBe("ambiguous");
+  if (ambiguous.kind === "ambiguous") {
+    expect(ambiguous.candidates.map((c) => c.alias).sort()).toEqual(["api-review", "api-smoke"]);
+  }
+
+  expect(service.resolveFuzzyAlias("weixin:room1", "zzz")).toEqual({ kind: "none" });
+});
+
+test("removeSession clears dangling previous_session references", async () => {
+  const service = new SessionService(createSwitchConfig(), new MemoryStateStore(), createEmptyState());
+  await service.createSession("a", "codex", "backend");
+  await service.createSession("b", "codex", "backend");
+  await service.useSession("weixin:room1", "a");
+  await service.useSession("weixin:room1", "b");
+
+  await service.removeSession("a");
+
+  expect(await service.usePreviousSession("weixin:room1")).toBeNull();
+});
+
+test("previous_session is isolated per chat", async () => {
+  const service = new SessionService(createSwitchConfig(), new MemoryStateStore(), createEmptyState());
+  await service.createSession("a", "codex", "backend");
+  await service.createSession("b", "codex", "backend");
+  await service.useSession("weixin:room1", "a");
+  await service.useSession("weixin:room1", "b");
+  await service.useSession("weixin:room2", "a");
+
+  expect(await service.usePreviousSession("weixin:room2")).toBeNull();
+  expect((await service.usePreviousSession("weixin:room1"))?.alias).toBe("a");
+});

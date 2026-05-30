@@ -20,6 +20,18 @@ interface SessionListItem {
   isCurrent: boolean;
 }
 
+export interface SessionSwitchResult {
+  alias: string;
+  agent: string;
+  workspace: string;
+  previousAlias?: string;
+}
+
+export type FuzzyAliasResult =
+  | { kind: "match"; alias: string }
+  | { kind: "ambiguous"; candidates: Array<{ alias: string; agent: string; workspace: string }> }
+  | { kind: "none" };
+
 interface NativeSessionAttachmentInput {
   alias: string;
   agent: string;
@@ -176,8 +188,8 @@ export class SessionService {
     return null;
   }
 
-  async useSession(chatKey: string, alias: string): Promise<void> {
-    await this.mutate(async () => {
+  async useSession(chatKey: string, alias: string): Promise<SessionSwitchResult> {
+    return await this.mutate(async () => {
       const channelId = getChannelIdFromChatKey(chatKey);
       const internalAlias = resolveSessionAliasForInput(channelId, alias, Object.keys(this.state.sessions));
       const session = this.state.sessions[internalAlias];
@@ -185,10 +197,100 @@ export class SessionService {
         throw new Error(`session "${alias}" does not exist`);
       }
 
+      const prevCtx = this.state.chat_contexts[chatKey];
+      const previousCurrent = prevCtx?.current_session;
+      const carriedPrevious =
+        previousCurrent && previousCurrent !== internalAlias ? previousCurrent : prevCtx?.previous_session;
+
       session.last_used_at = new Date().toISOString();
-      this.state.chat_contexts[chatKey] = { current_session: internalAlias };
+      this.state.chat_contexts[chatKey] = {
+        current_session: internalAlias,
+        ...(carriedPrevious ? { previous_session: carriedPrevious } : {}),
+      };
       await this.persist();
+
+      return {
+        alias: toDisplaySessionAlias(session.alias),
+        agent: session.agent,
+        workspace: session.workspace,
+        previousAlias: carriedPrevious ? toDisplaySessionAlias(carriedPrevious) : undefined,
+      };
     });
+  }
+
+  async usePreviousSession(chatKey: string): Promise<SessionSwitchResult | null> {
+    return await this.mutate(async () => {
+      const ctx = this.state.chat_contexts[chatKey];
+      const prevInternal = ctx?.previous_session;
+      if (!prevInternal) {
+        return null;
+      }
+      const prevSession = this.state.sessions[prevInternal];
+      if (!prevSession) {
+        if (ctx) {
+          delete ctx.previous_session;
+          await this.persist();
+        }
+        return null;
+      }
+
+      const currentInternal = ctx?.current_session;
+      prevSession.last_used_at = new Date().toISOString();
+      this.state.chat_contexts[chatKey] = {
+        current_session: prevInternal,
+        ...(currentInternal && currentInternal !== prevInternal ? { previous_session: currentInternal } : {}),
+      };
+      await this.persist();
+
+      return {
+        alias: toDisplaySessionAlias(prevSession.alias),
+        agent: prevSession.agent,
+        workspace: prevSession.workspace,
+        previousAlias:
+          currentInternal && currentInternal !== prevInternal ? toDisplaySessionAlias(currentInternal) : undefined,
+      };
+    });
+  }
+
+  resolveFuzzyAlias(chatKey: string, fragment: string): FuzzyAliasResult {
+    const channelId = getChannelIdFromChatKey(chatKey);
+    const frag = fragment.trim();
+    const items = Object.values(this.state.sessions)
+      .filter((session) => isSessionAliasVisibleInChannel(session.alias, channelId))
+      .map((session) => ({
+        display: toDisplaySessionAlias(session.alias),
+        agent: session.agent,
+        workspace: session.workspace,
+      }));
+
+    const toCandidate = (item: { display: string; agent: string; workspace: string }) => ({
+      alias: item.display,
+      agent: item.agent,
+      workspace: item.workspace,
+    });
+
+    const exact = items.find((item) => item.display === frag);
+    if (exact) {
+      return { kind: "match", alias: exact.display };
+    }
+
+    const prefix = items.filter((item) => item.display.startsWith(frag));
+    if (prefix.length === 1) {
+      return { kind: "match", alias: prefix[0]!.display };
+    }
+    if (prefix.length > 1) {
+      return { kind: "ambiguous", candidates: prefix.map(toCandidate) };
+    }
+
+    const substring = items.filter((item) => item.display.includes(frag));
+    if (substring.length === 1) {
+      return { kind: "match", alias: substring[0]!.display };
+    }
+    if (substring.length > 1) {
+      return { kind: "ambiguous", candidates: substring.map(toCandidate) };
+    }
+
+    return { kind: "none" };
   }
 
   async resolveAliasForChat(chatKey: string, displayAlias: string): Promise<string> {
@@ -314,6 +416,10 @@ export class SessionService {
       for (const [chatKey, ctx] of Object.entries(this.state.chat_contexts)) {
         if (ctx.current_session === alias) {
           delete this.state.chat_contexts[chatKey];
+          continue;
+        }
+        if (ctx.previous_session === alias) {
+          delete ctx.previous_session;
         }
       }
 
