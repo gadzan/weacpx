@@ -659,7 +659,9 @@ export async function handlePrompt(
   perfSpan?: PerfSpan,
   metadata?: ChatRequestMetadata,
 ): Promise<RouterResponse> {
-  const session = await context.sessions.getCurrentSession(chatKey);
+  const session = metadata?.boundSessionAlias
+    ? context.sessions.getResolvedSessionByInternalAlias(metadata.boundSessionAlias)
+    : await context.sessions.getCurrentSession(chatKey);
   if (!session) {
     return { text: NO_CURRENT_SESSION_TEXT };
   }

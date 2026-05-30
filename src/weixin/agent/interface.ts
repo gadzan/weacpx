@@ -70,6 +70,11 @@ export interface ChatRequestMetadata {
   scheduledSessionAlias?: string;
   /** Transient session descriptor for temp-mode scheduled prompts (no persisted alias). */
   scheduledSessionDescriptor?: ScheduledSessionDescriptor;
+  // When set, the prompt is bound to this INTERNAL session alias, captured at
+  // dispatch time. A queued prompt then runs against the session that was
+  // current when the user sent it — not whatever current_session is now (the
+  // user may have switched sessions while it waited on the per-session lane).
+  boundSessionAlias?: string;
 }
 
 export interface ChatResponse {

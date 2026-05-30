@@ -2,7 +2,7 @@ import { resolveAgentCommand } from "../config/resolve-agent-command";
 import type { AppConfig, WechatReplyMode } from "../config/types";
 import { AsyncMutex } from "../orchestration/async-mutex";
 import type { StateStore } from "../state/state-store";
-import type { AppState, LogicalSession } from "../state/types";
+import type { AppState, BackgroundResult, LogicalSession } from "../state/types";
 import type { AgentSession, ResolvedSession } from "../transport/types";
 import {
   buildDefaultTransportSession,
@@ -153,6 +153,26 @@ export class SessionService {
     return this.toResolvedSession(session);
   }
 
+  /**
+   * Synchronously resolve a session by its internal alias (as stored in state).
+   * Returns null if the alias is unknown or if the referenced agent/workspace is
+   * no longer registered (i.e. toResolvedSession would throw).
+   *
+   * Used by handlePrompt to honour a `boundSessionAlias` captured at dispatch
+   * time without requiring an async state mutation.
+   */
+  getResolvedSessionByInternalAlias(alias: string): ResolvedSession | null {
+    const session = this.state.sessions[alias];
+    if (!session) {
+      return null;
+    }
+    try {
+      return this.toResolvedSession(session);
+    } catch {
+      return null;
+    }
+  }
+
   async getPreferredSessionForTransport(transportSession: string): Promise<ResolvedSession | null> {
     const matches = Object.values(this.state.sessions)
       .filter((session) => session.transport_session === transportSession)
@@ -250,6 +270,39 @@ export class SessionService {
           currentInternal && currentInternal !== prevInternal ? toDisplaySessionAlias(currentInternal) : undefined,
       };
     });
+  }
+
+  async setBackgroundResult(chatKey: string, alias: string, result: BackgroundResult): Promise<void> {
+    await this.mutate(async () => {
+      const ctx = this.state.chat_contexts[chatKey] ?? { current_session: "" };
+      const results = { ...(ctx.background_results ?? {}), [alias]: result };
+      this.state.chat_contexts[chatKey] = { ...ctx, background_results: results };
+      await this.persist();
+    });
+  }
+
+  async takeBackgroundResult(chatKey: string, alias: string): Promise<BackgroundResult | null> {
+    return await this.mutate(async () => {
+      const ctx = this.state.chat_contexts[chatKey];
+      const found = ctx?.background_results?.[alias];
+      if (!ctx || !found) return null;
+      const remaining = { ...ctx.background_results };
+      delete remaining[alias];
+      if (Object.keys(remaining).length > 0) {
+        this.state.chat_contexts[chatKey] = { ...ctx, background_results: remaining };
+      } else {
+        const { background_results: _omit, ...rest } = ctx;
+        this.state.chat_contexts[chatKey] = rest;
+      }
+      await this.persist();
+      return found;
+    });
+  }
+
+  // Read-only; no persistence.
+  listBackgroundResultAliases(chatKey: string): string[] {
+    const results = this.state.chat_contexts[chatKey]?.background_results;
+    return results ? Object.keys(results) : [];
   }
 
   resolveFuzzyAlias(chatKey: string, fragment: string): FuzzyAliasResult {
