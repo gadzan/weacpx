@@ -36,9 +36,16 @@ export interface LogicalSession {
   last_used_at: string;
 }
 
+export interface BackgroundResult {
+  text: string;
+  status: "done" | "error";
+  finished_at: string;
+}
+
 export interface ChatContextState {
   current_session: string;
   previous_session?: string;
+  background_results?: Record<string, BackgroundResult>;
 }
 
 export interface AppState {
