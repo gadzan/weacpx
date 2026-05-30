@@ -14,6 +14,7 @@ import type { ChatRequestMetadata } from "../../weixin/agent/interface";
 import { buildCoordinatorPrompt } from "../../orchestration/build-coordinator-prompt";
 import { toDisplaySessionAlias, getChannelIdFromChatKey, scopeDisplayAliasToInternal, resolveSessionAliasForInput } from "../../channels/channel-scope";
 import { quoteWorkspaceNameIfNeeded } from "../workspace-name";
+import type { SessionSwitchResult } from "../../sessions/session-service";
 
 export interface SessionHandlerContext extends CommandRouterContext {
   lifecycle: SessionLifecycleOps;
@@ -257,17 +258,48 @@ async function refreshSessionTransportAgentCommandBestEffort(
   }
 }
 
+function renderSwitched(switched: SessionSwitchResult): string {
+  const base = `已切到 ${switched.alias} · ${switched.agent} · ${switched.workspace}`;
+  return switched.previousAlias ? `${base}（上一个：${switched.previousAlias}）` : base;
+}
+
 export async function handleSessionUse(
   context: SessionHandlerContext,
   chatKey: string,
-  alias: string,
+  input: string,
 ): Promise<RouterResponse> {
-  await context.sessions.useSession(chatKey, alias);
+  const result = context.sessions.resolveFuzzyAlias(chatKey, input);
+
+  if (result.kind === "none") {
+    return { text: `没有匹配「${input}」的会话。发 /sessions 看看有哪些。` };
+  }
+
+  if (result.kind === "ambiguous") {
+    const lines = result.candidates.map((candidate) => `• ${candidate.alias} · ${candidate.agent} · ${candidate.workspace}`);
+    return { text: [`「${input}」匹配到多个会话，请指定：`, ...lines].join("\n") };
+  }
+
+  const switched = await context.sessions.useSession(chatKey, result.alias);
   await context.logger.info("session.selected", "selected logical session", {
-    alias,
+    alias: switched.alias,
     chatKey,
   });
-  return { text: `已切换到会话「${alias}」` };
+  return { text: renderSwitched(switched) };
+}
+
+export async function handleSessionUsePrevious(
+  context: SessionHandlerContext,
+  chatKey: string,
+): Promise<RouterResponse> {
+  const switched = await context.sessions.usePreviousSession(chatKey);
+  if (!switched) {
+    return { text: "还没有上一个会话，发 /sessions 看看有哪些。" };
+  }
+  await context.logger.info("session.selected", "selected previous logical session", {
+    alias: switched.alias,
+    chatKey,
+  });
+  return { text: renderSwitched(switched) };
 }
 
 export async function handleModeShow(context: SessionHandlerContext, chatKey: string): Promise<RouterResponse> {
