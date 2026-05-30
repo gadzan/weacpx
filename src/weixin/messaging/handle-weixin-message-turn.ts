@@ -214,11 +214,13 @@ function isSlashCommandText(textBody: string): boolean {
 
 export function getWeixinMessageTurnLane(full: WeixinMessage): "normal" | "control" {
   const textBody = extractTextBody(full.item_list).trim().toLowerCase();
-  // /jx is the quota-refill ack: monitor's onInbound already reset the window
-  // before lane dispatch, so the command itself is a no-op. Putting it on the
-  // control lane avoids it sitting behind a long-running prompt on the normal
-  // lane (where it would just consume a queue slot for a no-op).
-  return textBody === "/cancel" || textBody === "/stop" || textBody === "/jx"
+  const command = textBody.split(/\s+/)[0] ?? "";
+  // Switch commands must preempt an in-flight prompt so the user can change the
+  // foreground session in real time; they only touch chat-context state and
+  // never run a long task, so the control lane is safe. /jx is the quota-refill
+  // ack no-op (see onInbound). /cancel and /stop interrupt the current turn.
+  const isSwitch = command === "/use" || command === "/ss";
+  return command === "/cancel" || command === "/stop" || command === "/jx" || isSwitch
     ? "control"
     : "normal";
 }
