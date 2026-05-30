@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { handlePrompt, handleSessionUse } from "../../../../src/commands/handlers/session-handler";
+import { handlePrompt, handleSessionUse, handleSessions } from "../../../../src/commands/handlers/session-handler";
 
 /**
  * Minimal fake SessionHandlerContext.
@@ -116,4 +116,20 @@ test("switching to a still-running session appends a running hint", async () => 
   } as any;
   const res = await handleSessionUse(context, "weixin:a:u", "backend");
   expect(res.text).toContain("仍在执行中");
+});
+
+test("handleSessions marks session with unread background result with ● prefix", async () => {
+  const context = {
+    sessions: {
+      listSessions: async (_chatKey: string) => [
+        { alias: "backend", internalAlias: "weixin:backend", agent: "codex", workspace: "proj", isCurrent: false },
+        { alias: "frontend", internalAlias: "weixin:frontend", agent: "claude", workspace: "ui", isCurrent: true },
+      ],
+      listInternalAliases: () => ["weixin:backend", "weixin:frontend"],
+      listBackgroundResultAliases: (_chatKey: string) => ["weixin:backend"],
+    },
+  } as any;
+  const res = await handleSessions(context, "weixin:a:u");
+  expect(res.text).toContain("● backend");
+  expect(res.text).not.toContain("● frontend");
 });

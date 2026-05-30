@@ -15,6 +15,7 @@ import { buildCoordinatorPrompt } from "../../orchestration/build-coordinator-pr
 import { toDisplaySessionAlias, getChannelIdFromChatKey, scopeDisplayAliasToInternal, resolveSessionAliasForInput } from "../../channels/channel-scope";
 import { quoteWorkspaceNameIfNeeded } from "../workspace-name";
 import type { SessionSwitchResult } from "../../sessions/session-service";
+import { decorateUnread } from "./session-list-marker";
 
 export interface SessionHandlerContext extends CommandRouterContext {
   lifecycle: SessionLifecycleOps;
@@ -153,11 +154,12 @@ export async function handleSessions(context: SessionHandlerContext, chatKey: st
     return { text: lines.join("\n") };
   }
 
+  const unread = new Set(context.sessions.listBackgroundResultAliases(chatKey));
   return {
     text: [
       "会话列表：",
       ...sessions.map((session) =>
-        `- ${session.alias} (${session.agent} @ ${session.workspace})${session.isCurrent ? " [当前]" : ""}`,
+        `- ${decorateUnread(session.alias, unread.has(session.internalAlias))} (${session.agent} @ ${session.workspace})${session.isCurrent ? " [当前]" : ""}`,
       ),
     ].join("\n"),
   };
