@@ -38,6 +38,7 @@ export interface LogicalSession {
 
 export interface ChatContextState {
   current_session: string;
+  previous_session?: string;
 }
 
 export interface AppState {
