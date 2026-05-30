@@ -695,6 +695,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     scheduledService,
     deps.channel?.supportsScheduledMessages ? { supportsScheduledMessages: deps.channel.supportsScheduledMessages.bind(deps.channel) } : undefined,
     deps.channel?.nativeSessionListFormat ? deps.channel.nativeSessionListFormat.bind(deps.channel) : undefined,
+    activeTurns,
   );
   const agent = new ConsoleAgent(router, logger);
   const scheduledScheduler = new ScheduledTaskScheduler(scheduledService, {

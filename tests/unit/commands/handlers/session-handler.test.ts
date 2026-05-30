@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { handlePrompt } from "../../../../src/commands/handlers/session-handler";
+import { handlePrompt, handleSessionUse } from "../../../../src/commands/handlers/session-handler";
 
 /**
  * Minimal fake SessionHandlerContext.
@@ -86,4 +86,34 @@ test("handlePrompt falls back to getCurrentSession when metadata has no boundSes
 
   expect(calls).toContain("getCurrent");
   expect(calls.filter((c) => c.startsWith("getByInternal:"))).toHaveLength(0);
+});
+
+test("switching to a session with a stored background result appends it", async () => {
+  const context = {
+    sessions: {
+      resolveFuzzyAlias: () => ({ kind: "match", alias: "backend" }),
+      useSession: async () => ({ alias: "backend", agent: "codex", workspace: "ws" }),
+      peekCurrentSessionAlias: () => "backend",
+      takeBackgroundResult: async () => ({ text: "build finished", status: "done", finished_at: "x" }),
+    },
+    activeTurns: { isActive: () => false },
+    logger: { info: async () => {} },
+  } as any;
+  const res = await handleSessionUse(context, "weixin:a:u", "backend");
+  expect(res.text).toContain("build finished");
+});
+
+test("switching to a still-running session appends a running hint", async () => {
+  const context = {
+    sessions: {
+      resolveFuzzyAlias: () => ({ kind: "match", alias: "backend" }),
+      useSession: async () => ({ alias: "backend", agent: "codex", workspace: "ws" }),
+      peekCurrentSessionAlias: () => "backend",
+      takeBackgroundResult: async () => null,
+    },
+    activeTurns: { isActive: () => true },
+    logger: { info: async () => {} },
+  } as any;
+  const res = await handleSessionUse(context, "weixin:a:u", "backend");
+  expect(res.text).toContain("仍在执行中");
 });

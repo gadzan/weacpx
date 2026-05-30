@@ -20,6 +20,7 @@ export interface SessionHandlerContext extends CommandRouterContext {
   lifecycle: SessionLifecycleOps;
   interaction: SessionInteractionOps;
   recovery: SessionRenderRecoveryOps;
+  readonly activeTurns?: import("../../sessions/active-turn-registry.js").ActiveTurnRegistry;
 }
 
 const NO_CURRENT_SESSION_TEXT = "当前还没有选中的会话。请先执行 /session new ... 或 /use <alias>。";
@@ -267,6 +268,22 @@ function renderSwitched(switched: SessionSwitchResult): string {
   return switched.previousAlias ? `${base}（上一个：${switched.previousAlias}）` : base;
 }
 
+async function appendSwitchBackContext(
+  context: SessionHandlerContext,
+  chatKey: string,
+  internalAlias: string,
+  baseText: string,
+): Promise<string> {
+  const result = await context.sessions.takeBackgroundResult(chatKey, internalAlias);
+  if (result) {
+    return `${baseText}\n\n${result.text}`;
+  }
+  if (context.activeTurns?.isActive(chatKey, internalAlias)) {
+    return `${baseText}\n\n⏳ ${toDisplaySessionAlias(internalAlias)} 仍在执行中…`;
+  }
+  return baseText;
+}
+
 export async function handleSessionUse(
   context: SessionHandlerContext,
   chatKey: string,
@@ -288,7 +305,9 @@ export async function handleSessionUse(
     alias: switched.alias,
     chatKey,
   });
-  return { text: renderSwitched(switched) };
+  const internalAlias = context.sessions.peekCurrentSessionAlias(chatKey) ?? result.alias;
+  const text = await appendSwitchBackContext(context, chatKey, internalAlias, renderSwitched(switched));
+  return { text };
 }
 
 export async function handleSessionUsePrevious(
@@ -303,7 +322,9 @@ export async function handleSessionUsePrevious(
     alias: switched.alias,
     chatKey,
   });
-  return { text: renderSwitched(switched) };
+  const internalAlias = context.sessions.peekCurrentSessionAlias(chatKey) ?? switched.alias;
+  const text = await appendSwitchBackContext(context, chatKey, internalAlias, renderSwitched(switched));
+  return { text };
 }
 
 export async function handleModeShow(context: SessionHandlerContext, chatKey: string): Promise<RouterResponse> {

@@ -1,4 +1,5 @@
 
+import type { ActiveTurnRegistry } from "../sessions/active-turn-registry.js";
 import type { AppConfig, TransportConfig } from "../config/types";
 import type { AppLogger } from "../logging/app-logger";
 import { createNoopAppLogger } from "../logging/app-logger";
@@ -102,6 +103,8 @@ export class CommandRouter {
     this.discoverPaths = fn;
   }
 
+  private readonly activeTurns?: ActiveTurnRegistry;
+
   constructor(
     private readonly sessions: SessionService,
     private readonly transport: SessionTransport,
@@ -114,8 +117,10 @@ export class CommandRouter {
     private readonly scheduled?: ScheduledRouterOps,
     private readonly scheduledDelivery?: ScheduledDeliveryCapabilityOps,
     private readonly resolveNativeSessionListFormat?: (chatKey: string) => "cards" | "table",
+    activeTurns?: ActiveTurnRegistry,
   ) {
     this.logger = logger ?? createNoopAppLogger();
+    this.activeTurns = activeTurns;
   }
 
   async handle(
@@ -407,6 +412,7 @@ export class CommandRouter {
       lifecycle: this.createSessionLifecycleOps(reply, perfSpan),
       interaction: this.createSessionInteractionOps(perfSpan),
       recovery: this.createSessionRenderRecoveryOps(),
+      ...(this.activeTurns ? { activeTurns: this.activeTurns } : {}),
     };
   }
 
