@@ -80,6 +80,8 @@ export class WeixinChannel implements MessageChannelRuntime {
       await this.login();
     }
 
+    const sessions = input.sessions;
+
     await weixinStart(input.agent, {
       abortSignal: input.abortSignal,
       ...(this.mediaStore ? { mediaStore: this.mediaStore } : {}),
@@ -96,6 +98,17 @@ export class WeixinChannel implements MessageChannelRuntime {
         input.quota.enqueuePendingFinal(chatKey, chunks),
       dropPendingFinal: (chatKey) => input.quota.clearPendingFinal(chatKey),
       ...(input.perfTracer ? { perfTracer: input.perfTracer } : {}),
+      // Dispatch-time session binding: read the chat's current alias synchronously
+      // and persist background turn results for later replay.
+      ...(sessions
+        ? {
+            peekCurrentSessionAlias: (chatKey: string) =>
+              sessions.peekCurrentSessionAlias(chatKey),
+            setBackgroundResult: (chatKey, alias, result) =>
+              sessions.setBackgroundResult(chatKey, alias, result),
+          }
+        : {}),
+      ...(input.activeTurns ? { activeTurns: input.activeTurns } : {}),
     });
   }
 

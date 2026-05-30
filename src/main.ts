@@ -26,6 +26,7 @@ import { buildScheduledDispatchTask } from "./scheduled/scheduled-dispatch";
 import { createScheduledTaskFromRoute } from "./scheduled/scheduled-route-create";
 import { cancelScheduledTaskFromRoute, listScheduledTasksFromRoute } from "./scheduled/scheduled-route-manage";
 import { SessionService } from "./sessions/session-service";
+import { createActiveTurnRegistry, type ActiveTurnRegistry } from "./sessions/active-turn-registry";
 import { DebouncedStateStore } from "./state/debounced-state-store";
 import { StateStore } from "./state/state-store";
 import type { AppState } from "./state/types";
@@ -56,6 +57,7 @@ export interface AppRuntime {
   agent: ConsoleAgent;
   router: CommandRouter;
   sessions: SessionService;
+  activeTurns: ActiveTurnRegistry;
   stateStore: StateStore;
   configStore: ConfigStore;
   logger: AppLogger;
@@ -187,6 +189,10 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     },
   });
   const sessions = new SessionService(config, debouncedStateStore, state, { stateMutex });
+  // One shared, non-persisted registry of in-flight (chatKey, alias) turns. The
+  // monitor marks turns active/inactive around dispatch; the command router can
+  // later read it to tell the user "session X is still running".
+  const activeTurns = createActiveTurnRegistry();
   const scheduledService = new ScheduledTaskService(state, debouncedStateStore, { stateMutex });
   const pendingWorkerDispatches = new Set<Promise<void>>();
   const transport =
@@ -689,6 +695,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     scheduledService,
     deps.channel?.supportsScheduledMessages ? { supportsScheduledMessages: deps.channel.supportsScheduledMessages.bind(deps.channel) } : undefined,
     deps.channel?.nativeSessionListFormat ? deps.channel.nativeSessionListFormat.bind(deps.channel) : undefined,
+    activeTurns,
   );
   const agent = new ConsoleAgent(router, logger);
   const scheduledScheduler = new ScheduledTaskScheduler(scheduledService, {
@@ -712,6 +719,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     agent,
     router,
     sessions,
+    activeTurns,
     stateStore,
     configStore,
     logger,

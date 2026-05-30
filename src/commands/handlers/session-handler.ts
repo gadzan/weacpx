@@ -14,11 +14,14 @@ import type { ChatRequestMetadata } from "../../weixin/agent/interface";
 import { buildCoordinatorPrompt } from "../../orchestration/build-coordinator-prompt";
 import { toDisplaySessionAlias, getChannelIdFromChatKey, scopeDisplayAliasToInternal, resolveSessionAliasForInput } from "../../channels/channel-scope";
 import { quoteWorkspaceNameIfNeeded } from "../workspace-name";
+import type { SessionSwitchResult } from "../../sessions/session-service";
+import { decorateUnread } from "./session-list-marker";
 
 export interface SessionHandlerContext extends CommandRouterContext {
   lifecycle: SessionLifecycleOps;
   interaction: SessionInteractionOps;
   recovery: SessionRenderRecoveryOps;
+  readonly activeTurns?: import("../../sessions/active-turn-registry.js").ActiveTurnRegistry;
 }
 
 const NO_CURRENT_SESSION_TEXT = "当前还没有选中的会话。请先执行 /session new ... 或 /use <alias>。";
@@ -40,6 +43,8 @@ export const sessionHelp: HelpTopicMetadata = {
     { usage: "/session tail [N]", description: "补拉当前会话的历史输出（默认 50 行）" },
     { usage: "/session rm <alias>", description: "删除逻辑会话" },
     { usage: "/use <alias>", description: "切换当前会话" },
+    { usage: "/use <片段>", description: "按别名片段切换（精确>前缀>子串；多命中会列候选）" },
+    { usage: "/use -", description: "切回上一个会话（像 shell 的 cd -）" },
     { usage: "/session reset 或 /clear", description: "重置当前会话上下文" },
   ],
   examples: [
@@ -47,6 +52,8 @@ export const sessionHelp: HelpTopicMetadata = {
     "/ssn",
     "/ssn 1",
     "/use backend-fix",
+    "/use back",
+    "/use -",
     "/session rm old-session",
     "/session reset",
   ],
@@ -147,11 +154,12 @@ export async function handleSessions(context: SessionHandlerContext, chatKey: st
     return { text: lines.join("\n") };
   }
 
+  const unread = new Set(context.sessions.listBackgroundResultAliases(chatKey));
   return {
     text: [
       "会话列表：",
       ...sessions.map((session) =>
-        `- ${session.alias} (${session.agent} @ ${session.workspace})${session.isCurrent ? " [当前]" : ""}`,
+        `- ${decorateUnread(session.alias, unread.has(session.internalAlias))} (${session.agent} @ ${session.workspace})${session.isCurrent ? " [当前]" : ""}`,
       ),
     ].join("\n"),
   };
@@ -257,17 +265,68 @@ async function refreshSessionTransportAgentCommandBestEffort(
   }
 }
 
+function renderSwitched(switched: SessionSwitchResult): string {
+  const base = `已切到 ${switched.alias} · ${switched.agent} · ${switched.workspace}`;
+  return switched.previousAlias ? `${base}（上一个：${switched.previousAlias}）` : base;
+}
+
+async function appendSwitchBackContext(
+  context: SessionHandlerContext,
+  chatKey: string,
+  internalAlias: string,
+  baseText: string,
+): Promise<string> {
+  const result = await context.sessions.takeBackgroundResult(chatKey, internalAlias);
+  if (result) {
+    return `${baseText}\n\n${result.text}`;
+  }
+  if (context.activeTurns?.isActive(chatKey, internalAlias)) {
+    return `${baseText}\n\n⏳ ${toDisplaySessionAlias(internalAlias)} 仍在执行中…`;
+  }
+  return baseText;
+}
+
 export async function handleSessionUse(
   context: SessionHandlerContext,
   chatKey: string,
-  alias: string,
+  input: string,
 ): Promise<RouterResponse> {
-  await context.sessions.useSession(chatKey, alias);
+  const result = context.sessions.resolveFuzzyAlias(chatKey, input);
+
+  if (result.kind === "none") {
+    return { text: `没有匹配「${input}」的会话。发 /sessions 看看有哪些。` };
+  }
+
+  if (result.kind === "ambiguous") {
+    const lines = result.candidates.map((candidate) => `• ${candidate.alias} · ${candidate.agent} · ${candidate.workspace}`);
+    return { text: [`「${input}」匹配到多个会话，请指定：`, ...lines].join("\n") };
+  }
+
+  const switched = await context.sessions.useSession(chatKey, result.alias);
   await context.logger.info("session.selected", "selected logical session", {
-    alias,
+    alias: switched.alias,
     chatKey,
   });
-  return { text: `已切换到会话「${alias}」` };
+  const internalAlias = context.sessions.peekCurrentSessionAlias(chatKey) ?? result.alias;
+  const text = await appendSwitchBackContext(context, chatKey, internalAlias, renderSwitched(switched));
+  return { text };
+}
+
+export async function handleSessionUsePrevious(
+  context: SessionHandlerContext,
+  chatKey: string,
+): Promise<RouterResponse> {
+  const switched = await context.sessions.usePreviousSession(chatKey);
+  if (!switched) {
+    return { text: "还没有上一个会话，发 /sessions 看看有哪些。" };
+  }
+  await context.logger.info("session.selected", "selected previous logical session", {
+    alias: switched.alias,
+    chatKey,
+  });
+  const internalAlias = context.sessions.peekCurrentSessionAlias(chatKey) ?? switched.alias;
+  const text = await appendSwitchBackContext(context, chatKey, internalAlias, renderSwitched(switched));
+  return { text };
 }
 
 export async function handleModeShow(context: SessionHandlerContext, chatKey: string): Promise<RouterResponse> {
@@ -623,7 +682,9 @@ export async function handlePrompt(
   perfSpan?: PerfSpan,
   metadata?: ChatRequestMetadata,
 ): Promise<RouterResponse> {
-  const session = await context.sessions.getCurrentSession(chatKey);
+  const session = metadata?.boundSessionAlias
+    ? context.sessions.getResolvedSessionByInternalAlias(metadata.boundSessionAlias)
+    : await context.sessions.getCurrentSession(chatKey);
   if (!session) {
     return { text: NO_CURRENT_SESSION_TEXT };
   }

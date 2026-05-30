@@ -1,4 +1,5 @@
 
+import type { ActiveTurnRegistry } from "../sessions/active-turn-registry.js";
 import type { AppConfig, TransportConfig } from "../config/types";
 import type { AppLogger } from "../logging/app-logger";
 import { createNoopAppLogger } from "../logging/app-logger";
@@ -32,6 +33,7 @@ import {
   handleSessions,
   handleSessionShortcut,
   handleSessionUse,
+  handleSessionUsePrevious,
   handleStatus,
   type SessionHandlerContext,
 } from "./handlers/session-handler";
@@ -101,6 +103,8 @@ export class CommandRouter {
     this.discoverPaths = fn;
   }
 
+  private readonly activeTurns?: ActiveTurnRegistry;
+
   constructor(
     private readonly sessions: SessionService,
     private readonly transport: SessionTransport,
@@ -113,8 +117,10 @@ export class CommandRouter {
     private readonly scheduled?: ScheduledRouterOps,
     private readonly scheduledDelivery?: ScheduledDeliveryCapabilityOps,
     private readonly resolveNativeSessionListFormat?: (chatKey: string) => "cards" | "table",
+    activeTurns?: ActiveTurnRegistry,
   ) {
     this.logger = logger ?? createNoopAppLogger();
+    this.activeTurns = activeTurns;
   }
 
   async handle(
@@ -219,6 +225,8 @@ export class CommandRouter {
           return await handleNativeSessionSelect(this.createSessionHandlerContext(undefined, perfSpan), chatKey, command.identifier, command.alias);
         case "session.use":
           return await handleSessionUse(this.createSessionHandlerContext(undefined, perfSpan), chatKey, command.alias);
+        case "session.use.previous":
+          return await handleSessionUsePrevious(this.createSessionHandlerContext(undefined, perfSpan), chatKey);
         case "mode.show":
           return await handleModeShow(this.createSessionHandlerContext(undefined, perfSpan), chatKey);
         case "mode.set":
@@ -404,6 +412,7 @@ export class CommandRouter {
       lifecycle: this.createSessionLifecycleOps(reply, perfSpan),
       interaction: this.createSessionInteractionOps(perfSpan),
       recovery: this.createSessionRenderRecoveryOps(),
+      ...(this.activeTurns ? { activeTurns: this.activeTurns } : {}),
     };
   }
 

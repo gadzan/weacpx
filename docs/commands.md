@@ -113,7 +113,17 @@ Session 是你在微信里操作的逻辑会话。每个会话绑定一个 agent
 | `/session new <alias> --agent <agent> --ws <workspace>` | 用指定别名创建会话 |
 | `/session new <alias> -a <agent> --ws <workspace>` | 指定别名创建会话的短写法 |
 | `/use <alias>` | 切换当前会话 |
+| `/use <片段>` | 按别名片段切换：精确 > 前缀 > 子串；多命中会列出候选让你再选 |
+| `/use -` | 在当前会话和上一个会话之间切换（像 shell 的 `cd -`） |
 | `/session rm <alias>` | 删除逻辑会话 |
+
+切换成功会回显当前身份，例如 `已切到 api-review · codex · backend（上一个：frontend-fix）`，不用再记别名或序号。
+
+**实时切换与后台执行**：任务进行中也能立即 `/use` 切走。被切走的会话会在后台继续执行，但它的中间输出不再发到当前聊天；不同会话的任务并行执行，互不阻塞（切到的会话可以马上正常用）。
+
+- 后台会话任务完成时，当前聊天会收到一条简短提醒：`✅ <alias> 已完成，/use <alias> 查看结果`（失败为 `⚠️ <alias> 失败，/use <alias> 查看详情`）。
+- `/sessions` 列表里，有未读结果的会话会以 `●` 标记。
+- 切回该会话时会补发它的**最终结果**（中间过程不补发），并清除未读标记；若它仍在执行，会提示 `⏳ <alias> 仍在执行中…`。
 
 示例：
 
@@ -123,6 +133,8 @@ Session 是你在微信里操作的逻辑会话。每个会话绑定一个 agent
 /ss new codex -d /Users/me/projects/frontend
 /session new api-review --agent codex --ws backend
 /use api-review
+/use api          # 片段匹配：唯一命中 api-review 即切换；多命中会列候选
+/use -            # 切回上一个会话
 /session rm old-review
 ```
 

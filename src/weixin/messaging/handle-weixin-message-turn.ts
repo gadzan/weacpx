@@ -17,8 +17,10 @@ import { resolveSafeOutboundMediaPath as resolveSafeMediaPath } from "../../chan
 import { downloadMediaFromItem } from "../media/media-download.js";
 import { getExtensionFromMime } from "../media/mime.js";
 
+import { buildBackgroundCompletionNotice } from "./completion-notice.js";
 import { executeChatTurn } from "./execute-chat-turn.js";
 import { buildFinalHeadsUp } from "./final-heads-up.js";
+import { shouldDeliverSegment } from "./foreground-gate.js";
 import { setContextToken, bodyFromItemList, extractWeixinMediaDescriptors } from "./inbound.js";
 import { sendWeixinErrorNotice } from "./error-notice.js";
 import { sendWeixinMediaFile } from "./send-media.js";
@@ -189,6 +191,14 @@ export type HandleWeixinMessageTurnDeps = {
   downloadMediaFromItemFn?: typeof downloadMediaFromItem;
   allowedMediaRoots?: string[];
   perfTracer?: PerfTracer;
+  // When provided, returns true iff this turn's bound session is still the
+  // chat's live foreground session. Omitted = always foreground (legacy).
+  isForeground?: () => boolean;
+  // Internal alias of the session this turn is bound to (for bg-result keying).
+  boundSessionAlias?: string;
+  // Called when this turn finishes while BACKGROUND, to store the final result
+  // for later replay. text is the final answer (or error message).
+  onBackgroundFinal?: (alias: string, text: string, status: "done" | "error") => Promise<void>;
 };
 
 function extractTextBody(itemList?: MessageItem[]): string {
@@ -214,16 +224,18 @@ function isSlashCommandText(textBody: string): boolean {
 
 export function getWeixinMessageTurnLane(full: WeixinMessage): "normal" | "control" {
   const textBody = extractTextBody(full.item_list).trim().toLowerCase();
-  // /jx is the quota-refill ack: monitor's onInbound already reset the window
-  // before lane dispatch, so the command itself is a no-op. Putting it on the
-  // control lane avoids it sitting behind a long-running prompt on the normal
-  // lane (where it would just consume a queue slot for a no-op).
-  return textBody === "/cancel" || textBody === "/stop" || textBody === "/jx"
+  const command = textBody.split(/\s+/)[0] ?? "";
+  // Switch commands must preempt an in-flight prompt so the user can change the
+  // foreground session in real time; they only touch chat-context state and
+  // never run a long task, so the control lane is safe. /jx is the quota-refill
+  // ack no-op (see onInbound). /cancel and /stop interrupt the current turn.
+  const isSwitch = command === "/use" || command === "/ss";
+  return command === "/cancel" || command === "/stop" || command === "/jx" || isSwitch
     ? "control"
     : "normal";
 }
 
-function buildWeixinChatKey(accountId: string, userId: string): string {
+export function buildWeixinChatKey(accountId: string, userId: string): string {
   return `weixin:${accountId}:${userId}`;
 }
 
@@ -386,6 +398,9 @@ export async function handleWeixinMessageTurn(
 
   let midFirstSent = false;
   const sendReplySegment = async (text: string): Promise<boolean> => {
+    if (!shouldDeliverSegment(deps.isForeground)) {
+      return false;
+    }
     const plainText = markdownToPlainText(text).trim();
     if (plainText.length === 0) {
       return false;
@@ -423,6 +438,11 @@ export async function handleWeixinMessageTurn(
       chatType: full.group_id ? "group" : "direct",
       ...(full.from_user_id ? { senderId: full.from_user_id } : {}),
       ...(full.group_id ? { groupId: full.group_id } : {}),
+      // Carry the dispatch-time bound session alias so handlePrompt runs the
+      // queued prompt against the session that was current when the user sent
+      // it, instead of re-reading current_session (which may have changed while
+      // the prompt waited on the per-session lane).
+      ...(deps.boundSessionAlias ? { boundSessionAlias: deps.boundSessionAlias } : {}),
     },
     perfSpan,
   };
@@ -443,86 +463,95 @@ export async function handleWeixinMessageTurn(
     if (turn.text) {
       const finalText = markdownToPlainText(turn.text).trim();
       if (finalText.length > 0) {
-        const rawChunks = chunkFinalText(finalText, MAX_FINAL_CHUNK_BYTES);
-        if (rawChunks.length > 0) {
-          const total = rawChunks.length;
-          if (total === 1) {
-            const reserved = deps.reserveFinal ? deps.reserveFinal(to) : true;
-            if (!reserved) {
-              finalDropped = true;
-              deps.errLog(
-                `weixin.final.dropped reason=quota_exhausted kind=text chatKey=${to}`,
-              );
-            } else {
-              await sendMessageWeixin({
-                to,
-                text: rawChunks[0]!,
-                opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
-              });
-              finalChunksSent += 1;
-              if (!finalFirstSent) {
-                finalFirstSent = true;
-                perfSpan.mark("reply.final_first_sent", { bytes: utf8ByteLength(rawChunks[0]!), chunkIndex: 1 });
-              }
-            }
-          } else {
-            // v1.4: pre-format every chunk with its (k/N) prefix, send the first
-            // wave (up to finalRemaining slots), park the rest in pending. If the
-            // wave does not finish the answer, append a heads-up tail to the
-            // wave's last chunk so the user knows to reply `/jx`.
-            const prefixed = rawChunks.map((body, i) => `(${i + 1}/${total}) ${body}`);
-            const available = deps.finalRemaining ? deps.finalRemaining(to) : total;
-            const waveSize = Math.max(Math.min(available, total), 0);
-            const wave = prefixed.slice(0, waveSize);
-            const rest = prefixed.slice(waveSize);
-            if (wave.length > 0 && rest.length > 0) {
-              const sentSoFar = wave.length;
-              wave[wave.length - 1] = `${wave[wave.length - 1]!}\n\n${buildFinalHeadsUp({
-                total,
-                sentSoFar,
-              })}`;
-            }
-            let sent = 0;
-            for (let i = 0; i < wave.length; i += 1) {
+        if (!shouldDeliverSegment(deps.isForeground) && deps.boundSessionAlias && deps.onBackgroundFinal) {
+          await deps.onBackgroundFinal(deps.boundSessionAlias, finalText, "done");
+          await sendMessageWeixin({
+            to,
+            text: buildBackgroundCompletionNotice(deps.boundSessionAlias, "done"),
+            opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
+          }).catch((e) => deps.errLog(`bg completion notice failed: ${String(e)}`));
+        } else {
+          const rawChunks = chunkFinalText(finalText, MAX_FINAL_CHUNK_BYTES);
+          if (rawChunks.length > 0) {
+            const total = rawChunks.length;
+            if (total === 1) {
               const reserved = deps.reserveFinal ? deps.reserveFinal(to) : true;
               if (!reserved) {
                 finalDropped = true;
                 deps.errLog(
-                  `weixin.final.dropped reason=quota_exhausted kind=text_paginated chatKey=${to} chunk=${i + 1}/${total}`,
+                  `weixin.final.dropped reason=quota_exhausted kind=text chatKey=${to}`,
                 );
-                break;
-              }
-              try {
+              } else {
                 await sendMessageWeixin({
                   to,
-                  text: wave[i]!,
+                  text: rawChunks[0]!,
                   opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
                 });
-                sent += 1;
                 finalChunksSent += 1;
                 if (!finalFirstSent) {
                   finalFirstSent = true;
-                  perfSpan.mark("reply.final_first_sent", { bytes: utf8ByteLength(wave[i]!), chunkIndex: i + 1 });
+                  perfSpan.mark("reply.final_first_sent", { bytes: utf8ByteLength(rawChunks[0]!), chunkIndex: 1 });
                 }
-              } catch (sendErr) {
-                finalDropped = true;
-                deps.errLog(
-                  `weixin.final.dropped reason=send_failed kind=text_paginated chatKey=${to} chunk=${i + 1}/${total} err=${String(sendErr)}`,
-                );
-                break;
               }
-            }
-            const restToPark = prefixed.slice(sent);
-            finalChunksPending = restToPark.length;
-            if (restToPark.length > 0 && deps.enqueuePendingFinal) {
-              const pending: PendingFinalChunk[] = restToPark.map((text, idx) => {
-                const seq = sent + idx + 1;
-                const entry: PendingFinalChunk = { text, seq, total };
-                if (contextToken !== undefined) entry.contextToken = contextToken;
-                if (deps.accountId !== undefined) entry.accountId = deps.accountId;
-                return entry;
-              });
-              deps.enqueuePendingFinal(to, pending);
+            } else {
+              // v1.4: pre-format every chunk with its (k/N) prefix, send the first
+              // wave (up to finalRemaining slots), park the rest in pending. If the
+              // wave does not finish the answer, append a heads-up tail to the
+              // wave's last chunk so the user knows to reply `/jx`.
+              const prefixed = rawChunks.map((body, i) => `(${i + 1}/${total}) ${body}`);
+              const available = deps.finalRemaining ? deps.finalRemaining(to) : total;
+              const waveSize = Math.max(Math.min(available, total), 0);
+              const wave = prefixed.slice(0, waveSize);
+              const rest = prefixed.slice(waveSize);
+              if (wave.length > 0 && rest.length > 0) {
+                const sentSoFar = wave.length;
+                wave[wave.length - 1] = `${wave[wave.length - 1]!}\n\n${buildFinalHeadsUp({
+                  total,
+                  sentSoFar,
+                })}`;
+              }
+              let sent = 0;
+              for (let i = 0; i < wave.length; i += 1) {
+                const reserved = deps.reserveFinal ? deps.reserveFinal(to) : true;
+                if (!reserved) {
+                  finalDropped = true;
+                  deps.errLog(
+                    `weixin.final.dropped reason=quota_exhausted kind=text_paginated chatKey=${to} chunk=${i + 1}/${total}`,
+                  );
+                  break;
+                }
+                try {
+                  await sendMessageWeixin({
+                    to,
+                    text: wave[i]!,
+                    opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
+                  });
+                  sent += 1;
+                  finalChunksSent += 1;
+                  if (!finalFirstSent) {
+                    finalFirstSent = true;
+                    perfSpan.mark("reply.final_first_sent", { bytes: utf8ByteLength(wave[i]!), chunkIndex: i + 1 });
+                  }
+                } catch (sendErr) {
+                  finalDropped = true;
+                  deps.errLog(
+                    `weixin.final.dropped reason=send_failed kind=text_paginated chatKey=${to} chunk=${i + 1}/${total} err=${String(sendErr)}`,
+                  );
+                  break;
+                }
+              }
+              const restToPark = prefixed.slice(sent);
+              finalChunksPending = restToPark.length;
+              if (restToPark.length > 0 && deps.enqueuePendingFinal) {
+                const pending: PendingFinalChunk[] = restToPark.map((text, idx) => {
+                  const seq = sent + idx + 1;
+                  const entry: PendingFinalChunk = { text, seq, total };
+                  if (contextToken !== undefined) entry.contextToken = contextToken;
+                  if (deps.accountId !== undefined) entry.accountId = deps.accountId;
+                  return entry;
+                });
+                deps.enqueuePendingFinal(to, pending);
+              }
             }
           }
         }
@@ -597,20 +626,30 @@ export async function handleWeixinMessageTurn(
     perfSpan.setOutcome("error", { reason: "turn_error" });
     const errorText = err instanceof Error ? err.stack ?? err.message : JSON.stringify(err);
     deps.errLog(`handleWeixinMessageTurn: agent or send failed: ${errorText}`);
-    const reservedErr = deps.reserveFinal ? deps.reserveFinal(to) : true;
-    if (!reservedErr) {
-      deps.errLog(
-        `weixin.final.dropped reason=quota_exhausted kind=error_notice chatKey=${to}`,
-      );
-    } else {
-      void sendWeixinErrorNotice({
+    const errMessage = `⚠️ 执行出错：${err instanceof Error ? err.message : JSON.stringify(err)}`;
+    if (!shouldDeliverSegment(deps.isForeground) && deps.boundSessionAlias && deps.onBackgroundFinal) {
+      await deps.onBackgroundFinal(deps.boundSessionAlias, errMessage, "error");
+      await sendMessageWeixin({
         to,
-        contextToken,
-        message: `⚠️ 执行出错：${err instanceof Error ? err.message : JSON.stringify(err)}`,
-        baseUrl: deps.baseUrl,
-        token: deps.token,
-        errLog: deps.errLog,
-      });
+        text: buildBackgroundCompletionNotice(deps.boundSessionAlias, "error"),
+        opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
+      }).catch((e) => deps.errLog(`bg completion notice failed: ${String(e)}`));
+    } else {
+      const reservedErr = deps.reserveFinal ? deps.reserveFinal(to) : true;
+      if (!reservedErr) {
+        deps.errLog(
+          `weixin.final.dropped reason=quota_exhausted kind=error_notice chatKey=${to}`,
+        );
+      } else {
+        void sendWeixinErrorNotice({
+          to,
+          contextToken,
+          message: errMessage,
+          baseUrl: deps.baseUrl,
+          token: deps.token,
+          errLog: deps.errLog,
+        });
+      }
     }
   } finally {
     stopTypingIndicator();

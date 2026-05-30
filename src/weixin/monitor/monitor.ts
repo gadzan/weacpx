@@ -3,8 +3,13 @@ import { getUpdates } from "../api/api.js";
 import { WeixinConfigManager } from "../api/config-cache.js";
 import { SESSION_EXPIRED_ERRCODE, pauseSession } from "../api/session-guard.js";
 import { createConversationExecutor } from "../messaging/conversation-executor.js";
-import { getWeixinMessageTurnLane, handleWeixinMessageTurn } from "../messaging/handle-weixin-message-turn.js";
+import {
+  buildWeixinChatKey,
+  getWeixinMessageTurnLane,
+  handleWeixinMessageTurn,
+} from "../messaging/handle-weixin-message-turn.js";
 import type { PendingFinalChunk } from "../messaging/quota-manager.js";
+import type { ActiveTurnRegistry } from "../../sessions/active-turn-registry.js";
 import type { RuntimeMediaStore } from "../../channels/media-store.js";
 import type { PerfTracer } from "../../perf/perf-tracer.js";
 import { MessageItemType, type MessageItem } from "../api/types.js";
@@ -47,6 +52,18 @@ export type MonitorWeixinOpts = {
   mediaStore?: RuntimeMediaStore;
   allowedMediaRoots?: string[];
   perfTracer?: PerfTracer;
+  // Dispatch-time session binding: read the chat's current session synchronously
+  // so prompts bind to the session that was current when the message arrived.
+  peekCurrentSessionAlias?: (chatKey: string) => string | undefined;
+  // Persist a background turn's final result for later replay when the chat has
+  // since switched away from the session that produced it.
+  setBackgroundResult?: (
+    chatKey: string,
+    alias: string,
+    result: { text: string; status: "done" | "error"; finished_at: string },
+  ) => Promise<void>;
+  // Shared registry of in-flight (chatKey, alias) turns.
+  activeTurns?: ActiveTurnRegistry;
 };
 
 function extractInboundText(itemList?: MessageItem[]): string {
@@ -256,8 +273,32 @@ export async function monitorWeixinProvider(opts: MonitorWeixinOpts): Promise<vo
           }
         }
 
-        void conversationExecutor
-          .run(full.from_user_id ?? "", getWeixinMessageTurnLane(full), () =>
+        // Dispatch-time session binding. Capture the chat's current session at
+        // the moment the message arrives. Prompts bind to that alias so a queued
+        // prompt runs against the session that was current when the user sent it
+        // — even if they switch sessions while it waits on the per-session lane.
+        // Slash commands never bind: they act on whatever the chat context
+        // resolves to when they actually run.
+        const chatKey = buildWeixinChatKey(accountId, fromUserId);
+        const isSlash = inboundText.trim().startsWith("/");
+        const boundAlias = isSlash ? undefined : opts.peekCurrentSessionAlias?.(chatKey);
+        // Serialize prompts per bound session; slash/unbound turns share the
+        // chat-level lane.
+        const sessionKey = boundAlias ?? "__chat__";
+        // Foreground gate: this turn is foreground only while its bound session
+        // is still the chat's current session at send time.
+        const isForeground = boundAlias
+          ? () => opts.peekCurrentSessionAlias?.(chatKey) === boundAlias
+          : undefined;
+
+        if (boundAlias) {
+          opts.activeTurns?.markActive(chatKey, boundAlias);
+        }
+
+        const runPromise = conversationExecutor.run(
+          full.from_user_id ?? "",
+          getWeixinMessageTurnLane(full),
+          () =>
             handleWeixinMessageTurn(full, {
               accountId,
               agent,
@@ -281,10 +322,35 @@ export async function monitorWeixinProvider(opts: MonitorWeixinOpts): Promise<vo
               ...(opts.mediaStore ? { mediaStore: opts.mediaStore } : {}),
               ...(opts.allowedMediaRoots ? { allowedMediaRoots: opts.allowedMediaRoots } : {}),
               ...(opts.perfTracer ? { perfTracer: opts.perfTracer } : {}),
+              ...(boundAlias ? { boundSessionAlias: boundAlias } : {}),
+              ...(isForeground ? { isForeground } : {}),
+              ...(opts.setBackgroundResult
+                ? {
+                    onBackgroundFinal: async (
+                      alias: string,
+                      text: string,
+                      status: "done" | "error",
+                    ) => {
+                      await opts.setBackgroundResult!(chatKey, alias, {
+                        text,
+                        status,
+                        finished_at: new Date().toISOString(),
+                      });
+                    },
+                  }
+                : {}),
             }),
-          )
+          sessionKey,
+        );
+
+        void runPromise
           .catch((err) => {
             errLog(`[weixin] message turn failed: ${String(err)}`);
+          })
+          .finally(() => {
+            if (boundAlias) {
+              opts.activeTurns?.markInactive(chatKey, boundAlias);
+            }
           });
       }
     } catch (err) {

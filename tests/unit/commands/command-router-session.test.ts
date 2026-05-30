@@ -900,7 +900,7 @@ test("/session use resolves display alias inside current channel", async () => {
 
   const response = await router.handle("feishu:default:oc_chat", "/use backend:codex");
 
-  expect(response.text).toContain("已切换到会话「backend:codex」");
+  expect(response.text).toContain("已切到 backend:codex");
   const current = await sessions.getCurrentSession("feishu:default:oc_chat");
   expect(current?.alias).toBe("feishu:backend:codex");
 });
@@ -1353,4 +1353,75 @@ test("/ssn clears stale cached native sessions after an empty list response", as
   expect(emptyReply.text).toContain("没有找到本地 Codex 会话");
   expect(selectReply.text).toContain("当前没有可用的 native 会话列表");
   expect(transport.resumeAgentSession).not.toHaveBeenCalled();
+});
+
+function buildSwitchRouter() {
+  const config = createConfig();
+  config.agents.claude = config.agents.claude ?? { driver: "claude" };
+  config.workspaces.frontend = { cwd: "/tmp/frontend" };
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+  return { router, sessions };
+}
+
+test("/use <fragment>: unique match switches and echoes identity", async () => {
+  const { router, sessions } = buildSwitchRouter();
+  await sessions.createSession("api-review", "codex", "backend");
+  await sessions.createSession("frontend-fix", "claude", "frontend");
+  await sessions.useSession("wx:user", "api-review");
+
+  const res = await router.handle("wx:user", "/use front");
+
+  expect(res.text).toContain("已切到 frontend-fix · claude · frontend");
+  expect(res.text).toContain("（上一个：api-review）");
+});
+
+test("/use <fragment>: ambiguous lists candidates without switching", async () => {
+  const { router, sessions } = buildSwitchRouter();
+  await sessions.createSession("api-review", "codex", "backend");
+  await sessions.createSession("api-smoke", "claude", "backend");
+  await sessions.useSession("wx:user", "api-review");
+
+  const res = await router.handle("wx:user", "/use api");
+
+  expect(res.text).toContain("匹配到多个会话");
+  expect(res.text).toContain("api-review");
+  expect(res.text).toContain("api-smoke");
+  // current session unchanged
+  expect((await sessions.getCurrentSession("wx:user"))?.alias).toBe("api-review");
+});
+
+test("/use <fragment>: no match guides to /sessions", async () => {
+  const { router, sessions } = buildSwitchRouter();
+  await sessions.createSession("api-review", "codex", "backend");
+  await sessions.useSession("wx:user", "api-review");
+
+  const res = await router.handle("wx:user", "/use zzz");
+
+  expect(res.text).toContain("没有匹配「zzz」");
+  expect(res.text).toContain("/sessions");
+});
+
+test("/use -: switches back to previous with identity echo", async () => {
+  const { router, sessions } = buildSwitchRouter();
+  await sessions.createSession("api-review", "codex", "backend");
+  await sessions.createSession("frontend-fix", "claude", "frontend");
+  await sessions.useSession("wx:user", "api-review");
+  await sessions.useSession("wx:user", "frontend-fix");
+
+  const res = await router.handle("wx:user", "/use -");
+
+  expect(res.text).toContain("已切到 api-review");
+  expect((await sessions.getCurrentSession("wx:user"))?.alias).toBe("api-review");
+});
+
+test("/use -: friendly message when there is no previous", async () => {
+  const { router, sessions } = buildSwitchRouter();
+  await sessions.createSession("api-review", "codex", "backend");
+  await sessions.useSession("wx:nobody", "api-review");
+
+  const res = await router.handle("wx:nobody", "/use -");
+
+  expect(res.text).toContain("还没有上一个会话");
 });

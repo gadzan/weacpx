@@ -53,6 +53,7 @@ export type ParsedCommand =
   | { kind: "replymode.set"; replyMode: "stream" | "final" | "verbose" }
   | { kind: "replymode.reset" }
   | { kind: "session.use"; alias: string }
+  | { kind: "session.use.previous" }
   | { kind: "session.new"; alias: string; agent: string; workspace: string }
   | { kind: "session.shortcut"; agent: string; cwd?: string; workspace?: string }
   | { kind: "session.shortcut.new"; agent: string; cwd?: string; workspace?: string }
@@ -241,6 +242,10 @@ export function parseCommand(input: string): ParsedCommand {
 
   if (command === "/config" && parts[1] === "set" && parts.length === 4) {
     return { kind: "config.set", path: parts[2] ?? "", value: parts[3] ?? "" };
+  }
+
+  if (command === "/use" && parts[1] === "-") {
+    return { kind: "session.use.previous" };
   }
 
   if (command === "/use" && parts[1]) {

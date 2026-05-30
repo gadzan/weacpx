@@ -524,3 +524,130 @@ test("caches and expires native session lists", async () => {
   expect(state.native_session_lists["wx:user"]).toBeUndefined();
   expect(store.savedStates.at(-1)?.native_session_lists["wx:user"]).toBeUndefined();
 });
+
+function createSwitchConfig(): AppConfig {
+  const config = createConfig();
+  config.workspaces.frontend = { cwd: "/tmp/frontend" };
+  return config;
+}
+
+test("useSession records previous_session and usePreviousSession toggles", async () => {
+  const service = new SessionService(createSwitchConfig(), new MemoryStateStore(), createEmptyState());
+  await service.createSession("a", "codex", "backend");
+  await service.createSession("b", "codex", "backend");
+
+  await service.useSession("weixin:room1", "a");
+  await service.useSession("weixin:room1", "b");
+
+  const prev = await service.usePreviousSession("weixin:room1");
+  expect(prev?.alias).toBe("a");
+
+  const back = await service.usePreviousSession("weixin:room1");
+  expect(back?.alias).toBe("b");
+});
+
+test("usePreviousSession returns null when there is no previous", async () => {
+  const service = new SessionService(createSwitchConfig(), new MemoryStateStore(), createEmptyState());
+  await service.createSession("a", "codex", "backend");
+  await service.useSession("weixin:room1", "a");
+
+  expect(await service.usePreviousSession("weixin:room1")).toBeNull();
+});
+
+test("useSession returns switch info with previousAlias", async () => {
+  const service = new SessionService(createSwitchConfig(), new MemoryStateStore(), createEmptyState());
+  await service.createSession("a", "codex", "backend");
+  await service.createSession("b", "claude", "frontend");
+
+  await service.useSession("weixin:room1", "a");
+  const result = await service.useSession("weixin:room1", "b");
+
+  expect(result).toEqual({ alias: "b", agent: "claude", workspace: "frontend", previousAlias: "a" });
+});
+
+test("resolveFuzzyAlias matches exact / prefix / substring / ambiguous / none", async () => {
+  const service = new SessionService(createSwitchConfig(), new MemoryStateStore(), createEmptyState());
+  await service.createSession("api-review", "codex", "backend");
+  await service.createSession("api-smoke", "claude", "backend");
+  await service.createSession("docs", "codex", "backend");
+
+  expect(service.resolveFuzzyAlias("weixin:room1", "docs")).toEqual({ kind: "match", alias: "docs" });
+  expect(service.resolveFuzzyAlias("weixin:room1", "api-r")).toEqual({ kind: "match", alias: "api-review" });
+  expect(service.resolveFuzzyAlias("weixin:room1", "review")).toEqual({ kind: "match", alias: "api-review" });
+
+  const ambiguous = service.resolveFuzzyAlias("weixin:room1", "api");
+  expect(ambiguous.kind).toBe("ambiguous");
+  if (ambiguous.kind === "ambiguous") {
+    expect(ambiguous.candidates.map((c) => c.alias).sort()).toEqual(["api-review", "api-smoke"]);
+  }
+
+  expect(service.resolveFuzzyAlias("weixin:room1", "zzz")).toEqual({ kind: "none" });
+});
+
+test("removeSession clears dangling previous_session references", async () => {
+  const service = new SessionService(createSwitchConfig(), new MemoryStateStore(), createEmptyState());
+  await service.createSession("a", "codex", "backend");
+  await service.createSession("b", "codex", "backend");
+  await service.useSession("weixin:room1", "a");
+  await service.useSession("weixin:room1", "b");
+
+  await service.removeSession("a");
+
+  expect(await service.usePreviousSession("weixin:room1")).toBeNull();
+});
+
+test("previous_session is isolated per chat", async () => {
+  const service = new SessionService(createSwitchConfig(), new MemoryStateStore(), createEmptyState());
+  await service.createSession("a", "codex", "backend");
+  await service.createSession("b", "codex", "backend");
+  await service.useSession("weixin:room1", "a");
+  await service.useSession("weixin:room1", "b");
+  await service.useSession("weixin:room2", "a");
+
+  expect(await service.usePreviousSession("weixin:room2")).toBeNull();
+  expect((await service.usePreviousSession("weixin:room1"))?.alias).toBe("a");
+});
+
+test("setBackgroundResult then takeBackgroundResult returns and clears it", async () => {
+  const store = new MemoryStateStore();
+  const service = new SessionService(createConfig(), store, createEmptyState());
+  const chatKey = "weixin:acc:user";
+  await service.setBackgroundResult(chatKey, "backend", {
+    text: "build finished", status: "done", finished_at: "2026-05-30T01:00:00.000Z",
+  });
+  expect(service.listBackgroundResultAliases(chatKey)).toEqual(["backend"]);
+  const taken = await service.takeBackgroundResult(chatKey, "backend");
+  expect(taken?.text).toBe("build finished");
+  expect(service.listBackgroundResultAliases(chatKey)).toEqual([]);
+  const again = await service.takeBackgroundResult(chatKey, "backend");
+  expect(again).toBeNull();
+});
+
+test("setBackgroundResult overwrites a prior unread result for the same alias", async () => {
+  const store = new MemoryStateStore();
+  const service = new SessionService(createConfig(), store, createEmptyState());
+  const chatKey = "weixin:acc:user";
+  await service.setBackgroundResult(chatKey, "backend", { text: "first", status: "done", finished_at: "2026-05-30T01:00:00.000Z" });
+  await service.setBackgroundResult(chatKey, "backend", { text: "second", status: "error", finished_at: "2026-05-30T02:00:00.000Z" });
+  const taken = await service.takeBackgroundResult(chatKey, "backend");
+  expect(taken?.text).toBe("second");
+  expect(taken?.status).toBe("error");
+});
+
+test("peekCurrentSessionAlias returns the current internal alias without mutating", async () => {
+  const store = new MemoryStateStore();
+  const service = new SessionService(createConfig(), store, createEmptyState());
+  await service.createSession("api-fix", "codex", "backend");
+  const chatKey = "weixin:acc:user";
+  await service.useSession(chatKey, "api-fix");
+  const first = service.peekCurrentSessionAlias(chatKey);
+  expect(typeof first).toBe("string");
+  expect(service.peekCurrentSessionAlias(chatKey)).toBe(first);
+  expect(service.getResolvedSessionByInternalAlias(first!)).not.toBeNull();
+});
+
+test("peekCurrentSessionAlias returns undefined for unknown chat", async () => {
+  const store = new MemoryStateStore();
+  const service = new SessionService(createConfig(), store, createEmptyState());
+  expect(service.peekCurrentSessionAlias("weixin:nope:nope")).toBeUndefined();
+});

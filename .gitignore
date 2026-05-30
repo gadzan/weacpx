@@ -16,6 +16,6 @@ undefined/
 *.local.md
 **.DS_Store**
 
-docs/superpowers
+# docs/superpowers
 docs/releases
 docs/202*

@@ -4,6 +4,8 @@ import type { OrchestrationTaskRecord } from "../orchestration/orchestration-typ
 import type { AppLogger } from "../logging/app-logger.js";
 import type { PendingFinalChunk } from "../weixin/messaging/quota-manager.js";
 import type { PerfTracer } from "../perf/perf-tracer.js";
+import type { SessionService } from "../sessions/session-service.js";
+import type { ActiveTurnRegistry } from "../sessions/active-turn-registry.js";
 
 export type { ChatAgent };
 
@@ -60,6 +62,13 @@ export interface ChannelStartInput {
   quota: OutboundQuota;
   logger: AppLogger;
   perfTracer?: PerfTracer;
+  /**
+   * Logical session service. Session-aware channels read it for dispatch-time
+   * session binding (current alias) and to persist background turn results.
+   */
+  sessions?: SessionService;
+  /** Shared in-flight turn registry for dispatch-time foreground tracking. */
+  activeTurns?: ActiveTurnRegistry;
   /** weacpx 内置命令目录，供支持输入框命令提示的频道使用。 */
   commandHints?: CommandHint[];
   /** weacpx 核心版本字符串，供需要它的频道（如命令同步元数据）使用。 */

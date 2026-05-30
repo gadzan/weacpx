@@ -332,3 +332,212 @@ describe("credential recovery on session expiry", () => {
     expect(logMessages.some(m => m.includes("credential recovered, resuming monitor with account=new-acct"))).toBe(true);
   });
 });
+
+// Task 10: dispatch-time session binding + per-session lane + foreground gate.
+// Stubs the SDK boundary (getUpdates, conversation executor, message turn) and
+// asserts the monitor binds PROMPTS to the dispatch-time current alias (the 4th
+// conversationExecutor.run() arg === boundAlias), passes
+// boundSessionAlias/isForeground/onBackgroundFinal into the turn, marks the
+// (chatKey, alias) pair active then inactive around the run, and leaves SLASH
+// commands unbound (sessionKey === "__chat__", no markActive).
+async function runDispatchBinding(
+  textBody: string,
+  opts: {
+    peekCurrentSessionAlias?: (chatKey: string) => string | undefined;
+    activeTurns?: {
+      markActive: (chatKey: string, alias: string) => void;
+      markInactive: (chatKey: string, alias: string) => void;
+      isActive: (chatKey: string, alias: string) => boolean;
+    };
+    setBackgroundResult?: (
+      chatKey: string,
+      alias: string,
+      result: { text: string; status: "done" | "error"; finished_at: string },
+    ) => Promise<void>;
+  },
+): Promise<{
+  runCalls: Array<{ lane: string; sessionKey?: string }>;
+  turnDeps: Record<string, unknown>[];
+}> {
+  const runCalls: Array<{ lane: string; sessionKey?: string }> = [];
+  const turnDeps: Record<string, unknown>[] = [];
+
+  let calls = 0;
+  mock.module("../../../src/weixin/api/api.ts", () => ({
+    getUpdates: async (params: { abortSignal?: AbortSignal }) => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          ret: 0,
+          errcode: 0,
+          get_updates_buf: "",
+          msgs: [
+            {
+              from_user_id: "u1",
+              to_user_id: "bot",
+              message_id: 1,
+              create_time_ms: Date.now(),
+              context_token: "ctx",
+              item_list: [{ type: 1, text_item: { text: textBody } }],
+            },
+          ],
+          longpolling_timeout_ms: 0,
+        };
+      }
+      return await new Promise((_resolve, reject) => {
+        params.abortSignal?.addEventListener("abort", () => reject(new Error("aborted")), {
+          once: true,
+        });
+      });
+    },
+    sendMessage: async () => ({}),
+    sendTyping: async () => ({}),
+  }));
+
+  mock.module("../../../src/weixin/api/config-cache.ts", () => ({
+    WeixinConfigManager: class {
+      async getForUser() {
+        return { typingTicket: "" };
+      }
+    },
+  }));
+
+  // Capture the 4th arg (sessionKey) the monitor's dispatch site passes.
+  mock.module("../../../src/weixin/messaging/conversation-executor.ts", () => ({
+    createConversationExecutor: () => ({
+      run: async (
+        _chat: string,
+        lane: string,
+        fn: () => Promise<void>,
+        sessionKey?: string,
+      ) => {
+        runCalls.push({ lane, sessionKey });
+        await fn();
+      },
+    }),
+  }));
+
+  mock.module("../../../src/weixin/messaging/handle-weixin-message-turn.ts", () => ({
+    getWeixinMessageTurnLane: () => "normal",
+    handleWeixinMessageTurn: async (_full: unknown, deps: Record<string, unknown>) => {
+      turnDeps.push(deps);
+    },
+  }));
+
+  mock.module("../../../src/weixin/storage/sync-buf.ts", () => ({
+    getSyncBufFilePath: () => "/tmp/none",
+    loadGetUpdatesBuf: () => "",
+    saveGetUpdatesBuf: () => {},
+  }));
+
+  const { monitorWeixinProvider } = await import("../../../src/weixin/monitor/monitor");
+
+  const ac = new AbortController();
+  setTimeout(() => ac.abort(), 50);
+
+  await monitorWeixinProvider({
+    baseUrl: "https://example.com",
+    cdnBaseUrl: "https://cdn.example.com",
+    token: "t",
+    accountId: "acct",
+    agent: { chat: async () => ({ text: "" }) },
+    abortSignal: ac.signal,
+    log: () => {},
+    ...(opts.peekCurrentSessionAlias
+      ? { peekCurrentSessionAlias: opts.peekCurrentSessionAlias }
+      : {}),
+    ...(opts.activeTurns ? { activeTurns: opts.activeTurns } : {}),
+    ...(opts.setBackgroundResult ? { setBackgroundResult: opts.setBackgroundResult } : {}),
+  });
+
+  // Allow the dispatched run promise's .finally() (markInactive) to settle.
+  await new Promise((r) => setTimeout(r, 0));
+
+  return { runCalls, turnDeps };
+}
+
+describe("Task 10: dispatch-time session binding in monitor", () => {
+  test("a prompt binds to the dispatch-time current alias and marks active/inactive", async () => {
+    const active: Array<{ chatKey: string; alias: string }> = [];
+    const inactive: Array<{ chatKey: string; alias: string }> = [];
+    const activeTurns = {
+      markActive: (chatKey: string, alias: string) => active.push({ chatKey, alias }),
+      markInactive: (chatKey: string, alias: string) => inactive.push({ chatKey, alias }),
+      isActive: () => false,
+    };
+
+    const { runCalls, turnDeps } = await runDispatchBinding("hello there", {
+      peekCurrentSessionAlias: () => "alpha",
+      activeTurns,
+    });
+
+    expect(runCalls).toHaveLength(1);
+    expect(runCalls[0]!.sessionKey).toBe("alpha");
+    expect(active).toEqual([{ chatKey: "weixin:acct:u1", alias: "alpha" }]);
+    expect(inactive).toEqual([{ chatKey: "weixin:acct:u1", alias: "alpha" }]);
+    expect(turnDeps[0]!.boundSessionAlias).toBe("alpha");
+    expect(typeof turnDeps[0]!.isForeground).toBe("function");
+    // onBackgroundFinal is wired only when setBackgroundResult is provided,
+    // which this case does not pass.
+    expect(turnDeps[0]!.onBackgroundFinal).toBeUndefined();
+  });
+
+  test("isForeground reflects the live current session", async () => {
+    let current: string | undefined = "alpha";
+    const { turnDeps } = await runDispatchBinding("hello there", {
+      peekCurrentSessionAlias: () => current,
+    });
+    const isForeground = turnDeps[0]!.isForeground as () => boolean;
+    expect(isForeground()).toBe(true);
+    current = "beta";
+    expect(isForeground()).toBe(false);
+  });
+
+  test("a slash command is unbound: __chat__ lane, no markActive, no boundSessionAlias", async () => {
+    const active: unknown[] = [];
+    const activeTurns = {
+      markActive: () => active.push(1),
+      markInactive: () => {},
+      isActive: () => false,
+    };
+
+    const { runCalls, turnDeps } = await runDispatchBinding("/status", {
+      peekCurrentSessionAlias: () => "alpha",
+      activeTurns,
+    });
+
+    expect(runCalls[0]!.sessionKey).toBe("__chat__");
+    expect(active).toEqual([]);
+    expect(turnDeps[0]!.boundSessionAlias).toBeUndefined();
+    expect(turnDeps[0]!.isForeground).toBeUndefined();
+  });
+
+  test("onBackgroundFinal forwards to setBackgroundResult with the right keys", async () => {
+    const calls: Array<{ chatKey: string; alias: string; result: unknown }> = [];
+    const { turnDeps } = await runDispatchBinding("hello there", {
+      peekCurrentSessionAlias: () => "alpha",
+      setBackgroundResult: async (chatKey, alias, result) => {
+        calls.push({ chatKey, alias, result });
+      },
+    });
+    const onBackgroundFinal = turnDeps[0]!.onBackgroundFinal as (
+      alias: string,
+      text: string,
+      status: "done" | "error",
+    ) => Promise<void>;
+    await onBackgroundFinal("alpha", "the answer", "done");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.chatKey).toBe("weixin:acct:u1");
+    expect(calls[0]!.alias).toBe("alpha");
+    expect((calls[0]!.result as { text: string }).text).toBe("the answer");
+    expect((calls[0]!.result as { status: string }).status).toBe("done");
+    expect(typeof (calls[0]!.result as { finished_at: string }).finished_at).toBe("string");
+  });
+
+  test("no peekCurrentSessionAlias provided: prompt is unbound (__chat__), no crash", async () => {
+    const { runCalls, turnDeps } = await runDispatchBinding("hello there", {});
+    expect(runCalls[0]!.sessionKey).toBe("__chat__");
+    expect(turnDeps[0]!.boundSessionAlias).toBeUndefined();
+    expect(turnDeps[0]!.isForeground).toBeUndefined();
+  });
+});

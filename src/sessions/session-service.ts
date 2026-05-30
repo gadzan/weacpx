@@ -2,7 +2,7 @@ import { resolveAgentCommand } from "../config/resolve-agent-command";
 import type { AppConfig, WechatReplyMode } from "../config/types";
 import { AsyncMutex } from "../orchestration/async-mutex";
 import type { StateStore } from "../state/state-store";
-import type { AppState, LogicalSession } from "../state/types";
+import type { AppState, BackgroundResult, LogicalSession } from "../state/types";
 import type { AgentSession, ResolvedSession } from "../transport/types";
 import {
   buildDefaultTransportSession,
@@ -19,6 +19,18 @@ interface SessionListItem {
   workspace: string;
   isCurrent: boolean;
 }
+
+export interface SessionSwitchResult {
+  alias: string;
+  agent: string;
+  workspace: string;
+  previousAlias?: string;
+}
+
+export type FuzzyAliasResult =
+  | { kind: "match"; alias: string }
+  | { kind: "ambiguous"; candidates: Array<{ alias: string; agent: string; workspace: string }> }
+  | { kind: "none" };
 
 interface NativeSessionAttachmentInput {
   alias: string;
@@ -141,6 +153,33 @@ export class SessionService {
     return this.toResolvedSession(session);
   }
 
+  /**
+   * Synchronously resolve a session by its internal alias (as stored in state).
+   * Returns null if the alias is unknown or if the referenced agent/workspace is
+   * no longer registered (i.e. toResolvedSession would throw).
+   *
+   * Used by handlePrompt to honour a `boundSessionAlias` captured at dispatch
+   * time without requiring an async state mutation.
+   */
+  getResolvedSessionByInternalAlias(alias: string): ResolvedSession | null {
+    const session = this.state.sessions[alias];
+    if (!session) {
+      return null;
+    }
+    try {
+      return this.toResolvedSession(session);
+    } catch {
+      return null;
+    }
+  }
+
+  // Read-only peek at the chat's current internal session alias. Unlike
+  // getCurrentSession it does NOT touch last_used_at or persist, so it is safe to
+  // call on the hot dispatch path for every inbound message.
+  peekCurrentSessionAlias(chatKey: string): string | undefined {
+    return this.state.chat_contexts[chatKey]?.current_session;
+  }
+
   async getPreferredSessionForTransport(transportSession: string): Promise<ResolvedSession | null> {
     const matches = Object.values(this.state.sessions)
       .filter((session) => session.transport_session === transportSession)
@@ -176,8 +215,8 @@ export class SessionService {
     return null;
   }
 
-  async useSession(chatKey: string, alias: string): Promise<void> {
-    await this.mutate(async () => {
+  async useSession(chatKey: string, alias: string): Promise<SessionSwitchResult> {
+    return await this.mutate(async () => {
       const channelId = getChannelIdFromChatKey(chatKey);
       const internalAlias = resolveSessionAliasForInput(channelId, alias, Object.keys(this.state.sessions));
       const session = this.state.sessions[internalAlias];
@@ -185,10 +224,133 @@ export class SessionService {
         throw new Error(`session "${alias}" does not exist`);
       }
 
+      const prevCtx = this.state.chat_contexts[chatKey];
+      const previousCurrent = prevCtx?.current_session;
+      const carriedPrevious =
+        previousCurrent && previousCurrent !== internalAlias ? previousCurrent : prevCtx?.previous_session;
+
       session.last_used_at = new Date().toISOString();
-      this.state.chat_contexts[chatKey] = { current_session: internalAlias };
+      this.state.chat_contexts[chatKey] = {
+        current_session: internalAlias,
+        ...(carriedPrevious ? { previous_session: carriedPrevious } : {}),
+      };
+      await this.persist();
+
+      return {
+        alias: toDisplaySessionAlias(session.alias),
+        agent: session.agent,
+        workspace: session.workspace,
+        previousAlias: carriedPrevious ? toDisplaySessionAlias(carriedPrevious) : undefined,
+      };
+    });
+  }
+
+  async usePreviousSession(chatKey: string): Promise<SessionSwitchResult | null> {
+    return await this.mutate(async () => {
+      const ctx = this.state.chat_contexts[chatKey];
+      const prevInternal = ctx?.previous_session;
+      if (!prevInternal) {
+        return null;
+      }
+      const prevSession = this.state.sessions[prevInternal];
+      if (!prevSession) {
+        if (ctx) {
+          delete ctx.previous_session;
+          await this.persist();
+        }
+        return null;
+      }
+
+      const currentInternal = ctx?.current_session;
+      prevSession.last_used_at = new Date().toISOString();
+      this.state.chat_contexts[chatKey] = {
+        current_session: prevInternal,
+        ...(currentInternal && currentInternal !== prevInternal ? { previous_session: currentInternal } : {}),
+      };
+      await this.persist();
+
+      return {
+        alias: toDisplaySessionAlias(prevSession.alias),
+        agent: prevSession.agent,
+        workspace: prevSession.workspace,
+        previousAlias:
+          currentInternal && currentInternal !== prevInternal ? toDisplaySessionAlias(currentInternal) : undefined,
+      };
+    });
+  }
+
+  async setBackgroundResult(chatKey: string, alias: string, result: BackgroundResult): Promise<void> {
+    await this.mutate(async () => {
+      const ctx = this.state.chat_contexts[chatKey] ?? { current_session: "" };
+      const results = { ...(ctx.background_results ?? {}), [alias]: result };
+      this.state.chat_contexts[chatKey] = { ...ctx, background_results: results };
       await this.persist();
     });
+  }
+
+  async takeBackgroundResult(chatKey: string, alias: string): Promise<BackgroundResult | null> {
+    return await this.mutate(async () => {
+      const ctx = this.state.chat_contexts[chatKey];
+      const found = ctx?.background_results?.[alias];
+      if (!ctx || !found) return null;
+      const remaining = { ...ctx.background_results };
+      delete remaining[alias];
+      if (Object.keys(remaining).length > 0) {
+        this.state.chat_contexts[chatKey] = { ...ctx, background_results: remaining };
+      } else {
+        const { background_results: _omit, ...rest } = ctx;
+        this.state.chat_contexts[chatKey] = rest;
+      }
+      await this.persist();
+      return found;
+    });
+  }
+
+  // Read-only; no persistence.
+  listBackgroundResultAliases(chatKey: string): string[] {
+    const results = this.state.chat_contexts[chatKey]?.background_results;
+    return results ? Object.keys(results) : [];
+  }
+
+  resolveFuzzyAlias(chatKey: string, fragment: string): FuzzyAliasResult {
+    const channelId = getChannelIdFromChatKey(chatKey);
+    const frag = fragment.trim();
+    const items = Object.values(this.state.sessions)
+      .filter((session) => isSessionAliasVisibleInChannel(session.alias, channelId))
+      .map((session) => ({
+        display: toDisplaySessionAlias(session.alias),
+        agent: session.agent,
+        workspace: session.workspace,
+      }));
+
+    const toCandidate = (item: { display: string; agent: string; workspace: string }) => ({
+      alias: item.display,
+      agent: item.agent,
+      workspace: item.workspace,
+    });
+
+    const exact = items.find((item) => item.display === frag);
+    if (exact) {
+      return { kind: "match", alias: exact.display };
+    }
+
+    const prefix = items.filter((item) => item.display.startsWith(frag));
+    if (prefix.length === 1) {
+      return { kind: "match", alias: prefix[0]!.display };
+    }
+    if (prefix.length > 1) {
+      return { kind: "ambiguous", candidates: prefix.map(toCandidate) };
+    }
+
+    const substring = items.filter((item) => item.display.includes(frag));
+    if (substring.length === 1) {
+      return { kind: "match", alias: substring[0]!.display };
+    }
+    if (substring.length > 1) {
+      return { kind: "ambiguous", candidates: substring.map(toCandidate) };
+    }
+
+    return { kind: "none" };
   }
 
   async resolveAliasForChat(chatKey: string, displayAlias: string): Promise<string> {
@@ -314,6 +476,10 @@ export class SessionService {
       for (const [chatKey, ctx] of Object.entries(this.state.chat_contexts)) {
         if (ctx.current_session === alias) {
           delete this.state.chat_contexts[chatKey];
+          continue;
+        }
+        if (ctx.previous_session === alias) {
+          delete ctx.previous_session;
         }
       }
 
