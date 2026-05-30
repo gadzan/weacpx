@@ -17,6 +17,7 @@ import { resolveSafeOutboundMediaPath as resolveSafeMediaPath } from "../../chan
 import { downloadMediaFromItem } from "../media/media-download.js";
 import { getExtensionFromMime } from "../media/mime.js";
 
+import { buildBackgroundCompletionNotice } from "./completion-notice.js";
 import { executeChatTurn } from "./execute-chat-turn.js";
 import { buildFinalHeadsUp } from "./final-heads-up.js";
 import { shouldDeliverSegment } from "./foreground-gate.js";
@@ -459,6 +460,11 @@ export async function handleWeixinMessageTurn(
       if (finalText.length > 0) {
         if (!shouldDeliverSegment(deps.isForeground) && deps.boundSessionAlias && deps.onBackgroundFinal) {
           await deps.onBackgroundFinal(deps.boundSessionAlias, finalText, "done");
+          await sendMessageWeixin({
+            to,
+            text: buildBackgroundCompletionNotice(deps.boundSessionAlias, "done"),
+            opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
+          }).catch((e) => deps.errLog(`bg completion notice failed: ${String(e)}`));
         } else {
           const rawChunks = chunkFinalText(finalText, MAX_FINAL_CHUNK_BYTES);
           if (rawChunks.length > 0) {
@@ -618,6 +624,11 @@ export async function handleWeixinMessageTurn(
     const errMessage = `⚠️ 执行出错：${err instanceof Error ? err.message : JSON.stringify(err)}`;
     if (!shouldDeliverSegment(deps.isForeground) && deps.boundSessionAlias && deps.onBackgroundFinal) {
       await deps.onBackgroundFinal(deps.boundSessionAlias, errMessage, "error");
+      await sendMessageWeixin({
+        to,
+        text: buildBackgroundCompletionNotice(deps.boundSessionAlias, "error"),
+        opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
+      }).catch((e) => deps.errLog(`bg completion notice failed: ${String(e)}`));
     } else {
       const reservedErr = deps.reserveFinal ? deps.reserveFinal(to) : true;
       if (!reservedErr) {
