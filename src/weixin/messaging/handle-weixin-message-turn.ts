@@ -235,7 +235,7 @@ export function getWeixinMessageTurnLane(full: WeixinMessage): "normal" | "contr
     : "normal";
 }
 
-function buildWeixinChatKey(accountId: string, userId: string): string {
+export function buildWeixinChatKey(accountId: string, userId: string): string {
   return `weixin:${accountId}:${userId}`;
 }
 
@@ -438,6 +438,11 @@ export async function handleWeixinMessageTurn(
       chatType: full.group_id ? "group" : "direct",
       ...(full.from_user_id ? { senderId: full.from_user_id } : {}),
       ...(full.group_id ? { groupId: full.group_id } : {}),
+      // Carry the dispatch-time bound session alias so handlePrompt runs the
+      // queued prompt against the session that was current when the user sent
+      // it, instead of re-reading current_session (which may have changed while
+      // the prompt waited on the per-session lane).
+      ...(deps.boundSessionAlias ? { boundSessionAlias: deps.boundSessionAlias } : {}),
     },
     perfSpan,
   };

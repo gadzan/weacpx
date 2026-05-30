@@ -22,6 +22,7 @@ import { monitorWeixinProvider } from "./monitor/monitor.js";
 import type { PendingFinalChunk } from "./messaging/quota-manager.js";
 import type { RuntimeMediaStore } from "../channels/media-store.js";
 import type { PerfTracer } from "../perf/perf-tracer.js";
+import type { ActiveTurnRegistry } from "../sessions/active-turn-registry.js";
 import { logger } from "./util/logger.js";
 
 export type LoginOptions = {
@@ -55,6 +56,16 @@ export type StartOptions = {
   dropPendingFinal?: (chatKey: string) => void;
   mediaStore?: RuntimeMediaStore;
   perfTracer?: PerfTracer;
+  /** Read the chat's current session synchronously for dispatch-time binding. */
+  peekCurrentSessionAlias?: (chatKey: string) => string | undefined;
+  /** Persist a background turn's final result for later replay. */
+  setBackgroundResult?: (
+    chatKey: string,
+    alias: string,
+    result: { text: string; status: "done" | "error"; finished_at: string },
+  ) => Promise<void>;
+  /** Shared in-flight turn registry for dispatch-time foreground tracking. */
+  activeTurns?: ActiveTurnRegistry;
 };
 
 /**
@@ -191,5 +202,10 @@ export async function start(agent: Agent, opts?: StartOptions): Promise<void> {
     ...(opts?.dropPendingFinal ? { dropPendingFinal: opts.dropPendingFinal } : {}),
     ...(opts?.mediaStore ? { mediaStore: opts.mediaStore } : {}),
     ...(opts?.perfTracer ? { perfTracer: opts.perfTracer } : {}),
+    ...(opts?.peekCurrentSessionAlias
+      ? { peekCurrentSessionAlias: opts.peekCurrentSessionAlias }
+      : {}),
+    ...(opts?.setBackgroundResult ? { setBackgroundResult: opts.setBackgroundResult } : {}),
+    ...(opts?.activeTurns ? { activeTurns: opts.activeTurns } : {}),
   });
 }
