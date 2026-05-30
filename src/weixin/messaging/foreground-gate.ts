@@ -5,3 +5,15 @@
 export function shouldDeliverSegment(isForeground: (() => boolean) | undefined): boolean {
   return isForeground ? isForeground() : true;
 }
+
+export type FinalDisposition = "send" | "store" | "drop";
+
+// Decide what to do with a turn's final output:
+//   - foreground              → "send" through the normal quota-gated path
+//   - backgrounded + can store → "store" via onBackgroundFinal
+//   - backgrounded + cannot store → "drop" (NEVER fall through to a foreground
+//     send, which would leak a background session's answer into the wrong chat)
+export function resolveFinalDisposition(isForeground: boolean, canStore: boolean): FinalDisposition {
+  if (isForeground) return "send";
+  return canStore ? "store" : "drop";
+}
