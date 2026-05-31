@@ -1,5 +1,5 @@
 import path from "node:path";
-import { createConversationExecutor, resolveTurnLane } from "weacpx/plugin-api";
+import { createConversationExecutor, resolveTurnLane, toDisplaySessionAlias } from "weacpx/plugin-api";
 import type {
   ChannelStartInput,
   ConversationExecutor,
