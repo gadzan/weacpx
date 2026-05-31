@@ -1,6 +1,10 @@
 import path from "node:path";
+import { createConversationExecutor } from "weacpx/plugin-api";
 import type {
   ChannelStartInput,
+  ConversationExecutor,
+  SessionService,
+  ActiveTurnRegistry,
   CoordinatorMessageInput,
   CreateChannelDeps,
   ScheduledChannelMessageInput,
@@ -65,6 +69,9 @@ export class FeishuChannel implements MessageChannelRuntime {
   private agent: ChannelStartInput["agent"] | null = null;
   private quota: ChannelStartInput["quota"] | null = null;
   private logger: ChannelStartInput["logger"] | null = null;
+  private sessions: SessionService | null = null;
+  private activeTurns: ActiveTurnRegistry | null = null;
+  private readonly executor: ConversationExecutor = createConversationExecutor();
   // Stack per chat: when a second turn races into the queue before the first
   // body runs, both are tracked so an inbound stop message can suppress all
   // pending entries. Push on registration, splice on cleanup.
@@ -111,6 +118,8 @@ export class FeishuChannel implements MessageChannelRuntime {
     this.agent = input.agent;
     this.quota = input.quota;
     this.logger = input.logger;
+    this.sessions = input.sessions ?? null;
+    this.activeTurns = input.activeTurns ?? null;
 
     const eligible = this.config.accounts.filter((account) => account.enabled && account.configured);
     await input.logger.info("feishu.start", "starting feishu channel", {
