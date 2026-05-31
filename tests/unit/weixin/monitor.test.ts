@@ -66,7 +66,7 @@ async function runOneInbound(textBody: string): Promise<{
     },
   }));
 
-  mock.module("../../../src/weixin/messaging/conversation-executor.ts", () => ({
+  mock.module("../../../src/runtime/conversation-executor.ts", () => ({
     createConversationExecutor: () => ({
       run: async (_chat: string, _lane: string, fn: () => Promise<void>) => {
         await fn();
@@ -189,7 +189,7 @@ describe("credential recovery on session expiry", () => {
       },
     }));
 
-    mock.module("../../../src/weixin/messaging/conversation-executor.ts", () => ({
+    mock.module("../../../src/runtime/conversation-executor.ts", () => ({
       createConversationExecutor: () => ({ run: async (_c: string, _l: string, fn: () => Promise<void>) => { await fn(); } }),
     }));
 
@@ -274,7 +274,7 @@ describe("credential recovery on session expiry", () => {
       },
     }));
 
-    mock.module("../../../src/weixin/messaging/conversation-executor.ts", () => ({
+    mock.module("../../../src/runtime/conversation-executor.ts", () => ({
       createConversationExecutor: () => ({ run: async (_c: string, _l: string, fn: () => Promise<void>) => { await fn(); } }),
     }));
 
@@ -403,7 +403,7 @@ async function runDispatchBinding(
   }));
 
   // Capture the 4th arg (sessionKey) the monitor's dispatch site passes.
-  mock.module("../../../src/weixin/messaging/conversation-executor.ts", () => ({
+  mock.module("../../../src/runtime/conversation-executor.ts", () => ({
     createConversationExecutor: () => ({
       run: async (
         _chat: string,

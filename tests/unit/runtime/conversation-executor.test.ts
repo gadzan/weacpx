@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createConversationExecutor } from "../../../../src/weixin/messaging/conversation-executor";
+import { createConversationExecutor } from "../../../src/runtime/conversation-executor";
 
 const deferred = () => {
   let resolve!: () => void;
