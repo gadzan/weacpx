@@ -1,5 +1,5 @@
 import path from "node:path";
-import { createConversationExecutor } from "weacpx/plugin-api";
+import { createConversationExecutor, resolveTurnLane } from "weacpx/plugin-api";
 import type {
   ChannelStartInput,
   ConversationExecutor,
@@ -16,7 +16,7 @@ import { parseFeishuChannelConfig } from "./config.js";
 import type { FeishuMessageEvent, FeishuResourceDescriptor } from "./types.js";
 import { createFeishuLarkClient, type FeishuLarkClient } from "./lark-client.js";
 import { MessageDedup } from "./message-dedup.js";
-import { buildFeishuQueueKey, clearFeishuQueueForAccount, enqueueFeishuChatTask } from "./chat-queue.js";
+import { buildFeishuQueueKey, clearFeishuQueueForAccount } from "./chat-queue.js";
 import { buildFeishuConversationId, buildFeishuRouteMetadata, evaluateFeishuAccessPolicy, parseFeishuConversationId, shouldHandleFeishuMessage } from "./inbound.js";
 import { isMessageExpired } from "./message-dedup.js";
 import { sendTextFeishu, sendMediaFeishu } from "./send.js";
@@ -378,6 +378,16 @@ export class FeishuChannel implements MessageChannelRuntime {
     });
     const requestText = appendSkippedAttachmentNotes(decision.text, skipped);
 
+    // Dispatch-time session binding. Capture the chat's current session the
+    // moment the message arrives; the prompt then runs against that session even
+    // if the user switches away while it waits on its per-session lane. Slash
+    // commands never bind — they act on whatever the chat resolves to when they
+    // run (and switch/cancel commands take the control lane so they preempt a
+    // running prompt for real-time switching).
+    const isSlash = requestText.trim().startsWith("/");
+    const boundAlias = isSlash ? undefined : (this.sessions?.peekCurrentSessionAlias(chatKey) ?? undefined);
+    const lane = resolveTurnLane(requestText);
+
     const { active, abortController } = this.registerActiveTask({
       accountId,
       chatId,
@@ -385,14 +395,15 @@ export class FeishuChannel implements MessageChannelRuntime {
       queueKey,
       senderOpenId: event.sender?.sender_id?.open_id,
       chatType: event.message.chat_type,
-      boundAlias: undefined, // TODO(Task 6): bind to peekCurrentSessionAlias at dispatch time
+      boundAlias,
     });
 
-    const run = enqueueFeishuChatTask({
-      accountId,
-      chatId,
-      ...(threadId ? { threadId } : {}),
-      task: () => this.runTurn({
+    if (boundAlias) this.activeTurns?.markActive(chatKey, boundAlias);
+
+    await this.executor.run(
+      chatKey,
+      lane,
+      () => this.runTurn({
         runtime,
         accountId,
         chatId,
@@ -404,9 +415,10 @@ export class FeishuChannel implements MessageChannelRuntime {
         media,
         active,
         abortController,
+        boundAlias,
       }),
-    });
-    await run.promise;
+      boundAlias,
+    );
   }
 
   /**
@@ -525,8 +537,9 @@ export class FeishuChannel implements MessageChannelRuntime {
     media: ChannelMediaAttachment[];
     active: ActiveTask;
     abortController: AbortController;
+    boundAlias: string | undefined;
   }): Promise<void> {
-    const { runtime, accountId, chatId, chatType, chatKey, queueKey, messageId, requestText, media, active, abortController } = input;
+    const { runtime, accountId, chatId, chatType, chatKey, queueKey, messageId, requestText, media, active, abortController, boundAlias } = input;
     try {
       if (!this.agent) return;
       if (active.suppressed) return;
@@ -579,7 +592,10 @@ export class FeishuChannel implements MessageChannelRuntime {
           text: requestText,
           ...(media.length > 0 ? { media } : {}),
           replyContextToken: messageId,
-          metadata: buildFeishuRouteMetadata({ chatType, senderOpenId: active.senderOpenId, chatId }),
+          metadata: {
+            ...buildFeishuRouteMetadata({ chatType, senderOpenId: active.senderOpenId, chatId }),
+            ...(boundAlias ? { boundSessionAlias: boundAlias } : {}),
+          },
           reply: safeReply,
           // Only consume the structured tool-event side-channel when we actually
           // have a card to render into. Without this gate, static-mode turns would
