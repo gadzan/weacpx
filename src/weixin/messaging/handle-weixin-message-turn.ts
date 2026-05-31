@@ -17,10 +17,10 @@ import { resolveSafeOutboundMediaPath as resolveSafeMediaPath } from "../../chan
 import { downloadMediaFromItem } from "../media/media-download.js";
 import { getExtensionFromMime } from "../media/mime.js";
 
-import { buildBackgroundCompletionNotice } from "./completion-notice.js";
+import { buildBackgroundCompletionNotice, shouldSendBackgroundNotice } from "./completion-notice.js";
 import { executeChatTurn } from "./execute-chat-turn.js";
 import { buildFinalHeadsUp } from "./final-heads-up.js";
-import { shouldDeliverSegment } from "./foreground-gate.js";
+import { shouldDeliverSegment, resolveFinalDisposition } from "./foreground-gate.js";
 import { setContextToken, bodyFromItemList, extractWeixinMediaDescriptors } from "./inbound.js";
 import { sendWeixinErrorNotice } from "./error-notice.js";
 import { sendWeixinMediaFile } from "./send-media.js";
@@ -463,13 +463,23 @@ export async function handleWeixinMessageTurn(
     if (turn.text) {
       const finalText = markdownToPlainText(turn.text).trim();
       if (finalText.length > 0) {
-        if (!shouldDeliverSegment(deps.isForeground) && deps.boundSessionAlias && deps.onBackgroundFinal) {
-          await deps.onBackgroundFinal(deps.boundSessionAlias, finalText, "done");
-          await sendMessageWeixin({
-            to,
-            text: buildBackgroundCompletionNotice(deps.boundSessionAlias, "done"),
-            opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
-          }).catch((e) => deps.errLog(`bg completion notice failed: ${String(e)}`));
+        const disposition = resolveFinalDisposition(
+          shouldDeliverSegment(deps.isForeground),
+          Boolean(deps.boundSessionAlias && deps.onBackgroundFinal),
+        );
+        if (disposition === "store") {
+          await deps.onBackgroundFinal!(deps.boundSessionAlias!, finalText, "done");
+          if (shouldSendBackgroundNotice(deps.reserveFinal ? () => deps.reserveFinal!(to) : undefined)) {
+            await sendMessageWeixin({
+              to,
+              text: buildBackgroundCompletionNotice(deps.boundSessionAlias!, "done"),
+              opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
+            }).catch((e) => deps.errLog(`bg completion notice failed: ${String(e)}`));
+          } else {
+            deps.errLog(`weixin.final.dropped reason=quota_exhausted kind=bg_notice chatKey=${to}`);
+          }
+        } else if (disposition === "drop") {
+          deps.errLog(`weixin.final.dropped reason=backgrounded_no_store kind=text chatKey=${to}`);
         } else {
           const rawChunks = chunkFinalText(finalText, MAX_FINAL_CHUNK_BYTES);
           if (rawChunks.length > 0) {
@@ -627,13 +637,23 @@ export async function handleWeixinMessageTurn(
     const errorText = err instanceof Error ? err.stack ?? err.message : JSON.stringify(err);
     deps.errLog(`handleWeixinMessageTurn: agent or send failed: ${errorText}`);
     const errMessage = `⚠️ 执行出错：${err instanceof Error ? err.message : JSON.stringify(err)}`;
-    if (!shouldDeliverSegment(deps.isForeground) && deps.boundSessionAlias && deps.onBackgroundFinal) {
-      await deps.onBackgroundFinal(deps.boundSessionAlias, errMessage, "error");
-      await sendMessageWeixin({
-        to,
-        text: buildBackgroundCompletionNotice(deps.boundSessionAlias, "error"),
-        opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
-      }).catch((e) => deps.errLog(`bg completion notice failed: ${String(e)}`));
+    const errDisposition = resolveFinalDisposition(
+      shouldDeliverSegment(deps.isForeground),
+      Boolean(deps.boundSessionAlias && deps.onBackgroundFinal),
+    );
+    if (errDisposition === "store") {
+      await deps.onBackgroundFinal!(deps.boundSessionAlias!, errMessage, "error");
+      if (shouldSendBackgroundNotice(deps.reserveFinal ? () => deps.reserveFinal!(to) : undefined)) {
+        await sendMessageWeixin({
+          to,
+          text: buildBackgroundCompletionNotice(deps.boundSessionAlias!, "error"),
+          opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
+        }).catch((e) => deps.errLog(`bg completion notice failed: ${String(e)}`));
+      } else {
+        deps.errLog(`weixin.final.dropped reason=quota_exhausted kind=bg_notice chatKey=${to}`);
+      }
+    } else if (errDisposition === "drop") {
+      deps.errLog(`weixin.final.dropped reason=backgrounded_no_store kind=error_notice chatKey=${to}`);
     } else {
       const reservedErr = deps.reserveFinal ? deps.reserveFinal(to) : true;
       if (!reservedErr) {

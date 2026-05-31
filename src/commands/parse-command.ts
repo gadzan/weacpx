@@ -31,7 +31,7 @@ export type ParsedCommand =
   | { kind: "workspace.rm"; name: string }
   | { kind: "sessions" }
   | { kind: "status" }
-  | { kind: "cancel" }
+  | { kind: "cancel"; alias?: string }
   | { kind: "session.reset" }
   | { kind: "session.tail"; lines?: number }
   | { kind: "session.rm"; alias: string }
@@ -103,7 +103,13 @@ export function parseCommand(input: string): ParsedCommand {
   }
 
   if (command === "/status") return { kind: "status" };
-  if (command === "/cancel") return { kind: "cancel" };
+  if (command === "/cancel") {
+    // /cancel and its alias /stop accept an optional trailing alias token to
+    // target a specific (incl. background) session; bare /cancel keeps the
+    // foreground-session shape (no alias field).
+    const alias = parts[1];
+    return alias ? { kind: "cancel", alias } : { kind: "cancel" };
+  }
   if (command === "/clear") return { kind: "session.reset" };
   if (command === "/mode" && parts.length === 1) return { kind: "mode.show" };
   if (command === "/replymode" && parts.length === 1) return { kind: "replymode.show" };

@@ -9,3 +9,11 @@ export function buildBackgroundCompletionNotice(internalAlias: string, status: "
     ? `✅ ${display} 已完成，/use ${display} 查看结果`
     : `⚠️ ${display} 失败，/use ${display} 查看详情`;
 }
+
+// Decide whether a background completion notice may be sent: it consumes one
+// final-quota slot for the chat. `reserve` is the chat's reserveFinal bound to
+// the recipient (returns true when a slot was reserved). When no reserver is
+// configured (legacy callers) the notice always sends.
+export function shouldSendBackgroundNotice(reserve: (() => boolean) | undefined): boolean {
+  return reserve ? reserve() : true;
+}

@@ -187,8 +187,7 @@ Session 是你在微信里操作的逻辑会话。每个会话绑定一个 agent
 | `/session tail [N]` | 补拉当前会话最近 N 行历史（默认 50，上限 500） |
 | `/session reset` | 重置当前会话上下文 |
 | `/clear` | `/session reset` 的别名 |
-| `/cancel` | 取消当前会话里正在执行的任务 |
-| `/stop` | `/cancel` 的别名 |
+| `/cancel [alias]` / `/stop [alias]` | 不带参数取消当前前台会话的在跑任务；带 alias 取消指定（含后台）会话的任务。 |
 
 ## 普通消息
 

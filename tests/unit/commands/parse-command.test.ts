@@ -295,6 +295,26 @@ test("parses stop as cancel", () => {
   });
 });
 
+test("parses /cancel without alias to the bare cancel shape", () => {
+  expect(parseCommand("/cancel")).toEqual({
+    kind: "cancel",
+  });
+});
+
+test("parses /cancel <alias> with an alias", () => {
+  expect(parseCommand("/cancel backend")).toEqual({
+    kind: "cancel",
+    alias: "backend",
+  });
+});
+
+test("parses /stop <alias> as cancel with an alias", () => {
+  expect(parseCommand("/stop backend")).toEqual({
+    kind: "cancel",
+    alias: "backend",
+  });
+});
+
 test("parses session reset and clear aliases", () => {
   expect(parseCommand("/session reset")).toEqual({
     kind: "session.reset",
