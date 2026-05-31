@@ -54,6 +54,11 @@ interface ActiveTask {
   // another's running task.
   senderOpenId: string | undefined;
   chatType: string | undefined;
+  // INTERNAL session alias this turn was dispatch-bound to (undefined for slash
+  // commands or when the sessions service is unavailable). Lets a later
+  // `/cancel <alias>` target this in-flight turn and lets completion tracking
+  // attribute the turn to its session.
+  boundAlias: string | undefined;
   typingState: TypingIndicatorState;
   abortController: AbortController;
   suppressed: boolean;
@@ -380,6 +385,7 @@ export class FeishuChannel implements MessageChannelRuntime {
       queueKey,
       senderOpenId: event.sender?.sender_id?.open_id,
       chatType: event.message.chat_type,
+      boundAlias: undefined, // TODO(Task 6): bind to peekCurrentSessionAlias at dispatch time
     });
 
     const run = enqueueFeishuChatTask({
@@ -485,8 +491,9 @@ export class FeishuChannel implements MessageChannelRuntime {
     queueKey: string;
     senderOpenId: string | undefined;
     chatType: string | undefined;
+    boundAlias: string | undefined;
   }): { active: ActiveTask; abortController: AbortController } {
-    const { accountId, chatId, messageId, queueKey, senderOpenId, chatType } = input;
+    const { accountId, chatId, messageId, queueKey, senderOpenId, chatType, boundAlias } = input;
     const abortController = new AbortController();
     const active: ActiveTask = {
       accountId,
@@ -494,6 +501,7 @@ export class FeishuChannel implements MessageChannelRuntime {
       messageId,
       senderOpenId,
       chatType,
+      boundAlias,
       typingState: { messageId, reactionId: null },
       abortController,
       suppressed: false,
