@@ -28,3 +28,11 @@ test("a plain prompt stays normal", () => {
 test("leading whitespace is tolerated", () => {
   expect(resolveTurnLane("  /ss backend")).toBe("control");
 });
+
+test("/cancellation does not false-match /cancel (exact membership, not prefix)", () => {
+  expect(resolveTurnLane("/cancellation please")).toBe("normal");
+});
+
+test("empty / whitespace-only text stays normal", () => {
+  expect(resolveTurnLane("   ")).toBe("normal");
+});
