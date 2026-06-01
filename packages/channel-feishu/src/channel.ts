@@ -565,7 +565,10 @@ export class FeishuChannel implements MessageChannelRuntime {
     boundAlias: string | undefined;
   }): Promise<void> {
     const { runtime, accountId, chatId, chatType, chatKey, queueKey, messageId, requestText, media, active, abortController, boundAlias } = input;
-    let turnStatus: "done" | "error" = "done";
+    // "skipped" is the initial state: a turn that early-returns (no agent, or
+    // suppressed/aborted before it produced output) NEVER ran, so it must not
+    // be recorded as a completion. Only a real outcome flips this to done/error.
+    let turnStatus: "done" | "error" | "skipped" = "skipped";
     try {
       if (!this.agent) return;
       if (active.suppressed) return;
@@ -643,6 +646,7 @@ export class FeishuChannel implements MessageChannelRuntime {
         });
         if (active.suppressed) return;
         await this.deliverResponse({ runtime, accountId, chatId, messageId, active, response });
+        turnStatus = "done";
       } catch (error) {
         if (active.cardController && !active.cardController.isTerminated()) {
           await active.cardController.fail(error instanceof Error ? error.message : String(error));
@@ -652,13 +656,16 @@ export class FeishuChannel implements MessageChannelRuntime {
       }
     } finally {
       if (boundAlias) {
+        // markInactive always mirrors the markActive in handleMessageEvent,
+        // regardless of outcome (including skipped turns).
         this.activeTurns?.markInactive(chatKey, boundAlias);
-        // B-semantics completion awareness: if this turn's session is no
-        // longer the chat's foreground session, its streaming card already ran
-        // to completion in the timeline. Record a completion SIGNAL (empty
-        // text — switch-back does NOT replay) so /sessions shows ●, and send a
-        // short ping to the foreground chat.
-        if (this.sessions && this.sessions.peekCurrentSessionAlias(chatKey) !== boundAlias) {
+        // B-semantics completion awareness: if this turn produced a real
+        // outcome (done/error) AND its session is no longer the chat's
+        // foreground session, its streaming card already ran to completion in
+        // the timeline. Record a completion SIGNAL (empty text — switch-back
+        // does NOT replay) so /sessions shows ●, and send a short ping to the
+        // foreground chat. A "skipped" turn never ran, so it records nothing.
+        if (turnStatus !== "skipped" && this.sessions && this.sessions.peekCurrentSessionAlias(chatKey) !== boundAlias) {
           await this.sessions.setBackgroundResult(chatKey, boundAlias, {
             text: "",
             status: turnStatus,

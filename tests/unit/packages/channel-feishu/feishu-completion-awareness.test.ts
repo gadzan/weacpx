@@ -140,3 +140,50 @@ test("a backgrounded turn that errored records an error signal and pings failure
   expect(setCalls[0]!.r.status).toBe("error");
   expect(sent.some((t) => t.includes("失败"))).toBe(true);
 });
+
+test("a turn that never ran (agent unavailable) records NOTHING and does not falsely ping done", async () => {
+  const channel = makeChannel();
+  const setCalls: Array<{ r: any }> = [];
+  const sent: string[] = [];
+
+  (channel as any).agent = null; // early return at the top of runTurn
+  (channel as any).sessions = {
+    peekCurrentSessionAlias: () => "feishu:acct:c:other", // switched away
+    setBackgroundResult: async (_ck: string, _alias: string, r: any) => { setCalls.push({ r }); },
+  };
+  (channel as any).activeTurns = { markActive() {}, markInactive() {}, isActive: () => false };
+  (channel as any).logger = createNoopLogger();
+  (channel as any).deliverResponse = async () => {};
+  (channel as any).sendReplyWithGuard = async ({ text }: { text: string }) => { sent.push(text); };
+
+  const { active, abortController } = registerTurn(channel);
+  await (channel as any).runTurn(runTurnArgs(active, abortController));
+
+  // The turn never executed — it must NOT be recorded as a successful (or any)
+  // completion, and must not ping "已完成".
+  expect(setCalls).toHaveLength(0);
+  expect(sent.some((t) => t.includes("已完成"))).toBe(false);
+});
+
+test("a turn suppressed (cancelled) before running records NOTHING and does not ping done", async () => {
+  const channel = makeChannel();
+  const setCalls: Array<{ r: any }> = [];
+  const sent: string[] = [];
+
+  (channel as any).agent = { chat: async () => ({ text: "should not run" }) };
+  (channel as any).sessions = {
+    peekCurrentSessionAlias: () => "feishu:acct:c:other", // switched away
+    setBackgroundResult: async (_ck: string, _alias: string, r: any) => { setCalls.push({ r }); },
+  };
+  (channel as any).activeTurns = { markActive() {}, markInactive() {}, isActive: () => false };
+  (channel as any).logger = createNoopLogger();
+  (channel as any).deliverResponse = async () => {};
+  (channel as any).sendReplyWithGuard = async ({ text }: { text: string }) => { sent.push(text); };
+
+  const { active, abortController } = registerTurn(channel);
+  active.suppressed = true; // user stopped/aborted before the turn did any work
+  await (channel as any).runTurn(runTurnArgs(active, abortController));
+
+  expect(setCalls).toHaveLength(0);
+  expect(sent.some((t) => t.includes("已完成"))).toBe(false);
+});
