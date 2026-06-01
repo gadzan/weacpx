@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.7.0] - 2026-06-01
+
+### Added
+
+- **实时会话切换 + 后台执行（核心/微信、Feishu、Yuanbao 全支持）——本版头条：** `/use` / `/ss` 现在可以在任务进行中**即时切换**会话，不必等当前回合跑完。被切走的会话继续在**后台运行**（其中途输出从聊天里静默），完成后只回传**最终结果** + 一条简短完成提醒，并在 `/ss` 列表里以 `●` 标记未读；切回该会话时回放其最终结果（若仍在执行则提示「⏳ 仍在执行中…」）。不同会话**并行运行**（按 session 划分并发车道；`/use` / `/ss` / `/cancel` / `/stop` 走抢占式 control lane，可打断正在执行的回合而非排队等待）。语义按频道形态区分：微信/元宝为线性文本（中途输出抑制、最终结果存储并在切回时回放），Feishu 为流式卡片（卡片在时间线内跑完、切回不回放）。完整说明见 `docs/commands.md`。
+- **`/use -`、模糊别名匹配、按会话取消：** `/use -` 切回上一个会话；`/use` / `/ss` 支持模糊别名匹配 + 身份回显；`/cancel <alias>` / `/stop <alias>` 可取消指定会话（含后台会话），裸 `/cancel` 仍作用于前台。
+- **plugin-api 新增实时切换原语导出：** `createConversationExecutor`（按 session 并发车道 + control lane 抢占）、`resolveTurnLane`、`createActiveTurnRegistry`、`toDisplaySessionAlias`。频道插件据此即可实现上述实时切换/后台执行能力；Feishu、Yuanbao 频道插件即基于此实现。
+
+### Changed
+
+- **频道插件现要求核心 `>=0.7.0`：** Feishu / Yuanbao 插件（均升至 `0.3.0`）用到上述新增的 plugin-api 实时切换原语，故其 peer 依赖下限从 `>=0.5.0` 提升到 `>=0.7.0`。对过旧核心安装新版插件会在**安装期**即报错，而非运行时才崩。
+- **内部重构（无行为变化）：** 将 conversation-executor 移到中性的 `src/runtime` 并补充 channel-agnostic 的 `resolveTurnLane`，作为上述 plugin-api 导出的基础。
+
+### Fixed
+
+- **daemon 状态文件损坏不再崩溃：** `DaemonStatusStore.load()` 遇到损坏/半写的 `status.json` 现返回 null（而非抛 `SyntaxError`），`weacpx status` / `doctor` 会优雅报「indeterminate」而不是中断。
+- **Feishu：** 不再为从未真正执行的回合记录完成或误发完成提醒；补全后台完成信号与 `markInactive` 接线。
+- **后台结果在存储未接线时不会泄漏到前台聊天**；后台完成提醒经 final quota 闸门，配额耗尽时丢弃并记日志（结果仍可经 `/use` 找回）。
+- **微信内存治理：** 上下文 token 保留与 quota 状态加 TTL + 上限、config 缓存 LRU 淘汰、过期 native 会话列表清理、transport 启动锁结算后清理。
+- 插件目录解析与锁文件健壮性修复（承接 0.6.1 的目录去重方向）。
+
+### Tests
+
+- 新增：实时切换/后台执行在核心、Feishu、Yuanbao 三侧的覆盖（dispatch-time 会话绑定、按 session 并发、前台输出闸门、后台完成存储/提醒/切回回放、`/cancel <alias>` 解析、shutdown abort 不误记为后台失败）、`resolveTurnLane` 精确匹配契约、`weacpx/plugin-api` 运行时解析 shim 回归、冒烟场景（切换 + 后台回放）。
+
 ## [0.6.1] - 2026-05-29
 
 ### Added
