@@ -5,6 +5,9 @@
 **Spec:** `docs/superpowers/specs/2026-05-31-feishu-realtime-session-switching-design.md`
 **Plan:** `docs/superpowers/plans/2026-05-31-feishu-realtime-session-switching.md`
 
+## ✅ RESOLVED (2026-06-01, later) — branch is GREEN end-to-end
+The test-execution blocker is fixed. Root cause was NOT exports ordering / root tsconfig (those experiments were reverted; root tsconfig has no `paths`). It was `packages/channel-feishu/tsconfig.json` `paths: {"weacpx/plugin-api": ["dist/plugin-api.d.ts"]}` — **bun honors tsconfig `paths` at test runtime** (resolved against the nearest tsconfig to the imported file), so any test pulling in a `packages/channel-feishu/src/*` file loaded the un-executable `.d.ts`. Fix (commit `8b0f78a`): extensionless `["dist/plugin-api"]` — bun picks `.js`, tsc picks `.d.ts`. Also corrected the new test fixtures to the canonical flat `{ appId, appSecret }` config + stub account `dmPolicy:"open"`. Then `docs/commands.md` got the Feishu B-semantics note (`cdee2d6`). **`node ./scripts/run-tests.mjs tests/unit` → rc 0; full feishu dir 272 pass / 0 fail; root tsc + package tsc + `bun run build:channel-feishu` all clean.** Task 9 done. Everything below this banner is the earlier (now-superseded) "blocked" accounting.
+
 ## TRUE STATE (verified by clean git + python-subprocess gates, 2026-06-01)
 HEAD = `2b4e49c`. Implementation Tasks 1–8 are committed; **`bun run build`, root `npx tsc --noEmit`, and `npx tsc -p packages/channel-feishu/tsconfig.json --noEmit` are ALL green.** tsconfig.json is pristine (an earlier corrupting commit `63ae687` was reset out of history).
 
