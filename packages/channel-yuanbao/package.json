@@ -1,6 +1,6 @@
 {
   "name": "@ganglion/weacpx-channel-yuanbao",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Tencent Yuanbao channel plugin for weacpx.",
   "license": "MIT",
   "keywords": ["weacpx", "yuanbao", "channel", "plugin"],
@@ -20,7 +20,7 @@
   },
   "files": ["dist", "README.md"],
   "peerDependencies": {
-    "weacpx": ">=0.5.0-0"
+    "weacpx": ">=0.7.0-0"
   },
   "peerDependenciesMeta": {
     "weacpx": {

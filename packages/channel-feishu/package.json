@@ -1,6 +1,6 @@
 {
   "name": "@ganglion/weacpx-channel-feishu",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Feishu channel plugin for weacpx.",
   "license": "MIT",
   "keywords": ["weacpx", "feishu", "channel", "plugin"],
@@ -20,7 +20,7 @@
   },
   "files": ["dist", "README.md"],
   "peerDependencies": {
-    "weacpx": ">=0.5.0-0"
+    "weacpx": ">=0.7.0-0"
   },
   "peerDependenciesMeta": {
     "weacpx": {

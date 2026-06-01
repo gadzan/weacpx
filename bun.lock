@@ -26,12 +26,12 @@
     },
     "packages/channel-feishu": {
       "name": "@ganglion/weacpx-channel-feishu",
-      "version": "0.2.2",
+      "version": "0.3.0",
       "dependencies": {
         "@larksuiteoapi/node-sdk": "~1.60.0",
       },
       "peerDependencies": {
-        "weacpx": ">=0.5.0-0",
+        "weacpx": ">=0.7.0-0",
       },
       "optionalPeers": [
         "weacpx",
@@ -39,13 +39,13 @@
     },
     "packages/channel-yuanbao": {
       "name": "@ganglion/weacpx-channel-yuanbao",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "dependencies": {
         "protobufjs": "^7.5.6",
         "ws": "^8.20.0",
       },
       "peerDependencies": {
-        "weacpx": ">=0.5.0-0",
+        "weacpx": ">=0.7.0-0",
       },
       "optionalPeers": [
         "weacpx",
