@@ -4,7 +4,6 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 
 import { YuanbaoChannel } from "../../../../packages/channel-yuanbao/src/index";
-import { resetYuanbaoChatQueueForTests } from "../../../../packages/channel-yuanbao/src/chat-queue";
 import { RuntimeMediaStore } from "../../../../packages/channel-yuanbao/src/media-store";
 import type { ChatAgent } from "../../../../src/channels/types";
 import type {
@@ -77,7 +76,6 @@ function mentionAtBotBody(text: string) {
 
 let tempDir: string;
 beforeEach(async () => {
-  resetYuanbaoChatQueueForTests();
   tempDir = await mkdtemp(path.join(tmpdir(), "weacpx-yuanbao-media-"));
 });
 

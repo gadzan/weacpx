@@ -1,7 +1,6 @@
-import { beforeEach, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 
 import { YuanbaoChannel } from "../../../../packages/channel-yuanbao/src/index";
-import { resetYuanbaoChatQueueForTests } from "../../../../packages/channel-yuanbao/src/chat-queue";
 import type { ChatAgent } from "../../../../src/channels/types";
 import type { YuanbaoGateway, YuanbaoGatewayStartInput } from "../../../../packages/channel-yuanbao/src/types";
 
@@ -51,10 +50,6 @@ function mentionAtBotBody(text: string) {
 function textBody(text: string) {
   return [{ msg_type: "TIMTextElem", msg_content: { text } }];
 }
-
-beforeEach(() => {
-  resetYuanbaoChatQueueForTests();
-});
 
 test("unmentioned group messages are buffered into group history (no agent call)", async () => {
   let startInput: YuanbaoGatewayStartInput | null = null;

@@ -1,7 +1,6 @@
-import { beforeEach, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 
 import { YuanbaoChannel } from "../../../../packages/channel-yuanbao/src/index";
-import { resetYuanbaoChatQueueForTests } from "../../../../packages/channel-yuanbao/src/chat-queue";
 import type { ChatAgent } from "../../../../src/channels/types";
 import type { YuanbaoGateway, YuanbaoGatewayStartInput } from "../../../../packages/channel-yuanbao/src/types";
 
@@ -35,10 +34,6 @@ const defaultYuanbaoConfig = {
   botId: "bot_001",
   requireMention: true,
 };
-
-beforeEach(() => {
-  resetYuanbaoChatQueueForTests();
-});
 
 test("agent.chat receives the channel's abortSignal", async () => {
   let startInput: YuanbaoGatewayStartInput | null = null;

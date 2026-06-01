@@ -1,7 +1,6 @@
-import { beforeEach, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 
 import { YuanbaoChannel } from "../../../../packages/channel-yuanbao/src/index";
-import { resetYuanbaoChatQueueForTests } from "../../../../packages/channel-yuanbao/src/chat-queue";
 import type { ChatAgent } from "../../../../src/channels/types";
 import type {
   YuanbaoGateway,
@@ -70,10 +69,6 @@ const baseGroupMessage = {
     ],
   },
 };
-
-beforeEach(() => {
-  resetYuanbaoChatQueueForTests();
-});
 
 test("merge-text merges small reply() fragments into one outbound message", async () => {
   let startInput: YuanbaoGatewayStartInput | null = null;

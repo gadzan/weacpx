@@ -1,9 +1,13 @@
+import { createConversationExecutor, resolveTurnLane } from "weacpx/plugin-api";
 import type {
+  ActiveTurnRegistry,
   ChannelStartInput,
+  ConversationExecutor,
   CoordinatorMessageInput,
   MessageChannelRuntime,
   OrchestrationDeliveryCallbacks,
   ScheduledChannelMessageInput,
+  SessionService,
 } from "weacpx/plugin-api";
 import { parseYuanbaoChannelConfig, type YuanbaoChannelConfig, type YuanbaoResolvedAccountConfig } from "./config.js";
 import type { YuanbaoGateway, YuanbaoGatewayFactory, YuanbaoGatewayInboundMessage } from "./types.js";
@@ -13,8 +17,8 @@ import { createBuiltinYuanbaoGateway } from "./builtin-gateway.js";
 import { PLUGIN_VERSION } from "./command-sync.js";
 import { normalizeMediaArray, type ChannelMediaAttachment } from "./media-types.js";
 import { MessageDedup } from "./message-dedup.js";
-import { enqueueYuanbaoChatTask } from "./chat-queue.js";
 import { ReplyQuoteCache } from "./reply-quote-cache.js";
+import { buildYuanbaoCompletionNotice } from "./completion-notice.js";
 import {
   createOutboundQueueSession,
   type OutboundQueueScheduler,
@@ -61,6 +65,12 @@ export class YuanbaoChannel implements MessageChannelRuntime {
   private quota: ChannelStartInput["quota"] | null = null;
   private logger: ChannelStartInput["logger"] | null = null;
   private abortSignal: AbortSignal | null = null;
+  private sessions: SessionService | null = null;
+  private activeTurns: ActiveTurnRegistry | null = null;
+  // Per-session concurrency lanes + a control lane that preempts a running
+  // prompt so `/use` / `/ss` / `/cancel` / `/stop` switch the foreground
+  // session in real time instead of queuing behind the in-flight turn.
+  private readonly executor: ConversationExecutor = createConversationExecutor();
   private readonly dedup = new MessageDedup();
   private readonly replyQuoteSent = new ReplyQuoteCache();
   private readonly groupHistory: GroupHistoryStore;
@@ -105,6 +115,8 @@ export class YuanbaoChannel implements MessageChannelRuntime {
     this.quota = input.quota;
     this.logger = input.logger;
     this.abortSignal = input.abortSignal;
+    this.sessions = input.sessions ?? null;
+    this.activeTurns = input.activeTurns ?? null;
     this.gateway = await this.resolveGateway();
     const accounts = this.config.accounts.filter((account) => account.enabled && account.configured);
     await input.logger.info("yuanbao.start", "starting yuanbao channel", { accounts: accounts.map((account) => account.accountId).join(",") });
@@ -437,9 +449,28 @@ export class YuanbaoChannel implements MessageChannelRuntime {
       unavailable: downloaded.failed,
     });
 
-    const run = enqueueYuanbaoChatTask({
-      chatKey,
-      task: async () => {
+    // Dispatch-time session binding. Capture the chat's current session the
+    // moment the message arrives; the prompt runs against that session even if
+    // the user switches away while it waits on its per-session lane. Slash
+    // commands never bind — they act on whatever the chat resolves to when they
+    // run, and switch/cancel commands take the control lane so they preempt a
+    // running prompt for real-time switching.
+    const isSlash = extracted.text.trim().startsWith("/");
+    const boundAlias = isSlash ? undefined : (this.sessions?.peekCurrentSessionAlias(chatKey) ?? undefined);
+    const sessionKey = boundAlias ?? "__chat__";
+    const lane = resolveTurnLane(extracted.text);
+    // Foreground predicate, evaluated at SEND time: a turn is foreground only
+    // while its bound session is still the chat's current session. A turn that
+    // gets switched away mid-flight stops delivering to the chat.
+    const isForeground = boundAlias
+      ? () => this.sessions?.peekCurrentSessionAlias(chatKey) === boundAlias
+      : undefined;
+    const inForeground = (): boolean => (isForeground ? isForeground() : true);
+
+    if (boundAlias) this.activeTurns?.markActive(chatKey, boundAlias);
+
+    try {
+      await this.executor.run(chatKey, lane, async () => {
         if (!this.agent || !this.quota || !this.gateway || !this.logger) return;
         if (this.isAborted()) return;
         this.quota.onInbound(chatKey);
@@ -471,9 +502,14 @@ export class YuanbaoChannel implements MessageChannelRuntime {
               ...(raw.sender_nickname ? { senderName: raw.sender_nickname } : {}),
               ...(input.chatType === "group" ? { groupId: target } : {}),
               isOwner: Boolean(raw.bot_owner_id && raw.from_account === raw.bot_owner_id),
+              ...(boundAlias ? { boundSessionAlias: boundAlias } : {}),
             },
             reply: async (text) => {
               if (this.isAborted()) return;
+              // Backgrounded mid-stream output is dropped — the user switched
+              // away, so it must not leak into whatever session now occupies
+              // the chat. The final answer is stored for /use replay below.
+              if (!inForeground()) return;
               await queue.push(text);
             },
           });
@@ -484,6 +520,30 @@ export class YuanbaoChannel implements MessageChannelRuntime {
           }
 
           const responseText = response.text ?? "";
+
+          // A-semantics for a linear-text channel (the weixin model): if the
+          // bound session is no longer the chat's foreground session, this turn
+          // ran in the background. Store its final text so `/use <alias>`
+          // replays it on switch-back, send a short completion ping, and never
+          // push the answer into the now-foreground chat.
+          if (boundAlias && this.sessions && !inForeground()) {
+            queue.abort();
+            await this.sessions.setBackgroundResult(chatKey, boundAlias, {
+              text: responseText.trim(),
+              status: "done",
+              finished_at: new Date().toISOString(),
+            });
+            await this.sendBackgroundCompletionNotice({
+              account,
+              chatType: input.chatType,
+              target,
+              boundAlias,
+              status: "done",
+            });
+            heartbeat.stop();
+            return;
+          }
+
           if (responseText) await queue.push(responseText);
           const flushed = await queue.flush();
           let sentContent = flushed.sentContent;
@@ -517,11 +577,55 @@ export class YuanbaoChannel implements MessageChannelRuntime {
         } catch (error) {
           queue.abort();
           heartbeat.stop();
+          // A backgrounded turn that errored records its failure for switch-back
+          // + pings instead of throwing into the void (no foreground chat is
+          // listening for it anymore).
+          if (boundAlias && this.sessions && !inForeground()) {
+            const message = error instanceof Error ? error.message : String(error);
+            await this.sessions.setBackgroundResult(chatKey, boundAlias, {
+              text: `⚠️ 执行出错：${message}`,
+              status: "error",
+              finished_at: new Date().toISOString(),
+            });
+            await this.sendBackgroundCompletionNotice({
+              account,
+              chatType: input.chatType,
+              target,
+              boundAlias,
+              status: "error",
+            }).catch(() => {});
+            return;
+          }
           throw error;
         }
-      },
-    });
-    await run.promise;
+      }, sessionKey);
+    } finally {
+      // Mirror the markActive above regardless of outcome.
+      if (boundAlias) this.activeTurns?.markInactive(chatKey, boundAlias);
+    }
+  }
+
+  private async sendBackgroundCompletionNotice(input: {
+    account: YuanbaoResolvedAccountConfig;
+    chatType: "direct" | "group";
+    target: string;
+    boundAlias: string;
+    status: "done" | "error";
+  }): Promise<void> {
+    try {
+      await this.sendTextChunks({
+        account: input.account,
+        chatType: input.chatType,
+        target: input.target,
+        text: buildYuanbaoCompletionNotice(input.boundAlias, input.status),
+      });
+    } catch (error) {
+      await this.logger?.error("yuanbao.bg_notice.failed", "failed to send background completion notice", {
+        target: input.target,
+        boundAlias: input.boundAlias,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private createTurnQueue(input: {

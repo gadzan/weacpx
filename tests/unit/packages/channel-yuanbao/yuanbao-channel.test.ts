@@ -7,7 +7,6 @@ import { hasChannelCliProvider } from "../../../../src/channels/cli/registry";
 import { buildYuanbaoChatKey, extractYuanbaoContent, parseYuanbaoChatKey } from "../../../../packages/channel-yuanbao/src/inbound";
 import type { ChatAgent } from "../../../../src/channels/types";
 import type { YuanbaoGateway, YuanbaoGatewayStartInput } from "../../../../packages/channel-yuanbao/src/types";
-import { resetYuanbaoChatQueueForTests } from "../../../../packages/channel-yuanbao/src/chat-queue";
 
 function ensureYuanbaoPluginRegisteredForTest(): void {
   const factoryRegistered = hasChannelFactory("yuanbao");
@@ -497,7 +496,6 @@ test("YuanbaoChannel skips self messages and duplicate inbound messages", async 
 });
 
 test("YuanbaoChannel serializes messages in the same chat", async () => {
-  resetYuanbaoChatQueueForTests();
   let startInput: YuanbaoGatewayStartInput | null = null;
   const gateway: YuanbaoGateway = {
     start: async (input) => { startInput = input; },
