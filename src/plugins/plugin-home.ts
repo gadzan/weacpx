@@ -4,20 +4,28 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Core package names, current and renamed. weacpx is being renamed to xacpx
+// (see the rename plan); the core root resolves under either name and a
+// resolution shim is laid down for BOTH so plugins built against either
+// `weacpx/plugin-api` or `xacpx/plugin-api` keep resolving across the rename —
+// no plugin reinstall required.
+const CORE_PACKAGE_NAMES = ["weacpx", "xacpx"] as const;
+
 /**
- * Resolve the weacpx package root directory from the running script's location.
- * Walks up the directory tree looking for the `package.json` whose name is
- * "weacpx" (the bundle is emitted to `<root>/dist`, but this tolerates deeper
- * or monorepo nesting too). Returns null when the root cannot be determined.
+ * Resolve the core package root directory from the running script's location.
+ * Walks up the directory tree looking for the `package.json` whose name is one
+ * of {@link CORE_PACKAGE_NAMES} (the bundle is emitted to `<root>/dist`, but
+ * this tolerates deeper or monorepo nesting too). Returns null when the root
+ * cannot be determined.
  */
-function resolveWeacpxRoot(): string | null {
+function resolveCoreRoot(): string | null {
   try {
     let dir = dirname(fileURLToPath(import.meta.url));
     // Bounded walk-up: stops at the filesystem root or after a generous depth.
     for (let depth = 0; depth < 12; depth++) {
       try {
         const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8")) as { name?: string };
-        if (pkg.name === "weacpx") return dir;
+        if (pkg.name && (CORE_PACKAGE_NAMES as readonly string[]).includes(pkg.name)) return dir;
       } catch {
         // no/unreadable package.json at this level — keep walking up
       }
@@ -32,51 +40,57 @@ function resolveWeacpxRoot(): string | null {
 }
 
 /**
- * Ensure channel plugins can resolve `import ... from "weacpx/plugin-api"` at
- * runtime. Plugins are built with `--external weacpx`, so the import resolves
- * from the plugin home's `node_modules` tree.
+ * Ensure channel plugins can resolve `import ... from "weacpx/plugin-api"` (or
+ * `"xacpx/plugin-api"` after the rename) at runtime. Plugins are built with the
+ * core package externalized, so the import resolves from the plugin home's
+ * `node_modules` tree.
  *
- * A shim at `pluginHome/node_modules/weacpx/` with a synthetic `package.json`
- * makes the `weacpx` package resolvable. The runtime `plugin-api.js` bundle is
+ * A shim at `pluginHome/node_modules/<core>/` with a synthetic `package.json`
+ * makes the `<core>` package resolvable. The runtime `plugin-api.js` bundle is
  * copied into the shim so `exports["./plugin-api"]` can use a relative path
  * (required by Node.js ESM resolution — absolute paths and `file://` URLs are
  * not valid in the `exports` map).
  *
- * The copy is refreshed on every `ensurePluginHome` call so it stays in sync
- * with the running weacpx version.
+ * A shim is written for BOTH {@link CORE_PACKAGE_NAMES} (`weacpx` and `xacpx`),
+ * each pointing at the same bundle, so plugins built against either specifier
+ * resolve regardless of which core is installed — the weacpx→xacpx rename then
+ * needs no plugin reinstall. The copies are refreshed on every
+ * `ensurePluginHome` call so they stay in sync with the running core version.
  */
-async function ensureWeacpxResolution(pluginHome: string): Promise<void> {
-  const root = resolveWeacpxRoot();
+async function ensureCoreResolution(pluginHome: string): Promise<void> {
+  const root = resolveCoreRoot();
   if (!root) return;
   const srcJs = join(root, "dist", "plugin-api.js");
-  const targetDir = join(pluginHome, "node_modules", "weacpx");
-  const dstJs = join(targetDir, "plugin-api.js");
-  await mkdir(targetDir, { recursive: true });
-  // Copy the runtime bundle FIRST. If it is missing (e.g. weacpx was not built)
-  // or the copy fails, skip writing the shim manifest entirely — a package.json
-  // whose `./plugin-api` export points at a nonexistent file would only fail
-  // later with a more confusing "Cannot find module './plugin-api.js'". A loud
-  // warning beats a silently broken shim.
-  try {
-    await copyFile(srcJs, dstJs);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn(
-      `weacpx: skipped plugin-api resolution shim — could not copy ${srcJs} (${message}). ` +
-        `Channel plugins importing "weacpx/plugin-api" at runtime may fail to load.`,
+  for (const name of CORE_PACKAGE_NAMES) {
+    const targetDir = join(pluginHome, "node_modules", name);
+    const dstJs = join(targetDir, "plugin-api.js");
+    await mkdir(targetDir, { recursive: true });
+    // Copy the runtime bundle FIRST. If it is missing (e.g. the core was not
+    // built) or the copy fails, skip writing this shim's manifest — a
+    // package.json whose `./plugin-api` export points at a nonexistent file
+    // would only fail later with a more confusing "Cannot find module
+    // './plugin-api.js'". A loud warning beats a silently broken shim.
+    try {
+      await copyFile(srcJs, dstJs);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `weacpx: skipped plugin-api resolution shim for "${name}" — could not copy ${srcJs} (${message}). ` +
+          `Channel plugins importing "${name}/plugin-api" at runtime may fail to load.`,
+      );
+      continue;
+    }
+    await writeFile(
+      join(targetDir, "package.json"),
+      JSON.stringify({
+        name,
+        type: "module",
+        exports: {
+          "./plugin-api": "./plugin-api.js",
+        },
+      }, null, 2) + "\n",
     );
-    return;
   }
-  await writeFile(
-    join(targetDir, "package.json"),
-    JSON.stringify({
-      name: "weacpx",
-      type: "module",
-      exports: {
-        "./plugin-api": "./plugin-api.js",
-      },
-    }, null, 2) + "\n",
-  );
 }
 
 /**
@@ -148,5 +162,5 @@ export async function ensurePluginHome(pluginHome: string): Promise<void> {
   ).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== "EEXIST") throw error;
   });
-  await ensureWeacpxResolution(pluginHome);
+  await ensureCoreResolution(pluginHome);
 }

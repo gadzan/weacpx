@@ -192,4 +192,58 @@ describe("ensurePluginHome — weacpx/plugin-api resolution shim", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  // Rename forward-compat (0.7.x, ahead of the 0.8.0 weacpx→xacpx rename): a
+  // matching shim is also written under the renamed core name `xacpx`, so a
+  // plugin built against `xacpx/plugin-api` resolves even while the running
+  // core is still `weacpx`. Together with the `weacpx` shim above, old and new
+  // plugins coexist with no reinstall across the rename.
+  it("also creates a node_modules/xacpx shim pointing at the same bundle", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "weacpx-shim-"));
+    try {
+      await ensurePluginHome(dir);
+      const shimPkgPath = join(dir, "node_modules", "xacpx", "package.json");
+      const pkg = JSON.parse(await readFile(shimPkgPath, "utf8")) as {
+        name?: string;
+        type?: string;
+        exports?: Record<string, unknown>;
+      };
+      expect(pkg.name).toBe("xacpx");
+      expect(pkg.type).toBe("module");
+      expect(pkg.exports?.["./plugin-api"]).toBe("./plugin-api.js");
+      await access(join(dir, "node_modules", "xacpx", "plugin-api.js"));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("lets a plugin module resolve the bare xacpx/plugin-api specifier", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "weacpx-shim-"));
+    try {
+      await ensurePluginHome(dir);
+      const consumerDir = join(dir, "node_modules", "@scope", "demo-plugin", "dist");
+      await mkdir(consumerDir, { recursive: true });
+      const consumer = join(consumerDir, "index.mjs");
+      await writeFile(
+        consumer,
+        [
+          'import { createConversationExecutor, resolveTurnLane, toDisplaySessionAlias } from "xacpx/plugin-api";',
+          "export const probe = {",
+          "  createsExecutor: typeof createConversationExecutor === \"function\",",
+          "  lane: resolveTurnLane(\"/ss backend\"),",
+          "  display: typeof toDisplaySessionAlias === \"function\",",
+          "};",
+        ].join("\n"),
+      );
+
+      const mod = (await import(pathToFileURL(consumer).href)) as {
+        probe: { createsExecutor: boolean; lane: string; display: boolean };
+      };
+      expect(mod.probe.createsExecutor).toBe(true);
+      expect(mod.probe.display).toBe(true);
+      expect(mod.probe.lane).toBe("control");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
