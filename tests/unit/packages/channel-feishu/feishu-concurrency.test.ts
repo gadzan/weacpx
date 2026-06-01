@@ -5,7 +5,7 @@ import { FeishuChannel } from "../../../../packages/channel-feishu/src/channel";
 import type { FeishuMessageEvent } from "../../../../packages/channel-feishu/src/types";
 
 function makeChannel(): FeishuChannel {
-  return new FeishuChannel({ enabled: true, accounts: [{ appId: "cli_test", appSecret: "secret_test", enabled: false }] });
+  return new FeishuChannel({ appId: "cli_test", appSecret: "secret_test" });
 }
 
 function textEvent(chatId: string, text: string, messageId: string): FeishuMessageEvent {
@@ -48,7 +48,7 @@ function createNoopLogger() {
 
 function createRuntimeStub() {
   return {
-    account: { accountId: "acct", replyMode: "static" },
+    account: { accountId: "acct", replyMode: "static", dmPolicy: "open", groupPolicy: "open", allowFrom: [] },
     client: {
       sdk: {
         im: {
