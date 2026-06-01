@@ -16,10 +16,10 @@ test("root package publishes as weacpx and exposes plugin-api", () => {
   });
 });
 
-test("root package version is 0.6.1", () => {
+test("root package version is 0.7.0", () => {
   const pkg = readJson("package.json");
 
-  expect(pkg.version).toBe("0.6.1");
+  expect(pkg.version).toBe("0.7.0");
 });
 
 test("first-party channel plugins peer depend on weacpx", () => {
@@ -27,7 +27,7 @@ test("first-party channel plugins peer depend on weacpx", () => {
   const yuanbao = readJson("packages/channel-yuanbao/package.json");
 
   for (const pkg of [feishu, yuanbao]) {
-    expect(pkg.peerDependencies.weacpx).toBe(">=0.5.0-0");
+    expect(pkg.peerDependencies.weacpx).toBe(">=0.7.0-0");
     expect(pkg.peerDependencies["weacpx-console"]).toBeUndefined();
     expect(pkg.peerDependenciesMeta.weacpx.optional).toBe(true);
     expect(pkg.peerDependenciesMeta["weacpx-console"]).toBeUndefined();
