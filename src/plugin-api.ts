@@ -24,7 +24,7 @@ export type {
 export type { ChannelRuntimeConfig } from "./config/types.js";
 export type { CommandHint } from "./commands/command-hints.js";
 export type { AppLogger } from "./logging/app-logger.js";
-export type { WeacpxPlugin } from "./plugins/types.js";
+export type { WeacpxPlugin, XacpxPlugin } from "./plugins/types.js";
 export {
   WEACPX_PLUGIN_API_VERSION,
   WEACPX_PLUGIN_API_SUPPORTED_VERSIONS,

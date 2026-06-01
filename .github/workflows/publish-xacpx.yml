@@ -1,4 +1,4 @@
-name: Publish weacpx
+name: Publish xacpx
 
 on:
   push:
@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: publish-weacpx-${{ github.ref }}
+  group: publish-xacpx-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -76,8 +76,17 @@ jobs:
           fi
           echo "tag_name=$TAG_NAME" >> "$GITHUB_ENV"
 
-      - name: Publish weacpx to npm
+      - name: Publish xacpx to npm
         run: npm publish --tag ${{ steps.meta.outputs.npm_tag }} --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Deprecated forwarding shim for the old `weacpx` package name. Published
+      # after xacpx (it depends on xacpx) and only for stable releases.
+      - name: Publish deprecated weacpx compat shim to npm
+        if: steps.meta.outputs.prerelease == 'false'
+        working-directory: weacpx-compat
+        run: npm publish --tag latest --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

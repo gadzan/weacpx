@@ -21,7 +21,7 @@ export function validateWeacpxPlugin(
 ): WeacpxPlugin {
   const plugin = isRecord(value) && "default" in value ? value.default : value;
   if (!isRecord(plugin)) {
-    throw new Error(`插件 ${packageName} 没有默认导出 weacpx plugin definition`);
+    throw new Error(`插件 ${packageName} 没有默认导出 xacpx plugin definition`);
   }
 
   const currentWeacpxVersion = options.currentWeacpxVersion ?? readVersion();
@@ -30,6 +30,8 @@ export function validateWeacpxPlugin(
       apiVersion: plugin.apiVersion,
       minWeacpxVersion: (plugin as Record<string, unknown>).minWeacpxVersion,
       compatibleWeacpxVersions: (plugin as Record<string, unknown>).compatibleWeacpxVersions,
+      minXacpxVersion: (plugin as Record<string, unknown>).minXacpxVersion,
+      compatibleXacpxVersions: (plugin as Record<string, unknown>).compatibleXacpxVersions,
     },
     { packageName, currentWeacpxVersion },
   );
@@ -70,5 +72,7 @@ export function validateWeacpxPlugin(
   };
   if (typeof plugin.minWeacpxVersion === "string") normalized.minWeacpxVersion = plugin.minWeacpxVersion;
   if (typeof plugin.compatibleWeacpxVersions === "string") normalized.compatibleWeacpxVersions = plugin.compatibleWeacpxVersions;
+  if (typeof plugin.minXacpxVersion === "string") normalized.minXacpxVersion = plugin.minXacpxVersion;
+  if (typeof plugin.compatibleXacpxVersions === "string") normalized.compatibleXacpxVersions = plugin.compatibleXacpxVersions;
   return normalized;
 }

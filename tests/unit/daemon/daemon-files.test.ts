@@ -3,18 +3,18 @@ import { join } from "node:path";
 
 import { resolveDaemonPaths } from "../../../src/daemon/daemon-files";
 
-test("resolves runtime files under ~/.weacpx/runtime by default", () => {
+test("resolves runtime files under ~/.xacpx/runtime by default", () => {
   expect(
     resolveDaemonPaths({
       home: "/Users/tester",
     }),
   ).toEqual({
-    runtimeDir: join("/Users/tester", ".weacpx", "runtime"),
-    pidFile: join("/Users/tester", ".weacpx", "runtime", "daemon.pid"),
-    statusFile: join("/Users/tester", ".weacpx", "runtime", "status.json"),
-    stdoutLog: join("/Users/tester", ".weacpx", "runtime", "stdout.log"),
-    stderrLog: join("/Users/tester", ".weacpx", "runtime", "stderr.log"),
-    appLog: join("/Users/tester", ".weacpx", "runtime", "app.log"),
+    runtimeDir: join("/Users/tester", ".xacpx", "runtime"),
+    pidFile: join("/Users/tester", ".xacpx", "runtime", "daemon.pid"),
+    statusFile: join("/Users/tester", ".xacpx", "runtime", "status.json"),
+    stdoutLog: join("/Users/tester", ".xacpx", "runtime", "stdout.log"),
+    stderrLog: join("/Users/tester", ".xacpx", "runtime", "stderr.log"),
+    appLog: join("/Users/tester", ".xacpx", "runtime", "app.log"),
   });
 });
 

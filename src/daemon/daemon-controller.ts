@@ -97,7 +97,7 @@ export class DaemonController {
     }
     if (current.state === "indeterminate") {
       throw new Error(
-        `weacpx daemon process is already running (pid ${current.pid}) but status metadata is missing`,
+        `xacpx daemon process is already running (pid ${current.pid}) but status metadata is missing`,
       );
     }
 
@@ -167,7 +167,7 @@ export class DaemonController {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "EEXIST") {
         throw new Error(
-          `weacpx daemon pid file already exists (${this.paths.pidFile}); another start may be in progress`,
+          `xacpx daemon pid file already exists (${this.paths.pidFile}); another start may be in progress`,
         );
       }
       throw error;
@@ -190,7 +190,7 @@ export class DaemonController {
 
       if (!this.deps.isProcessRunning(pid)) {
         await this.clearRuntimeFiles();
-        throw new Error(`weacpx daemon exited before reporting ready state (pid ${pid})`);
+        throw new Error(`xacpx daemon exited before reporting ready state (pid ${pid})`);
       }
 
       if (startupWait?.shouldStopWaiting?.()) {
@@ -205,7 +205,7 @@ export class DaemonController {
       await this.onStartupPoll();
     }
 
-    throw new Error(`weacpx daemon did not report ready state within ${timeoutMs}ms (pid ${pid})`);
+    throw new Error(`xacpx daemon did not report ready state within ${timeoutMs}ms (pid ${pid})`);
   }
 
   private async waitForShutdown(pid: number): Promise<void> {
@@ -222,6 +222,6 @@ export class DaemonController {
       return;
     }
 
-    throw new Error(`weacpx daemon did not exit within ${this.shutdownTimeoutMs}ms (pid ${pid})`);
+    throw new Error(`xacpx daemon did not exit within ${this.shutdownTimeoutMs}ms (pid ${pid})`);
   }
 }

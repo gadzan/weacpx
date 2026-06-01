@@ -7,13 +7,13 @@ export interface KnownPlugin {
 
 const KNOWN_PLUGINS: ReadonlyArray<KnownPlugin> = [
   {
-    packageName: "@ganglion/weacpx-channel-feishu",
+    packageName: "@ganglion/xacpx-channel-feishu",
     channels: ["feishu"],
     description: "飞书频道",
     official: true,
   },
   {
-    packageName: "@ganglion/weacpx-channel-yuanbao",
+    packageName: "@ganglion/xacpx-channel-yuanbao",
     channels: ["yuanbao"],
     description: "腾讯元宝频道",
     official: true,
@@ -31,5 +31,5 @@ export function findKnownPluginByChannel(channelType: string): KnownPlugin | nul
 
 export function getMovedChannelInstallHint(channelType: string): string | null {
   const plugin = findKnownPluginByChannel(channelType);
-  return plugin ? `频道 ${channelType} 需要安装插件：weacpx plugin add ${plugin.packageName}` : null;
+  return plugin ? `频道 ${channelType} 需要安装插件：xacpx plugin add ${plugin.packageName}` : null;
 }

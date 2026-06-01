@@ -266,7 +266,7 @@ test("rejects channel type updates through /config set", async () => {
 
   const response = await router.handle("wx:user", "/config set channel.type weixin");
 
-  expect(response.text).toBe("channel.type 是旧单频道字段，/config set 已禁用写入；请使用 `weacpx channel ...` 管理 channels[]，然后重启 weacpx。");
+  expect(response.text).toBe("channel.type 是旧单频道字段，/config set 已禁用写入；请使用 `xacpx channel ...` 管理 channels[]，然后重启 xacpx。");
   expect(config.channel.type).toBe("weixin");
 });
 
@@ -278,7 +278,7 @@ test("does not report success for ineffective channel type changes", async () =>
 
   const response = await router.handle("wx:user", "/config set channel.type feishu");
 
-  expect(response.text).toBe("channel.type 是旧单频道字段，/config set 已禁用写入；请使用 `weacpx channel ...` 管理 channels[]，然后重启 weacpx。");
+  expect(response.text).toBe("channel.type 是旧单频道字段，/config set 已禁用写入；请使用 `xacpx channel ...` 管理 channels[]，然后重启 xacpx。");
   expect(config.channel.type).toBe("weixin");
   expect(config.channels).toEqual([{ id: "weixin", type: "weixin", enabled: true }]);
 });
@@ -306,7 +306,7 @@ test("shows channel config paths and legacy compatibility paths", async () => {
   expect(response.text).toContain("- channel.replyMode");
   expect(response.text).toContain("兼容旧配置：");
   expect(response.text).toContain("- wechat.replyMode（已弃用，请使用 channel.replyMode）");
-  expect(response.text).toContain("- channel.type（已禁用写入；请使用 weacpx channel ... 管理 channels[]）");
+  expect(response.text).toContain("- channel.type（已禁用写入；请使用 xacpx channel ... 管理 channels[]）");
   expect(response.text).toContain("- channels[]（多频道运行配置，请编辑 JSON）");
 });
 

@@ -8,6 +8,7 @@ import type { NonInteractivePermissions, PermissionMode } from "../config/types"
 import { resolveSpawnCommand } from "../process/spawn-command";
 import { terminateProcessTree } from "../process/terminate-process-tree";
 import { quoteIfNeeded } from "../util/text.js";
+import { coreEnv } from "../runtime/core-env";
 
 export interface AcpxMcpServerSpec {
   name: string;
@@ -271,16 +272,18 @@ function shortHash(value: string, length: number): string {
 }
 
 function resolveDefaultWeacpxCommand(env: NodeJS.ProcessEnv): string {
-  if (env.WEACPX_CLI_COMMAND?.trim()) {
-    return env.WEACPX_CLI_COMMAND.trim();
+  const cliCommand = coreEnv("CLI_COMMAND", env);
+  if (cliCommand?.trim()) {
+    return cliCommand.trim();
   }
-  if (env.WEACPX_DAEMON_ARG0?.trim()) {
-    return `${quoteCommandPart(process.execPath)} ${quoteCommandPart(env.WEACPX_DAEMON_ARG0.trim())}`;
+  const daemonArg0 = coreEnv("DAEMON_ARG0", env);
+  if (daemonArg0?.trim()) {
+    return `${quoteCommandPart(process.execPath)} ${quoteCommandPart(daemonArg0.trim())}`;
   }
   if (process.argv[1]) {
     return `${quoteCommandPart(process.execPath)} ${quoteCommandPart(process.argv[1])}`;
   }
-  return "weacpx";
+  return "xacpx";
 }
 
 function quoteCommandPart(value: string): string {

@@ -5,32 +5,44 @@ function readJson(path: string) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-test("root package publishes as weacpx and exposes plugin-api", () => {
+test("root package publishes as xacpx and exposes plugin-api", () => {
   const pkg = readJson("package.json");
 
-  expect(pkg.name).toBe("weacpx");
-  expect(pkg.bin).toEqual({ weacpx: "./dist/cli.js" });
+  expect(pkg.name).toBe("xacpx");
+  expect(pkg.bin).toEqual({ xacpx: "./dist/cli.js" });
   expect(pkg.exports["./plugin-api"]).toEqual({
     types: "./dist/plugin-api.d.ts",
     default: "./dist/plugin-api.js",
   });
 });
 
-test("root package version is 0.7.0", () => {
+test("root package version is 0.8.0", () => {
   const pkg = readJson("package.json");
 
-  expect(pkg.version).toBe("0.7.0");
+  expect(pkg.version).toBe("0.8.0");
 });
 
-test("first-party channel plugins peer depend on weacpx", () => {
+test("first-party channel plugins peer depend on xacpx", () => {
   const feishu = readJson("packages/channel-feishu/package.json");
   const yuanbao = readJson("packages/channel-yuanbao/package.json");
 
   for (const pkg of [feishu, yuanbao]) {
-    expect(pkg.peerDependencies.weacpx).toBe(">=0.7.0-0");
-    expect(pkg.peerDependencies["weacpx-console"]).toBeUndefined();
-    expect(pkg.peerDependenciesMeta.weacpx.optional).toBe(true);
-    expect(pkg.peerDependenciesMeta["weacpx-console"]).toBeUndefined();
+    expect(pkg.peerDependencies.xacpx).toBe(">=0.8.0-0");
+    expect(pkg.peerDependencies.weacpx).toBeUndefined();
+    expect(pkg.peerDependenciesMeta.xacpx.optional).toBe(true);
+    expect(pkg.peerDependenciesMeta.weacpx).toBeUndefined();
     expect(pkg.publishConfig.access).toBe("public");
   }
+});
+
+test("deprecated weacpx compat shim forwards plugin-api to xacpx", () => {
+  const shim = readJson("weacpx-compat/package.json");
+
+  expect(shim.name).toBe("weacpx");
+  expect(shim.bin).toBeUndefined();
+  expect(shim.dependencies.xacpx).toBeDefined();
+  expect(shim.exports["./plugin-api"]).toEqual({
+    types: "./plugin-api.d.ts",
+    default: "./plugin-api.js",
+  });
 });

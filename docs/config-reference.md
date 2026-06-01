@@ -1,6 +1,6 @@
-# weacpx 配置参考
+# xacpx 配置参考
 
-`~/.weacpx/config.json` 是 weacpx 的主配置文件。
+`~/.xacpx/config.json` 是 xacpx 的主配置文件。
 
 如果你想管理微信/飞书消息频道，请看 [`docs/channel-management.md`](./channel-management.md)。如果你想在聊天里直接修改一部分配置，而不是手改 JSON，请看 [`docs/config-command.md`](./config-command.md)。
 
@@ -103,15 +103,15 @@
 
 ### 减少 agent 冷启动（`queueOwnerTtlSeconds`）
 
-acpx 在收到 prompt 时会拉起一个 **queue owner** 后台进程，它持有真正的 ACP agent（codex/claude 等 adapter）和模型上下文。weacpx 每条消息 spawn 的 `acpx prompt` 只是轻量前端，会通过 Unix socket 连到这个 queue owner——只要 owner 还活着，后续消息就**跳过 agent 冷启动**（adapter boot + `session/new`/`load`，通常数秒到数十秒）。
+acpx 在收到 prompt 时会拉起一个 **queue owner** 后台进程，它持有真正的 ACP agent（codex/claude 等 adapter）和模型上下文。xacpx 每条消息 spawn 的 `acpx prompt` 只是轻量前端，会通过 Unix socket 连到这个 queue owner——只要 owner 还活着，后续消息就**跳过 agent 冷启动**（adapter boot + `session/new`/`load`，通常数秒到数十秒）。
 
-queue owner 的空闲存活时长由 acpx 的 `--ttl` 决定（acpx 自身默认 300 秒）。WeChat 对话天然有几分钟停顿，300 秒一过下一条消息就要冷启动。weacpx 默认把它设为 **1800 秒（30 分钟）**，覆盖绝大多数对话停顿；真正空闲后 agent 在 30 分钟内自动回收，daemon 停止后最多残留 30 分钟，自愈、不泄漏。
+queue owner 的空闲存活时长由 acpx 的 `--ttl` 决定（acpx 自身默认 300 秒）。WeChat 对话天然有几分钟停顿，300 秒一过下一条消息就要冷启动。xacpx 默认把它设为 **1800 秒（30 分钟）**，覆盖绝大多数对话停顿；真正空闲后 agent 在 30 分钟内自动回收，daemon 停止后最多残留 30 分钟，自愈、不泄漏。
 
 - 取值更大（如 `3600`）→ 更暖，但运行期残留窗口更长。
 - `0` → 永久存活，后续消息全程零冷启动；运行期每个 session 常驻一个 agent 进程，资源占用最高。
-- **daemon stop 时的清理**：weacpx 停止时会枚举自己的会话（普通用户会话 + orchestration worker 会话）并终止对应的 queue owner 进程（只杀进程、不 close acpx session，下次启动正常冷恢复）。因此即便 `ttl=0`，停止后也不会残留 owner。这是 best-effort：若清理失败或超时，owner 会按各自 TTL 自然过期（`ttl=0` 的则需手动清理），不影响停止流程。
+- **daemon stop 时的清理**：xacpx 停止时会枚举自己的会话（普通用户会话 + orchestration worker 会话）并终止对应的 queue owner 进程（只杀进程、不 close acpx session，下次启动正常冷恢复）。因此即便 `ttl=0`，停止后也不会残留 owner。这是 best-effort：若清理失败或超时，owner 会按各自 TTL 自然过期（`ttl=0` 的则需手动清理），不影响停止流程。
 - 普通会话：透传为 `acpx prompt --ttl <value>`，由该 prompt 拉起的 queue owner 继承此 TTL。
-- orchestration coordinator 会话（设置了 `mcpCoordinatorSession`）：weacpx 会在 prompt 前预启 queue owner，该 owner 也按此 TTL 启动（内部转为毫秒），因此同样享受 warm 窗口。
+- orchestration coordinator 会话（设置了 `mcpCoordinatorSession`）：xacpx 会在 prompt 前预启 queue owner，该 owner 也按此 TTL 启动（内部转为毫秒），因此同样享受 warm 窗口。
 - `sessions new/ensure`、`cancel` 等命令本身不带 `--ttl`，不受影响。
 - 修改该值需重启 daemon 生效。
 
@@ -126,12 +126,12 @@ weacpx 会在向 acpx session 发送普通 prompt 前，临时启动 acpx 的 qu
 1. `WEACPX_CLI_COMMAND`
 2. `WEACPX_DAEMON_ARG0` + 当前 Node 可执行文件
 3. 当前进程入口 `process.argv[1]` + 当前 Node 可执行文件
-4. `weacpx`
+4. `xacpx`
 
-如果 weacpx 不是通过标准 CLI/daemon 启动，或路径需要特殊包装，可以显式设置 `WEACPX_CLI_COMMAND`，例如：
+如果 xacpx 不是通过标准 CLI/daemon 启动，或路径需要特殊包装，可以显式设置 `WEACPX_CLI_COMMAND`，例如：
 
 ```bash
-WEACPX_CLI_COMMAND="node /path/to/weacpx/dist/cli.js" weacpx run
+WEACPX_CLI_COMMAND="node /path/to/xacpx/dist/cli.js" xacpx run
 ```
 
 ---
@@ -163,7 +163,7 @@ rejects the prompt with the first observed error.
 
 ## `logging`
 
-运行日志配置。普通应用日志写入 `~/.weacpx/runtime/app.log`。
+运行日志配置。普通应用日志写入 `~/.xacpx/runtime/app.log`。
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -175,7 +175,7 @@ rejects the prompt with the first observed error.
 
 ### `logging.perf`
 
-开启后，weacpx 会把 Weixin 入站消息从收到到最终出站完成（文本 final；如有媒体则包含媒体发送完成）的关键耗时写入独立文件 `~/.weacpx/runtime/perf.log`。每个 checkpoint 一行，最后有 `turn.done` 汇总行。
+开启后，xacpx 会把 Weixin 入站消息从收到到最终出站完成（文本 final；如有媒体则包含媒体发送完成）的关键耗时写入独立文件 `~/.xacpx/runtime/perf.log`。每个 checkpoint 一行，最后有 `turn.done` 汇总行。
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -221,10 +221,10 @@ rejects the prompt with the first observed error.
 推荐通过频道 CLI 管理这一段配置：
 
 ```bash
-weacpx channel list
-weacpx channel add feishu
-weacpx channel disable weixin
-weacpx restart
+xacpx channel list
+xacpx channel add feishu
+xacpx channel disable weixin
+xacpx restart
 ```
 
 完整操作说明见：[docs/channel-management.md](./channel-management.md)。
@@ -234,7 +234,7 @@ weacpx restart
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `id` | `string` | 是 | 频道唯一标识，必须与 `type` 相同（内置：`"weixin"`；插件：例如 `"feishu"`、`"yuanbao"`） |
-| `type` | `string` | 是 | 频道类型。内置频道类型只有 `"weixin"`。`"feishu"` 由 `@ganglion/weacpx-channel-feishu` 提供，`"yuanbao"` 由 `@ganglion/weacpx-channel-yuanbao` 提供；其它类型由已安装插件提供 |
+| `type` | `string` | 是 | 频道类型。内置频道类型只有 `"weixin"`。`"feishu"` 由 `@ganglion/xacpx-channel-feishu` 提供，`"yuanbao"` 由 `@ganglion/xacpx-channel-yuanbao` 提供；其它类型由已安装插件提供 |
 | `enabled` | `boolean` | 否 | 是否启用。默认 `true` |
 | `options` | `object` | 视频道而定 | 频道配置（飞书/元宝字段见下方） |
 
@@ -256,9 +256,9 @@ weacpx restart
 | `options.allowFrom` | `string[]` | 否 | 发送者 `open_id` 白名单；只在任一 policy 为 `"allowlist"` 时生效。包含 `"*"` 等价于"任何带 open_id 的发送者"。`allowlist` 模式下不能为空 |
 | `options.replyMode` | `"static"` \| `"streaming"` \| `"auto"` | 否 | 回复呈现方式。默认 `"auto"`(私聊走 streaming、群聊走 static);`"static"` 为多条独立文本消息;`"streaming"` 改为一张 CardKit v2 交互卡片在一条消息里原地更新(thinking → streaming → complete/aborted/error,带耗时 footer 实时跳动、自动 reasoning 折叠、verbose 模式下工具调用渲染为可折叠 **🔧 工具调用** 面板而非内联文本、markdown 图片 URL → image_key 解析、字符级流式更新、daemon 退出时自动把卡片驱动到"已停止"状态)。机器人需具有 `cardkit:card:write` + `im:message:send_as_bot` 权限;首次创建卡片失败时会自动回退到 static 并打印 `feishu.streaming.fallback` 日志(权限缺失还会一次性把授权链接发给用户)。也可在 `options.accounts.<id>.replyMode` 上做账号级覆盖 |
 
-### 元宝频道配置（`options`，由 `@ganglion/weacpx-channel-yuanbao` 提供）
+### 元宝频道配置（`options`，由 `@ganglion/xacpx-channel-yuanbao` 提供）
 
-元宝频道由插件 `@ganglion/weacpx-channel-yuanbao` 提供：插件内置元宝签名、WebSocket、消息收发、chatKey 路由、inbound → agent、去重、同会话串行和基础 outbound 策略。先 `weacpx plugin add @ganglion/weacpx-channel-yuanbao`，再添加频道；正常用户不需要配置 gateway module。
+元宝频道由插件 `@ganglion/xacpx-channel-yuanbao` 提供：插件内置元宝签名、WebSocket、消息收发、chatKey 路由、inbound → agent、去重、同会话串行和基础 outbound 策略。先 `xacpx plugin add @ganglion/xacpx-channel-yuanbao`，再添加频道；正常用户不需要配置 gateway module。
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -272,9 +272,9 @@ weacpx restart
 | `options.requireMention` | `boolean` | 否 | 群聊是否需要 @机器人。默认 `true` |
 | `options.replyToMode` | `"off"` \| `"first"` \| `"all"` | 否 | 引用回复策略，默认 `"first"` |
 | `options.overflowPolicy` | `"stop"` \| `"split"` | 否 | 超长文本策略，默认 `"split"` |
-| `options.maxChars` | `number` | 否 | weacpx 出站文本拆分阈值，默认 `3000` |
-| `options.outboundQueueStrategy` | `"immediate"` \| `"merge-text"` | 否 | gateway 可用的预留字段；weacpx 当前不执行合并队列 |
-| `options.minChars` / `options.idleMs` | `number` | 否 | gateway 可用的预留字段；weacpx 当前不执行基于空闲时间的合并 |
+| `options.maxChars` | `number` | 否 | xacpx 出站文本拆分阈值，默认 `3000` |
+| `options.outboundQueueStrategy` | `"immediate"` \| `"merge-text"` | 否 | gateway 可用的预留字段；xacpx 当前不执行合并队列 |
+| `options.minChars` / `options.idleMs` | `number` | 否 | gateway 可用的预留字段；xacpx 当前不执行基于空闲时间的合并 |
 | `options.mediaMaxMb` | `number` | 否 | 媒体大小上限，默认 `20` |
 | `options.historyLimit` | `number` | 否 | gateway 可用的预留字段，默认 `100` |
 | `options.disableBlockStreaming` | `boolean` | 否 | 是否禁用块状流式回复，默认 `false` |
@@ -284,7 +284,7 @@ weacpx restart
 
 ### 微信频道扩展配置（`openclaw.json`）
 
-内置 weixin 频道的 `options` 当前为空对象；以下字段从单独的 `openclaw.json` 文件读取（路径默认 `~/.weacpx/state/openclaw.json`，可用环境变量 `OPENCLAW_CONFIG` 覆盖）。这是 weacpx 从 openclaw 沿用过来的扩展点，**与主 `~/.weacpx/config.json` 不是同一个文件**。
+内置 weixin 频道的 `options` 当前为空对象；以下字段从单独的 `openclaw.json` 文件读取（路径默认 `~/.xacpx/state/openclaw.json`，可用环境变量 `OPENCLAW_CONFIG` 覆盖）。这是 xacpx 从 openclaw 沿用过来的扩展点，**与主 `~/.xacpx/config.json` 不是同一个文件**。
 
 文件根形如：
 ```json
@@ -307,7 +307,7 @@ weacpx restart
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `routeTag` | `string` \| `number` | 否 | 写入 `SKRouteTag` 请求头，由后端用于灰度/分流；账号级 `accounts.<id>.routeTag` 优先于顶层 |
-| `botAgent` | `string` | 否 | UA 风格客户端标识，写入 `base_info.bot_agent`。语法 `name/version[ (comment)]`，多 token 用空格分隔；超长（>256 字节）截断；非法 token 静默丢弃；空时回退到 `weacpx`。账号级 `accounts.<id>.botAgent` 优先于顶层 |
+| `botAgent` | `string` | 否 | UA 风格客户端标识，写入 `base_info.bot_agent`。语法 `name/version[ (comment)]`，多 token 用空格分隔；超长（>256 字节）截断；非法 token 静默丢弃；空时回退到 `xacpx`。账号级 `accounts.<id>.botAgent` 优先于顶层 |
 | `accounts.<id>` | `object` | 否 | 按 weixin 账号 id 覆盖顶层字段；目前可覆盖 `routeTag` 和 `botAgent` |
 
 ### 示例
@@ -342,12 +342,12 @@ weacpx restart
 }
 ```
 
-元宝（需先安装 `@ganglion/weacpx-channel-yuanbao`）：
+元宝（需先安装 `@ganglion/xacpx-channel-yuanbao`）：
 
 ```json
 {
   "plugins": [
-    { "name": "@ganglion/weacpx-channel-yuanbao", "enabled": true }
+    { "name": "@ganglion/xacpx-channel-yuanbao", "enabled": true }
   ],
   "channels": [
     {
@@ -366,7 +366,7 @@ weacpx restart
 
 ### 兼容旧配置
 
-旧配置文件中的 `channel.type` 仍然可以正常使用，加载时会自动生成单频道的 `channels[]`。新的多频道配置推荐使用 `weacpx channel ...` 管理。
+旧配置文件中的 `channel.type` 仍然可以正常使用，加载时会自动生成单频道的 `channels[]`。新的多频道配置推荐使用 `xacpx channel ...` 管理。
 
 旧版飞书配置中的 `feishu` 对象仍作为 legacy alias 兼容读取；新配置请统一写入 `options`。
 
@@ -374,7 +374,7 @@ weacpx restart
 
 ## `plugins`
 
-通过 `weacpx plugin add <npm-package>` 安装的外部插件包。
+通过 `xacpx plugin add <npm-package>` 安装的外部插件包。
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -382,12 +382,12 @@ weacpx restart
 | `version` | `string` | 否 | 安装时记录的版本范围或版本号 |
 | `enabled` | `boolean` | 否 | 是否加载该插件，默认 `true` |
 
-`plugins[]` is lifecycle metadata for packages installed under `~/.weacpx/plugins`. It does not enable a channel by itself; `channels[]` still controls which channel runtimes start. After changing plugin install, update, enable, disable, or remove state while the daemon is running, restart the daemon so plugin registration is reloaded.
+`plugins[]` is lifecycle metadata for packages installed under `~/.xacpx/plugins`. It does not enable a channel by itself; `channels[]` still controls which channel runtimes start. After changing plugin install, update, enable, disable, or remove state while the daemon is running, restart the daemon so plugin registration is reloaded.
 
 安装插件只表示频道类型可用，不会自动启用频道。启用频道仍然需要：
 
 ```bash
-weacpx channel add <channel-type>
+xacpx channel add <channel-type>
 ```
 
 详见 [`docs/plugin-development.md`](./plugin-development.md)。
@@ -413,7 +413,7 @@ weacpx channel add <channel-type>
 
 ### 内置模板
 
-通过微信发送 `/agent add <name>`，或在终端运行 `weacpx agent add <name>` 时使用以下内置模板；终端也可以用 `weacpx agent templates` 查看模板列表。添加已存在且配置相同的 agent 是幂等操作；如果同名 agent 已有不同配置，命令会提示先删除，不会静默覆盖自定义配置。
+通过微信发送 `/agent add <name>`，或在终端运行 `xacpx agent add <name>` 时使用以下内置模板；终端也可以用 `xacpx agent templates` 查看模板列表。添加已存在且配置相同的 agent 是幂等操作；如果同名 agent 已有不同配置，命令会提示先删除，不会静默覆盖自定义配置。
 
 | 模板名 | driver | command |
 |--------|--------|---------|
@@ -464,7 +464,7 @@ weacpx channel add <channel-type>
 
 注册的工作区映射表，key 为工作区名称（供 `/workspace new`、`/session new --ws` 使用）。
 
-首次创建配置时会自动种入一个 `home` 工作区（`cwd` 为 `~`），让你开箱即用；不需要可用 `weacpx workspace rm home` 删除。
+首次创建配置时会自动种入一个 `home` 工作区（`cwd` 为 `~`），让你开箱即用；不需要可用 `xacpx workspace rm home` 删除。
 
 ### Workspace 配置
 
@@ -539,8 +539,8 @@ weacpx channel add <channel-type>
 
 | 环境变量 | 说明 |
 |----------|------|
-| `WEACPX_CONFIG` | 配置文件路径（默认 `~/.weacpx/config.json`） |
-| `WEACPX_STATE` | 状态文件路径（默认 `~/.weacpx/state.json`） |
+| `WEACPX_CONFIG` | 配置文件路径（默认 `~/.xacpx/config.json`） |
+| `WEACPX_STATE` | 状态文件路径（默认 `~/.xacpx/state.json`） |
 | `WEACPX_WEIXIN_SDK` | 强制指定 weixin-agent-sdk 入口文件路径 |
 | `WEACPX_ILINK_APP_ID` | 微信频道出网请求所携带的 `iLink-App-Id` 头。留空时不发送该头（向后兼容） |
 
@@ -565,7 +565,7 @@ weacpx channel add <channel-type>
 
 ## 通过聊天命令修改配置
 
-weacpx 支持通过 `/config` 和 `/config set <path> <value>` 修改**部分受支持字段**。
+xacpx 支持通过 `/config` 和 `/config set <path> <value>` 修改**部分受支持字段**。
 
 注意：
 

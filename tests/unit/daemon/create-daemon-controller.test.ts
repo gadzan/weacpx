@@ -44,7 +44,7 @@ test("spawns a detached run command and records the child pid", async () => {
       options: expect.objectContaining({
         cwd: "/app",
         detached: true,
-        env: { HOME: "/home/test", PATH: "/usr/bin", WEACPX_DAEMON_RUN: "1", WEACPX_FIRST_RUN_ONBOARDING: "payload" },
+        env: { HOME: "/home/test", PATH: "/usr/bin", XACPX_DAEMON_RUN: "1", XACPX_FIRST_RUN_ONBOARDING: "payload" },
       }),
     },
   ]);
@@ -122,12 +122,12 @@ test("uses a hidden powershell launcher when spawning the daemon on win32", asyn
       options: expect.objectContaining({
         windowsHide: true,
         env: expect.objectContaining({
-          WEACPX_DAEMON_COMMAND: "C:\\node\\node.exe",
-          WEACPX_DAEMON_ARG0: "C:\\app\\dist\\cli.js",
-          WEACPX_DAEMON_ARG1: "run",
-          WEACPX_DAEMON_RUN: "1",
-          WEACPX_DAEMON_STDOUT: paths.stdoutLog,
-          WEACPX_DAEMON_STDERR: paths.stderrLog,
+          XACPX_DAEMON_COMMAND: "C:\\node\\node.exe",
+          XACPX_DAEMON_ARG0: "C:\\app\\dist\\cli.js",
+          XACPX_DAEMON_ARG1: "run",
+          XACPX_DAEMON_RUN: "1",
+          XACPX_DAEMON_STDOUT: paths.stdoutLog,
+          XACPX_DAEMON_STDERR: paths.stderrLog,
         }),
       }),
     },
@@ -135,7 +135,7 @@ test("uses a hidden powershell launcher when spawning the daemon on win32", asyn
 
   const encodedIndex = spawnCalls[0]!.args.indexOf("-EncodedCommand") + 1;
   const launcherScript = Buffer.from(spawnCalls[0]!.args[encodedIndex]!, "base64").toString("utf16le");
-  expect(launcherScript).toContain("$env:WEACPX_DAEMON_RUN = '1'");
+  expect(launcherScript).toContain("$env:XACPX_DAEMON_RUN = '1'");
   expect(launcherScript).toContain("Start-Process");
 
   await rm(runtimeDir, { recursive: true, force: true });

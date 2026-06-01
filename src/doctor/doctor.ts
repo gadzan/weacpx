@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { coreHomeDir } from "../runtime/core-home";
+import { coreEnv } from "../runtime/core-env";
 import { loadConfig } from "../config/load-config";
 import type { AppConfig } from "../config/types";
 import { resolveRuntimePaths, type RuntimePaths } from "../main";
@@ -122,7 +123,7 @@ function resolveDoctorRuntimePaths(home: string, resolver?: () => RuntimePaths):
 }
 
 function depsUseExplicitRuntimeOverrides(): boolean {
-  return Boolean(process.env.WEACPX_CONFIG || process.env.WEACPX_STATE);
+  return Boolean(coreEnv("CONFIG") || coreEnv("STATE"));
 }
 
 function createSharedLoadConfig(
@@ -174,7 +175,7 @@ async function defaultCheckOrchestrationHealth(deps: {
       severity: "skip",
       summary: "orchestration check skipped because configuration could not be loaded",
       details: [`config path: ${deps.runtimePaths.configPath}`, `error: ${formatError(error)}`],
-      suggestions: ["fix the Config check first, then run: weacpx doctor"],
+      suggestions: ["fix the Config check first, then run: xacpx doctor"],
     };
   }
 

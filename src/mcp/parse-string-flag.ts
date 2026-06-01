@@ -1,6 +1,9 @@
+import { coreEnv } from "../runtime/core-env";
+
 export interface ParseStringFlagOptions {
   flag: string;
-  envKey: string;
+  /** Env var suffix (without prefix); resolved via coreEnv (XACPX_ ?? WEACPX_). */
+  envSuffix: string;
 }
 
 export function parseStringFlag(
@@ -29,6 +32,6 @@ export function parseStringFlag(
     return trimmedFlag;
   }
 
-  const trimmedEnv = env[options.envKey]?.trim();
+  const trimmedEnv = coreEnv(options.envSuffix, env)?.trim();
   return trimmedEnv && trimmedEnv.length > 0 ? trimmedEnv : null;
 }

@@ -60,14 +60,14 @@ test("validatePluginCompatibility rejects too-new plugin with upgrade-weacpx hin
   expect(() => validatePluginCompatibility(
     { apiVersion: 1, minWeacpxVersion: "0.4.0" },
     { packageName: "weacpx-channel-demo", currentWeacpxVersion: "0.3.3" },
-  )).toThrow(/weacpx-channel-demo.*requires weacpx >=?0\.4\.0.*current is 0\.3\.3.*upgrade weacpx/i);
+  )).toThrow(/weacpx-channel-demo.*requires xacpx >=?0\.4\.0.*current is 0\.3\.3.*upgrade xacpx/i);
 });
 
 test("validatePluginCompatibility rejects when range excludes current core", () => {
   expect(() => validatePluginCompatibility(
     { apiVersion: 1, compatibleWeacpxVersions: ">=0.5.0" },
     { packageName: "weacpx-channel-demo", currentWeacpxVersion: "0.3.3" },
-  )).toThrow(/upgrade weacpx/i);
+  )).toThrow(/upgrade xacpx/i);
 });
 
 test("validatePluginCompatibility rejects malformed compatibility metadata", () => {

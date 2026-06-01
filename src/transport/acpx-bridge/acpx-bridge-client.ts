@@ -205,11 +205,11 @@ export async function spawnAcpxBridgeClient(
     cwd: options.cwd ?? process.cwd(),
     env: {
       ...process.env,
-      WEACPX_BRIDGE_ACPX_COMMAND: options.acpxCommand ?? "acpx",
-      WEACPX_BRIDGE_PERMISSION_MODE: options.permissionMode ?? "approve-all",
-      WEACPX_BRIDGE_NON_INTERACTIVE_PERMISSIONS: options.nonInteractivePermissions ?? "deny",
+      XACPX_BRIDGE_ACPX_COMMAND: options.acpxCommand ?? "acpx",
+      XACPX_BRIDGE_PERMISSION_MODE: options.permissionMode ?? "approve-all",
+      XACPX_BRIDGE_NON_INTERACTIVE_PERMISSIONS: options.nonInteractivePermissions ?? "deny",
       ...(typeof options.queueOwnerTtlSeconds === "number" && Number.isFinite(options.queueOwnerTtlSeconds)
-        ? { WEACPX_BRIDGE_QUEUE_OWNER_TTL_SECONDS: String(options.queueOwnerTtlSeconds) }
+        ? { XACPX_BRIDGE_QUEUE_OWNER_TTL_SECONDS: String(options.queueOwnerTtlSeconds) }
         : {}),
     },
     stdio: ["pipe", "pipe", "inherit"],

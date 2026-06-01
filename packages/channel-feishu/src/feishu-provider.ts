@@ -1,4 +1,4 @@
-import type { ChannelRuntimeConfig } from "weacpx/plugin-api";
+import type { ChannelRuntimeConfig } from "xacpx/plugin-api";
 import { parseBooleanFlag, takeFlagValue, type ChannelCliInput, type ChannelCliIo, type ChannelCliParseResult, type ChannelCliProvider, type ChannelCliValidationIssue } from "./provider.js";
 
 const DEFAULT_FEISHU_DOMAIN = "feishu";

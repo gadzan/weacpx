@@ -53,7 +53,7 @@ export async function maybeRunFirstUseOnboarding(input: {
     sanitizeWorkspaceName(basenameForWorkspacePath(cwd)),
     input.config.workspaces,
   );
-  const yes = (await input.deps.promptText(`检测到首次使用 weacpx。是否将当前目录创建为工作区「${workspaceName}」？[Y/n] `)).trim().toLowerCase();
+  const yes = (await input.deps.promptText(`检测到首次使用 xacpx。是否将当前目录创建为工作区「${workspaceName}」？[Y/n] `)).trim().toLowerCase();
   if (yes === "n" || yes === "no") return { created: false };
 
   const templateNames = listAgentTemplates();

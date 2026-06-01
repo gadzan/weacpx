@@ -16,7 +16,7 @@ test("validateWeacpxPlugin accepts a channel plugin", () => {
 });
 
 test("validateWeacpxPlugin rejects invalid plugin shapes", () => {
-  expect(() => validateWeacpxPlugin(null, "x", { currentWeacpxVersion: "0.3.3" })).toThrow("插件 x 没有默认导出 weacpx plugin definition");
+  expect(() => validateWeacpxPlugin(null, "x", { currentWeacpxVersion: "0.3.3" })).toThrow("插件 x 没有默认导出 xacpx plugin definition");
   expect(() => validateWeacpxPlugin({ apiVersion: 2 }, "x", { currentWeacpxVersion: "0.3.3" })).toThrow(/apiVersion 2/);
   expect(() => validateWeacpxPlugin({}, "x", { currentWeacpxVersion: "0.3.3" })).toThrow(/apiVersion/);
   expect(() => validateWeacpxPlugin({ apiVersion: 1, name: "other" }, "x", { currentWeacpxVersion: "0.3.3" })).toThrow("插件 x 声明的 name 与安装包名不一致：other");
@@ -43,7 +43,7 @@ test("validateWeacpxPlugin rejects plugin built for newer weacpx core", () => {
     { apiVersion: 1, minWeacpxVersion: "0.4.0" },
     "weacpx-channel-demo",
     { currentWeacpxVersion: "0.3.3" },
-  )).toThrow(/upgrade weacpx/i);
+  )).toThrow(/upgrade xacpx/i);
 });
 
 test("validateWeacpxPlugin rejects plugin with malformed compatibility metadata", () => {

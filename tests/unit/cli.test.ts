@@ -10,14 +10,14 @@ import { listAgentTemplates } from "../../src/config/agent-templates";
 import { createEmptyState } from "../../src/state/types";
 
 async function withTempHome<T>(fn: (home: string) => Promise<T>): Promise<T> {
-  const home = await mkdtemp(join(tmpdir(), "weacpx-cli-"));
+  const home = await mkdtemp(join(tmpdir(), "xacpx-cli-"));
   const previousHome = process.env.HOME;
-  const previousConfig = process.env.WEACPX_CONFIG;
-  const previousState = process.env.WEACPX_STATE;
+  const previousConfig = process.env.XACPX_CONFIG;
+  const previousState = process.env.XACPX_STATE;
 
   process.env.HOME = home;
-  delete process.env.WEACPX_CONFIG;
-  delete process.env.WEACPX_STATE;
+  delete process.env.XACPX_CONFIG;
+  delete process.env.XACPX_STATE;
 
   try {
     return await fn(home);
@@ -28,31 +28,31 @@ async function withTempHome<T>(fn: (home: string) => Promise<T>): Promise<T> {
       process.env.HOME = previousHome;
     }
     if (previousConfig === undefined) {
-      delete process.env.WEACPX_CONFIG;
+      delete process.env.XACPX_CONFIG;
     } else {
-      process.env.WEACPX_CONFIG = previousConfig;
+      process.env.XACPX_CONFIG = previousConfig;
     }
     if (previousState === undefined) {
-      delete process.env.WEACPX_STATE;
+      delete process.env.XACPX_STATE;
     } else {
-      process.env.WEACPX_STATE = previousState;
+      process.env.XACPX_STATE = previousState;
     }
     await rm(home, { recursive: true, force: true });
   }
 }
 
 async function readConfigJson(home: string): Promise<any> {
-  return JSON.parse(await readFile(join(home, ".weacpx", "config.json"), "utf8"));
+  return JSON.parse(await readFile(join(home, ".xacpx", "config.json"), "utf8"));
 }
 
 async function writeStateJson(home: string, state: any): Promise<void> {
-  const root = join(home, ".weacpx");
+  const root = join(home, ".xacpx");
   await mkdir(root, { recursive: true });
   await writeFile(join(root, "state.json"), `${JSON.stringify(state, null, 2)}\n`);
 }
 
 async function readStateJson(home: string): Promise<any> {
-  return JSON.parse(await readFile(join(home, ".weacpx", "state.json"), "utf8"));
+  return JSON.parse(await readFile(join(home, ".xacpx", "state.json"), "utf8"));
 }
 
 test("dispatches login", async () => {
@@ -102,7 +102,7 @@ test("prints running status", async () => {
   ).resolves.toBe(0);
 
   expect(lines).toEqual([
-    "weacpx 正在运行",
+    "xacpx 正在运行",
     "PID: 12345",
     "Started: 2026-03-26T00:00:00.000Z",
     "Heartbeat: 2026-03-26T00:01:00.000Z",
@@ -131,7 +131,7 @@ test("prints indeterminate status when daemon pid is alive but metadata is missi
   ).resolves.toBe(1);
 
   expect(lines).toEqual([
-    "weacpx 进程仍在运行，但状态元数据缺失",
+    "xacpx 进程仍在运行，但状态元数据缺失",
     "PID: 12345",
   ]);
 });
@@ -152,7 +152,7 @@ test("prints already running on repeated start", async () => {
     }),
   ).resolves.toBe(0);
 
-  expect(lines).toEqual(["weacpx 已在后台运行", "PID: 12345"]);
+  expect(lines).toEqual(["xacpx 已在后台运行", "PID: 12345"]);
 });
 
 test("start prints friendly error and exit code 1 when controller throws", async () => {
@@ -173,7 +173,7 @@ test("start prints friendly error and exit code 1 when controller throws", async
     }),
   ).resolves.toBe(1);
 
-  expect(lines.some((line) => line.startsWith("weacpx 启动失败：daemon exited before reporting ready state"))).toBe(true);
+  expect(lines.some((line) => line.startsWith("xacpx 启动失败：daemon exited before reporting ready state"))).toBe(true);
   expect(lines.every((line) => !line.includes("at "))).toBe(true);
 });
 
@@ -188,7 +188,7 @@ test("start surfaces stderr log hint when daemon dies before ready (missing plug
       controller: {
         getStatus: async () => ({ state: "stopped" }),
         start: async () => {
-          throw new Error("weacpx daemon exited before reporting ready state (pid 31415)");
+          throw new Error("xacpx daemon exited before reporting ready state (pid 31415)");
         },
         stop: async () => ({ state: "stopped", detail: "stopped" }),
       },
@@ -198,16 +198,16 @@ test("start surfaces stderr log hint when daemon dies before ready (missing plug
     }),
   ).resolves.toBe(1);
 
-  expect(lines.some((line) => line.startsWith("weacpx 启动失败：weacpx daemon exited before reporting ready state"))).toBe(true);
+  expect(lines.some((line) => line.startsWith("xacpx 启动失败：xacpx daemon exited before reporting ready state"))).toBe(true);
   expect(lines.some((line) => line.startsWith("请查看 App Log: ") && line.includes("app.log"))).toBe(true);
   expect(lines.some((line) => line.startsWith("请查看 Stderr: ") && line.includes("stderr.log"))).toBe(true);
 });
 
-test("start/status use daemon runtime next to custom WEACPX_CONFIG", async () => {
+test("start/status use daemon runtime next to custom XACPX_CONFIG", async () => {
   await withTempHome(async () => {
-    const configRoot = await mkdtemp(join(tmpdir(), "weacpx-cli-config-"));
-    const previousConfig = process.env.WEACPX_CONFIG;
-    process.env.WEACPX_CONFIG = join(configRoot, "config.json");
+    const configRoot = await mkdtemp(join(tmpdir(), "xacpx-cli-config-"));
+    const previousConfig = process.env.XACPX_CONFIG;
+    process.env.XACPX_CONFIG = join(configRoot, "config.json");
     const runtimeDir = join(configRoot, "runtime");
     const pid = 43210;
 
@@ -220,7 +220,7 @@ test("start/status use daemon runtime next to custom WEACPX_CONFIG", async () =>
           pid,
           started_at: "2026-05-19T00:00:00.000Z",
           heartbeat_at: "2026-05-19T00:01:00.000Z",
-          config_path: process.env.WEACPX_CONFIG,
+          config_path: process.env.XACPX_CONFIG,
           state_path: "/state",
           app_log: join(runtimeDir, "app.log"),
           stdout_log: join(runtimeDir, "stdout.log"),
@@ -239,25 +239,25 @@ test("start/status use daemon runtime next to custom WEACPX_CONFIG", async () =>
         }),
       ).resolves.toBe(0);
 
-      expect(lines).toContain("weacpx 正在运行");
+      expect(lines).toContain("xacpx 正在运行");
       expect(lines).toContain(`App Log: ${join(runtimeDir, "app.log")}`);
     } finally {
       if (previousConfig === undefined) {
-        delete process.env.WEACPX_CONFIG;
+        delete process.env.XACPX_CONFIG;
       } else {
-        process.env.WEACPX_CONFIG = previousConfig;
+        process.env.XACPX_CONFIG = previousConfig;
       }
       await rm(configRoot, { recursive: true, force: true });
     }
   });
 });
 
-test("start surfaces app log hint next to custom WEACPX_CONFIG", async () => {
+test("start surfaces app log hint next to custom XACPX_CONFIG", async () => {
   const lines: string[] = [];
   await withTempHome(async () => {
-    const configRoot = await mkdtemp(join(tmpdir(), "weacpx-cli-config-"));
-    const previousConfig = process.env.WEACPX_CONFIG;
-    process.env.WEACPX_CONFIG = join(configRoot, "config.json");
+    const configRoot = await mkdtemp(join(tmpdir(), "xacpx-cli-config-"));
+    const previousConfig = process.env.XACPX_CONFIG;
+    process.env.XACPX_CONFIG = join(configRoot, "config.json");
     try {
       await expect(
         runCli(["start"], {
@@ -277,9 +277,9 @@ test("start surfaces app log hint next to custom WEACPX_CONFIG", async () => {
       expect(lines).toContain(`请查看 App Log: ${join(configRoot, "runtime", "app.log")}`);
     } finally {
       if (previousConfig === undefined) {
-        delete process.env.WEACPX_CONFIG;
+        delete process.env.XACPX_CONFIG;
       } else {
-        process.env.WEACPX_CONFIG = previousConfig;
+        process.env.XACPX_CONFIG = previousConfig;
       }
       await rm(configRoot, { recursive: true, force: true });
     }
@@ -304,7 +304,7 @@ test("restart prints friendly error and exit code 1 when controller throws", asy
     }),
   ).resolves.toBe(1);
 
-  expect(lines.some((line) => line.startsWith("weacpx 重启失败：startup polling timed out"))).toBe(true);
+  expect(lines.some((line) => line.startsWith("xacpx 重启失败：startup polling timed out"))).toBe(true);
   expect(lines.every((line) => !line.includes("at "))).toBe(true);
 });
 
@@ -324,7 +324,7 @@ test("prints stop result", async () => {
     }),
   ).resolves.toBe(0);
 
-  expect(lines).toEqual(["weacpx 已停止"]);
+  expect(lines).toEqual(["xacpx 已停止"]);
 });
 
 test("prints help for unknown commands", async () => {
@@ -340,22 +340,22 @@ test("prints help for unknown commands", async () => {
 
   expect(lines).toEqual([
     "用法：",
-    "weacpx login  - 微信登录",
-    "weacpx logout - 退出登录",
-    "weacpx run    - 前台运行",
-    "weacpx start  - 后台启动",
-    "weacpx status - 查看状态",
-    "weacpx stop   - 停止服务",
-    "weacpx restart - 重启后台服务",
-    "weacpx update [--all|<name>] - 更新 weacpx 和已安装插件",
-    "weacpx channel|ch list|show|add|rm|enable|disable [--account <id>] - 管理消息频道（多 bot 用 --account）",
-    "weacpx plugin list|add|update|remove|enable|disable|doctor|known - 管理插件",
-    "weacpx doctor - 运行诊断",
-    "weacpx version - 查看版本",
-    "weacpx agent|agents list|add|rm|templates - 管理本机 Agent",
-    "weacpx workspace list|add [name] [--raw]|rm <name> - 管理本机工作区（别名：ws）",
-    "weacpx later|lt list|cancel <id> - 管理本机待执行定时任务",
-    "weacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务",
+    "xacpx login  - 微信登录",
+    "xacpx logout - 退出登录",
+    "xacpx run    - 前台运行",
+    "xacpx start  - 后台启动",
+    "xacpx status - 查看状态",
+    "xacpx stop   - 停止服务",
+    "xacpx restart - 重启后台服务",
+    "xacpx update [--all|<name>] - 更新 xacpx 和已安装插件",
+    "xacpx channel|ch list|show|add|rm|enable|disable [--account <id>] - 管理消息频道（多 bot 用 --account）",
+    "xacpx plugin list|add|update|remove|enable|disable|doctor|known - 管理插件",
+    "xacpx doctor - 运行诊断",
+    "xacpx version - 查看版本",
+    "xacpx agent|agents list|add|rm|templates - 管理本机 Agent",
+    "xacpx workspace list|add [name] [--raw]|rm <name> - 管理本机工作区（别名：ws）",
+    "xacpx later|lt list|cancel <id> - 管理本机待执行定时任务",
+    "xacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务",
   ]);
 });
 
@@ -378,7 +378,7 @@ test("dispatches doctor", async () => {
 });
 
 test("uses the default doctor entrypoint when no dependency is provided", async () => {
-  const home = await mkdtemp(join(tmpdir(), "weacpx-cli-doctor-"));
+  const home = await mkdtemp(join(tmpdir(), "xacpx-cli-doctor-"));
   const lines: string[] = [];
   const previousHome = process.env.HOME;
   const previousOpenclawStateDir = process.env.OPENCLAW_STATE_DIR;
@@ -395,7 +395,7 @@ test("uses the default doctor entrypoint when no dependency is provided", async 
 
     // The default doctor runs real checks against the configured home.  Use a
     // temporary empty home so the test covers a clean CI-like environment
-    // without depending on the developer machine's ~/.weacpx files.
+    // without depending on the developer machine's ~/.xacpx files.
     expect(typeof exitCode).toBe("number");
     expect(lines).toEqual([]);
   } finally {
@@ -499,7 +499,7 @@ test("workspace add rejects an existing name with a different path", async () =>
 
     expect(lines).toEqual([
       "工作区「api」已存在，但路径不同：/repo/backend",
-      "请换一个名称，或先执行：weacpx workspace rm api",
+      "请换一个名称，或先执行：xacpx workspace rm api",
     ]);
   });
 });
@@ -595,7 +595,7 @@ test("workspace add error suggestion quotes a name that needs quoting", async ()
 
     expect(lines).toEqual([
       "工作区「My Repo」已存在，但路径不同：/repo/a",
-      '请换一个名称，或先执行：weacpx workspace rm "My Repo"',
+      '请换一个名称，或先执行：xacpx workspace rm "My Repo"',
     ]);
   });
 });
@@ -669,7 +669,7 @@ test("workspace commands reject invalid arguments", async () => {
   await expect(runCli(["workspace", "rm"], { print: (line) => lines.push(line) })).resolves.toBe(1);
   await expect(runCli(["ws", "nope"], { print: (line) => lines.push(line) })).resolves.toBe(1);
 
-  expect(lines.filter((line) => line === "weacpx workspace list|add [name] [--raw]|rm <name> - 管理本机工作区（别名：ws）")).toHaveLength(3);
+  expect(lines.filter((line) => line === "xacpx workspace list|add [name] [--raw]|rm <name> - 管理本机工作区（别名：ws）")).toHaveLength(3);
 });
 
 test("agent templates lists built-in templates", async () => {
@@ -717,7 +717,7 @@ test("agent add is idempotent and refuses to overwrite custom configs", async ()
 
     await expect(runCli(["agent", "add", "codex"], { print: (line) => lines.push(line) })).resolves.toBe(0);
 
-    const configPath = join(home, ".weacpx", "config.json");
+    const configPath = join(home, ".xacpx", "config.json");
     const config = await readConfigJson(home);
     config.agents.qwen = { driver: "qwen", command: "custom-qwen" };
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
@@ -726,7 +726,7 @@ test("agent add is idempotent and refuses to overwrite custom configs", async ()
 
     expect(lines).toEqual([
       "Agent「codex」已存在",
-      "Agent「qwen」已存在且配置不同。请先执行：weacpx agent rm qwen",
+      "Agent「qwen」已存在且配置不同。请先执行：xacpx agent rm qwen",
     ]);
     expect((await readConfigJson(home)).agents.qwen).toEqual({ driver: "qwen", command: "custom-qwen" });
   });
@@ -750,7 +750,7 @@ test("agent commands reject invalid arguments", async () => {
   await expect(runCli(["agent", "rm"], { print: (line) => lines.push(line) })).resolves.toBe(1);
   await expect(runCli(["agents", "nope"], { print: (line) => lines.push(line) })).resolves.toBe(1);
 
-  expect(lines.filter((line) => line === "weacpx agent|agents list|add|rm|templates - 管理本机 Agent")).toHaveLength(3);
+  expect(lines.filter((line) => line === "xacpx agent|agents list|add|rm|templates - 管理本机 Agent")).toHaveLength(3);
 });
 
 test("later list prints pending scheduled tasks from local state", async () => {
@@ -858,7 +858,7 @@ test("later cancel returns 1 when the scheduled task is not pending", async () =
     const lines: string[] = [];
     await expect(runCli(["lt", "cancel", "k8f2"], { print: (line) => lines.push(line) })).resolves.toBe(1);
 
-    expect(lines).toEqual(["未找到待执行的定时任务 #k8f2。", "可以用 weacpx later list 查看当前待执行任务。"]);
+    expect(lines).toEqual(["未找到待执行的定时任务 #k8f2。", "可以用 xacpx later list 查看当前待执行任务。"]);
     const updated = await readStateJson(home);
     expect(updated.scheduled_tasks.k8f2.status).toBe("executed");
   });
@@ -871,7 +871,7 @@ test("later commands reject invalid arguments", async () => {
   await expect(runCli(["later", "cancel"], { print: (line) => lines.push(line) })).resolves.toBe(1);
   await expect(runCli(["lt", "create"], { print: (line) => lines.push(line) })).resolves.toBe(1);
 
-  expect(lines.filter((line) => line === "weacpx later|lt list|cancel <id> - 管理本机待执行定时任务")).toHaveLength(3);
+  expect(lines.filter((line) => line === "xacpx later|lt list|cancel <id> - 管理本机待执行定时任务")).toHaveLength(3);
 });
 
 test("prints doctor in help output", async () => {
@@ -885,7 +885,7 @@ test("prints doctor in help output", async () => {
     }),
   ).resolves.toBe(1);
 
-  expect(lines).toContain("weacpx doctor - 运行诊断");
+  expect(lines).toContain("xacpx doctor - 运行诊断");
 });
 
 test("prints version for 'version' command", async () => {
@@ -968,7 +968,7 @@ test("passes subcommand args through to mcp-stdio and returns its exit code", as
 });
 
 
-test("mcp coordinator startup keeps existing weacpx sessions without workspace", async () => {
+test("mcp coordinator startup keeps existing xacpx sessions without workspace", async () => {
   const registrations: unknown[] = [];
 
   await expect(
@@ -1024,7 +1024,7 @@ test("mcp coordinator startup registers unknown coordinators with workspace", as
   expect(registrations).toEqual([{ coordinatorSession: "codex:backend", workspace: "backend" }]);
 });
 
-test("mcp coordinator startup rejects explicit external registration that collides with an existing weacpx session", async () => {
+test("mcp coordinator startup rejects explicit external registration that collides with an existing xacpx session", async () => {
   const registrations: unknown[] = [];
 
   await expect(
@@ -1093,7 +1093,7 @@ test("mcp coordinator startup accepts registered external coordinators without w
 });
 
 test("mcp coordinator startup verifies daemon IPC when reusing registered external coordinators", async () => {
-  const error = new Error("connect ECONNREFUSED /tmp/weacpx/orchestration.sock") as NodeJS.ErrnoException;
+  const error = new Error("connect ECONNREFUSED /tmp/xacpx/orchestration.sock") as NodeJS.ErrnoException;
   error.code = "ECONNREFUSED";
 
   await expect(
@@ -1121,7 +1121,7 @@ test("mcp coordinator startup verifies daemon IPC when reusing registered extern
         },
       },
     }),
-  ).rejects.toThrow("weacpx daemon orchestration IPC is unavailable; run `weacpx start` and check `weacpx status`");
+  ).rejects.toThrow("xacpx daemon orchestration IPC is unavailable; run `xacpx start` and check `xacpx status`");
 });
 
 test("mcp coordinator startup rejects explicit workspace rebind for registered external coordinators", async () => {
@@ -1261,7 +1261,7 @@ test("mcp coordinator startup rejects unconfigured external workspaces", async (
 });
 
 test("mcp coordinator startup turns unavailable daemon IPC into an actionable error", async () => {
-  const error = new Error("connect ENOENT /tmp/weacpx/orchestration.sock") as NodeJS.ErrnoException;
+  const error = new Error("connect ENOENT /tmp/xacpx/orchestration.sock") as NodeJS.ErrnoException;
   error.code = "ENOENT";
 
   await expect(
@@ -1276,7 +1276,7 @@ test("mcp coordinator startup turns unavailable daemon IPC into an actionable er
         },
       },
     }),
-  ).rejects.toThrow("weacpx daemon orchestration IPC is unavailable; run `weacpx start` and check `weacpx status`");
+  ).rejects.toThrow("xacpx daemon orchestration IPC is unavailable; run `xacpx start` and check `xacpx status`");
 });
 
 test("mcp coordinator startup turns stale daemon workspace config into an actionable error", async () => {
@@ -1293,7 +1293,7 @@ test("mcp coordinator startup turns stale daemon workspace config into an action
       },
     }),
   ).rejects.toThrow(
-    'workspace "backend" is not configured in the running daemon; restart it with `weacpx stop && weacpx start`',
+    'workspace "backend" is not configured in the running daemon; restart it with `xacpx stop && xacpx start`',
   );
 });
 
@@ -1426,11 +1426,11 @@ test("mcp-stdio identity resolution enables internal session tools only for exis
     sourceHandle: "backend:worker",
   });
 
-  await expect(coordinatorResolver({ clientName: "weacpx", listRoots: async () => [] })).resolves.toEqual({
+  await expect(coordinatorResolver({ clientName: "xacpx", listRoots: async () => [] })).resolves.toEqual({
     coordinatorSession: "backend:main",
     internalSessionTools: true,
   });
-  await expect(workerResolver({ clientName: "weacpx", listRoots: async () => [] })).resolves.toEqual({
+  await expect(workerResolver({ clientName: "xacpx", listRoots: async () => [] })).resolves.toEqual({
     coordinatorSession: "backend:main",
     sourceHandle: "backend:worker",
   });
@@ -1466,8 +1466,8 @@ test("mcp-stdio returns a controlled startup error when coordinator session flag
 
 test("mcp-stdio eagerly fails when an explicit coordinator session cannot register", async () => {
   const stderr: string[] = [];
-  const previousSocket = process.env.WEACPX_ORCHESTRATION_SOCKET;
-  process.env.WEACPX_ORCHESTRATION_SOCKET = "/tmp/weacpx-missing-orchestration.sock";
+  const previousSocket = process.env.XACPX_ORCHESTRATION_SOCKET;
+  process.env.XACPX_ORCHESTRATION_SOCKET = "/tmp/xacpx-missing-orchestration.sock";
 
   try {
     await expect(
@@ -1479,13 +1479,13 @@ test("mcp-stdio eagerly fails when an explicit coordinator session cannot regist
     ).resolves.toBe(2);
   } finally {
     if (previousSocket === undefined) {
-      delete process.env.WEACPX_ORCHESTRATION_SOCKET;
+      delete process.env.XACPX_ORCHESTRATION_SOCKET;
     } else {
-      process.env.WEACPX_ORCHESTRATION_SOCKET = previousSocket;
+      process.env.XACPX_ORCHESTRATION_SOCKET = previousSocket;
     }
   }
 
-  expect(stderr.join("")).toContain("weacpx daemon orchestration IPC is unavailable");
+  expect(stderr.join("")).toContain("xacpx daemon orchestration IPC is unavailable");
 });
 
 test("mcp-stdio without coordinator session starts with a process-scoped external identity", async () => {
@@ -1499,12 +1499,12 @@ test("mcp-stdio without coordinator session starts with a process-scoped externa
     }),
   ).resolves.toBe(0);
 
-  expect(stderr.join("")).toContain("[weacpx:mcp] mcp.stdio.start");
+  expect(stderr.join("")).toContain("[xacpx:mcp] mcp.stdio.start");
 });
 
 test("mcp-stdio returns a controlled startup error when local state is malformed", async () => {
   await withTempHome(async (home) => {
-    const root = join(home, ".weacpx");
+    const root = join(home, ".xacpx");
     await mkdir(root, { recursive: true });
     await writeFile(
       join(root, "config.json"),
@@ -1537,8 +1537,8 @@ test("mcp-stdio returns a controlled startup error when local state is malformed
 
 test("login channel resolver ignores feishu channel.type and returns weixin", async () => {
   await withTempHome(async (home) => {
-    const configPath = join(home, ".weacpx", "config.json");
-    await mkdir(join(home, ".weacpx"), { recursive: true });
+    const configPath = join(home, ".xacpx", "config.json");
+    await mkdir(join(home, ".xacpx"), { recursive: true });
     await writeFile(configPath, JSON.stringify({
       transport: { type: "acpx-bridge" },
       channel: {
@@ -1587,8 +1587,8 @@ test("prints help for '--help' flag and exits 0", async () => {
     }),
   ).resolves.toBe(0);
 
-  expect(lines).toContain("weacpx version - 查看版本");
-  expect(lines).toContain("weacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务");
+  expect(lines).toContain("xacpx version - 查看版本");
+  expect(lines).toContain("xacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务");
 });
 
 test("help includes restart and channel commands", async () => {
@@ -1596,8 +1596,8 @@ test("help includes restart and channel commands", async () => {
 
   await expect(runCli(["--help"], { print: (line) => lines.push(line) })).resolves.toBe(0);
 
-  expect(lines).toContain("weacpx restart - 重启后台服务");
-  expect(lines).toContain("weacpx channel|ch list|show|add|rm|enable|disable [--account <id>] - 管理消息频道（多 bot 用 --account）");
+  expect(lines).toContain("xacpx restart - 重启后台服务");
+  expect(lines).toContain("xacpx channel|ch list|show|add|rm|enable|disable [--account <id>] - 管理消息频道（多 bot 用 --account）");
 });
 
 test("restart stops then starts a running daemon", async () => {
@@ -1635,7 +1635,7 @@ test("restart stops then starts a running daemon", async () => {
   ).resolves.toBe(0);
 
   expect(events).toEqual(["stop", "start"]);
-  expect(lines).toEqual(["weacpx 正在重启...", "weacpx 已停止", "weacpx 已在后台启动", "PID: 222"]);
+  expect(lines).toEqual(["xacpx 正在重启...", "xacpx 已停止", "xacpx 已在后台启动", "PID: 222"]);
 });
 
 test("restart starts a stopped daemon", async () => {
@@ -1660,7 +1660,7 @@ test("restart starts a stopped daemon", async () => {
   ).resolves.toBe(0);
 
   expect(events).toEqual(["start"]);
-  expect(lines).toEqual(["weacpx 未运行，正在启动...", "weacpx 已在后台启动", "PID: 333"]);
+  expect(lines).toEqual(["xacpx 未运行，正在启动...", "xacpx 已在后台启动", "PID: 333"]);
 });
 
 test("restart rejects indeterminate daemon state", async () => {
@@ -1678,9 +1678,9 @@ test("restart rejects indeterminate daemon state", async () => {
   ).resolves.toBe(1);
 
   expect(lines).toEqual([
-    "weacpx 进程仍在运行，但状态元数据缺失",
+    "xacpx 进程仍在运行，但状态元数据缺失",
     "PID: 444",
-    "请先执行 `weacpx stop`，或手动清理 stale PID/status 后再重试。",
+    "请先执行 `xacpx stop`，或手动清理 stale PID/status 后再重试。",
   ]);
 });
 
@@ -1695,8 +1695,8 @@ test("prints help for '-h' flag and exits 0", async () => {
     }),
   ).resolves.toBe(0);
 
-  expect(lines).toContain("weacpx version - 查看版本");
-  expect(lines).toContain("weacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务");
+  expect(lines).toContain("xacpx version - 查看版本");
+  expect(lines).toContain("xacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务");
 });
 
 test("runCli routes plugin command", async () => {

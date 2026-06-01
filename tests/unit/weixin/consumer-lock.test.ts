@@ -31,11 +31,11 @@ test("rejects when an active consumer lock already exists", async () => {
     });
     throw new Error("expected acquire to fail");
   } catch (error) {
-    expect((error as Error).message).toContain("weacpx Weixin consumer is already running.");
+    expect((error as Error).message).toContain("xacpx Weixin consumer is already running.");
     expect((error as Error).message).toContain("pid: 123");
     expect((error as Error).message).toContain("mode: foreground");
     expect((error as Error).message).toContain(
-      "Try stopping the existing instance or close the foreground `weacpx run` process before starting a new one.",
+      "Try stopping the existing instance or close the foreground `xacpx run` process before starting a new one.",
     );
   }
 });

@@ -185,7 +185,7 @@ test("logs active lock holder diagnostics when another consumer already owns the
         },
       },
     ),
-  ).rejects.toThrow("weacpx Weixin consumer is already running.");
+  ).rejects.toThrow("xacpx Weixin consumer is already running.");
 
   expect(logs.some((line) => line.includes("info:weixin.consumer_lock.acquire_attempt"))).toBe(true);
   expect(logs.some((line) => line.includes("error:weixin.consumer_lock.acquire_failed"))).toBe(true);

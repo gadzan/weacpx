@@ -1,4 +1,4 @@
-import type { ChannelRuntimeConfig } from "weacpx/plugin-api";
+import type { ChannelRuntimeConfig } from "xacpx/plugin-api";
 
 export type ChannelCliInput = Record<string, string | boolean | undefined>;
 

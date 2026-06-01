@@ -31,7 +31,7 @@ export function renderLaterHelp(): string {
     "- 默认在为本次任务新建的临时会话里执行（跑完即销毁）",
     "- 加 --bind 改为发送到创建时绑定的当前会话",
     "- 触发通知和 agent 回复复用现有频道路由；微信回复额度由现有路由控制",
-    "- 不支持延迟执行 / 开头的 weacpx 命令",
+    "- 不支持延迟执行 / 开头的 xacpx 命令",
     "- 完整时间格式与说明见 docs/later-command.md",
   ].join("\n");
 }

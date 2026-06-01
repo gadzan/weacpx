@@ -76,7 +76,7 @@ export class WeixinChannel implements MessageChannelRuntime {
     this.logger = input.logger;
 
     if (!this.isLoggedIn()) {
-      console.log("[weacpx] 未检测到登录凭证，正在启动扫码登录...");
+      console.log("[xacpx] 未检测到登录凭证，正在启动扫码登录...");
       await this.login();
     }
 

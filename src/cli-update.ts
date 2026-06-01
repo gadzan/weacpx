@@ -8,6 +8,7 @@ import { resolvePluginHome, ensurePluginHome } from "./plugins/plugin-home.js";
 import { updatePluginPackage } from "./plugins/package-manager.js";
 import { importPluginFromHome } from "./plugins/plugin-loader.js";
 import { validateWeacpxPlugin } from "./plugins/validate-plugin.js";
+import { coreEnv } from "./runtime/core-env.js";
 
 // Rename forward-compat: weacpx is being renamed to xacpx (`x → acp → x`) at
 // 0.8.0. This descriptor lets a `weacpx update` running on 0.7.x cross over to
@@ -130,15 +131,15 @@ export async function handleUpdateCli(args: string[], deps: UpdateCliDeps): Prom
           if (!deps.isInteractive()) {
             deps.print(successorPackage
               ? `weacpx 已更名为 ${successorPackage}；非交互模式请使用 \`weacpx update --all\` 或 \`weacpx update weacpx\` 确认迁移。`
-              : "更新 weacpx 本体需要确认；非交互模式请使用 `weacpx update --all` 或 `weacpx update weacpx`。");
+              : `更新 ${target.name} 本体需要确认；非交互模式请使用 \`${target.name} update --all\` 或 \`${target.name} update ${target.name}\`。`);
             return 1;
           }
           const question = successorPackage
             ? `weacpx 已更名为 ${successorPackage}，确认迁移到 ${successorPackage}？[y/N] `
-            : "确认更新 weacpx 本体？[y/N] ";
+            : `确认更新 ${target.name} 本体？[y/N] `;
           const answer = (await deps.promptText(question)).trim().toLowerCase();
           if (answer !== "y" && answer !== "yes") {
-            deps.print(successorPackage ? `已取消迁移到 ${successorPackage}。` : "已取消更新 weacpx 本体。");
+            deps.print(successorPackage ? `已取消迁移到 ${successorPackage}。` : `已取消更新 ${target.name} 本体。`);
             continue;
           }
         }
@@ -152,7 +153,7 @@ export async function handleUpdateCli(args: string[], deps: UpdateCliDeps): Prom
           continue;
         }
         await selfUpdater(target.name);
-        deps.print(`weacpx 已更新：${target.latestVersion ?? "latest"}`);
+        deps.print(`${target.name} 已更新：${target.latestVersion ?? "latest"}`);
         continue;
       }
 
@@ -194,7 +195,7 @@ function formatTarget(target: UpdateTarget): string {
   if (target.kind === "self") {
     return target.successorPackage
       ? `weacpx → ${target.successorPackage} (${current} -> ${latest}，改名)`
-      : `weacpx (${current} -> ${latest})`;
+      : `${target.name} (${current} -> ${latest})`;
   }
   return `插件 ${target.name} (${current} -> ${latest})`;
 }
@@ -209,7 +210,7 @@ async function selectTargets(
       || (entry.kind === "self" && (input.explicitTarget === "weacpx" || input.explicitTarget === entry.successorPackage)));
     if (!target) return { ok: false, message: `没有找到更新项：${input.explicitTarget}`, exitCode: 1 };
     if (!target.latestVersion) return { ok: false, message: `${target.name} 无法检查最新版本，已跳过。`, exitCode: 1 };
-    if (target.kind === "plugin" && !target.pinned) return { ok: false, message: `${target.name} 未记录当前版本；请先使用 \`weacpx plugin update ${target.name}\` 或显式选择版本。`, exitCode: 1 };
+    if (target.kind === "plugin" && !target.pinned) return { ok: false, message: `${target.name} 未记录当前版本；请先使用 \`xacpx plugin update ${target.name}\` 或显式选择版本。`, exitCode: 1 };
     if (!target.successorPackage && target.currentVersion === target.latestVersion) return { ok: true, targets: [] };
     return { ok: true, targets: [target] };
   }
@@ -217,7 +218,7 @@ async function selectTargets(
   if (input.all || targets.length === 1) return { ok: true, targets: candidates };
 
   if (!input.deps.isInteractive()) {
-    return { ok: false, message: "检测到已安装插件；非交互模式请使用 `weacpx update --all` 或 `weacpx update <name>`。", exitCode: 1 };
+    return { ok: false, message: "检测到已安装插件；非交互模式请使用 `xacpx update --all` 或 `xacpx update <name>`。", exitCode: 1 };
   }
 
   const answer = (await input.deps.promptText("请选择要更新的项目（数字，逗号分隔，a=全部，回车取消）：")).trim().toLowerCase();
@@ -232,7 +233,7 @@ async function selectTargets(
     }
     const target = targets[index - 1]!;
     if (!target.latestVersion) return { ok: false, message: `${target.name} 无法检查最新版本，已跳过。`, exitCode: 1 };
-    if (target.kind === "plugin" && !target.pinned) return { ok: false, message: `${target.name} 未记录当前版本；请先使用 \`weacpx plugin update ${target.name}\` 或显式选择版本。`, exitCode: 1 };
+    if (target.kind === "plugin" && !target.pinned) return { ok: false, message: `${target.name} 未记录当前版本；请先使用 \`xacpx plugin update ${target.name}\` 或显式选择版本。`, exitCode: 1 };
     if (!target.successorPackage && target.currentVersion === target.latestVersion) continue;
     if (!selected.includes(target)) selected.push(target);
   }
@@ -253,7 +254,7 @@ export async function getLatestNpmVersion(packageName: string): Promise<string |
 }
 
 async function defaultUpdateSelf(packageName: string): Promise<void> {
-  const manager = process.env.WEACPX_PACKAGE_MANAGER?.trim().toLowerCase() === "bun" ? "bun" : "npm";
+  const manager = coreEnv("PACKAGE_MANAGER")?.trim().toLowerCase() === "bun" ? "bun" : "npm";
   if (manager === "bun") {
     await runInherit("bun", ["add", "-g", packageName]);
     return;
@@ -262,7 +263,7 @@ async function defaultUpdateSelf(packageName: string): Promise<void> {
 }
 
 async function defaultMigrateSelf(input: { from: string; to: string; toVersion?: string }): Promise<void> {
-  const manager = process.env.WEACPX_PACKAGE_MANAGER?.trim().toLowerCase() === "bun" ? "bun" : "npm";
+  const manager = coreEnv("PACKAGE_MANAGER")?.trim().toLowerCase() === "bun" ? "bun" : "npm";
   const spec = input.toVersion ? `${input.to}@${input.toVersion}` : `${input.to}@latest`;
   // Install the successor FIRST; only remove the old package once that
   // succeeds. If the install throws, the caller's catch reports it and the
@@ -349,7 +350,7 @@ async function readPackageName(): Promise<string> {
       } catch {}
     }
   } catch {}
-  return "weacpx";
+  return "xacpx";
 }
 
 async function validatePluginDefault(packageName: string, pluginHome: string): Promise<void> {

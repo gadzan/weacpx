@@ -78,11 +78,11 @@ test("smoke check uses explicit --agent and --workspace selection", async () => 
 
   expect(result.severity).toBe("pass");
   expect(transport.session).toMatchObject({
-    alias: "weacpx-doctor",
+    alias: "xacpx-doctor",
     agent: "claude",
     workspace: "frontend",
     cwd: "/repo/frontend",
-    transportSession: "weacpx-doctor-1775565296000",
+    transportSession: "xacpx-doctor-1775565296000",
   });
   expect(result.details ?? []).toContain("agent: claude (explicit --agent)");
   expect(result.details ?? []).toContain("workspace: frontend (explicit --workspace)");

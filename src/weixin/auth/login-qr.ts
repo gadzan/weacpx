@@ -398,7 +398,7 @@ export async function waitForWeixinLogin(opts: {
             activeLogins.delete(opts.sessionKey);
             return {
               connected: false,
-              message: "需要输入配对码，但当前环境没有交互式终端。请在前台运行 `weacpx login` 完成登录。",
+              message: "需要输入配对码，但当前环境没有交互式终端。请在前台运行 `xacpx login` 完成登录。",
             };
           }
           activeLogin.pendingVerifyCode = code;

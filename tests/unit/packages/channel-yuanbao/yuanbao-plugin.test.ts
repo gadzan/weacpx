@@ -19,17 +19,17 @@ beforeAll(() => {
   ensureYuanbaoPluginRegisteredForTest();
 });
 
-test("@ganglion/weacpx-channel-yuanbao exports a valid plugin definition", () => {
-  const validated = validateWeacpxPlugin(plugin, "@ganglion/weacpx-channel-yuanbao", { currentWeacpxVersion: "0.5.0" });
+test("@ganglion/xacpx-channel-yuanbao exports a valid plugin definition", () => {
+  const validated = validateWeacpxPlugin(plugin, "@ganglion/xacpx-channel-yuanbao", { currentWeacpxVersion: "0.8.0" });
 
-  expect(validated.name).toBe("@ganglion/weacpx-channel-yuanbao");
+  expect(validated.name).toBe("@ganglion/xacpx-channel-yuanbao");
   expect(validated.channels?.map((channel) => channel.type)).toEqual(["yuanbao"]);
   expect(validated.channels?.[0]?.cliProvider?.type).toBe("yuanbao");
 });
 
-test("@ganglion/weacpx-channel-yuanbao declares D3 compatibility metadata", () => {
+test("@ganglion/xacpx-channel-yuanbao declares compatibility metadata", () => {
   expect(plugin.apiVersion).toBe(1);
-  expect(plugin.minWeacpxVersion).toBe("0.5.0");
+  expect(plugin.minXacpxVersion).toBe("0.8.0");
 });
 
 test("yuanbao plugin factory creates the YuanbaoChannel runtime", () => {

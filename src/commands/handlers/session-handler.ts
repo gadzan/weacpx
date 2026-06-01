@@ -31,7 +31,7 @@ const MAX_SESSION_TAIL_LINES = 500;
 export const sessionHelp: HelpTopicMetadata = {
   topic: "session",
   aliases: ["ss", "sessions"],
-  summary: "创建、复用、切换和重置 weacpx 逻辑会话。",
+  summary: "创建、复用、切换和重置 xacpx 逻辑会话。",
   commands: [
     { usage: "/sessions", description: "查看当前会话列表" },
     { usage: "/session 或 /ss", description: "查看会话列表" },
@@ -64,13 +64,13 @@ export const nativeSessionHelp: HelpTopicMetadata = {
   aliases: ["ssn", "native-session"],
   summary: "接入 Codex 等 Agent 的本地原生会话。",
   commands: [
-    { usage: "/ssn", description: "按当前 weacpx 会话上下文查看本地 native 会话" },
+    { usage: "/ssn", description: "按当前 xacpx 会话上下文查看本地 native 会话" },
     { usage: "/ssn <agent> --ws <workspace>", description: "查询指定工作区的本地 native 会话；只有一个候选时自动接入" },
     { usage: "/ssn <agent> -d <path>", description: "按本机绝对路径查询；只有一个候选时自动接入" },
     { usage: "/ssn <agent> --ws <workspace> --all", description: "跨 cwd 查看该 agent 的 native 会话" },
     { usage: "/ssn 1", description: "接入或切换到最近一次列表里的第 1 个候选" },
-    { usage: "/ssn 1 -a <alias>", description: "接入第 1 个候选并指定 weacpx 别名（推荐，无需完整 sessionId）" },
-    { usage: "/ssn attach <sessionId> -a <alias>", description: "按原生 sessionId 接入（适合已知完整 id），并指定 weacpx 别名" },
+    { usage: "/ssn 1 -a <alias>", description: "接入第 1 个候选并指定 xacpx 别名（推荐，无需完整 sessionId）" },
+    { usage: "/ssn attach <sessionId> -a <alias>", description: "按原生 sessionId 接入（适合已知完整 id），并指定 xacpx 别名" },
     { usage: "/ss attach native <sessionId> -a <alias>", description: "/ssn attach 的长写法" },
   ],
   examples: [
@@ -81,7 +81,7 @@ export const nativeSessionHelp: HelpTopicMetadata = {
     "/ssn 1 -a fix-ci",
   ],
   notes: [
-    "/ss 管 weacpx 逻辑会话；/ssn 只负责查询和接入 Agent 原生会话。",
+    "/ss 管 xacpx 逻辑会话；/ssn 只负责查询和接入 Agent 原生会话。",
     "接入后继续发普通消息，会继续同一个 Agent 原生会话，不是复制一份新上下文。",
     "如果当前 acpx 或 Agent 不支持 native 会话，请继续使用 /ss。",
     "完整说明见 docs/native-sessions.md。",
@@ -626,7 +626,7 @@ const effectiveReplyMode = session.replyMode ?? context.config?.channel.replyMod
       return {
         text: [
           "无法记录当前会话路由，已取消本次发送。",
-          "请稍后重试；如果问题持续存在，请检查 weacpx 运行日志和 state.json 写入权限。",
+          "请稍后重试；如果问题持续存在，请检查 xacpx 运行日志和 state.json 写入权限。",
         ].join("\n"),
       };
     }

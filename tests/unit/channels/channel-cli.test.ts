@@ -69,7 +69,7 @@ test("built-in channel CLI registry exposes only weixin before plugins load", ()
   expect(getChannelCliProvider("unknown-channel-type")).toBeNull();
 });
 
-test("registering @ganglion/weacpx-channel-feishu plugin makes feishu available", () => {
+test("registering @ganglion/xacpx-channel-feishu plugin makes feishu available", () => {
   ensureFeishuPluginRegisteredForTest();
   expect(hasChannelFactory("feishu")).toBe(true);
   expect(hasChannelCliProvider("feishu")).toBe(true);
@@ -344,7 +344,7 @@ test("channel add returns 1 when existing channel differs", async () => {
 
   await expect(handleChannelCli(["add", "feishu", "--app-id", "cli_new", "--app-secret", "secret_new"], harness.deps)).resolves.toBe(1);
 
-  expect(harness.lines).toEqual(["频道 feishu 已存在但配置不同；请先执行：weacpx channel rm feishu，然后重新 add。"]);
+  expect(harness.lines).toEqual(["频道 feishu 已存在但配置不同；请先执行：xacpx channel rm feishu，然后重新 add。"]);
 });
 
 test("channel disable rejects disabling the last enabled channel", async () => {
@@ -459,7 +459,7 @@ test("channel mutation asks interactive restart prompt when daemon is running", 
     isInteractive: () => true,
     getDaemonStatus: async () => ({ state: "running" as const, pid: 123 }),
     promptText: async (message: string) => {
-      expect(message).toBe("现在重启 weacpx 使变更生效？[y/N] ");
+      expect(message).toBe("现在重启 xacpx 使变更生效？[y/N] ");
       return "y";
     },
     restartDaemon: async () => {
@@ -481,7 +481,7 @@ test("channel mutation interactive restart prompt skips when user says no", asyn
     isInteractive: () => true,
     getDaemonStatus: async () => ({ state: "running" as const, pid: 123 }),
     promptText: async (message: string) => {
-      expect(message).toBe("现在重启 weacpx 使变更生效？[y/N] ");
+      expect(message).toBe("现在重启 xacpx 使变更生效？[y/N] ");
       return "n";
     },
     restartDaemon: async () => {
@@ -493,7 +493,7 @@ test("channel mutation interactive restart prompt skips when user says no", asyn
   await expect(handleChannelCli(["add", "weixin"], deps)).resolves.toBe(0);
 
   expect(events).toEqual([]);
-  expect(harness.lines).toContain("配置已保存；变更会在下次 `weacpx restart` 后生效。");
+  expect(harness.lines).toContain("配置已保存；变更会在下次 `xacpx restart` 后生效。");
 });
 
 test("channel mutation skips automatic restart for indeterminate daemon", async () => {

@@ -229,7 +229,7 @@ async function addChannel(type: string, rawArgs: string[], deps: ChannelCliDeps)
       deps.print(`频道 ${type} 已存在，配置相同。`);
       return 0;
     }
-    deps.print(`频道 ${type} 已存在但配置不同；请先执行：weacpx channel rm ${type}，然后重新 add。`);
+    deps.print(`频道 ${type} 已存在但配置不同；请先执行：xacpx channel rm ${type}，然后重新 add。`);
     return 1;
   }
 
@@ -276,7 +276,7 @@ function unknownChannelType(type: string, deps: ChannelCliDeps): number {
 
 async function maybeRestartAfterMutation(choice: RestartChoice, deps: ChannelCliDeps): Promise<number> {
   if (choice === "no-restart") {
-    deps.print("配置已保存；变更会在下次 `weacpx restart` 后生效。");
+    deps.print("配置已保存；变更会在下次 `xacpx restart` 后生效。");
     return 0;
   }
   const status = await deps.getDaemonStatus();
@@ -289,19 +289,19 @@ async function maybeRestartAfterMutation(choice: RestartChoice, deps: ChannelCli
   }
   if (status.state === "running") {
     if (!deps.isInteractive()) {
-      deps.print("配置已保存；daemon 正在运行，请执行 `weacpx restart` 使变更生效。");
+      deps.print("配置已保存；daemon 正在运行，请执行 `xacpx restart` 使变更生效。");
       return 0;
     }
-    const answer = (await deps.promptText("现在重启 weacpx 使变更生效？[y/N] ")).trim().toLowerCase();
+    const answer = (await deps.promptText("现在重启 xacpx 使变更生效？[y/N] ")).trim().toLowerCase();
     if (answer === "y" || answer === "yes") return await runRestart(deps);
-    deps.print("配置已保存；变更会在下次 `weacpx restart` 后生效。");
+    deps.print("配置已保存；变更会在下次 `xacpx restart` 后生效。");
     return 0;
   }
   if (status.state === "indeterminate") {
     deps.print("配置已保存；daemon 状态异常，已跳过自动重启。请先处理 stale PID/status。");
     return 0;
   }
-  deps.print("配置已保存；daemon 未运行，变更会在下次 `weacpx start` 后生效。");
+  deps.print("配置已保存；daemon 未运行，变更会在下次 `xacpx start` 后生效。");
   return 0;
 }
 
@@ -312,7 +312,7 @@ async function runRestart(deps: ChannelCliDeps): Promise<number> {
     const message = error instanceof Error ? error.message : String(error);
     deps.print(`配置已保存，但重启失败：${message}`);
     deps.print(`请查看日志：${coreHomeDisplayPath("runtime", "stderr.log")}`);
-    deps.print("也可以稍后执行：weacpx start");
+    deps.print("也可以稍后执行：xacpx start");
     return 1;
   }
 }
@@ -501,7 +501,7 @@ async function addChannelAccount(type: string, accountId: string, rawArgs: strin
       accounts = { ...accounts };
     }
     if (accountId in accounts) {
-      deps.print(`频道 ${type} 的账号 ${accountId} 已存在；先 weacpx channel rm ${type} --account ${accountId}`);
+      deps.print(`频道 ${type} 的账号 ${accountId} 已存在；先 xacpx channel rm ${type} --account ${accountId}`);
       return 1;
     }
     accounts[accountId] = override;
@@ -558,7 +558,7 @@ async function removeChannelAccount(type: string, accountId: string, rawArgs: st
 
   if (Object.keys(remaining).length === 0) {
     if (existing.enabled && enabledCount(config.channels) <= 1) {
-      deps.print(`账号 ${accountId} 是频道 ${type} 的最后一个账号；删除会导致频道空配置。请改用 weacpx channel rm ${type}（先确认还有别的启用频道）。`);
+      deps.print(`账号 ${accountId} 是频道 ${type} 的最后一个账号；删除会导致频道空配置。请改用 xacpx channel rm ${type}（先确认还有别的启用频道）。`);
       return 1;
     }
     config.channels = config.channels.filter((channel) => channel.id !== existing.id);
@@ -571,7 +571,7 @@ async function removeChannelAccount(type: string, accountId: string, rawArgs: st
   // schema 拒绝（至少要一个 enabled+configured 账号）。在这里就拦下。
   if (existing.enabled && countEnabledAccounts(remaining) === 0) {
     const remainingIds = Object.keys(remaining).join(", ");
-    deps.print(`不能移除 ${type} 的 ${accountId}：剩余账号 (${remainingIds}) 都已 disabled。先 weacpx channel enable ${type} --account <id> 一个，或 weacpx channel disable ${type} 整个频道。`);
+    deps.print(`不能移除 ${type} 的 ${accountId}：剩余账号 (${remainingIds}) 都已 disabled。先 xacpx channel enable ${type} --account <id> 一个，或 xacpx channel disable ${type} 整个频道。`);
     return 1;
   }
 

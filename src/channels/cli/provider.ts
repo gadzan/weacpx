@@ -29,7 +29,7 @@ export interface ChannelCliProvider {
   promptForMissingFields(input: ChannelCliInput, io: ChannelCliIo): Promise<ChannelCliInput>;
 
   /**
-   * Optional: declares this plugin supports the `weacpx channel ... --account <id>`
+   * Optional: declares this plugin supports the `xacpx channel ... --account <id>`
    * multi-bot CLI surface. Plugins that opt in must also implement
    * {@link buildAccountOverride} and {@link channelLevelOptionKeys}.
    */

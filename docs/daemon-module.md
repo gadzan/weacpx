@@ -2,7 +2,7 @@
 
 ## 模块目标
 
-`src/daemon` 负责把 weacpx console 变成一个**可后台运行、可查询状态、可停止**的守护进程。
+`src/daemon` 负责把 xacpx console 变成一个**可后台运行、可查询状态、可停止**的守护进程。
 
 它主要解决四件事：
 - **启动后台进程**：把 console 以 detached 方式拉起。
@@ -86,7 +86,7 @@ daemon 进程内的运行时登记器。
 
 ## 处理流程
 
-以 `weacpx start` 为例：
+以 `xacpx start` 为例：
 
 1. `src/cli.ts` 创建 daemon controller。
 2. controller 先检查当前 PID / status，确认不是已运行状态。
@@ -97,7 +97,7 @@ daemon 进程内的运行时登记器。
 7. controller 在前台轮询 `status.json`，确认新进程已经报告 ready。
 8. CLI 再向用户返回“已启动”。
 
-以 `weacpx stop` 为例：
+以 `xacpx stop` 为例：
 
 1. controller 读取 PID。
 2. 如果进程还活着，按平台终止它。

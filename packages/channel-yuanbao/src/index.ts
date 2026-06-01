@@ -1,4 +1,4 @@
-import type { WeacpxPlugin } from "weacpx/plugin-api";
+import type { XacpxPlugin } from "xacpx/plugin-api";
 
 import { YuanbaoChannel } from "./channel.js";
 import { yuanbaoCliProvider } from "./yuanbao-provider.js";
@@ -6,10 +6,10 @@ import { yuanbaoCliProvider } from "./yuanbao-provider.js";
 export { YuanbaoChannel } from "./channel.js";
 export { yuanbaoCliProvider } from "./yuanbao-provider.js";
 
-const plugin: WeacpxPlugin = {
+const plugin: XacpxPlugin = {
   apiVersion: 1,
-  name: "@ganglion/weacpx-channel-yuanbao",
-  minWeacpxVersion: "0.5.0",
+  name: "@ganglion/xacpx-channel-yuanbao",
+  minXacpxVersion: "0.8.0",
   channels: [
     {
       type: "yuanbao",

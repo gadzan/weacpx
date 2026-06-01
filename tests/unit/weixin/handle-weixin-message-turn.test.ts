@@ -400,7 +400,7 @@ test("resolveMediaTempDir uses injected root when provided", () => {
 });
 
 test("resolveMediaTempDir falls back to the system temp dir", () => {
-  expect(resolveMediaTempDir()).toBe(join(tmpdir(), "weacpx", "media"));
+  expect(resolveMediaTempDir()).toBe(join(tmpdir(), "xacpx", "media"));
 });
 
 test("handleWeixinMessageTurn reports agent failures via errLog", async () => {

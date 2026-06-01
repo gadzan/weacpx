@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.8.0] - 2026-06-02
+
+### Changed
+
+- **项目改名 `weacpx` → `xacpx`（寓意 `x → acp → x`）——本版头条：** 项目最初是「微信 + acpx」的桥，如今已通过插件支持飞书、元宝等多个频道，旧名已名不副实。本版完成改名：npm 包名改为 `xacpx`，CLI 命令改为 `xacpx`（**只提供 `xacpx` 一个 bin，无 `weacpx` 别名**）。所有子命令用法不变，只是把 `weacpx xxx` 换成 `xacpx xxx`。
+- **0.7.x 用户一条命令平滑升级：** 在 0.7.x 上运行 `weacpx update` 会自动识别已发布的 `xacpx`，先停掉守护进程、安装 `xacpx` 再移除旧 `weacpx`（先装后删，安装失败也不会让你无 CLI 可用），并提示今后改用 `xacpx` 命令。
+- **状态目录 `~/.weacpx` → `~/.xacpx`（一次性自动迁移）：** 首次以 `xacpx` 运行时，若只存在旧的 `~/.weacpx`，会**复制**（非移动）到 `~/.xacpx`，旧目录保留作备份。若检测到旧守护进程仍在运行则跳过迁移并提示先停止，期间继续使用旧目录，避免迁移竞态。
+- **环境变量同时支持 `XACPX_*` 与 `WEACPX_*`：** 所有核心环境变量经统一入口读取，优先 `XACPX_<名>`、回退旧的 `WEACPX_<名>`，老脚本/配置无需改动即可继续工作。
+- **频道插件改名并升级：** `@ganglion/weacpx-channel-feishu` / `-yuanbao` → `@ganglion/xacpx-channel-feishu` / `-yuanbao`（均升至 `0.4.0`），peer 依赖改为 `xacpx >=0.8.0`，源码改用 `import "xacpx/plugin-api"`。
+- **plugin-api 新增改名后的别名（旧名继续可用）：** 新增 `XacpxPlugin` 类型与 `minXacpxVersion` / `compatibleXacpxVersions` 字段；旧的 `WeacpxPlugin`、`minWeacpxVersion`、`compatibleWeacpxVersions` 仍被读取（两者同时声明时新名优先），已发布插件的元数据不受影响。
+
+### Added
+
+- **deprecated `weacpx` npm 包（转发 shim）：** 旧包名保留为一个**无 CLI** 的兼容包，`weacpx/plugin-api` 转发到 `xacpx/plugin-api`，并在 npm 上标记 deprecated，指向 `xacpx`。
+
+### Compatibility
+
+- **已安装的频道插件无需重装即可跨改名继续工作：** 插件运行时不直接依赖 npm 上的 `weacpx` 包，而是由核心在插件目录写入的本地解析 shim 提供 `*/plugin-api`；该 shim 自 0.7.0 起即同时覆盖 `weacpx` 与 `xacpx` 两个名字。
+- **保持不变（兼容契约，刻意不改）：** 编排 MCP server 的线上名仍为 `weacpx`、工具前缀仍为 `mcp__weacpx__*`（避免破坏外部协调器/Agent 对工具名的引用）；持久化会话状态里的 `source: "weacpx"` 取值保持不变（避免破坏既有 `state.json` 读取）。
+
 ## [0.7.0] - 2026-06-01
 
 ### Added

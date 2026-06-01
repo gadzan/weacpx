@@ -1,4 +1,4 @@
-import type { AppLogger } from "weacpx/plugin-api";
+import type { AppLogger } from "xacpx/plugin-api";
 
 export type LogSink = {
   info?: (msg: string, context?: Record<string, unknown>) => void;

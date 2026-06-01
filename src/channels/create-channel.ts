@@ -10,7 +10,7 @@ export function getMovedChannelInstallHint(type: string): string | null {
 }
 
 function unsupportedChannelError(type: string): Error {
-  return new Error(getMovedChannelInstallHint(type) ?? `unsupported channel type: ${type}. If this is a plugin channel, run: weacpx plugin add <package> and restart weacpx.`);
+  return new Error(getMovedChannelInstallHint(type) ?? `unsupported channel type: ${type}. If this is a plugin channel, run: xacpx plugin add <package> and restart xacpx.`);
 }
 
 export interface CreateChannelDeps {

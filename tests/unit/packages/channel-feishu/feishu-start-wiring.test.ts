@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { FeishuChannel } from "../../../../packages/channel-feishu/src/channel";
 import type { FeishuChannelConfig } from "../../../../packages/channel-feishu/src/config";
 import type { FeishuClientFactory } from "../../../../packages/channel-feishu/src/feishu-client";
-import type { ChannelStartInput, CreateChannelDeps } from "weacpx/plugin-api";
+import type { ChannelStartInput, CreateChannelDeps } from "../../../../src/plugin-api";
 
 function createNoopLogger(): ChannelStartInput["logger"] {
   return {

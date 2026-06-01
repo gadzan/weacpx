@@ -1,9 +1,9 @@
 {
-  "name": "@ganglion/weacpx-channel-feishu",
-  "version": "0.3.0",
-  "description": "Feishu channel plugin for weacpx.",
+  "name": "@ganglion/xacpx-channel-feishu",
+  "version": "0.4.0",
+  "description": "Feishu channel plugin for xacpx.",
   "license": "MIT",
-  "keywords": ["weacpx", "feishu", "channel", "plugin"],
+  "keywords": ["xacpx", "feishu", "channel", "plugin"],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ganglion-ai/weacpx.git",
@@ -20,10 +20,10 @@
   },
   "files": ["dist", "README.md"],
   "peerDependencies": {
-    "weacpx": ">=0.7.0-0"
+    "xacpx": ">=0.8.0-0"
   },
   "peerDependenciesMeta": {
-    "weacpx": {
+    "xacpx": {
       "optional": true
     }
   },

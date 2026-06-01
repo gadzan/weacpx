@@ -5,6 +5,8 @@ import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { coreHomeDir } from "./runtime/core-home";
+import { coreEnv } from "./runtime/core-env";
+import { migrateCoreHome } from "./runtime/migrate-core-home";
 
 import { ConfigStore } from "./config/config-store";
 import { loadConfig } from "./config/load-config";
@@ -171,12 +173,12 @@ async function registerExternalCoordinatorOrThrow(
   } catch (error) {
     if (isUnavailableOrchestrationIpcError(error)) {
       throw new Error(
-        "weacpx daemon orchestration IPC is unavailable; run `weacpx start` and check `weacpx status`",
+        "xacpx daemon orchestration IPC is unavailable; run `xacpx start` and check `xacpx status`",
       );
     }
     if (input.workspace && isDaemonWorkspaceNotConfiguredError(error, input.workspace)) {
       throw new Error(
-        `workspace "${input.workspace}" is not configured in the running daemon; restart it with \`weacpx stop && weacpx start\``,
+        `workspace "${input.workspace}" is not configured in the running daemon; restart it with \`xacpx stop && xacpx start\``,
       );
     }
     throw error;
@@ -255,22 +257,22 @@ interface CliDeps {
 
 const HELP_LINES = [
   "用法：",
-  "weacpx login  - 微信登录",
-  "weacpx logout - 退出登录",
-  "weacpx run    - 前台运行",
-  "weacpx start  - 后台启动",
-  "weacpx status - 查看状态",
-  "weacpx stop   - 停止服务",
-  "weacpx restart - 重启后台服务",
-  "weacpx update [--all|<name>] - 更新 weacpx 和已安装插件",
-  "weacpx channel|ch list|show|add|rm|enable|disable [--account <id>] - 管理消息频道（多 bot 用 --account）",
-  "weacpx plugin list|add|update|remove|enable|disable|doctor|known - 管理插件",
-  "weacpx doctor - 运行诊断",
-  "weacpx version - 查看版本",
-  "weacpx agent|agents list|add|rm|templates - 管理本机 Agent",
-  "weacpx workspace list|add [name] [--raw]|rm <name> - 管理本机工作区（别名：ws）",
-  "weacpx later|lt list|cancel <id> - 管理本机待执行定时任务",
-  "weacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务",
+  "xacpx login  - 微信登录",
+  "xacpx logout - 退出登录",
+  "xacpx run    - 前台运行",
+  "xacpx start  - 后台启动",
+  "xacpx status - 查看状态",
+  "xacpx stop   - 停止服务",
+  "xacpx restart - 重启后台服务",
+  "xacpx update [--all|<name>] - 更新 xacpx 和已安装插件",
+  "xacpx channel|ch list|show|add|rm|enable|disable [--account <id>] - 管理消息频道（多 bot 用 --account）",
+  "xacpx plugin list|add|update|remove|enable|disable|doctor|known - 管理插件",
+  "xacpx doctor - 运行诊断",
+  "xacpx version - 查看版本",
+  "xacpx agent|agents list|add|rm|templates - 管理本机 Agent",
+  "xacpx workspace list|add [name] [--raw]|rm <name> - 管理本机工作区（别名：ws）",
+  "xacpx later|lt list|cancel <id> - 管理本机待执行定时任务",
+  "xacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务",
 ];
 
 export function getUsageText(): string {
@@ -278,6 +280,8 @@ export function getUsageText(): string {
 }
 
 import { bootstrapBuiltinChannels } from "./channels/bootstrap.js";
+
+const INFO_ONLY_COMMANDS = new Set(["version", "--version", "-v", "--help", "-h"]);
 
 export async function runCli(args: string[], deps: CliDeps = {}): Promise<number> {
   bootstrapBuiltinChannels();
@@ -421,12 +425,12 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
         const isInteractive = deps.isInteractive ?? defaultIsInteractive;
         const status = await controller.getStatus();
         if (status.state === "running") {
-          print("weacpx 已在后台运行");
+          print("xacpx 已在后台运行");
           print(`PID: ${status.pid}`);
           return 0;
         }
         if (status.state === "indeterminate") {
-          throw new Error(`weacpx daemon process is already running (pid ${status.pid}) but status metadata is missing`);
+          throw new Error(`xacpx daemon process is already running (pid ${status.pid}) but status metadata is missing`);
         }
         const onboarding = await runOnboardingBeforeStart({
           print,
@@ -447,16 +451,16 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
           startupWaitUi?.stop();
         }
         if (result.state === "already-running") {
-          print("weacpx 已在后台运行");
+          print("xacpx 已在后台运行");
           print(`PID: ${result.pid}`);
           return 0;
         }
 
-        print("weacpx 已在后台启动");
+        print("xacpx 已在后台启动");
         print(`PID: ${result.pid}`);
         return 0;
       } catch (error) {
-        print(`weacpx 启动失败：${describeFriendlyError(error)}`);
+        print(`xacpx 启动失败：${describeFriendlyError(error)}`);
         printDaemonLogHints(print);
         return 1;
       }
@@ -465,17 +469,17 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       const controller = deps.controller ?? createDefaultController(deps);
       const status = await controller.getStatus();
       if (status.state === "indeterminate") {
-        print("weacpx 进程仍在运行，但状态元数据缺失");
+        print("xacpx 进程仍在运行，但状态元数据缺失");
         print(`PID: ${status.pid}`);
         return 1;
       }
 
       if (status.state !== "running") {
-        print("weacpx 未运行");
+        print("xacpx 未运行");
         return 0;
       }
 
-      print("weacpx 正在运行");
+      print("xacpx 正在运行");
       print(`PID: ${status.pid}`);
       print(`Started: ${status.status.started_at}`);
       print(`Heartbeat: ${status.status.heartbeat_at}`);
@@ -490,10 +494,10 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       const controller = deps.controller ?? createDefaultController(deps);
       const result = await controller.stop();
       if (result.detail === "not-running") {
-        print("weacpx 未运行");
+        print("xacpx 未运行");
         return 0;
       }
-      print("weacpx 已停止");
+      print("xacpx 已停止");
       return 0;
     }
     case "restart": {
@@ -501,7 +505,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       try {
         return await restartDaemonCli(controller, print);
       } catch (error) {
-        print(`weacpx 重启失败：${describeFriendlyError(error)}`);
+        print(`xacpx 重启失败：${describeFriendlyError(error)}`);
         printDaemonLogHints(print);
         return 1;
       }
@@ -658,7 +662,7 @@ async function workspaceAdd(
     }
 
     deps.print(`工作区「${name}」已存在，但路径不同：${existing.cwd}`);
-    deps.print(`请换一个名称，或先执行：weacpx workspace rm ${quoteWorkspaceNameIfNeeded(name)}`);
+    deps.print(`请换一个名称，或先执行：xacpx workspace rm ${quoteWorkspaceNameIfNeeded(name)}`);
     return 1;
   }
 
@@ -758,7 +762,7 @@ async function agentAdd(rawName: string, print: (line: string) => void): Promise
       print(`Agent「${name}」已存在`);
       return 0;
     }
-    print(`Agent「${name}」已存在且配置不同。请先执行：weacpx agent rm ${name}`);
+    print(`Agent「${name}」已存在且配置不同。请先执行：xacpx agent rm ${name}`);
     return 1;
   }
   await store.upsertAgent(name, template);
@@ -821,7 +825,7 @@ async function laterCancel(rawId: string, print: (line: string) => void): Promis
   const ok = await scheduled.cancelPending(id);
   if (!ok) {
     print(`未找到待执行的定时任务 #${id}。`);
-    print("可以用 weacpx later list 查看当前待执行任务。");
+    print("可以用 xacpx later list 查看当前待执行任务。");
     return 1;
   }
   print(`已取消定时任务 #${id}`);
@@ -831,7 +835,7 @@ async function laterCancel(rawId: string, print: (line: string) => void): Promis
 async function createCliScheduledTaskService(): Promise<ScheduledTaskService> {
   // Keep `main` lazy-loaded like the other daemon/runtime CLI paths. Importing
   // it eagerly pulls in transport/channel wiring that simple commands such as
-  // `weacpx --help`, `agent`, and `workspace` should not pay for.
+  // `xacpx --help`, `agent`, and `workspace` should not pay for.
   const runtimePaths = (await import("./main")).resolveRuntimePaths();
   const stateStore = new StateStore(runtimePaths.statePath);
   const state = await stateStore.load();
@@ -839,7 +843,7 @@ async function createCliScheduledTaskService(): Promise<ScheduledTaskService> {
 }
 
 function resolveConfigPathForCurrentEnv(): string {
-  return process.env.WEACPX_CONFIG ?? join(coreHomeDir(requireHome()), "config.json");
+  return coreEnv("CONFIG") ?? join(coreHomeDir(requireHome()), "config.json");
 }
 
 function resolveDaemonPathsForCurrentConfig() {
@@ -878,7 +882,7 @@ async function defaultLoadConfiguredPluginsForChannelCli(): Promise<void> {
   await loadConfiguredPlugins({ plugins: config.plugins });
 }
 
-const DAEMON_RUN_ENV = "WEACPX_DAEMON_RUN";
+const DAEMON_RUN_ENV_SUFFIX = "DAEMON_RUN";
 
 async function defaultRun(options: { firstRunOnboarding?: FirstRunOnboardingPlan } = {}): Promise<void> {
   const [{ buildApp, resolveRuntimePaths, prepareChannelMedia }, { runConsole }] = await Promise.all([
@@ -893,7 +897,7 @@ async function defaultRun(options: { firstRunOnboarding?: FirstRunOnboardingPlan
     plugins: config.plugins,
     onPluginError: ({ name, error }) => {
       console.error(
-        `[weacpx] skipping plugin ${name}: ${error instanceof Error ? error.message : String(error)}`,
+        `[xacpx] skipping plugin ${name}: ${error instanceof Error ? error.message : String(error)}`,
       );
     },
   });
@@ -906,7 +910,7 @@ async function defaultRun(options: { firstRunOnboarding?: FirstRunOnboardingPlan
   const lockCreators = channelRegistry.createConsumerLocks();
   const firstLockCreator = lockCreators[0];
 
-  const firstRunOnboarding = options.firstRunOnboarding ?? decodeFirstRunOnboarding(process.env.WEACPX_FIRST_RUN_ONBOARDING);
+  const firstRunOnboarding = options.firstRunOnboarding ?? decodeFirstRunOnboarding(coreEnv("FIRST_RUN_ONBOARDING"));
   await runConsole(runtimePaths, {
     buildApp: (paths) =>
       buildApp(paths, {
@@ -919,7 +923,7 @@ async function defaultRun(options: { firstRunOnboarding?: FirstRunOnboardingPlan
         }
       : undefined,
     channels: channelRegistry,
-    channelStartupPolicy: process.env[DAEMON_RUN_ENV] === "1" ? "best-effort" : "require-one",
+    channelStartupPolicy: coreEnv(DAEMON_RUN_ENV_SUFFIX) === "1" ? "best-effort" : "require-one",
     daemonRuntime,
     ...(firstLockCreator
       ? {
@@ -1039,7 +1043,7 @@ async function defaultMcpStdio(
     ...(availableAgents ? { availableAgents } : {}),
     onDiagnostic: (event, context) => {
       const suffix = context && Object.keys(context).length > 0 ? ` ${JSON.stringify(context)}` : "";
-      (deps.stderr ?? ((text: string) => process.stderr.write(text)))(`[weacpx:mcp] ${event}${suffix}\n`);
+      (deps.stderr ?? ((text: string) => process.stderr.write(text)))(`[xacpx:mcp] ${event}${suffix}\n`);
     },
   });
   return 0;
@@ -1056,28 +1060,28 @@ export async function restartDaemonCli(
 ): Promise<number> {
   const status = await controller.getStatus();
   if (status.state === "indeterminate") {
-    print("weacpx 进程仍在运行，但状态元数据缺失");
+    print("xacpx 进程仍在运行，但状态元数据缺失");
     print(`PID: ${status.pid}`);
-    print("请先执行 `weacpx stop`，或手动清理 stale PID/status 后再重试。");
+    print("请先执行 `xacpx stop`，或手动清理 stale PID/status 后再重试。");
     return 1;
   }
 
   if (status.state === "running") {
-    print("weacpx 正在重启...");
+    print("xacpx 正在重启...");
     await controller.stop();
-    print("weacpx 已停止");
+    print("xacpx 已停止");
   } else {
-    print("weacpx 未运行，正在启动...");
+    print("xacpx 未运行，正在启动...");
   }
 
   const started = await controller.start();
   if (started.state === "already-running") {
-    print("weacpx 已在后台运行");
+    print("xacpx 已在后台运行");
     print(`PID: ${started.pid}`);
     return 0;
   }
 
-  print("weacpx 已在后台启动");
+  print("xacpx 已在后台启动");
   print(`PID: ${started.pid}`);
   return 0;
 }
@@ -1328,5 +1332,12 @@ function parseDoctorArgs(args: string[]): { ok: true; options: DoctorRunOptions 
 }
 
 if (import.meta.main) {
+  // One-time ~/.weacpx → ~/.xacpx state-directory migration (weacpx→xacpx
+  // rename). Runs only in the real CLI process — before runCli resolves any
+  // state paths — and is idempotent. Skipped for pure-info commands.
+  const entryCommand = process.argv[2];
+  if (entryCommand !== undefined && !INFO_ONLY_COMMANDS.has(entryCommand)) {
+    migrateCoreHome(requireHome());
+  }
   process.exitCode = await runCli(process.argv.slice(2));
 }

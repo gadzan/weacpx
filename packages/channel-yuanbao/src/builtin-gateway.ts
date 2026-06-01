@@ -1,4 +1,4 @@
-import type { AppLogger } from "weacpx/plugin-api";
+import type { AppLogger } from "xacpx/plugin-api";
 import type { YuanbaoResolvedAccountConfig } from "./config.js";
 import type {
   YuanbaoGateway,

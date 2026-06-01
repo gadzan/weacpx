@@ -7,6 +7,7 @@ import {
 } from "./bridge-env";
 import { BridgeServer } from "./bridge-server";
 import { BridgeRuntime } from "./bridge-runtime";
+import { coreEnv } from "../runtime/core-env";
 
 type BridgeInput = AsyncIterable<string> & {
   close(): void;
@@ -55,13 +56,13 @@ export async function processBridgeInput(options: {
 
 export async function runBridgeMain(): Promise<void> {
   const server = new BridgeServer(
-    new BridgeRuntime(process.env.WEACPX_BRIDGE_ACPX_COMMAND ?? "acpx", undefined, undefined, {
-      permissionMode: normalizeBridgePermissionMode(process.env.WEACPX_BRIDGE_PERMISSION_MODE),
+    new BridgeRuntime(coreEnv("BRIDGE_ACPX_COMMAND") ?? "acpx", undefined, undefined, {
+      permissionMode: normalizeBridgePermissionMode(coreEnv("BRIDGE_PERMISSION_MODE")),
       nonInteractivePermissions: normalizeBridgeNonInteractivePermissions(
-        process.env.WEACPX_BRIDGE_NON_INTERACTIVE_PERMISSIONS,
+        coreEnv("BRIDGE_NON_INTERACTIVE_PERMISSIONS"),
       ),
       queueOwnerTtlSeconds: normalizeBridgeQueueOwnerTtlSeconds(
-        process.env.WEACPX_BRIDGE_QUEUE_OWNER_TTL_SECONDS,
+        coreEnv("BRIDGE_QUEUE_OWNER_TTL_SECONDS"),
       ),
     }),
   );

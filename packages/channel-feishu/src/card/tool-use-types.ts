@@ -1,6 +1,6 @@
 // Channel-internal render shape produced by collapsing multiple
 // ToolUseEvent updates sharing the same toolCallId. See tool-use-store.
-import type { ToolUseEvent, ToolUseKind, ToolUseStatus } from "weacpx/plugin-api";
+import type { ToolUseEvent, ToolUseKind, ToolUseStatus } from "xacpx/plugin-api";
 
 export type { ToolUseEvent, ToolUseKind, ToolUseStatus };
 

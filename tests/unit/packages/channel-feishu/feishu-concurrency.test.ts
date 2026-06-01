@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { createConversationExecutor } from "weacpx/plugin-api";
+import { createConversationExecutor } from "../../../../src/plugin-api";
 import { FeishuChannel } from "../../../../packages/channel-feishu/src/channel";
 import type { FeishuMessageEvent } from "../../../../packages/channel-feishu/src/types";
 

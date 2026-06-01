@@ -34,7 +34,7 @@ export async function checkWechat(options: WechatCheckOptions = {}): Promise<Doc
       severity: "warn",
       summary: "wechat is not logged in",
       details: buildVerboseDetails(false, options.verbose, accounts),
-      suggestions: ["weacpx login"],
+      suggestions: ["xacpx login"],
     };
   }
 

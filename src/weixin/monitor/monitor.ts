@@ -166,7 +166,7 @@ export async function monitorWeixinProvider(opts: MonitorWeixinOpts): Promise<vo
           const staleToken = token;
           const staleAccountId = accountId;
           errLog(
-            `[weixin] session expired (errcode ${SESSION_EXPIRED_ERRCODE}), entering credential recovery. Please run \`weacpx login\` to re-login.`,
+            `[weixin] session expired (errcode ${SESSION_EXPIRED_ERRCODE}), entering credential recovery. Please run \`xacpx login\` to re-login.`,
           );
           pauseSession(accountId);
           consecutiveFailures = 0;

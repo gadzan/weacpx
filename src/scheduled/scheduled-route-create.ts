@@ -54,7 +54,7 @@ export async function createScheduledTaskFromRoute(
     throw new Error("message must be a non-empty string");
   }
   if (message.startsWith("/")) {
-    throw new Error("scheduled_create does not support slash-prefixed weacpx commands");
+    throw new Error("scheduled_create does not support slash-prefixed xacpx commands");
   }
 
   if (!route.sessionAlias) {

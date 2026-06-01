@@ -5,7 +5,7 @@ import type {
   ChannelCliProvider,
   ChannelCliValidationIssue,
   ChannelRuntimeConfig,
-} from "weacpx/plugin-api";
+} from "xacpx/plugin-api";
 
 function parseBooleanFlag(value: string, flagName: string): { ok: true; value: boolean } | { ok: false; message: string } {
   if (value === "true") return { ok: true, value: true };

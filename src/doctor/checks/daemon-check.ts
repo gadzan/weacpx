@@ -53,7 +53,7 @@ export async function checkDaemon(options: DaemonCheckOptions = {}): Promise<Doc
           severity: "warn",
           summary: status.stale ? "daemon was stopped and stale runtime files were cleared" : "daemon is not running",
           details: status.stale ? ["stale runtime files were cleared"] : undefined,
-          suggestions: ["run: weacpx start"],
+          suggestions: ["run: xacpx start"],
           metadata: {
             paths,
             status,

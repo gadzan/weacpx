@@ -6,6 +6,6 @@ export function parseCoordinatorSession(
 ): string | null {
   return parseStringFlag(args, env, {
     flag: "--coordinator-session",
-    envKey: "WEACPX_COORDINATOR_SESSION",
+    envSuffix: "COORDINATOR_SESSION",
   });
 }

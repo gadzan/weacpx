@@ -29,7 +29,7 @@ bun run dry-run --chat-key wx:test -- "/session new demo --agent codex --ws back
 ## Architecture Overview
 
 ### Core Purpose
-weacpx is a WeChat console that lets you remotely control `acpx` sessions. It bridges WeChat messages to agent sessions via `weixin-agent-sdk`.
+xacpx is a WeChat console that lets you remotely control `acpx` sessions. It bridges WeChat messages to agent sessions via `weixin-agent-sdk`.
 
 ### Key Modules
 
@@ -60,8 +60,8 @@ There are two session concepts:
 
 ### Config & State
 
-- Config (`~/.weacpx/config.json`) - transport, agents, workspaces. Written via `ConfigStore`.
-- State (`~/.weacpx/state.json`) - sessions, chat contexts. Written via `StateStore`.
+- Config (`~/.xacpx/config.json`) - transport, agents, workspaces. Written via `ConfigStore`.
+- State (`~/.xacpx/state.json`) - sessions, chat contexts. Written via `StateStore`.
 
 ### Daemon Subsystem
 
@@ -93,8 +93,8 @@ There are two session concepts:
 
 ### Mental model
 
-- Treat weacpx as a bridge: **Channel runtime (built-in Weixin or plugin channel such as Feishu/Yuanbao) → Router (slash commands + prompt) → Session mapping → Transport (acpx)**.
-- There are two sessions: **logical session** (weacpx-managed) vs **transport session** (acpx-managed). Most bugs are mismatches between the two.
+- Treat xacpx as a bridge: **Channel runtime (built-in Weixin or plugin channel such as Feishu/Yuanbao) → Router (slash commands + prompt) → Session mapping → Transport (acpx)**.
+- There are two sessions: **logical session** (xacpx-managed) vs **transport session** (acpx-managed). Most bugs are mismatches between the two.
 
 ### Start reading from entrypoints
 
@@ -110,7 +110,7 @@ There are two session concepts:
 - Core channel work stays inside [`src/channels/`](src/channels/) and is limited to Weixin plus generic channel/plugin infrastructure. New non-Weixin channels must be implemented as plugin packages under [`packages/channel-*`](packages/) or as external npm plugins.
 - Command semantics live in [`src/commands/`](src/commands/) (parse + handlers + router).
 - Anything that touches `acpx` must go through transport implementations in [`src/transport/`](src/transport/).
-- Daemon lifecycle lives in [`src/daemon/`](src/daemon/) and should remain compatible with `weacpx start/status/stop`.
+- Daemon lifecycle lives in [`src/daemon/`](src/daemon/) and should remain compatible with `xacpx start/status/stop`.
 
 ### Docs to rely on (don’t reverse-engineer from code first)
 
@@ -139,7 +139,7 @@ Uses **Bun** for development scripts and builds. Dependencies are in `package.js
 - 项目介绍 [README.md](README.md)
 
 # 其它
-weacpx 运行日志：` ~/.weacpx/runtime/app.log`;
+xacpx 运行日志：` ~/.xacpx/runtime/app.log`;
 acpx 源码：`../acpx`;
 
 ## 维护 AGENTS.md

@@ -257,11 +257,11 @@ function buildSession(options: {
   }
 
   return {
-    alias: "weacpx-doctor",
+    alias: "xacpx-doctor",
     agent: options.agent,
     ...(agentConfig.command ? { agentCommand: agentConfig.command } : {}),
     workspace: options.workspace,
-    transportSession: `weacpx-doctor-${timestamp}`,
+    transportSession: `xacpx-doctor-${timestamp}`,
     replyMode: options.config.channel.replyMode,
     cwd: workspaceConfig.cwd,
   };

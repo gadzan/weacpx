@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 
 import { normalizePluginHomeManifest } from "./plugin-home.js";
+import { coreEnv } from "../runtime/core-env.js";
 
 export type PluginPackageManager = "bun" | "npm";
 
@@ -35,7 +36,7 @@ async function silentRun(command: string, args: string[], options: RunCommandOpt
 }
 
 export async function detectPackageManager(runCommand?: RunCommand): Promise<PluginPackageManager> {
-  const override = process.env.WEACPX_PACKAGE_MANAGER?.trim().toLowerCase();
+  const override = coreEnv("PACKAGE_MANAGER")?.trim().toLowerCase();
   if (override === "bun" || override === "npm") return override;
   const probe = runCommand ?? silentRun;
   try {

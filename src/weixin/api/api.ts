@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { readVersion } from "../../version.js";
+import { coreEnv } from "../../runtime/core-env.js";
 
 import { loadConfigBotAgent, loadConfigRouteTag } from "../auth/accounts.js";
 import { logger } from "../util/logger.js";
@@ -50,7 +51,7 @@ const ILINK_APP_CLIENT_VERSION: number = buildClientVersion(CHANNEL_VERSION);
  * iLink-App-Id: opt-in via env var. Omitted from request headers when unset
  * for back-compat with installs that haven't opted in.
  */
-const ILINK_APP_ID: string = (process.env.WEACPX_ILINK_APP_ID ?? "").trim();
+const ILINK_APP_ID: string = (coreEnv("ILINK_APP_ID") ?? "").trim();
 
 /**
  * Default `bot_agent` value used when the upstream app does not declare one.

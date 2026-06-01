@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const PACKAGE_NAME = "weacpx";
+const PACKAGE_NAME = "xacpx";
 
 export function readVersion(moduleUrl: string = import.meta.url): string {
   let dir: string;

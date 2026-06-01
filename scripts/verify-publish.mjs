@@ -19,7 +19,7 @@ const DEFAULT_PACKAGES = [
   {
     id: "root",
     dir: ".",
-    expectedName: "weacpx",
+    expectedName: "xacpx",
     requiredFiles: ["dist/cli.js", "dist/plugin-api.js", "dist/plugin-api.d.ts", "README.md", "config.example.json", "package.json"],
     forbiddenPathPatterns: [
       "^dist/channels/feishu/",
@@ -31,20 +31,20 @@ const DEFAULT_PACKAGES = [
   {
     id: "channel-feishu",
     dir: "packages/channel-feishu",
-    expectedName: "@ganglion/weacpx-channel-feishu",
+    expectedName: "@ganglion/xacpx-channel-feishu",
     requiredFiles: ["dist/index.js", "dist/index.d.ts", "README.md", "package.json"],
-    requiredPeer: "weacpx",
-    forbiddenPeer: "weacpx-console",
-    expectedExportedName: "@ganglion/weacpx-channel-feishu",
+    requiredPeer: "xacpx",
+    forbiddenPeer: "weacpx",
+    expectedExportedName: "@ganglion/xacpx-channel-feishu",
   },
   {
     id: "channel-yuanbao",
     dir: "packages/channel-yuanbao",
-    expectedName: "@ganglion/weacpx-channel-yuanbao",
+    expectedName: "@ganglion/xacpx-channel-yuanbao",
     requiredFiles: ["dist/index.js", "dist/index.d.ts", "README.md", "package.json"],
-    requiredPeer: "weacpx",
-    forbiddenPeer: "weacpx-console",
-    expectedExportedName: "@ganglion/weacpx-channel-yuanbao",
+    requiredPeer: "xacpx",
+    forbiddenPeer: "weacpx",
+    expectedExportedName: "@ganglion/xacpx-channel-yuanbao",
   },
 ];
 

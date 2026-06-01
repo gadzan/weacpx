@@ -20,6 +20,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import type { ZodError } from "zod";
 
 import { readVersion } from "../version.js";
+import { coreEnv } from "../runtime/core-env";
 import type { OrchestrationIpcEndpoint } from "../orchestration/orchestration-ipc";
 import type { OrchestrationTaskRecord } from "../orchestration/orchestration-types";
 import { resolveDefaultOrchestrationEndpoint } from "./resolve-endpoint";
@@ -695,7 +696,7 @@ async function resolveMcpIdentity(server: Server, options: WeacpxMcpServerOption
   }
   throw new McpError(
     ErrorCode.InvalidRequest,
-    "weacpx MCP identity is not configured; run through `weacpx mcp-stdio` or provide --coordinator-session",
+    "xacpx MCP identity is not configured; run through `xacpx mcp-stdio` or provide --coordinator-session",
   );
 }
 
@@ -729,7 +730,7 @@ export function installMcpStdioShutdownHooks(options: McpStdioShutdownHookOption
   const setIntervalFn = options.setIntervalFn ?? ((callback, ms) => setInterval(callback, ms));
   const clearIntervalFn = options.clearIntervalFn ?? ((handle) => clearInterval(handle));
   const parentPid = options.parentPid ?? process.ppid;
-  const parentCheckIntervalMs = options.parentCheckIntervalMs ?? parseParentCheckIntervalMs(process.env.WEACPX_MCP_PARENT_CHECK_INTERVAL_MS);
+  const parentCheckIntervalMs = options.parentCheckIntervalMs ?? parseParentCheckIntervalMs(coreEnv("MCP_PARENT_CHECK_INTERVAL_MS"));
 
   let disposed = false;
   let triggered = false;

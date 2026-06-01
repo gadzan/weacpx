@@ -1,17 +1,17 @@
-# weacpx
+# xacpx
 
 > 用微信、飞书或元宝远程驱动 Codex、Claude Code 等 acpx 会话。
 
-[![npm](https://img.shields.io/npm/v/weacpx?style=flat-square)](https://www.npmjs.com/package/weacpx)
-[![Node.js Version](https://img.shields.io/node/v/weacpx?style=flat-square)](https://nodejs.org)
+[![npm](https://img.shields.io/npm/v/xacpx?style=flat-square)](https://www.npmjs.com/package/xacpx)
+[![Node.js Version](https://img.shields.io/node/v/xacpx?style=flat-square)](https://nodejs.org)
 [![zread](https://img.shields.io/badge/Ask_Zread-_.svg?style=flat-square&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS42MDE1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff)](https://zread.ai/gadzan/weacpx)
-[![License](https://img.shields.io/npm/l/weacpx?style=flat-square)](./LICENSE)
+[![License](https://img.shields.io/npm/l/xacpx?style=flat-square)](./LICENSE)
 
 ![weacpx logo](assets/weacpx.jpg)
 
 ## 这是什么
 
-`weacpx` 是一个可以通过微信、飞书或元宝直接控制 Codex / Claude Code / Gemini / OpenCode 等 ACP Agent 的工具。它把聊天消息通过 `acpx` 连接到 Agent CLI 会话上，让你直接在手机里：
+`xacpx` 是一个可以通过微信、飞书或元宝直接控制 Codex / Claude Code / Gemini / OpenCode 等 ACP Agent 的工具。它把聊天消息通过 `acpx` 连接到 Agent CLI 会话上，让你直接在手机里：
 
 - 新建和切换会话
 - 让 Agent 继续在指定项目目录里工作
@@ -19,13 +19,13 @@
 - 调整权限策略
 - 在需要时做多 Agent 编排
 
-如果你需要临时远程编码或办公，`weacpx` 提供的是一个方便快捷的**远程入口**，让你在微信或飞书里就能随时随地干活。
+如果你需要临时远程编码或办公，`xacpx` 提供的是一个方便快捷的**远程入口**，让你在微信或飞书里就能随时随地干活。
 
 ## 适合谁
 
-`weacpx` 适合轻量临时使用多 Agent 办公的用户。你可以用微信、飞书或元宝盯任务、发指令、看结果，并在同一个聊天里管理多个会话。
+`xacpx` 适合轻量临时使用多 Agent 办公的用户。你可以用微信、飞书或元宝盯任务、发指令、看结果，并在同一个聊天里管理多个会话。
 
-> 日常使用优先记 `/ss`：它负责创建或复用 weacpx 逻辑会话。如果你想接入本地 Codex 等 Agent 已有的原生会话，再用 `/ssn`；进阶说明见 [docs/native-sessions.md](./docs/native-sessions.md)。
+> 日常使用优先记 `/ss`：它负责创建或复用 xacpx 逻辑会话。如果你想接入本地 Codex 等 Agent 已有的原生会话，再用 `/ssn`；进阶说明见 [docs/native-sessions.md](./docs/native-sessions.md)。
 
 ## 5 分钟快速开始
 
@@ -42,15 +42,15 @@
 ### 安装
 
 ```bash
-npm install -g weacpx --registry=https://registry.npmjs.org
+npm install -g xacpx --registry=https://registry.npmjs.org
 # 或
-bun add -g weacpx
+bun add -g xacpx
 ```
 
 ### 登录微信
 
 ```bash
-weacpx login
+xacpx login
 ```
 
 终端会显示二维码，请继续用微信扫码登录。
@@ -60,7 +60,7 @@ weacpx login
 ### 启动服务
 
 ```bash
-weacpx start
+xacpx start
 ```
 
 ### 在微信里创建第一个会话
@@ -85,20 +85,20 @@ hello
 微信是内置默认频道。飞书和元宝以官方插件包分发，第三方频道也走同样的插件流程。如果记不住包名，先看一眼官方插件清单：
 
 ```bash
-weacpx plugin known
-# 安装：weacpx plugin add <package>
+xacpx plugin known
+# 安装：xacpx plugin add <package>
 ```
 
 ```bash
 # 飞书
-weacpx plugin add @ganglion/weacpx-channel-feishu
-weacpx channel add feishu     # 按提示输入 appId/appSecret
-weacpx restart
+xacpx plugin add @ganglion/xacpx-channel-feishu
+xacpx channel add feishu     # 按提示输入 appId/appSecret
+xacpx restart
 
 # 元宝
-weacpx plugin add @ganglion/weacpx-channel-yuanbao
-weacpx channel add yuanbao    # 按提示输入 appKey/appSecret
-weacpx restart
+xacpx plugin add @ganglion/xacpx-channel-yuanbao
+xacpx channel add yuanbao    # 按提示输入 appKey/appSecret
+xacpx restart
 ```
 
 完整的密钥配置、参数、`enable/disable/rm` 等管理命令见 [docs/channel-management.md](./docs/channel-management.md)。如果你想自己写一个频道插件，见 [docs/plugin-development.md](./docs/plugin-development.md)。
@@ -107,7 +107,7 @@ weacpx restart
 
 最常见的使用顺序只有四步：
 
-1. **启动后台服务**：`weacpx start`
+1. **启动后台服务**：`xacpx start`
 2. **创建或切换会话**：`/ss ...`、`/use ...`
 3. **直接发普通文本**：让当前会话继续工作
 4. **必要时查看状态或取消当前任务**：`/status`、`/cancel`
@@ -132,7 +132,7 @@ weacpx restart
 
 ### 3) 看回复
 
-`weacpx` 支持三种常用回复模式：
+`xacpx` 支持三种常用回复模式：
 
 - `stream`：流式返回中间文本
 - `final`：只返回最终结果
@@ -162,62 +162,62 @@ weacpx restart
 
 | 命令 | 说明 |
 |------|------|
-| `weacpx login` | 登录微信 |
-| `weacpx logout` | 清除本机保存的微信登录凭证 |
-| `weacpx run` | 前台运行，适合调试 |
-| `weacpx start` | 后台启动服务 |
-| `weacpx status` | 查看后台状态、PID、配置路径、日志路径 |
-| `weacpx stop` | 停止后台实例 |
-| `weacpx restart` | 重启后台实例，让频道配置变更生效 |
-| `weacpx update [--all\|<name>]` | 检查并更新 weacpx 与已安装插件；安装了插件时会交互式选择更新项 |
-| `weacpx channel list` | 查看已配置的消息频道 |
-| `weacpx plugin known` | 查看官方插件清单（飞书/元宝包名） |
-| `weacpx plugin add @ganglion/weacpx-channel-feishu && weacpx channel add feishu` | 安装并添加飞书频道，会提示输入飞书应用凭据 |
-| `weacpx plugin add @ganglion/weacpx-channel-yuanbao && weacpx channel add yuanbao` | 安装并添加元宝频道，会提示输入元宝 appKey/appSecret |
-| `weacpx doctor` | 运行环境诊断 |
-| `weacpx version` | 查看当前版本 |
-| `weacpx agent list` | 查看本机已注册的 agent |
-| `weacpx agent add <name>` | 从内置模板添加 agent；已存在且配置不同的同名 agent 不会被覆盖 |
-| `weacpx agent rm <name>` | 删除 agent |
-| `weacpx workspace list` | 查看本机已注册的 workspace |
-| `weacpx workspace add [name] [--raw]` | 把当前目录注册成 workspace；不传 `name` 时使用当前目录名，含特殊字符的名称会被自动规范化 |
-| `weacpx workspace rm <name>` | 删除 workspace |
-| `weacpx later list` / `weacpx lt list` | 在终端查看本机待执行定时任务 |
-| `weacpx later cancel <id>` / `weacpx lt cancel <id>` | 在终端取消本机待执行定时任务 |
+| `xacpx login` | 登录微信 |
+| `xacpx logout` | 清除本机保存的微信登录凭证 |
+| `xacpx run` | 前台运行，适合调试 |
+| `xacpx start` | 后台启动服务 |
+| `xacpx status` | 查看后台状态、PID、配置路径、日志路径 |
+| `xacpx stop` | 停止后台实例 |
+| `xacpx restart` | 重启后台实例，让频道配置变更生效 |
+| `xacpx update [--all\|<name>]` | 检查并更新 xacpx 与已安装插件；安装了插件时会交互式选择更新项 |
+| `xacpx channel list` | 查看已配置的消息频道 |
+| `xacpx plugin known` | 查看官方插件清单（飞书/元宝包名） |
+| `xacpx plugin add @ganglion/xacpx-channel-feishu && xacpx channel add feishu` | 安装并添加飞书频道，会提示输入飞书应用凭据 |
+| `xacpx plugin add @ganglion/xacpx-channel-yuanbao && xacpx channel add yuanbao` | 安装并添加元宝频道，会提示输入元宝 appKey/appSecret |
+| `xacpx doctor` | 运行环境诊断 |
+| `xacpx version` | 查看当前版本 |
+| `xacpx agent list` | 查看本机已注册的 agent |
+| `xacpx agent add <name>` | 从内置模板添加 agent；已存在且配置不同的同名 agent 不会被覆盖 |
+| `xacpx agent rm <name>` | 删除 agent |
+| `xacpx workspace list` | 查看本机已注册的 workspace |
+| `xacpx workspace add [name] [--raw]` | 把当前目录注册成 workspace；不传 `name` 时使用当前目录名，含特殊字符的名称会被自动规范化 |
+| `xacpx workspace rm <name>` | 删除 workspace |
+| `xacpx later list` / `xacpx lt list` | 在终端查看本机待执行定时任务 |
+| `xacpx later cancel <id>` / `xacpx lt cancel <id>` | 在终端取消本机待执行定时任务 |
 
-首次运行 `weacpx start` 或 `weacpx run` 时，如果没有会话、workspace 和插件，CLI 会询问是否把当前目录创建为 workspace，并选择一个内置 agent 模板；服务启动后会通过正常会话创建流程创建初始 acpx 会话。
+首次运行 `xacpx start` 或 `xacpx run` 时，如果没有会话、workspace 和插件，CLI 会询问是否把当前目录创建为 workspace，并选择一个内置 agent 模板；服务启动后会通过正常会话创建流程创建初始 acpx 会话。
 
 `workspace` 也可以简写为 `ws`：
 
 ```bash
-weacpx ws add
-weacpx ws list
-weacpx ws rm backend
+xacpx ws add
+xacpx ws list
+xacpx ws rm backend
 ```
 
 ### `workspace` CLI 怎么用
 
-`weacpx workspace` 用来在电脑本机维护 `~/.weacpx/config.json` 里的 `workspaces` 配置。它适合先在终端里注册常用项目目录，然后在微信里用 `--ws <name>` 直接引用。
+`xacpx workspace` 用来在电脑本机维护 `~/.xacpx/config.json` 里的 `workspaces` 配置。它适合先在终端里注册常用项目目录，然后在微信里用 `--ws <name>` 直接引用。
 
 | 命令 | 说明 |
 |------|------|
-| `weacpx workspace list` | 列出已注册的 workspace 及其路径 |
-| `weacpx workspace add` | 把当前目录注册为 workspace，名称默认取当前目录名（自动规范化） |
-| `weacpx workspace add <name>` | 把当前目录注册为指定名称（含特殊字符时自动规范化） |
-| `weacpx workspace add [name] --raw` | 保留原始名称（含空格等），后续命令需要用引号引用 |
-| `weacpx workspace rm <name>` | 删除指定 workspace |
+| `xacpx workspace list` | 列出已注册的 workspace 及其路径 |
+| `xacpx workspace add` | 把当前目录注册为 workspace，名称默认取当前目录名（自动规范化） |
+| `xacpx workspace add <name>` | 把当前目录注册为指定名称（含特殊字符时自动规范化） |
+| `xacpx workspace add [name] --raw` | 保留原始名称（含空格等），后续命令需要用引号引用 |
+| `xacpx workspace rm <name>` | 删除指定 workspace |
 
 常见用法：
 
 ```bash
 cd /absolute/path/to/backend
-weacpx workspace add backend
+xacpx workspace add backend
 
 cd /absolute/path/to/frontend
-weacpx ws add frontend
+xacpx ws add frontend
 
-weacpx ws list
-weacpx ws rm frontend
+xacpx ws list
+xacpx ws rm frontend
 ```
 
 注册后，你可以在微信里直接使用：
@@ -227,35 +227,35 @@ weacpx ws rm frontend
 /ss new claude --ws frontend
 ```
 
-注意：`workspace add` 总是注册**当前终端所在目录**。如果不传名称，会用当前目录名作为 workspace 名称。含空格、中文等字符的名称会被自动规范化为 `[a-zA-Z0-9._-]+`（例如目录 `My Project` 会保存为 `My-Project`），重名时追加 `-2`、`-3`。如需保留原始名称，加 `--raw`；之后 `weacpx workspace rm`、`/ws rm`、`--ws <name>` 都需要用引号引用，例如 `weacpx workspace rm "My Project"`。
+注意：`workspace add` 总是注册**当前终端所在目录**。如果不传名称，会用当前目录名作为 workspace 名称。含空格、中文等字符的名称会被自动规范化为 `[a-zA-Z0-9._-]+`（例如目录 `My Project` 会保存为 `My-Project`），重名时追加 `-2`、`-3`。如需保留原始名称，加 `--raw`；之后 `xacpx workspace rm`、`/ws rm`、`--ws <name>` 都需要用引号引用，例如 `xacpx workspace rm "My Project"`。
 
 ### `agent` CLI 怎么用
 
-`weacpx agent` 用来在电脑本机维护 `~/.weacpx/config.json` 里的 `agents` 配置；`agents` 是同等别名。
+`xacpx agent` 用来在电脑本机维护 `~/.xacpx/config.json` 里的 `agents` 配置；`agents` 是同等别名。
 
 | 命令 | 说明 |
 |------|------|
-| `weacpx agent list` | 列出已注册的 agent |
-| `weacpx agent templates` | 列出可添加的内置模板 |
-| `weacpx agent add <name>` | 从内置模板添加 agent，例如 `kimi`、`opencode` |
-| `weacpx agent rm <name>` | 删除指定 agent |
+| `xacpx agent list` | 列出已注册的 agent |
+| `xacpx agent templates` | 列出可添加的内置模板 |
+| `xacpx agent add <name>` | 从内置模板添加 agent，例如 `kimi`、`opencode` |
+| `xacpx agent rm <name>` | 删除指定 agent |
 
 常见用法：
 
 ```bash
-weacpx agent templates
-weacpx agent add kimi
-weacpx agents list
-weacpx agent rm kimi
+xacpx agent templates
+xacpx agent add kimi
+xacpx agents list
+xacpx agent rm kimi
 ```
 
 ### `doctor` 怎么用
 
 ```bash
-weacpx doctor
-weacpx doctor --verbose
-weacpx doctor --smoke
-weacpx doctor --smoke --agent codex --workspace backend
+xacpx doctor
+xacpx doctor --verbose
+xacpx doctor --smoke
+xacpx doctor --smoke --agent codex --workspace backend
 ```
 
 说明：
@@ -353,7 +353,7 @@ opencode, qoder, qwen, trae
 - 只支持一次性任务，时间必须在 10 秒之后、7 天之内
 - 时间格式是固定白名单（相对时间 / 今天·明天·后天 / 星期几 + 时刻），不支持自然语言
 - 普通对话中 agent 也可以通过当前会话内部工具创建、查看与取消定时任务（`scheduled_create` / `scheduled_list` / `scheduled_cancel`）；路由和权限由 daemon 从当前聊天会话解析，外部 `mcp-stdio` 不暴露这些工具
-- 终端里也可以用 `weacpx later list` / `weacpx later cancel <id>` 管理待执行任务；CLI 只做查看和取消，不创建定时任务
+- 终端里也可以用 `xacpx later list` / `xacpx later cancel <id>` 管理待执行任务；CLI 只做查看和取消，不创建定时任务
 - 完整时间格式、临时/绑定模式、任务状态与限制见 [docs/later-command.md](./docs/later-command.md)
 
 ### 配置与权限
@@ -412,16 +412,16 @@ README 里只保留用户视角的最常用命令。
 
 ### MCP 集成：外部 coordinator
 
-如果你想让 Codex、Claude Code 等外部 MCP host 直接使用 weacpx 的多 Agent 编排能力，可以把 `weacpx mcp-stdio` 配成一个 stdio MCP server。
+如果你想让 Codex、Claude Code 等外部 MCP host 直接使用 xacpx 的多 Agent 编排能力，可以把 `xacpx mcp-stdio` 配成一个 stdio MCP server。
 
 `delegate_request` 支持 MCP Tasks：支持该能力的 host 可以让委派请求立即返回原生 task handle，之后通过 `tasks/get` / `tasks/result` / `tasks/cancel` 获取状态、结果或取消任务；worker 输出的 `[PROGRESS] ...` 会显示在 `tasks/get` / `tasks/list` 的 `statusMessage` 里；`input_required` 状态下的 `tasks/result` 会返回下一步操作提示并结束本次 result stream，而不是长时间阻塞；client 按提示调用 `task_get` / `task_approve` / `coordinator_answer_question` 等工具后，再继续 `tasks/get` / `tasks/result` 轮询。不支持 MCP Tasks 的 host 仍可使用兼容工具 `task_get` / `task_list` / `task_watch` / `task_cancel`。
 
-定时任务的自然语言创建工具是 weacpx 当前会话内部能力，不会出现在外部 `weacpx mcp-stdio` 的工具列表里。
+定时任务的自然语言创建工具是 xacpx 当前会话内部能力，不会出现在外部 `xacpx mcp-stdio` 的工具列表里。
 
 先启动 daemon：
 
 ```bash
-weacpx start
+xacpx start
 ```
 
 MCP 配置推荐保持简单，不要在启动参数里绑定 workspace：
@@ -429,15 +429,15 @@ MCP 配置推荐保持简单，不要在启动参数里绑定 workspace：
 ```json
 {
   "mcpServers": {
-    "weacpx": {
-      "command": "weacpx",
+    "xacpx": {
+      "command": "xacpx",
       "args": ["mcp-stdio"]
     }
   }
 }
 ```
 
-外部 host 调用 `delegate_request` 时传 `workingDirectory`，weacpx 会让被委派的 worker 在这个目录工作：
+外部 host 调用 `delegate_request` 时传 `workingDirectory`，xacpx 会让被委派的 worker 在这个目录工作：
 
 ```json
 {
@@ -447,14 +447,14 @@ MCP 配置推荐保持简单，不要在启动参数里绑定 workspace：
 }
 ```
 
-Windows 上如果 MCP host 不会帮你解析带参数的 `command`，把 `node.exe` 放在 `command`，把 weacpx 脚本和参数放在 `args`：
+Windows 上如果 MCP host 不会帮你解析带参数的 `command`，把 `node.exe` 放在 `command`，把 xacpx 脚本和参数放在 `args`：
 
 ```json
 {
   "type": "stdio",
   "command": "C:\\Program Files\\nodejs\\node.exe",
   "args": [
-    "C:\\path\\to\\weacpx\\dist\\cli.js",
+    "C:\\path\\to\\xacpx\\dist\\cli.js",
     "mcp-stdio"
   ]
 }
@@ -494,17 +494,17 @@ Windows 上如果 MCP host 不会帮你解析带参数的 `command`，把 `node.
 
 默认文件位置：
 
-- 配置文件：`~/.weacpx/config.json`
-- 状态文件：`~/.weacpx/state.json`
-- 运行日志：`~/.weacpx/runtime/app.log`
+- 配置文件：`~/.xacpx/config.json`
+- 状态文件：`~/.xacpx/state.json`
+- 运行日志：`~/.xacpx/runtime/app.log`
 
-更多运行时文件会放在 `~/.weacpx/runtime/` 下。
+更多运行时文件会放在 `~/.xacpx/runtime/` 下。
 
 ## 常见问题
 
 ### `/ss new` 失败怎么办？
 
-如果你在微信里创建会话失败，最常见的情况不是 `weacpx` 命令格式错了，而是底层会话没有成功创建。
+如果你在微信里创建会话失败，最常见的情况不是 `xacpx` 命令格式错了，而是底层会话没有成功创建。
 
 你可以先试这两步：
 
@@ -525,7 +525,7 @@ Windows 上如果 MCP host 不会帮你解析带参数的 `command`，把 `node.
 
 ### `/mode <id>` 里的 `<id>` 是什么？
 
-`/mode` 的可用值取决于你当前使用的 agent，`weacpx` 不会替你统一转换这些值。
+`/mode` 的可用值取决于你当前使用的 agent，`xacpx` 不会替你统一转换这些值。
 
 当前比较明确的已知值：
 

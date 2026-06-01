@@ -258,7 +258,7 @@ test("rejects slash-prefixed delayed messages", async () => {
         now: () => now,
       },
     ),
-  ).rejects.toThrow("scheduled_create does not support slash-prefixed weacpx commands");
+  ).rejects.toThrow("scheduled_create does not support slash-prefixed xacpx commands");
 
   expect(creates).toEqual([]);
 });

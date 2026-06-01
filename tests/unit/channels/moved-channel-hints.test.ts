@@ -24,8 +24,8 @@ function baseConfig(): AppConfig {
 }
 
 test("core reports Yuanbao plugin install hint when Yuanbao runtime is missing", () => {
-  expect(() => createMessageChannel("yuanbao")).toThrow("频道 yuanbao 需要安装插件：weacpx plugin add @ganglion/weacpx-channel-yuanbao");
-  expect(() => createMessageChannelFromRuntimeConfig({ id: "yuanbao", type: "yuanbao", enabled: true })).toThrow("频道 yuanbao 需要安装插件：weacpx plugin add @ganglion/weacpx-channel-yuanbao");
+  expect(() => createMessageChannel("yuanbao")).toThrow("频道 yuanbao 需要安装插件：xacpx plugin add @ganglion/xacpx-channel-yuanbao");
+  expect(() => createMessageChannelFromRuntimeConfig({ id: "yuanbao", type: "yuanbao", enabled: true })).toThrow("频道 yuanbao 需要安装插件：xacpx plugin add @ganglion/xacpx-channel-yuanbao");
 });
 
 test("channel add yuanbao reports the plugin install hint when the plugin is absent", async () => {
@@ -45,12 +45,12 @@ test("channel add yuanbao reports the plugin install hint when the plugin is abs
   });
 
   expect(code).toBe(1);
-  expect(lines.join("\n")).toContain("频道 yuanbao 需要安装插件：weacpx plugin add @ganglion/weacpx-channel-yuanbao");
+  expect(lines.join("\n")).toContain("频道 yuanbao 需要安装插件：xacpx plugin add @ganglion/xacpx-channel-yuanbao");
 });
 
 test("core reports Feishu plugin install hint when Feishu runtime is missing", () => {
   expect(() => createMessageChannel("feishu", { options: { appId: "cli_xxx", appSecret: "secret_xxx" } })).toThrow(
-    "频道 feishu 需要安装插件：weacpx plugin add @ganglion/weacpx-channel-feishu",
+    "频道 feishu 需要安装插件：xacpx plugin add @ganglion/xacpx-channel-feishu",
   );
 });
 
@@ -71,5 +71,5 @@ test("channel add feishu reports the plugin install hint when the plugin is abse
   });
 
   expect(code).toBe(1);
-  expect(lines.join("\n")).toContain("频道 feishu 需要安装插件：weacpx plugin add @ganglion/weacpx-channel-feishu");
+  expect(lines.join("\n")).toContain("频道 feishu 需要安装插件：xacpx plugin add @ganglion/xacpx-channel-feishu");
 });

@@ -6,6 +6,6 @@ export function parseSourceHandle(
 ): string | null {
   return parseStringFlag(args, env, {
     flag: "--source-handle",
-    envKey: "WEACPX_SOURCE_HANDLE",
+    envSuffix: "SOURCE_HANDLE",
   });
 }

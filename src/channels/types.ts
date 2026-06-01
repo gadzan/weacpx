@@ -69,9 +69,9 @@ export interface ChannelStartInput {
   sessions?: SessionService;
   /** Shared in-flight turn registry for dispatch-time foreground tracking. */
   activeTurns?: ActiveTurnRegistry;
-  /** weacpx 内置命令目录，供支持输入框命令提示的频道使用。 */
+  /** xacpx 内置命令目录，供支持输入框命令提示的频道使用。 */
   commandHints?: CommandHint[];
-  /** weacpx 核心版本字符串，供需要它的频道（如命令同步元数据）使用。 */
+  /** xacpx 核心版本字符串，供需要它的频道（如命令同步元数据）使用。 */
   coreVersion?: string;
 }
 

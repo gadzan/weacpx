@@ -1,4 +1,4 @@
-import type { WeacpxPlugin } from "weacpx/plugin-api";
+import type { XacpxPlugin } from "xacpx/plugin-api";
 
 import { FeishuChannel } from "./channel.js";
 import { feishuCliProvider } from "./feishu-provider.js";
@@ -6,10 +6,10 @@ import { feishuCliProvider } from "./feishu-provider.js";
 export { FeishuChannel } from "./channel.js";
 export { feishuCliProvider } from "./feishu-provider.js";
 
-const plugin: WeacpxPlugin = {
+const plugin: XacpxPlugin = {
   apiVersion: 1,
-  name: "@ganglion/weacpx-channel-feishu",
-  minWeacpxVersion: "0.5.0",
+  name: "@ganglion/xacpx-channel-feishu",
+  minXacpxVersion: "0.8.0",
   channels: [
     {
       type: "feishu",

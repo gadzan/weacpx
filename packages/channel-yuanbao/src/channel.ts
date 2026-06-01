@@ -1,4 +1,4 @@
-import { createConversationExecutor, resolveTurnLane } from "weacpx/plugin-api";
+import { createConversationExecutor, resolveTurnLane } from "xacpx/plugin-api";
 import type {
   ActiveTurnRegistry,
   ChannelStartInput,
@@ -8,7 +8,7 @@ import type {
   OrchestrationDeliveryCallbacks,
   ScheduledChannelMessageInput,
   SessionService,
-} from "weacpx/plugin-api";
+} from "xacpx/plugin-api";
 import { parseYuanbaoChannelConfig, type YuanbaoChannelConfig, type YuanbaoResolvedAccountConfig } from "./config.js";
 import type { YuanbaoGateway, YuanbaoGatewayFactory, YuanbaoGatewayInboundMessage } from "./types.js";
 import { buildYuanbaoChatKey, extractYuanbaoContent, parseYuanbaoChatKey } from "./inbound.js";

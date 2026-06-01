@@ -9,8 +9,8 @@ import {
 test("listKnownPlugins includes Feishu and Yuanbao first-party packages", () => {
   const plugins = listKnownPlugins();
   const packageNames = plugins.map((plugin) => plugin.packageName);
-  expect(packageNames).toContain("@ganglion/weacpx-channel-feishu");
-  expect(packageNames).toContain("@ganglion/weacpx-channel-yuanbao");
+  expect(packageNames).toContain("@ganglion/xacpx-channel-feishu");
+  expect(packageNames).toContain("@ganglion/xacpx-channel-yuanbao");
 });
 
 test("listKnownPlugins marks every entry as official", () => {
@@ -35,8 +35,8 @@ test("listKnownPlugins returns a copy so callers cannot mutate the source", () =
 });
 
 test("findKnownPluginByChannel returns the matching first-party package", () => {
-  expect(findKnownPluginByChannel("feishu")?.packageName).toBe("@ganglion/weacpx-channel-feishu");
-  expect(findKnownPluginByChannel("yuanbao")?.packageName).toBe("@ganglion/weacpx-channel-yuanbao");
+  expect(findKnownPluginByChannel("feishu")?.packageName).toBe("@ganglion/xacpx-channel-feishu");
+  expect(findKnownPluginByChannel("yuanbao")?.packageName).toBe("@ganglion/xacpx-channel-yuanbao");
 });
 
 test("findKnownPluginByChannel returns null for built-in or unknown channels", () => {
@@ -46,10 +46,10 @@ test("findKnownPluginByChannel returns null for built-in or unknown channels", (
 
 test("getMovedChannelInstallHint returns the explicit install command for known channels", () => {
   expect(getMovedChannelInstallHint("feishu")).toBe(
-    "频道 feishu 需要安装插件：weacpx plugin add @ganglion/weacpx-channel-feishu",
+    "频道 feishu 需要安装插件：xacpx plugin add @ganglion/xacpx-channel-feishu",
   );
   expect(getMovedChannelInstallHint("yuanbao")).toBe(
-    "频道 yuanbao 需要安装插件：weacpx plugin add @ganglion/weacpx-channel-yuanbao",
+    "频道 yuanbao 需要安装插件：xacpx plugin add @ganglion/xacpx-channel-yuanbao",
   );
 });
 

@@ -15,7 +15,7 @@ function config(plugins: AppConfig["plugins"] = []): AppConfig {
   };
 }
 
-test("update --all updates weacpx and plugins after checking latest versions", async () => {
+test("update --all updates xacpx and plugins after checking latest versions", async () => {
   const lines: string[] = [];
   const updated: string[] = [];
   let saved: AppConfig | null = null;
@@ -23,20 +23,21 @@ test("update --all updates weacpx and plugins after checking latest versions", a
   const code = await handleUpdateCli(["--all"], {
     loadConfig: async () => config([{ name: "p1", version: "1.0.0", enabled: true }]),
     saveConfig: async (next) => { saved = next; },
-    readCurrentVersion: () => "0.4.0",
+    readCurrentVersion: () => "0.8.0",
+    packageName: "xacpx",
     print: (line) => lines.push(line),
     isInteractive: () => false,
     promptText: async () => "",
-    getLatestVersion: async (name) => name === "weacpx" ? "0.5.0" : name === "xacpx" ? null : "1.2.0",
+    getLatestVersion: async (name) => name === "xacpx" ? "0.8.1" : "1.2.0",
     updateSelf: async (name) => { updated.push(name); },
     updatePlugin: async ({ packageName }) => { updated.push(packageName); },
     validatePlugin: async () => {},
   });
 
   expect(code).toBe(0);
-  expect(updated).toEqual(["weacpx", "p1"]);
+  expect(updated).toEqual(["xacpx", "p1"]);
   expect(saved?.plugins[0]?.version).toBe("1.2.0");
-  expect(lines).toContain("1. weacpx (0.4.0 -> 0.5.0)");
+  expect(lines).toContain("1. xacpx (0.8.0 -> 0.8.1)");
   expect(lines).toContain("2. 插件 p1 (1.0.0 -> 1.2.0)");
 });
 
@@ -84,11 +85,12 @@ test("update skips entries already at latest version", async () => {
   const code = await handleUpdateCli(["--all"], {
     loadConfig: async () => config([{ name: "p1", version: "1.0.0", enabled: true }]),
     saveConfig: async () => { throw new Error("should not save"); },
-    readCurrentVersion: () => "0.4.0",
+    readCurrentVersion: () => "0.8.0",
+    packageName: "xacpx",
     print: (line) => lines.push(line),
     isInteractive: () => false,
     promptText: async () => "",
-    getLatestVersion: async (name) => name === "weacpx" ? "0.4.0" : name === "xacpx" ? null : "1.0.0",
+    getLatestVersion: async (name) => name === "xacpx" ? "0.8.0" : "1.0.0",
     updateSelf: async (name) => { updated.push(name); },
     updatePlugin: async ({ packageName }) => { updated.push(packageName); },
   });
@@ -123,18 +125,19 @@ test("update --all fails when any latest version cannot be checked", async () =>
   const code = await handleUpdateCli(["--all"], {
     loadConfig: async () => config([{ name: "p1", version: "1.0.0", enabled: true }]),
     saveConfig: async () => {},
-    readCurrentVersion: () => "0.4.0",
+    readCurrentVersion: () => "0.8.0",
+    packageName: "xacpx",
     print: (line) => lines.push(line),
     isInteractive: () => false,
     promptText: async () => "",
-    getLatestVersion: async (name) => name === "weacpx" ? null : name === "xacpx" ? null : "2.0.0",
+    getLatestVersion: async (name) => name === "xacpx" ? null : "2.0.0",
     updateSelf: async (name) => { updated.push(name); },
     updatePlugin: async ({ packageName }) => { updated.push(packageName); },
   });
 
   expect(code).toBe(1);
   expect(updated).toEqual([]);
-  expect(lines).toContain("以下项目无法检查最新版本，已取消更新：weacpx");
+  expect(lines).toContain("以下项目无法检查最新版本，已取消更新：xacpx");
 });
 
 test("self-only update requires confirmation in implicit non-interactive mode", async () => {
@@ -143,17 +146,18 @@ test("self-only update requires confirmation in implicit non-interactive mode", 
   const code = await handleUpdateCli([], {
     loadConfig: async () => config([]),
     saveConfig: async () => {},
-    readCurrentVersion: () => "0.4.0",
+    readCurrentVersion: () => "0.8.0",
+    packageName: "xacpx",
     print: (line) => lines.push(line),
     isInteractive: () => false,
     promptText: async () => "",
-    getLatestVersion: async () => "0.5.0",
+    getLatestVersion: async () => "0.8.1",
     updateSelf: async (name) => { updated.push(name); },
   });
 
   expect(code).toBe(1);
   expect(updated).toEqual([]);
-  expect(lines).toContain("更新 weacpx 本体需要确认；非交互模式请使用 `weacpx update --all` 或 `weacpx update weacpx`。");
+  expect(lines).toContain("更新 xacpx 本体需要确认；非交互模式请使用 `xacpx update --all` 或 `xacpx update xacpx`。");
 });
 
 
@@ -300,11 +304,14 @@ test("update --all refuses unpinned plugins because current version is unknown",
   const code = await handleUpdateCli(["--all"], {
     loadConfig: async () => config([{ name: "p1", enabled: true }]),
     saveConfig: async () => {},
-    readCurrentVersion: () => "0.4.0",
+    readCurrentVersion: () => "0.8.0",
+    packageName: "xacpx",
     print: (line) => lines.push(line),
     isInteractive: () => false,
     promptText: async () => "",
-    getLatestVersion: async (name) => name === "xacpx" ? null : "9.0.0",
+    // self (xacpx) is at latest so it is neither a candidate nor unavailable;
+    // the unpinned plugin p1 is what gets refused.
+    getLatestVersion: async (name) => name === "xacpx" ? "0.8.0" : "9.0.0",
     updateSelf: async (name) => { updated.push(name); },
     updatePlugin: async ({ packageName }) => { updated.push(packageName); },
   });

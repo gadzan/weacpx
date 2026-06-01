@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { coreHomeDir } from "../runtime/core-home";
+import { coreEnv } from "../runtime/core-env";
 
 // Core package names, current and renamed. weacpx is being renamed to xacpx
 // (see the rename plan); the core root resolves under either name and a
@@ -113,7 +114,7 @@ function coerceMissing(value: string | undefined): string | undefined {
 export function resolvePluginHome(input: { home?: string; pluginHome?: string } = {}): string {
   const explicit = coerceMissing(input.pluginHome);
   if (explicit) return explicit;
-  const envOverride = coerceMissing(process.env.WEACPX_PLUGIN_HOME);
+  const envOverride = coerceMissing(coreEnv("PLUGIN_HOME"));
   if (envOverride) return envOverride;
   const home = coerceMissing(input.home) ?? coerceMissing(process.env.HOME) ?? homedir();
   return join(coreHomeDir(home), "plugins");

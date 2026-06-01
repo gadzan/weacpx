@@ -91,7 +91,7 @@ async function writeStructuredPromptBlocks(
 ): Promise<StructuredPromptFile> {
   let dir = "";
   try {
-    dir = await deps.mkdtemp(path.join(deps.tmpdir(), "weacpx-acp-prompt-"));
+    dir = await deps.mkdtemp(path.join(deps.tmpdir(), "xacpx-acp-prompt-"));
     const filePath = path.join(dir, "prompt.json");
     await deps.writeFile(filePath, JSON.stringify(blocks), "utf8");
     return { filePath, cleanup: async () => deps.rm(dir, { recursive: true, force: true }) };

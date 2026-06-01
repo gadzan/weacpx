@@ -6,6 +6,6 @@ export function parseCoordinatorWorkspace(
 ): string | null {
   return parseStringFlag(args, env, {
     flag: "--workspace",
-    envKey: "WEACPX_COORDINATOR_WORKSPACE",
+    envSuffix: "COORDINATOR_WORKSPACE",
   });
 }

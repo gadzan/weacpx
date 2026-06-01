@@ -5,11 +5,11 @@ export function buildWorkerTaskPrompt(input: {
   task: string;
 }): string {
   return [
-    "这是来自 weacpx 的委派任务。",
+    "这是来自 xacpx 的委派任务。",
     `任务 ID: ${input.taskId}`,
     `当前 worker 会话: ${input.workerSession}`,
     ...(input.role ? [`角色: ${input.role}`] : []),
-    "请直接完成下面的任务；weacpx 会记录你的最终回复。",
+    "请直接完成下面的任务；xacpx 会记录你的最终回复。",
     "如果你因为关键上下文缺失、权限边界或业务决策而无法继续，请不要猜测；调用 worker_raise_question 提交 question / whyBlocked / whatIsNeeded，让 coordinator 决定下一步。",
     "当你完成一个重要步骤时，单独输出一行 [PROGRESS] 加简要进度说明，例如：[PROGRESS] 已完成代码审查。",
     "不需要每个动作都汇报，只在关键里程碑时输出。",

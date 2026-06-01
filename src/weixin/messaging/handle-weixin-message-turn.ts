@@ -129,7 +129,7 @@ function hardCutByCodepoint(s: string, maxBytes: number): string[] {
 }
 
 export function resolveMediaTempDir(customRoot?: string): string {
-  return customRoot ?? path.join(tmpdir(), "weacpx", "media");
+  return customRoot ?? path.join(tmpdir(), "xacpx", "media");
 }
 
 

@@ -29,7 +29,7 @@ const SUPPORTED_CONFIG_PATHS = [
 
 const LEGACY_CONFIG_PATHS = [
   "wechat.replyMode（已弃用，请使用 channel.replyMode）",
-  "channel.type（已禁用写入；请使用 weacpx channel ... 管理 channels[]）",
+  "channel.type（已禁用写入；请使用 xacpx channel ... 管理 channels[]）",
   "channels[]（多频道运行配置，请编辑 JSON）",
 ] as const;
 
@@ -150,7 +150,7 @@ function applySupportedConfigUpdate(
     }
     case "channel.type":
       return {
-        error: "channel.type 是旧单频道字段，/config set 已禁用写入；请使用 `weacpx channel ...` 管理 channels[]，然后重启 weacpx。",
+        error: "channel.type 是旧单频道字段，/config set 已禁用写入；请使用 `xacpx channel ...` 管理 channels[]，然后重启 xacpx。",
       };
     case "channel.replyMode": {
       const parsed = parseEnum<ReplyMode>(rawValue, ["stream", "final", "verbose"]);

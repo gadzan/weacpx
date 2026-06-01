@@ -1,5 +1,5 @@
 import path from "node:path";
-import { createConversationExecutor, resolveTurnLane, toDisplaySessionAlias } from "weacpx/plugin-api";
+import { createConversationExecutor, resolveTurnLane, toDisplaySessionAlias } from "xacpx/plugin-api";
 import type {
   ChannelStartInput,
   ConversationExecutor,
@@ -10,7 +10,7 @@ import type {
   ScheduledChannelMessageInput,
   MessageChannelRuntime,
   OrchestrationDeliveryCallbacks,
-} from "weacpx/plugin-api";
+} from "xacpx/plugin-api";
 import type { FeishuChannelConfig, FeishuResolvedAccountConfig } from "./config.js";
 import { parseFeishuChannelConfig } from "./config.js";
 import type { FeishuMessageEvent, FeishuResourceDescriptor } from "./types.js";

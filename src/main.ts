@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { coreHomeDir } from "./runtime/core-home";
+import { coreEnv } from "./runtime/core-env";
 
 import { CommandRouter } from "./commands/command-router";
 import { ConfigStore } from "./config/config-store";
@@ -823,7 +824,7 @@ export async function main(): Promise<void> {
       plugins: startupConfig.plugins,
       onPluginError: ({ name, error }) => {
         console.error(
-          `[weacpx] skipping plugin ${name}: ${error instanceof Error ? error.message : String(error)}`,
+          `[xacpx] skipping plugin ${name}: ${error instanceof Error ? error.message : String(error)}`,
         );
       },
     });
@@ -838,7 +839,7 @@ export async function main(): Promise<void> {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(
       [
-        "Failed to start weacpx console.",
+        "Failed to start xacpx console.",
         `config: ${paths.configPath}`,
         `state: ${paths.statePath}`,
         message,
@@ -859,7 +860,7 @@ export async function prepareChannelMedia(configPath: string, config: AppConfig)
   const mediaRootDir = join(runtimeDir, "media");
   const mediaStore = new RuntimeMediaStore({ rootDir: mediaRootDir });
   await mediaStore.cleanupExpired().catch((error) => {
-    console.error("[weacpx] media cleanup failed:", error instanceof Error ? error.message : String(error));
+    console.error("[xacpx] media cleanup failed:", error instanceof Error ? error.message : String(error));
   });
   const allowedMediaRoots = Object.values(config.workspaces).map((ws) => ws.cwd);
   return { mediaStore, channelDeps: { mediaStore, allowedMediaRoots } };
@@ -871,15 +872,15 @@ export function resolveRuntimePaths(): RuntimePaths {
     throw new Error("Unable to resolve the current user home directory");
   }
 
-  const configPath = process.env.WEACPX_CONFIG ?? join(coreHomeDir(home), "config.json");
+  const configPath = coreEnv("CONFIG") ?? join(coreHomeDir(home), "config.json");
   const runtimeDir = join(dirname(configPath), "runtime");
 
   return {
     configPath,
-    statePath: process.env.WEACPX_STATE ?? join(coreHomeDir(home), "state.json"),
+    statePath: coreEnv("STATE") ?? join(coreHomeDir(home), "state.json"),
     perfLogPath: join(runtimeDir, "perf.log"),
     orchestrationSocketPath:
-      process.env.WEACPX_ORCHESTRATION_SOCKET ?? resolveDaemonOrchestrationSocketPath(runtimeDir),
+      coreEnv("ORCHESTRATION_SOCKET") ?? resolveDaemonOrchestrationSocketPath(runtimeDir),
   };
 }
 

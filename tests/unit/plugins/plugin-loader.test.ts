@@ -77,7 +77,7 @@ test("loadConfiguredPlugins surfaces upgrade-weacpx hint when plugin requires ne
         channels: [],
       },
     }),
-  })).rejects.toThrow(/future-plugin.*requires weacpx >=?99\.0\.0.*upgrade weacpx/i);
+  })).rejects.toThrow(/future-plugin.*requires xacpx >=?99\.0\.0.*upgrade xacpx/i);
 });
 
 test("loadConfiguredPlugins surfaces unsupported-apiVersion hint when plugin built for newer plugin API", async () => {

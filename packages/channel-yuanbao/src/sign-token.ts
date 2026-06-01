@@ -1,6 +1,6 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { getOpenclawVersion, getOperationSystem, getPluginVersion } from "./access/env.js";
-import type { AppLogger } from "weacpx/plugin-api";
+import type { AppLogger } from "xacpx/plugin-api";
 import type { YuanbaoResolvedAccountConfig } from "./config.js";
 
 export type YuanbaoSignTokenData = {

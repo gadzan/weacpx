@@ -54,14 +54,14 @@
 - `channel.replyMode`
 
 
-说明：性能 debug 日志 `logging.perf.*` 不支持通过聊天里的 `/config set` 动态开关。需要手动编辑 `~/.weacpx/config.json` 的 `logging.perf`，然后重启 daemon；该 tracer 在启动时绑定。
+说明：性能 debug 日志 `logging.perf.*` 不支持通过聊天里的 `/config set` 动态开关。需要手动编辑 `~/.xacpx/config.json` 的 `logging.perf`，然后重启 daemon；该 tracer 在启动时绑定。
 
 兼容旧配置：
 
-- `channel.type`（旧单频道配置；多频道请使用 `weacpx channel ...`）
-- `channels[]`（多频道运行配置；推荐使用 `weacpx channel ...` 管理）
+- `channel.type`（旧单频道配置；多频道请使用 `xacpx channel ...`）
+- `channels[]`（多频道运行配置；推荐使用 `xacpx channel ...` 管理）
 
-飞书凭据和多频道配置请优先用电脑终端里的频道 CLI 管理，例如 `weacpx channel add feishu`。完整说明见 [`docs/channel-management.md`](./channel-management.md)。
+飞书凭据和多频道配置请优先用电脑终端里的频道 CLI 管理，例如 `xacpx channel add feishu`。完整说明见 [`docs/channel-management.md`](./channel-management.md)。
 
 动态字段：
 
@@ -116,7 +116,7 @@
 `/config set` 成功后会：
 
 1. 更新内存中的当前配置
-2. 持久化到 `~/.weacpx/config.json`
+2. 持久化到 `~/.xacpx/config.json`
 
 所以这是**真实配置修改**，不是临时会话状态。
 
@@ -132,7 +132,7 @@
 - `workspace` 的创建和删除，优先用高层命令：
   - `/ws new`
   - `/workspace rm`
-  - 或在电脑当前目录执行 `weacpx workspace add [name]` / `weacpx workspace rm <name>`
+  - 或在电脑当前目录执行 `xacpx workspace add [name]` / `xacpx workspace rm <name>`
 - `/replymode` 改的是**当前逻辑会话覆盖**
 - `channel.replyMode` 改的是**全局默认值**
 
@@ -152,7 +152,7 @@
 
 1. `config.json` 里既有固定字段，也有 `agents/workspaces` 这种动态 map
 2. 如果完全开放任意路径写入，很容易把配置写坏
-3. weacpx 的目标是“远程可控”，不是“远程手写配置文件”
+3. xacpx 的目标是“远程可控”，不是“远程手写配置文件”
 
 所以 `/config` 的原则是：
 

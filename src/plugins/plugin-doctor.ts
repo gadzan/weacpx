@@ -57,7 +57,7 @@ export async function inspectPlugins(input: InspectPluginsInput): Promise<Plugin
   const filterByName = input.pluginName ?? null;
 
   if (filterByName && !allConfigured.some((plugin) => plugin.name === filterByName)) {
-    return [{ level: "error", plugin: filterByName, message: `plugin is not configured; run weacpx plugin add ${filterByName}` }];
+    return [{ level: "error", plugin: filterByName, message: `plugin is not configured; run xacpx plugin add ${filterByName}` }];
   }
 
   const pushIfRelevant = (issue: PluginDoctorIssue) => {
@@ -68,7 +68,7 @@ export async function inspectPlugins(input: InspectPluginsInput): Promise<Plugin
 
   for (const configPlugin of allConfigured) {
     if (!(configPlugin.name in dependencies)) {
-      pushIfRelevant({ level: "error", plugin: configPlugin.name, message: `package not installed in plugin home; run weacpx plugin add ${configPlugin.name}` });
+      pushIfRelevant({ level: "error", plugin: configPlugin.name, message: `package not installed in plugin home; run xacpx plugin add ${configPlugin.name}` });
       continue;
     }
 
@@ -100,7 +100,7 @@ export async function inspectPlugins(input: InspectPluginsInput): Promise<Plugin
         plugin: configPlugin.name,
         message: configPlugin.enabled
           ? `plugin is installed and valid; channels: ${channelTypes.length > 0 ? channelTypes.join(", ") : "none"}`
-          : `plugin is installed and valid but disabled; run weacpx plugin enable ${configPlugin.name}`,
+          : `plugin is installed and valid but disabled; run xacpx plugin enable ${configPlugin.name}`,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -116,7 +116,7 @@ export async function inspectPlugins(input: InspectPluginsInput): Promise<Plugin
       if (!filterByName) {
         issues.push({
           level: "error",
-          message: `channel ${channel.type} is configured but no enabled plugin provides it; run weacpx plugin add ${suggestedPluginPackageForChannel(channel.type)} or another plugin that provides type "${channel.type}"`,
+          message: `channel ${channel.type} is configured but no enabled plugin provides it; run xacpx plugin add ${suggestedPluginPackageForChannel(channel.type)} or another plugin that provides type "${channel.type}"`,
         });
       }
       continue;
@@ -125,7 +125,7 @@ export async function inspectPlugins(input: InspectPluginsInput): Promise<Plugin
       pushIfRelevant({
         level: "error",
         plugin: provider.plugin,
-        message: `channel ${channel.type} is configured but provider plugin is disabled; run weacpx plugin enable ${provider.plugin}`,
+        message: `channel ${channel.type} is configured but provider plugin is disabled; run xacpx plugin enable ${provider.plugin}`,
       });
     }
   }

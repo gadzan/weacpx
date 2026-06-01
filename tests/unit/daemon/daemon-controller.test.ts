@@ -305,7 +305,7 @@ test("stop preserves runtime files when the daemon does not exit", async () => {
     },
   });
 
-  await expect(controller.stop()).rejects.toThrow("weacpx daemon did not exit within 20ms");
+  await expect(controller.stop()).rejects.toThrow("xacpx daemon did not exit within 20ms");
   expect(polls).toBeGreaterThan(0);
   await expect(Bun.file(join(dir, "daemon.pid")).exists()).resolves.toBe(true);
   await expect(Bun.file(join(dir, "status.json")).exists()).resolves.toBe(true);
@@ -395,7 +395,7 @@ test("first-run onboarding waits up to five minutes by default", async () => {
   });
 
   await expect(controller.start({ firstRunOnboarding: "payload" })).rejects.toThrow(
-    "weacpx daemon did not report ready state within 300000ms (pid 88888)",
+    "xacpx daemon did not report ready state within 300000ms (pid 88888)",
   );
 
   await rm(dir, { recursive: true, force: true });

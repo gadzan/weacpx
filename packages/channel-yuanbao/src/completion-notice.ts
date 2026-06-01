@@ -1,4 +1,4 @@
-import { toDisplaySessionAlias } from "weacpx/plugin-api";
+import { toDisplaySessionAlias } from "xacpx/plugin-api";
 
 // A-semantics completion ping for a linear-text channel (the weixin model):
 // a backgrounded session's mid-stream output was suppressed and its final

@@ -25,12 +25,12 @@ export class ActiveWeixinConsumerLockError extends Error {
   constructor(lockFilePath: string, existing: WeixinConsumerLockMetadata) {
     super(
       [
-        "weacpx Weixin consumer is already running.",
+        "xacpx Weixin consumer is already running.",
         `pid: ${existing.pid}`,
         `mode: ${existing.mode}`,
         `config: ${existing.configPath}`,
         `state: ${existing.statePath}`,
-        "Try stopping the existing instance or close the foreground `weacpx run` process before starting a new one.",
+        "Try stopping the existing instance or close the foreground `xacpx run` process before starting a new one.",
       ].join("\n"),
     );
     this.name = "ActiveWeixinConsumerLockError";

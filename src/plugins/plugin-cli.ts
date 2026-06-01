@@ -190,7 +190,7 @@ async function dependencyGuard(
     const ids = blocking.map((channel) => channel.id).join(", ");
     return {
       allow: false,
-      reason: `存在依赖该插件的频道：${ids}。请先执行 weacpx channel rm <id>（或 channel disable）后再操作。`,
+      reason: `存在依赖该插件的频道：${ids}。请先执行 xacpx channel rm <id>（或 channel disable）后再操作。`,
     };
   }
 
@@ -201,7 +201,7 @@ async function dependencyGuard(
   const ids = unknownDependents.map((channel) => `${channel.id}(${channel.type})`).join(", ");
   return {
     allow: false,
-    reason: `无法确定插件 ${pluginName} 提供的频道类型，且当前仍配置了非内置频道：${ids}。请先 weacpx channel rm 它们或修复插件后再试。`,
+    reason: `无法确定插件 ${pluginName} 提供的频道类型，且当前仍配置了非内置频道：${ids}。请先 xacpx channel rm 它们或修复插件后再试。`,
   };
 }
 
@@ -393,7 +393,7 @@ async function updatePlugins(args: string[], deps: PluginCliDeps): Promise<numbe
           deps.print(`回滚 ${existing.name} 到 ${existing.version} 失败：${rollbackMessage}`);
         }
       } else if (!existing.version) {
-        deps.print(`无法自动回滚（${existing.name} 未锁定先前版本）；请手动 weacpx plugin add ${existing.name} 重装。`);
+        deps.print(`无法自动回滚（${existing.name} 未锁定先前版本）；请手动 xacpx plugin add ${existing.name} 重装。`);
       }
       return 1;
     }
@@ -503,13 +503,13 @@ async function knownPlugins(rawArgs: string[], deps: PluginCliDeps): Promise<num
   }
   deps.print("");
   deps.print("安装：");
-  deps.print("  weacpx plugin add <package>");
+  deps.print("  xacpx plugin add <package>");
   return 0;
 }
 
 async function maybeRestartAfterMutation(choice: RestartChoice, deps: PluginCliDeps): Promise<number> {
   if (choice === "no-restart") {
-    deps.print("配置已保存；变更会在下次 `weacpx restart` 后生效。");
+    deps.print("配置已保存；变更会在下次 `xacpx restart` 后生效。");
     return 0;
   }
   const status = await deps.getDaemonStatus();
@@ -522,19 +522,19 @@ async function maybeRestartAfterMutation(choice: RestartChoice, deps: PluginCliD
   }
   if (status.state === "running") {
     if (!deps.isInteractive()) {
-      deps.print("配置已保存；daemon 正在运行，请执行 `weacpx restart` 使变更生效。");
+      deps.print("配置已保存；daemon 正在运行，请执行 `xacpx restart` 使变更生效。");
       return 0;
     }
-    const answer = (await deps.promptText("现在重启 weacpx 使变更生效？[y/N] ")).trim().toLowerCase();
+    const answer = (await deps.promptText("现在重启 xacpx 使变更生效？[y/N] ")).trim().toLowerCase();
     if (answer === "y" || answer === "yes") return await runRestart(deps);
-    deps.print("配置已保存；变更会在下次 `weacpx restart` 后生效。");
+    deps.print("配置已保存；变更会在下次 `xacpx restart` 后生效。");
     return 0;
   }
   if (status.state === "indeterminate") {
     deps.print("配置已保存；daemon 状态异常，已跳过自动重启。请先处理 stale PID/status。");
     return 0;
   }
-  deps.print("配置已保存；daemon 未运行，变更会在下次 `weacpx start` 后生效。");
+  deps.print("配置已保存；daemon 未运行，变更会在下次 `xacpx start` 后生效。");
   return 0;
 }
 
@@ -544,7 +544,7 @@ async function runRestart(deps: PluginCliDeps): Promise<number> {
   } catch (error) {
     deps.print(`配置已保存，但重启失败：${describeError(error)}`);
     deps.print(`请查看日志：${coreHomeDisplayPath("runtime", "stderr.log")}`);
-    deps.print("也可以稍后执行：weacpx start");
+    deps.print("也可以稍后执行：xacpx start");
     return 1;
   }
 }

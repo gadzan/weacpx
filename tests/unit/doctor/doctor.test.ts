@@ -103,7 +103,7 @@ test("runtime check passes on a fresh install when runtime paths are creatable",
     });
 
     expect(result.severity).toBe("pass");
-    expect(result.details?.join("\n") ?? "").toContain(`runtimeDir: ${join(home, ".weacpx", "runtime")}`);
+    expect(result.details?.join("\n") ?? "").toContain(`runtimeDir: ${join(home, ".xacpx", "runtime")}`);
     expect(probe.accessModesByPath.get(home)?.length ?? 0).toBeGreaterThan(0);
     expect(probe.accessModesByPath.get(home)?.every((mode) => mode === constants.W_OK)).toBe(true);
   } finally {
@@ -115,7 +115,7 @@ test("runtime check fails when a critical daemon path parent is not writable", a
   const home = await createTempHome();
 
   try {
-    const protectedParent = join(home, ".weacpx");
+    const protectedParent = join(home, ".xacpx");
     const probe = createRuntimeProbe({
       directories: [home, protectedParent],
       deniedAccess: [protectedParent],
@@ -170,7 +170,7 @@ test("daemon check warns when daemon is stopped", async () => {
     const result = await checkDaemon({ home });
 
     expect(result.severity).toBe("warn");
-    expect(result.suggestions ?? []).toContain("run: weacpx start");
+    expect(result.suggestions ?? []).toContain("run: xacpx start");
   } finally {
     await rm(home, { recursive: true, force: true });
   }
@@ -349,7 +349,7 @@ test("wechat check warns when no account is logged in", async () => {
       const result = await checkWechat();
 
       expect(result.severity).toBe("warn");
-      expect(result.suggestions ?? []).toContain("weacpx login");
+      expect(result.suggestions ?? []).toContain("xacpx login");
     } finally {
       if (previousStateDir === undefined) {
         delete process.env.OPENCLAW_STATE_DIR;
@@ -621,7 +621,7 @@ test("doctor orchestrator uses injected home coherently for runtime and config-b
 
   expect(seen.runtimeHome).toBe(home);
   expect(seen.daemonHome).toBe(home);
-  const expectedConfigPath = join(home, ".weacpx", "config.json");
+  const expectedConfigPath = join(home, ".xacpx", "config.json");
   expect(seen.runtimeConfigPath).toBe(expectedConfigPath);
   expect(seen.daemonConfigPath).toBe(expectedConfigPath);
   expect(seen.configPath).toBe(expectedConfigPath);

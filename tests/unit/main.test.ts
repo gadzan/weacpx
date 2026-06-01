@@ -1,9 +1,10 @@
 import { expect, mock, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { join, normalize } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 
 import { buildApp as buildAppRaw, resolveRuntimePaths } from "../../src/main";
+import { coreHomeDir } from "../../src/runtime/core-home";
 import { sameWorkspacePath } from "../../src/commands/workspace-path";
 
 type BuildAppArgs = Parameters<typeof buildAppRaw>;
@@ -614,7 +615,7 @@ test("wires orchestration into the runtime router so /delegate creates and persi
     workspace: "backend",
     transportSession: "backend:claude:backend:main",
   });
-  expect(prompt.mock.calls.at(0)?.[1]).toContain("这是来自 weacpx 的委派任务。");
+  expect(prompt.mock.calls.at(0)?.[1]).toContain("这是来自 xacpx 的委派任务。");
   expect(prompt.mock.calls.at(0)?.[1]).toContain("任务内容: review the change");
   workerPrompt.resolve({ text: "ok" });
 
@@ -1852,13 +1853,19 @@ test("falls back to the OS home directory when HOME is unset", () => {
     const normalizedStatePath = paths.statePath.replace(/\\/g, "/");
     const normalizedPerfPath = (paths.perfLogPath ?? "").replace(/\\/g, "/");
 
-    expect(normalizedConfigPath.endsWith("/.weacpx/config.json")).toBe(true);
-    expect(normalizedStatePath.endsWith("/.weacpx/state.json")).toBe(true);
-    expect(normalizedPerfPath.endsWith("/.weacpx/runtime/perf.log")).toBe(true);
+    // Derive the expected base via coreHomeDir(homedir()): it prefers ~/.xacpx
+    // but falls back to an existing legacy ~/.weacpx, so a hardcoded dir name
+    // would make this assertion machine-dependent. The test's point is the
+    // HOME-unset → homedir() fallback, not the directory name.
+    const base = coreHomeDir(homedir()).replace(/\\/g, "/");
+
+    expect(normalizedConfigPath).toBe(`${base}/config.json`);
+    expect(normalizedStatePath).toBe(`${base}/state.json`);
+    expect(normalizedPerfPath).toBe(`${base}/runtime/perf.log`);
     if (process.platform === "win32") {
       expect(paths.orchestrationSocketPath.startsWith("\\\\.\\pipe\\weacpx-orchestration-")).toBe(true);
     } else {
-      expect(paths.orchestrationSocketPath.endsWith("/.weacpx/runtime/orchestration.sock")).toBe(true);
+      expect(paths.orchestrationSocketPath.replace(/\\/g, "/")).toBe(`${base}/runtime/orchestration.sock`);
     }
   } finally {
     process.env.HOME = originalHome;
