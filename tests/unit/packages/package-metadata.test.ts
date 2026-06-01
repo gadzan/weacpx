@@ -8,7 +8,7 @@ function readJson(path: string) {
 test("root package publishes as xacpx and exposes plugin-api", () => {
   const pkg = readJson("package.json");
 
-  expect(pkg.name).toBe("xacpx");
+  expect(pkg.name).toBe("@ganglion/xacpx");
   expect(pkg.bin).toEqual({ xacpx: "./dist/cli.js" });
   expect(pkg.exports["./plugin-api"]).toEqual({
     types: "./dist/plugin-api.d.ts",
@@ -40,7 +40,7 @@ test("deprecated weacpx compat shim forwards plugin-api to xacpx", () => {
 
   expect(shim.name).toBe("weacpx");
   expect(shim.bin).toBeUndefined();
-  expect(shim.dependencies.xacpx).toBeDefined();
+  expect(shim.dependencies["@ganglion/xacpx"]).toBeDefined();
   expect(shim.exports["./plugin-api"]).toEqual({
     types: "./plugin-api.d.ts",
     default: "./plugin-api.js",

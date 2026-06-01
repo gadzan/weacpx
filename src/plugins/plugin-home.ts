@@ -7,17 +7,24 @@ import { fileURLToPath } from "node:url";
 import { coreHomeDir } from "../runtime/core-home";
 import { coreEnv } from "../runtime/core-env";
 
-// Core package names, current and renamed. weacpx is being renamed to xacpx
-// (see the rename plan); the core root resolves under either name and a
-// resolution shim is laid down for BOTH so plugins built against either
-// `weacpx/plugin-api` or `xacpx/plugin-api` keep resolving across the rename —
-// no plugin reinstall required.
-const CORE_PACKAGE_NAMES = ["weacpx", "xacpx"] as const;
+// Names the running CORE package may publish under, used only to DETECT the
+// core root by package.json name. The core was `weacpx`, then `xacpx` (the
+// command), and is published on npm as the scoped `@ganglion/xacpx` (the
+// unscoped `xacpx` is blocked by npm). All three must be recognized.
+const CORE_ROOT_NAMES = ["@ganglion/xacpx", "xacpx", "weacpx"] as const;
+
+// Bare import specifiers that channel plugins use — `import ".../plugin-api"`.
+// A resolution shim is written under node_modules/<specifier>/ for BOTH so
+// plugins built against either `weacpx/plugin-api` or `xacpx/plugin-api` keep
+// resolving across the rename — no plugin reinstall required. NOTE: the scoped
+// npm name (`@ganglion/xacpx`) is intentionally NOT here — plugins import the
+// bare `xacpx`, never `@ganglion/xacpx`.
+const SHIM_SPECIFIERS = ["weacpx", "xacpx"] as const;
 
 /**
  * Resolve the core package root directory from the running script's location.
  * Walks up the directory tree looking for the `package.json` whose name is one
- * of {@link CORE_PACKAGE_NAMES} (the bundle is emitted to `<root>/dist`, but
+ * of {@link CORE_ROOT_NAMES} (the bundle is emitted to `<root>/dist`, but
  * this tolerates deeper or monorepo nesting too). Returns null when the root
  * cannot be determined.
  */
@@ -28,7 +35,7 @@ function resolveCoreRoot(): string | null {
     for (let depth = 0; depth < 12; depth++) {
       try {
         const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8")) as { name?: string };
-        if (pkg.name && (CORE_PACKAGE_NAMES as readonly string[]).includes(pkg.name)) return dir;
+        if (pkg.name && (CORE_ROOT_NAMES as readonly string[]).includes(pkg.name)) return dir;
       } catch {
         // no/unreadable package.json at this level — keep walking up
       }
@@ -54,7 +61,7 @@ function resolveCoreRoot(): string | null {
  * (required by Node.js ESM resolution — absolute paths and `file://` URLs are
  * not valid in the `exports` map).
  *
- * A shim is written for BOTH {@link CORE_PACKAGE_NAMES} (`weacpx` and `xacpx`),
+ * A shim is written for BOTH {@link SHIM_SPECIFIERS} (`weacpx` and `xacpx`),
  * each pointing at the same bundle, so plugins built against either specifier
  * resolve regardless of which core is installed — the weacpx→xacpx rename then
  * needs no plugin reinstall. The copies are refreshed on every
@@ -64,7 +71,7 @@ async function ensureCoreResolution(pluginHome: string): Promise<void> {
   const root = resolveCoreRoot();
   if (!root) return;
   const srcJs = join(root, "dist", "plugin-api.js");
-  for (const name of CORE_PACKAGE_NAMES) {
+  for (const name of SHIM_SPECIFIERS) {
     const targetDir = join(pluginHome, "node_modules", name);
     const dstJs = join(targetDir, "plugin-api.js");
     await mkdir(targetDir, { recursive: true });

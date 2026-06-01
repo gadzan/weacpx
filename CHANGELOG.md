@@ -4,7 +4,7 @@
 
 ### Changed
 
-- **项目改名 `weacpx` → `xacpx`（寓意 `x → acp → x`）——本版头条：** 项目最初是「微信 + acpx」的桥，如今已通过插件支持飞书、元宝等多个频道，旧名已名不副实。本版完成改名：npm 包名改为 `xacpx`，CLI 命令改为 `xacpx`（**只提供 `xacpx` 一个 bin，无 `weacpx` 别名**）。所有子命令用法不变，只是把 `weacpx xxx` 换成 `xacpx xxx`。
+- **项目改名 `weacpx` → `xacpx`（寓意 `x → acp → x`）——本版头条：** 项目最初是「微信 + acpx」的桥，如今已通过插件支持飞书、元宝等多个频道，旧名已名不副实。本版完成改名：CLI 命令改为 `xacpx`（**只提供 `xacpx` 一个 bin，无 `weacpx` 别名**），npm 包名为 `@ganglion/xacpx`（与频道插件同 scope；裸名 `xacpx` 被 npm 判为与既有包 `cpx` 过近而拒绝，故用 scoped 名，安装 `npm i -g @ganglion/xacpx`）。所有子命令用法不变，把 `weacpx xxx` 换成 `xacpx xxx` 即可。
 - **0.7.x 用户一条命令平滑升级：** 在 0.7.x 上运行 `weacpx update` 会自动识别已发布的 `xacpx`，先停掉守护进程、安装 `xacpx` 再移除旧 `weacpx`（先装后删，安装失败也不会让你无 CLI 可用），并提示今后改用 `xacpx` 命令。
 - **状态目录 `~/.weacpx` → `~/.xacpx`（一次性自动迁移）：** 首次以 `xacpx` 运行时，若只存在旧的 `~/.weacpx`，会**复制**（非移动）到 `~/.xacpx`，旧目录保留作备份。若检测到旧守护进程仍在运行则跳过迁移并提示先停止，期间继续使用旧目录，避免迁移竞态。
 - **环境变量同时支持 `XACPX_*` 与 `WEACPX_*`：** 所有核心环境变量经统一入口读取，优先 `XACPX_<名>`、回退旧的 `WEACPX_<名>`，老脚本/配置无需改动即可继续工作。

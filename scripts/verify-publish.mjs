@@ -19,7 +19,7 @@ const DEFAULT_PACKAGES = [
   {
     id: "root",
     dir: ".",
-    expectedName: "xacpx",
+    expectedName: "@ganglion/xacpx",
     requiredFiles: ["dist/cli.js", "dist/plugin-api.js", "dist/plugin-api.d.ts", "README.md", "config.example.json", "package.json"],
     forbiddenPathPatterns: [
       "^dist/channels/feishu/",

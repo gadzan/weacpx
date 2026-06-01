@@ -15,7 +15,7 @@ async function createWorkspace() {
 test("readVersion resolves installed-package layout (dist/cli.js → ../package.json)", async () => {
   const root = await createWorkspace();
   try {
-    await writeFile(join(root, "package.json"), JSON.stringify({ name: "xacpx", version: "9.9.9" }));
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "@ganglion/xacpx", version: "9.9.9" }));
     await mkdir(join(root, "dist"), { recursive: true });
     const cliPath = join(root, "dist", "cli.js");
     await writeFile(cliPath, "// fake bundle\n");
@@ -30,7 +30,7 @@ test("readVersion resolves installed-package layout (dist/cli.js → ../package.
 test("readVersion resolves dev/source layout (src/version.ts → ../package.json)", async () => {
   const root = await createWorkspace();
   try {
-    await writeFile(join(root, "package.json"), JSON.stringify({ name: "xacpx", version: "1.2.3" }));
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "@ganglion/xacpx", version: "1.2.3" }));
     await mkdir(join(root, "src"), { recursive: true });
     const sourcePath = join(root, "src", "version.ts");
     await writeFile(sourcePath, "// dev source\n");
@@ -74,7 +74,7 @@ test("readVersion returns unknown when no candidate package.json exists", async 
 test("readVersion uses dev fallback when first candidate is missing", async () => {
   const root = await createWorkspace();
   try {
-    await writeFile(join(root, "package.json"), JSON.stringify({ name: "xacpx", version: "2.0.0" }));
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "@ganglion/xacpx", version: "2.0.0" }));
     await mkdir(join(root, "src", "nested"), { recursive: true });
     const sourcePath = join(root, "src", "nested", "deep.ts");
     await writeFile(sourcePath, "// dev source from a deeper path\n");
