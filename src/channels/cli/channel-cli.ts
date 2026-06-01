@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import type { AppConfig, ChannelRuntimeConfig } from "../../config/types";
+import { coreHomeDisplayPath } from "../../runtime/core-home";
 import { getChannelCliProvider, listChannelCliProviders } from "./registry";
 import type { ChannelCliIo, ChannelCliProvider, ChannelCliValidationIssue } from "./provider";
 import { getMovedChannelInstallHint } from "../create-channel";
@@ -310,7 +311,7 @@ async function runRestart(deps: ChannelCliDeps): Promise<number> {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     deps.print(`配置已保存，但重启失败：${message}`);
-    deps.print("请查看日志：~/.weacpx/runtime/stderr.log");
+    deps.print(`请查看日志：${coreHomeDisplayPath("runtime", "stderr.log")}`);
     deps.print("也可以稍后执行：weacpx start");
     return 1;
   }

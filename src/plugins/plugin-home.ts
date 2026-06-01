@@ -4,6 +4,8 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { coreHomeDir } from "../runtime/core-home";
+
 // Core package names, current and renamed. weacpx is being renamed to xacpx
 // (see the rename plan); the core root resolves under either name and a
 // resolution shim is laid down for BOTH so plugins built against either
@@ -114,7 +116,7 @@ export function resolvePluginHome(input: { home?: string; pluginHome?: string } 
   const envOverride = coerceMissing(process.env.WEACPX_PLUGIN_HOME);
   if (envOverride) return envOverride;
   const home = coerceMissing(input.home) ?? coerceMissing(process.env.HOME) ?? homedir();
-  return join(home, ".weacpx", "plugins");
+  return join(coreHomeDir(home), "plugins");
 }
 
 /**

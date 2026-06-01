@@ -4,6 +4,8 @@ import { homedir } from "node:os";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { coreHomeDir } from "./runtime/core-home";
+
 import { ConfigStore } from "./config/config-store";
 import { loadConfig } from "./config/load-config";
 import { ensureConfigExists } from "./config/ensure-config";
@@ -837,7 +839,7 @@ async function createCliScheduledTaskService(): Promise<ScheduledTaskService> {
 }
 
 function resolveConfigPathForCurrentEnv(): string {
-  return process.env.WEACPX_CONFIG ?? `${requireHome()}/.weacpx/config.json`;
+  return process.env.WEACPX_CONFIG ?? join(coreHomeDir(requireHome()), "config.json");
 }
 
 function resolveDaemonPathsForCurrentConfig() {

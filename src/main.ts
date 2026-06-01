@@ -3,6 +3,8 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { coreHomeDir } from "./runtime/core-home";
+
 import { CommandRouter } from "./commands/command-router";
 import { ConfigStore } from "./config/config-store";
 import { ensureConfigExists } from "./config/ensure-config";
@@ -869,12 +871,12 @@ export function resolveRuntimePaths(): RuntimePaths {
     throw new Error("Unable to resolve the current user home directory");
   }
 
-  const configPath = process.env.WEACPX_CONFIG ?? `${home}/.weacpx/config.json`;
+  const configPath = process.env.WEACPX_CONFIG ?? join(coreHomeDir(home), "config.json");
   const runtimeDir = join(dirname(configPath), "runtime");
 
   return {
     configPath,
-    statePath: process.env.WEACPX_STATE ?? `${home}/.weacpx/state.json`,
+    statePath: process.env.WEACPX_STATE ?? join(coreHomeDir(home), "state.json"),
     perfLogPath: join(runtimeDir, "perf.log"),
     orchestrationSocketPath:
       process.env.WEACPX_ORCHESTRATION_SOCKET ?? resolveDaemonOrchestrationSocketPath(runtimeDir),

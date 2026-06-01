@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 
 import type { AppConfig, PluginConfig } from "../config/types.js";
+import { coreHomeDisplayPath } from "../runtime/core-home.js";
 import { ensurePluginHome, resolvePluginHome } from "./plugin-home.js";
 import { installPluginPackage, removePluginPackage, updatePluginPackage } from "./package-manager.js";
 import { importPluginFromHome } from "./plugin-loader.js";
@@ -542,7 +543,7 @@ async function runRestart(deps: PluginCliDeps): Promise<number> {
     return await deps.restartDaemon();
   } catch (error) {
     deps.print(`配置已保存，但重启失败：${describeError(error)}`);
-    deps.print("请查看日志：~/.weacpx/runtime/stderr.log");
+    deps.print(`请查看日志：${coreHomeDisplayPath("runtime", "stderr.log")}`);
     deps.print("也可以稍后执行：weacpx start");
     return 1;
   }

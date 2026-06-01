@@ -1,5 +1,7 @@
 import { homedir } from "node:os";
+import { join } from "node:path";
 
+import { coreHomeDir } from "../runtime/core-home";
 import { resolveRuntimeDirFromConfigPath } from "../daemon/daemon-files";
 import {
   createOrchestrationEndpoint,
@@ -19,7 +21,7 @@ export function resolveDefaultOrchestrationEndpoint(
   const configPath =
     typeof env.WEACPX_CONFIG === "string" && env.WEACPX_CONFIG.trim().length > 0
       ? env.WEACPX_CONFIG.trim()
-      : `${home}/.weacpx/config.json`;
+      : join(coreHomeDir(home), "config.json");
   const runtimeDir = resolveRuntimeDirFromConfigPath(configPath);
   return resolveOrchestrationEndpoint(runtimeDir, platform);
 }

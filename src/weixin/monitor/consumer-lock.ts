@@ -2,6 +2,8 @@ import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 
+import { coreHomeDir } from "../../runtime/core-home";
+
 export interface WeixinConsumerLockMetadata {
   pid: number;
   mode: "foreground" | "daemon";
@@ -55,7 +57,7 @@ interface CreateWeixinConsumerLockOptions {
 export function createWeixinConsumerLock(
   options: CreateWeixinConsumerLockOptions = {},
 ): WeixinConsumerLock {
-  const lockFilePath = options.lockFilePath ?? join(homedir(), ".weacpx", "runtime", "weixin-consumer.lock.json");
+  const lockFilePath = options.lockFilePath ?? join(coreHomeDir(homedir()), "runtime", "weixin-consumer.lock.json");
   const isProcessRunning = options.isProcessRunning ?? defaultIsProcessRunning;
   const onDiagnostic = options.onDiagnostic;
 

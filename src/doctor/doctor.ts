@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { coreHomeDir } from "../runtime/core-home";
 import { loadConfig } from "../config/load-config";
 import type { AppConfig } from "../config/types";
 import { resolveRuntimePaths, type RuntimePaths } from "../main";
@@ -115,8 +116,8 @@ function resolveDoctorRuntimePaths(home: string, resolver?: () => RuntimePaths):
   }
 
   return {
-    configPath: join(home, ".weacpx", "config.json"),
-    statePath: join(home, ".weacpx", "state.json"),
+    configPath: join(coreHomeDir(home), "config.json"),
+    statePath: join(coreHomeDir(home), "state.json"),
   };
 }
 

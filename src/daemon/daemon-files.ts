@@ -1,5 +1,6 @@
 import { dirname, join } from "node:path";
 
+import { coreHomeDir } from "../runtime/core-home";
 import { resolveOrchestrationEndpoint } from "../orchestration/orchestration-ipc";
 
 export interface DaemonPaths {
@@ -18,7 +19,7 @@ interface ResolveDaemonPathsOptions {
 }
 
 export function resolveDaemonPaths(options: ResolveDaemonPathsOptions): DaemonPaths {
-  const runtimeDir = options.runtimeDir ?? (options.configPath ? resolveRuntimeDirFromConfigPath(options.configPath) : join(options.home, ".weacpx", "runtime"));
+  const runtimeDir = options.runtimeDir ?? (options.configPath ? resolveRuntimeDirFromConfigPath(options.configPath) : join(coreHomeDir(options.home), "runtime"));
 
   return {
     runtimeDir,

@@ -4,6 +4,7 @@ import { createWriteStream, type WriteStream } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { coreHomeDir } from "../runtime/core-home";
 import type { AutoInstallStepError } from "./errors";
 import type { DiscoveredParentPath, PackageManager } from "./discover-parent-package-paths";
 
@@ -182,7 +183,7 @@ const defaultRunCli: CliRunner = async (cmd, args, options) => {
 };
 
 const defaultLogSink: LogSinkFactory = async () => {
-  const dir = join(homedir(), ".weacpx", "logs");
+  const dir = join(coreHomeDir(homedir()), "logs");
   await mkdir(dir, { recursive: true });
   const timestamp = new Date().toISOString().replace(/[:.]/g, "").replace(/-/g, "");
   const path = join(dir, `auto-install-${timestamp}.log`);
