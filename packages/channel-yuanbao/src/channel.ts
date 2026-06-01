@@ -577,6 +577,11 @@ export class YuanbaoChannel implements MessageChannelRuntime {
         } catch (error) {
           queue.abort();
           heartbeat.stop();
+          // A shutdown abort surfaced as a thrown rejection is not a turn
+          // failure: don't record a background error or ping the user, and
+          // don't rethrow the abort noise. (Mirrors the post-await isAborted
+          // check above; weixin guards the same case with isAbortError.)
+          if (this.isAborted()) return;
           // A backgrounded turn that errored records its failure for switch-back
           // + pings instead of throwing into the void (no foreground chat is
           // listening for it anymore).

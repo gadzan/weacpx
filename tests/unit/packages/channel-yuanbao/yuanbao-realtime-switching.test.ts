@@ -191,3 +191,32 @@ test("a backgrounded turn that errors records an error result and pings failure"
   expect(sessions.setCalls[0]!.result.text).toContain("执行出错");
   expect(sent.some((t) => t.includes("失败"))).toBe(true);
 });
+
+test("a shutdown abort thrown mid-turn is NOT recorded as a background error", async () => {
+  const sent: string[] = [];
+  let startInput: YuanbaoGatewayStartInput | null = null;
+  const gateway: YuanbaoGateway = {
+    start: async (input) => { startInput = input; },
+    sendText: async (input) => { sent.push(input.text); },
+  };
+  const channel = new YuanbaoChannel(config, { createGateway: () => gateway });
+  const controller = new AbortController();
+  // Agent aborts the channel mid-turn, then throws (as a transport would on
+  // shutdown) — the turn body started before the abort, so it reaches catch.
+  const agent: ChatAgent = {
+    async chat() {
+      controller.abort();
+      throw new Error("aborted");
+    },
+  };
+  await channel.start({ agent, abortSignal: controller.signal, quota: createNoopQuota(), logger: createNoopLogger() });
+
+  const sessions = switchedAwaySessions("yuanbao:default:user_001:codex", "yuanbao:default:user_001:other");
+  (channel as any).sessions = sessions.stub;
+
+  await startInput!.onMessage(directText("帮我跑个任务", "m6"));
+
+  // A shutdown is not a turn failure: nothing stored, no failure ping.
+  expect(sessions.setCalls).toHaveLength(0);
+  expect(sent.some((t) => t.includes("失败"))).toBe(false);
+});
