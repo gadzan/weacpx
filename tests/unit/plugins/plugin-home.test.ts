@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { homedir, tmpdir } from "node:os";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { normalizePluginHomeManifest, resolvePluginHome } from "../../../src/plugins/plugin-home.js";
+import { pathToFileURL } from "node:url";
+import { ensurePluginHome, normalizePluginHomeManifest, resolvePluginHome } from "../../../src/plugins/plugin-home.js";
 
 const ORIGINAL_HOME = process.env.HOME;
 const ORIGINAL_PLUGIN_HOME = process.env.WEACPX_PLUGIN_HOME;
@@ -122,6 +123,71 @@ describe("normalizePluginHomeManifest", () => {
       await writeFile(manifest, "{ not valid json ]");
       expect(await normalizePluginHomeManifest(dir)).toBe(false);
       expect(await readFile(manifest, "utf8")).toBe("{ not valid json ]");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// Regression: channel plugins are built with `--external weacpx`, so their
+// `import { ... } from "weacpx/plugin-api"` (runtime VALUE import, e.g. the
+// realtime-switching helpers in the Feishu channel) must resolve from the
+// plugin home's node_modules at runtime. Before the shim, installing the
+// Feishu plugin crashed with `Cannot find package 'weacpx'`. `ensurePluginHome`
+// now lays down a `node_modules/weacpx/` shim that copies the running
+// `dist/plugin-api.js` and exposes it via a relative `exports` map.
+describe("ensurePluginHome — weacpx/plugin-api resolution shim", () => {
+  it("creates a node_modules/weacpx shim with a relative ./plugin-api export", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "weacpx-shim-"));
+    try {
+      await ensurePluginHome(dir);
+      const shimPkgPath = join(dir, "node_modules", "weacpx", "package.json");
+      const pkg = JSON.parse(await readFile(shimPkgPath, "utf8")) as {
+        name?: string;
+        type?: string;
+        exports?: Record<string, unknown>;
+      };
+      expect(pkg.name).toBe("weacpx");
+      expect(pkg.type).toBe("module");
+      // Node ESM rejects absolute paths / file:// URLs in `exports`; the target
+      // MUST be a relative "./" path into the shim itself.
+      expect(pkg.exports?.["./plugin-api"]).toBe("./plugin-api.js");
+      // The runtime bundle must be copied in alongside the manifest.
+      await access(join(dir, "node_modules", "weacpx", "plugin-api.js"));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("lets a deeply-nested plugin module resolve the bare weacpx/plugin-api specifier", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "weacpx-shim-"));
+    try {
+      await ensurePluginHome(dir);
+      // Mirror the real install layout: the plugin's built entry lives at
+      // node_modules/@scope/pkg/dist/index.mjs and imports the externalized
+      // weacpx/plugin-api by bare specifier — Node/bun must walk up to the
+      // sibling node_modules/weacpx shim to resolve it.
+      const consumerDir = join(dir, "node_modules", "@scope", "demo-plugin", "dist");
+      await mkdir(consumerDir, { recursive: true });
+      const consumer = join(consumerDir, "index.mjs");
+      await writeFile(
+        consumer,
+        [
+          'import { createConversationExecutor, resolveTurnLane, toDisplaySessionAlias } from "weacpx/plugin-api";',
+          "export const probe = {",
+          "  createsExecutor: typeof createConversationExecutor === \"function\",",
+          "  lane: resolveTurnLane(\"/ss backend\"),",
+          "  display: typeof toDisplaySessionAlias === \"function\",",
+          "};",
+        ].join("\n"),
+      );
+
+      const mod = (await import(pathToFileURL(consumer).href)) as {
+        probe: { createsExecutor: boolean; lane: string; display: boolean };
+      };
+      expect(mod.probe.createsExecutor).toBe(true);
+      expect(mod.probe.display).toBe(true);
+      expect(mod.probe.lane).toBe("control");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
