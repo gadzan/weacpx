@@ -663,8 +663,10 @@ export class FeishuChannel implements MessageChannelRuntime {
         // outcome (done/error) AND its session is no longer the chat's
         // foreground session, its streaming card already ran to completion in
         // the timeline. Record a completion SIGNAL (empty text — switch-back
-        // does NOT replay) so /sessions shows ●, and send a short ping to the
-        // foreground chat. A "skipped" turn never ran, so it records nothing.
+        // does NOT replay) so /sessions shows ●, and send a short ping into the
+        // chat (chatId, replying to the original message). The Feishu chat is
+        // fixed — session switching is logical within it — so chatId is exactly
+        // where the user now is. A "skipped" turn never ran, so it records nothing.
         if (turnStatus !== "skipped" && this.sessions && this.sessions.peekCurrentSessionAlias(chatKey) !== boundAlias) {
           await this.sessions.setBackgroundResult(chatKey, boundAlias, {
             text: "",

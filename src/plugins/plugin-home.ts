@@ -6,24 +6,24 @@ import { fileURLToPath } from "node:url";
 
 /**
  * Resolve the weacpx package root directory from the running script's location.
- * Returns null when the root cannot be determined (e.g. unknown install layout).
+ * Walks up the directory tree looking for the `package.json` whose name is
+ * "weacpx" (the bundle is emitted to `<root>/dist`, but this tolerates deeper
+ * or monorepo nesting too). Returns null when the root cannot be determined.
  */
 function resolveWeacpxRoot(): string | null {
   try {
-    const here = dirname(fileURLToPath(import.meta.url));
-    const candidates = [
-      join(here, "..", ".."),
-      join(here, ".."),
-    ];
-    for (const candidate of candidates) {
+    let dir = dirname(fileURLToPath(import.meta.url));
+    // Bounded walk-up: stops at the filesystem root or after a generous depth.
+    for (let depth = 0; depth < 12; depth++) {
       try {
-        const pkgPath = join(candidate, "package.json");
-        const raw = readFileSync(pkgPath, "utf-8");
-        const pkg = JSON.parse(raw) as { name?: string };
-        if (pkg.name === "weacpx") return candidate;
+        const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf-8")) as { name?: string };
+        if (pkg.name === "weacpx") return dir;
       } catch {
-        // try next candidate
+        // no/unreadable package.json at this level — keep walking up
       }
+      const parent = dirname(dir);
+      if (parent === dir) break; // reached the filesystem root
+      dir = parent;
     }
     return null;
   } catch {
@@ -48,11 +48,25 @@ function resolveWeacpxRoot(): string | null {
 async function ensureWeacpxResolution(pluginHome: string): Promise<void> {
   const root = resolveWeacpxRoot();
   if (!root) return;
-  const targetDir = join(pluginHome, "node_modules", "weacpx");
-  await mkdir(targetDir, { recursive: true });
   const srcJs = join(root, "dist", "plugin-api.js");
+  const targetDir = join(pluginHome, "node_modules", "weacpx");
   const dstJs = join(targetDir, "plugin-api.js");
-  await copyFile(srcJs, dstJs).catch(() => {});
+  await mkdir(targetDir, { recursive: true });
+  // Copy the runtime bundle FIRST. If it is missing (e.g. weacpx was not built)
+  // or the copy fails, skip writing the shim manifest entirely — a package.json
+  // whose `./plugin-api` export points at a nonexistent file would only fail
+  // later with a more confusing "Cannot find module './plugin-api.js'". A loud
+  // warning beats a silently broken shim.
+  try {
+    await copyFile(srcJs, dstJs);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `weacpx: skipped plugin-api resolution shim — could not copy ${srcJs} (${message}). ` +
+        `Channel plugins importing "weacpx/plugin-api" at runtime may fail to load.`,
+    );
+    return;
+  }
   await writeFile(
     join(targetDir, "package.json"),
     JSON.stringify({
