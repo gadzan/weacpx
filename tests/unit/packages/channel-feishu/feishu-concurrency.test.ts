@@ -5,7 +5,7 @@ import { FeishuChannel } from "../../../../packages/channel-feishu/src/channel";
 import type { FeishuMessageEvent } from "../../../../packages/channel-feishu/src/types";
 
 function makeChannel(): FeishuChannel {
-  return new FeishuChannel({ appId: "cli_test", appSecret: "secret_test", enabled: false });
+  return new FeishuChannel({ enabled: true, accounts: [{ appId: "cli_test", appSecret: "secret_test", enabled: false }] });
 }
 
 function textEvent(chatId: string, text: string, messageId: string): FeishuMessageEvent {

@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 import { FeishuChannel } from "../../../../packages/channel-feishu/src/channel";
 
 function makeChannel(): FeishuChannel {
-  return new FeishuChannel({ appId: "cli_test", appSecret: "secret_test", enabled: false });
+  return new FeishuChannel({ enabled: true, accounts: [{ appId: "cli_test", appSecret: "secret_test", enabled: false }] });
 }
 
 function createNoopLogger() {
