@@ -315,7 +315,12 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
         print,
         isInteractive: deps.isInteractive,
         promptText: deps.promptText,
-        overrides: deps.updateCliDeps,
+        overrides: {
+          // Stop a running daemon before a weacpx→xacpx rename migration, so no
+          // old-named daemon is left holding the channel connection.
+          stopDaemon: async () => { await (deps.controller ?? createDefaultController(deps)).stop(); },
+          ...deps.updateCliDeps,
+        },
       })))(args.slice(1));
       if (result === null) {
         for (const line of HELP_LINES) print(line);
