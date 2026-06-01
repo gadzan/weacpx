@@ -2,7 +2,7 @@ import type { Agent } from "../agent/interface.js";
 import { getUpdates } from "../api/api.js";
 import { WeixinConfigManager } from "../api/config-cache.js";
 import { SESSION_EXPIRED_ERRCODE, pauseSession } from "../api/session-guard.js";
-import { createConversationExecutor } from "../messaging/conversation-executor.js";
+import { createConversationExecutor } from "../../runtime/conversation-executor.js";
 import {
   buildWeixinChatKey,
   getWeixinMessageTurnLane,

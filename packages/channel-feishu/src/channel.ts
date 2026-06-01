@@ -1,6 +1,10 @@
 import path from "node:path";
+import { createConversationExecutor, resolveTurnLane, toDisplaySessionAlias } from "weacpx/plugin-api";
 import type {
   ChannelStartInput,
+  ConversationExecutor,
+  SessionService,
+  ActiveTurnRegistry,
   CoordinatorMessageInput,
   CreateChannelDeps,
   ScheduledChannelMessageInput,
@@ -12,7 +16,8 @@ import { parseFeishuChannelConfig } from "./config.js";
 import type { FeishuMessageEvent, FeishuResourceDescriptor } from "./types.js";
 import { createFeishuLarkClient, type FeishuLarkClient } from "./lark-client.js";
 import { MessageDedup } from "./message-dedup.js";
-import { buildFeishuQueueKey, clearFeishuQueueForAccount, enqueueFeishuChatTask } from "./chat-queue.js";
+import { buildFeishuQueueKey, clearFeishuQueueForAccount } from "./chat-queue.js";
+import { buildFeishuCompletionNotice } from "./completion-notice.js";
 import { buildFeishuConversationId, buildFeishuRouteMetadata, evaluateFeishuAccessPolicy, parseFeishuConversationId, shouldHandleFeishuMessage } from "./inbound.js";
 import { isMessageExpired } from "./message-dedup.js";
 import { sendTextFeishu, sendMediaFeishu } from "./send.js";
@@ -50,6 +55,11 @@ interface ActiveTask {
   // another's running task.
   senderOpenId: string | undefined;
   chatType: string | undefined;
+  // INTERNAL session alias this turn was dispatch-bound to (undefined for slash
+  // commands or when the sessions service is unavailable). Lets a later
+  // `/cancel <alias>` target this in-flight turn and lets completion tracking
+  // attribute the turn to its session.
+  boundAlias: string | undefined;
   typingState: TypingIndicatorState;
   abortController: AbortController;
   suppressed: boolean;
@@ -65,6 +75,9 @@ export class FeishuChannel implements MessageChannelRuntime {
   private agent: ChannelStartInput["agent"] | null = null;
   private quota: ChannelStartInput["quota"] | null = null;
   private logger: ChannelStartInput["logger"] | null = null;
+  private sessions: SessionService | null = null;
+  private activeTurns: ActiveTurnRegistry | null = null;
+  private readonly executor: ConversationExecutor = createConversationExecutor();
   // Stack per chat: when a second turn races into the queue before the first
   // body runs, both are tracked so an inbound stop message can suppress all
   // pending entries. Push on registration, splice on cleanup.
@@ -111,6 +124,8 @@ export class FeishuChannel implements MessageChannelRuntime {
     this.agent = input.agent;
     this.quota = input.quota;
     this.logger = input.logger;
+    this.sessions = input.sessions ?? null;
+    this.activeTurns = input.activeTurns ?? null;
 
     const eligible = this.config.accounts.filter((account) => account.enabled && account.configured);
     await input.logger.info("feishu.start", "starting feishu channel", {
@@ -364,6 +379,16 @@ export class FeishuChannel implements MessageChannelRuntime {
     });
     const requestText = appendSkippedAttachmentNotes(decision.text, skipped);
 
+    // Dispatch-time session binding. Capture the chat's current session the
+    // moment the message arrives; the prompt then runs against that session even
+    // if the user switches away while it waits on its per-session lane. Slash
+    // commands never bind — they act on whatever the chat resolves to when they
+    // run (and switch/cancel commands take the control lane so they preempt a
+    // running prompt for real-time switching).
+    const isSlash = requestText.trim().startsWith("/");
+    const boundAlias = isSlash ? undefined : (this.sessions?.peekCurrentSessionAlias(chatKey) ?? undefined);
+    const lane = resolveTurnLane(requestText);
+
     const { active, abortController } = this.registerActiveTask({
       accountId,
       chatId,
@@ -371,13 +396,15 @@ export class FeishuChannel implements MessageChannelRuntime {
       queueKey,
       senderOpenId: event.sender?.sender_id?.open_id,
       chatType: event.message.chat_type,
+      boundAlias,
     });
 
-    const run = enqueueFeishuChatTask({
-      accountId,
-      chatId,
-      ...(threadId ? { threadId } : {}),
-      task: () => this.runTurn({
+    if (boundAlias) this.activeTurns?.markActive(chatKey, boundAlias);
+
+    await this.executor.run(
+      chatKey,
+      lane,
+      () => this.runTurn({
         runtime,
         accountId,
         chatId,
@@ -389,9 +416,10 @@ export class FeishuChannel implements MessageChannelRuntime {
         media,
         active,
         abortController,
+        boundAlias,
       }),
-    });
-    await run.promise;
+      boundAlias,
+    );
   }
 
   /**
@@ -476,8 +504,9 @@ export class FeishuChannel implements MessageChannelRuntime {
     queueKey: string;
     senderOpenId: string | undefined;
     chatType: string | undefined;
+    boundAlias: string | undefined;
   }): { active: ActiveTask; abortController: AbortController } {
-    const { accountId, chatId, messageId, queueKey, senderOpenId, chatType } = input;
+    const { accountId, chatId, messageId, queueKey, senderOpenId, chatType, boundAlias } = input;
     const abortController = new AbortController();
     const active: ActiveTask = {
       accountId,
@@ -485,6 +514,7 @@ export class FeishuChannel implements MessageChannelRuntime {
       messageId,
       senderOpenId,
       chatType,
+      boundAlias,
       typingState: { messageId, reactionId: null },
       abortController,
       suppressed: false,
@@ -494,6 +524,30 @@ export class FeishuChannel implements MessageChannelRuntime {
     stack.push(active);
     this.activeTasks.set(queueKey, stack);
     return { active, abortController };
+  }
+
+  private async sendBackgroundCompletionNotice(input: {
+    runtime: AccountRuntime;
+    chatId: string;
+    messageId: string;
+    boundAlias: string;
+    status: "done" | "error";
+  }): Promise<void> {
+    const text = buildFeishuCompletionNotice(toDisplaySessionAlias(input.boundAlias), input.status);
+    try {
+      await this.sendReplyWithGuard({
+        runtime: input.runtime,
+        chatId: input.chatId,
+        replyToMessageId: input.messageId,
+        text,
+      });
+    } catch (error) {
+      await this.logger?.error("feishu.bg_notice.failed", "failed to send background completion notice", {
+        chatId: input.chatId,
+        boundAlias: input.boundAlias,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private async runTurn(input: {
@@ -508,8 +562,10 @@ export class FeishuChannel implements MessageChannelRuntime {
     media: ChannelMediaAttachment[];
     active: ActiveTask;
     abortController: AbortController;
+    boundAlias: string | undefined;
   }): Promise<void> {
-    const { runtime, accountId, chatId, chatType, chatKey, queueKey, messageId, requestText, media, active, abortController } = input;
+    const { runtime, accountId, chatId, chatType, chatKey, queueKey, messageId, requestText, media, active, abortController, boundAlias } = input;
+    let turnStatus: "done" | "error" = "done";
     try {
       if (!this.agent) return;
       if (active.suppressed) return;
@@ -562,7 +618,10 @@ export class FeishuChannel implements MessageChannelRuntime {
           text: requestText,
           ...(media.length > 0 ? { media } : {}),
           replyContextToken: messageId,
-          metadata: buildFeishuRouteMetadata({ chatType, senderOpenId: active.senderOpenId, chatId }),
+          metadata: {
+            ...buildFeishuRouteMetadata({ chatType, senderOpenId: active.senderOpenId, chatId }),
+            ...(boundAlias ? { boundSessionAlias: boundAlias } : {}),
+          },
           reply: safeReply,
           // Only consume the structured tool-event side-channel when we actually
           // have a card to render into. Without this gate, static-mode turns would
@@ -588,9 +647,26 @@ export class FeishuChannel implements MessageChannelRuntime {
         if (active.cardController && !active.cardController.isTerminated()) {
           await active.cardController.fail(error instanceof Error ? error.message : String(error));
         }
+        turnStatus = "error";
         throw error;
       }
     } finally {
+      if (boundAlias) {
+        this.activeTurns?.markInactive(chatKey, boundAlias);
+        // B-semantics completion awareness: if this turn's session is no
+        // longer the chat's foreground session, its streaming card already ran
+        // to completion in the timeline. Record a completion SIGNAL (empty
+        // text — switch-back does NOT replay) so /sessions shows ●, and send a
+        // short ping to the foreground chat.
+        if (this.sessions && this.sessions.peekCurrentSessionAlias(chatKey) !== boundAlias) {
+          await this.sessions.setBackgroundResult(chatKey, boundAlias, {
+            text: "",
+            status: turnStatus,
+            finished_at: new Date().toISOString(),
+          });
+          await this.sendBackgroundCompletionNotice({ runtime, chatId, messageId, boundAlias, status: turnStatus });
+        }
+      }
       const stack = this.activeTasks.get(queueKey);
       if (stack) {
         const i = stack.indexOf(active);

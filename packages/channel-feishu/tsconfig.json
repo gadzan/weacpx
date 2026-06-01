@@ -10,7 +10,7 @@
     "outDir": "dist",
     "baseUrl": "../..",
     "paths": {
-      "weacpx/plugin-api": ["dist/plugin-api.d.ts"]
+      "weacpx/plugin-api": ["dist/plugin-api"]
     },
     "ignoreDeprecations": "6.0"
   },
