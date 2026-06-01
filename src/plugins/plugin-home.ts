@@ -1,6 +1,69 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/**
+ * Resolve the weacpx package root directory from the running script's location.
+ * Returns null when the root cannot be determined (e.g. unknown install layout).
+ */
+function resolveWeacpxRoot(): string | null {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const candidates = [
+      join(here, "..", ".."),
+      join(here, ".."),
+    ];
+    for (const candidate of candidates) {
+      try {
+        const pkgPath = join(candidate, "package.json");
+        const raw = readFileSync(pkgPath, "utf-8");
+        const pkg = JSON.parse(raw) as { name?: string };
+        if (pkg.name === "weacpx") return candidate;
+      } catch {
+        // try next candidate
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ensure channel plugins can resolve `import ... from "weacpx/plugin-api"` at
+ * runtime. Plugins are built with `--external weacpx`, so the import resolves
+ * from the plugin home's `node_modules` tree.
+ *
+ * A shim at `pluginHome/node_modules/weacpx/` with a synthetic `package.json`
+ * makes the `weacpx` package resolvable. The runtime `plugin-api.js` bundle is
+ * copied into the shim so `exports["./plugin-api"]` can use a relative path
+ * (required by Node.js ESM resolution — absolute paths and `file://` URLs are
+ * not valid in the `exports` map).
+ *
+ * The copy is refreshed on every `ensurePluginHome` call so it stays in sync
+ * with the running weacpx version.
+ */
+async function ensureWeacpxResolution(pluginHome: string): Promise<void> {
+  const root = resolveWeacpxRoot();
+  if (!root) return;
+  const targetDir = join(pluginHome, "node_modules", "weacpx");
+  await mkdir(targetDir, { recursive: true });
+  const srcJs = join(root, "dist", "plugin-api.js");
+  const dstJs = join(targetDir, "plugin-api.js");
+  await copyFile(srcJs, dstJs).catch(() => {});
+  await writeFile(
+    join(targetDir, "package.json"),
+    JSON.stringify({
+      name: "weacpx",
+      type: "module",
+      exports: {
+        "./plugin-api": "./plugin-api.js",
+      },
+    }, null, 2) + "\n",
+  );
+}
 
 /**
  * Treat the literal strings "undefined" / "null" (case-insensitive) as missing
@@ -71,4 +134,5 @@ export async function ensurePluginHome(pluginHome: string): Promise<void> {
   ).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== "EEXIST") throw error;
   });
+  await ensureWeacpxResolution(pluginHome);
 }

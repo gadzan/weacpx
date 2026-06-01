@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
 
 import { normalizePluginHomeManifest } from "./plugin-home.js";
 
@@ -57,6 +59,11 @@ export async function installPluginPackage(input: {
   // Windows recording a package under both an npm version and a local path),
   // which would otherwise make the package manager choke on the lockfile.
   await normalizePluginHomeManifest(input.pluginHome);
+  // If the lockfile is already corrupt (duplicate keys), delete it so the
+  // package manager can regenerate it from a clean slate.
+  if (packageManager === "bun") {
+    await rm(join(input.pluginHome, "bun.lock"), { force: true }).catch(() => {});
+  }
   const spec = input.version ? `${input.packageName}@${input.version}` : input.packageName;
   if (packageManager === "bun") {
     await runCommand("bun", ["add", spec], { cwd: input.pluginHome });
