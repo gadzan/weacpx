@@ -210,9 +210,13 @@ test("daemon check fails gracefully when status files are broken", async () => {
       isProcessRunning: () => true,
     });
 
+    // A corrupt status.json no longer throws: DaemonStatusStore.load() returns
+    // null on a JSON parse error, so a running pid with an unreadable status
+    // surfaces as a graceful "indeterminate" fail (reason: missing-status)
+    // rather than the old read-error path. Still severity "fail", still no crash.
     expect(result.severity).toBe("fail");
-    expect(result.summary).toContain("could not be read");
-    expect(result.details?.join("\n") ?? "").toContain("status file");
+    expect(result.summary).toContain("indeterminate");
+    expect(result.details?.join("\n") ?? "").toContain("missing-status");
   } finally {
     await rm(home, { recursive: true, force: true });
   }
