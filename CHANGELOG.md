@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.1] - 2026-06-02
+
+### Fixed
+
+- **`weacpx update` 现在能真正自动迁移到改名后的核心：** weacpx 已改名为 `xacpx`，但 0.8.0 的核心在 npm 上发布为 **scoped 包 `@ganglion/xacpx`**（裸名 `xacpx` 被 npm 判为与既有包 `cpx` 过近而拒绝）。0.7.0 内置的自动迁移把后继包名硬编码成了裸 `xacpx`，导致它永远查不到、一直休眠。本补丁把后继包指向 `@ganglion/xacpx`：在 0.7.x 上运行 `weacpx update`（或 `weacpx update --all`）会停掉守护进程、安装 `@ganglion/xacpx` 再移除旧 `weacpx`（先装后删，安装失败也不会让你无 CLI 可用），并提示今后改用 `xacpx` 命令。CLI 命令名仍是 `xacpx`，只是 npm 包名带 scope。`weacpx update weacpx` / `weacpx update xacpx` / `weacpx update @ganglion/xacpx` 均可触发迁移。
+
 ## [0.6.1] - 2026-05-29
 
 ### Added

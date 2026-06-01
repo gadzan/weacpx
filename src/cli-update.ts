@@ -9,14 +9,16 @@ import { updatePluginPackage } from "./plugins/package-manager.js";
 import { importPluginFromHome } from "./plugins/plugin-loader.js";
 import { validateWeacpxPlugin } from "./plugins/validate-plugin.js";
 
-// Rename forward-compat: weacpx is being renamed to xacpx (`x → acp → x`) at
-// 0.8.0. This descriptor lets a `weacpx update` running on 0.7.x cross over to
-// the renamed package on its own. It stays DORMANT until xacpx is actually
-// published at >= minVersion — until then `npm view xacpx version` returns
+// Rename forward-compat: weacpx was renamed to xacpx (`x → acp → x`) at 0.8.0.
+// The renamed core is published on npm as the SCOPED package `@ganglion/xacpx`
+// (npm blocks the unscoped `xacpx` as too similar to `cpx`); the CLI command is
+// still `xacpx`. This descriptor lets a `weacpx update` running on 0.7.x cross
+// over to the renamed package on its own. It stays DORMANT until the successor
+// is actually published at >= minVersion — until then `npm view` returns
 // nothing and self-update behaves exactly as before. The `from` guard means
-// the code is inert once it ships inside xacpx itself (current package is no
-// longer "weacpx"), so the renamed package never tries to migrate to itself.
-const SUCCESSOR = { from: "weacpx", package: "xacpx", minVersion: "0.8.0" } as const;
+// the code is inert once it ships inside the renamed package itself (current
+// package is no longer "weacpx"), so it never tries to migrate to itself.
+const SUCCESSOR = { from: "weacpx", package: "@ganglion/xacpx", command: "xacpx", minVersion: "0.8.0" } as const;
 
 export interface UpdateCliDeps {
   loadConfig: () => Promise<AppConfig>;
@@ -148,7 +150,7 @@ export async function handleUpdateCli(args: string[], deps: UpdateCliDeps): Prom
           // leaves the user with no working CLI).
           await stopDaemon();
           await selfMigrator({ from: target.name, to: successorPackage, toVersion: target.latestVersion ?? undefined });
-          deps.print(`weacpx 已更名为 ${successorPackage}，已迁移至 ${successorPackage} ${target.latestVersion ?? "latest"}。今后请使用 \`${successorPackage}\` 命令；若此前在后台运行，请用 \`${successorPackage} start\` 重新启动。`);
+          deps.print(`weacpx 已更名为 ${successorPackage}（命令为 \`${SUCCESSOR.command}\`），已安装 ${successorPackage} ${target.latestVersion ?? "latest"} 并移除旧的 weacpx。今后请使用 \`${SUCCESSOR.command}\` 命令；若此前在后台运行，请用 \`${SUCCESSOR.command} start\` 重新启动。`);
           continue;
         }
         await selfUpdater(target.name);
@@ -206,7 +208,7 @@ async function selectTargets(
 ): Promise<{ ok: true; targets: UpdateTarget[] } | { ok: false; message: string; exitCode: number }> {
   if (input.explicitTarget) {
     const target = targets.find((entry) => entry.name === input.explicitTarget
-      || (entry.kind === "self" && (input.explicitTarget === "weacpx" || input.explicitTarget === entry.successorPackage)));
+      || (entry.kind === "self" && (input.explicitTarget === "weacpx" || input.explicitTarget === SUCCESSOR.command || input.explicitTarget === entry.successorPackage)));
     if (!target) return { ok: false, message: `没有找到更新项：${input.explicitTarget}`, exitCode: 1 };
     if (!target.latestVersion) return { ok: false, message: `${target.name} 无法检查最新版本，已跳过。`, exitCode: 1 };
     if (target.kind === "plugin" && !target.pinned) return { ok: false, message: `${target.name} 未记录当前版本；请先使用 \`weacpx plugin update ${target.name}\` 或显式选择版本。`, exitCode: 1 };

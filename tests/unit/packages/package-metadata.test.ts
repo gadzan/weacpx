@@ -16,10 +16,10 @@ test("root package publishes as weacpx and exposes plugin-api", () => {
   });
 });
 
-test("root package version is 0.7.0", () => {
+test("root package version is 0.7.1", () => {
   const pkg = readJson("package.json");
 
-  expect(pkg.version).toBe("0.7.0");
+  expect(pkg.version).toBe("0.7.1");
 });
 
 test("first-party channel plugins peer depend on weacpx", () => {
