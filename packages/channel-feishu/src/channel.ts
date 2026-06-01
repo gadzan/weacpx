@@ -17,6 +17,7 @@ import type { FeishuMessageEvent, FeishuResourceDescriptor } from "./types.js";
 import { createFeishuLarkClient, type FeishuLarkClient } from "./lark-client.js";
 import { MessageDedup } from "./message-dedup.js";
 import { buildFeishuQueueKey, clearFeishuQueueForAccount } from "./chat-queue.js";
+import { buildFeishuCompletionNotice } from "./completion-notice.js";
 import { buildFeishuConversationId, buildFeishuRouteMetadata, evaluateFeishuAccessPolicy, parseFeishuConversationId, shouldHandleFeishuMessage } from "./inbound.js";
 import { isMessageExpired } from "./message-dedup.js";
 import { sendTextFeishu, sendMediaFeishu } from "./send.js";
@@ -525,6 +526,30 @@ export class FeishuChannel implements MessageChannelRuntime {
     return { active, abortController };
   }
 
+  private async sendBackgroundCompletionNotice(input: {
+    runtime: AccountRuntime;
+    chatId: string;
+    messageId: string;
+    boundAlias: string;
+    status: "done" | "error";
+  }): Promise<void> {
+    const text = buildFeishuCompletionNotice(toDisplaySessionAlias(input.boundAlias), input.status);
+    try {
+      await this.sendReplyWithGuard({
+        runtime: input.runtime,
+        chatId: input.chatId,
+        replyToMessageId: input.messageId,
+        text,
+      });
+    } catch (error) {
+      await this.logger?.error("feishu.bg_notice.failed", "failed to send background completion notice", {
+        chatId: input.chatId,
+        boundAlias: input.boundAlias,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   private async runTurn(input: {
     runtime: AccountRuntime;
     accountId: string;
@@ -540,6 +565,7 @@ export class FeishuChannel implements MessageChannelRuntime {
     boundAlias: string | undefined;
   }): Promise<void> {
     const { runtime, accountId, chatId, chatType, chatKey, queueKey, messageId, requestText, media, active, abortController, boundAlias } = input;
+    let turnStatus: "done" | "error" = "done";
     try {
       if (!this.agent) return;
       if (active.suppressed) return;
@@ -621,9 +647,26 @@ export class FeishuChannel implements MessageChannelRuntime {
         if (active.cardController && !active.cardController.isTerminated()) {
           await active.cardController.fail(error instanceof Error ? error.message : String(error));
         }
+        turnStatus = "error";
         throw error;
       }
     } finally {
+      if (boundAlias) {
+        this.activeTurns?.markInactive(chatKey, boundAlias);
+        // B-semantics completion awareness: if this turn's session is no
+        // longer the chat's foreground session, its streaming card already ran
+        // to completion in the timeline. Record a completion SIGNAL (empty
+        // text — switch-back does NOT replay) so /sessions shows ●, and send a
+        // short ping to the foreground chat.
+        if (this.sessions && this.sessions.peekCurrentSessionAlias(chatKey) !== boundAlias) {
+          await this.sessions.setBackgroundResult(chatKey, boundAlias, {
+            text: "",
+            status: turnStatus,
+            finished_at: new Date().toISOString(),
+          });
+          await this.sendBackgroundCompletionNotice({ runtime, chatId, messageId, boundAlias, status: turnStatus });
+        }
+      }
       const stack = this.activeTasks.get(queueKey);
       if (stack) {
         const i = stack.indexOf(active);
