@@ -1,6 +1,10 @@
-import { expect, mock, test } from "bun:test";
+import { expect, mock, test, beforeEach, afterAll } from "bun:test";
 
 import { sendOrchestrationTaskNotice } from "../../../src/weixin/messaging/send-orchestration-notice";
+import { setLocale } from "../../../src/i18n";
+
+beforeEach(() => { setLocale("zh"); });
+afterAll(() => { setLocale("en"); });
 
 test("sends a completion notice for a completed task with reply context", async () => {
   const sendMessage = mock(async () => ({ messageId: "msg-1" }));

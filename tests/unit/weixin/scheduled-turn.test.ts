@@ -1,7 +1,11 @@
-import { expect, mock, test } from "bun:test";
+import { expect, mock, test, beforeEach, afterAll } from "bun:test";
 
 import { executeScheduledTurn } from "../../../src/weixin/messaging/scheduled-turn";
 import type { Agent } from "../../../src/weixin/agent/interface";
+import { setLocale } from "../../../src/i18n";
+
+beforeEach(() => { setLocale("zh"); });
+afterAll(() => { setLocale("en"); });
 
 function createLogger() {
   return {

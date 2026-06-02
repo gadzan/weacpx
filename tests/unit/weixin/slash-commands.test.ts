@@ -1,8 +1,12 @@
-import { describe, expect, test, beforeEach } from "bun:test";
+import { describe, expect, test, beforeEach, afterAll } from "bun:test";
 
 import { drainPendingFinalForJx } from "../../../src/weixin/messaging/slash-commands";
 import type { PendingFinalChunk } from "../../../src/weixin/messaging/quota-manager";
 import type { SlashCommandContext } from "../../../src/weixin/messaging/slash-commands";
+import { setLocale } from "../../../src/i18n";
+
+beforeEach(() => { setLocale("zh"); });
+afterAll(() => { setLocale("en"); });
 
 const sentTexts: string[] = [];
 
