@@ -18,8 +18,8 @@ function buildHelpTopics(): HelpTopicMetadata[] {
   return [
     sessionHelp(),
     nativeSessionHelp(),
-    workspaceHelp,
-    agentHelp,
+    workspaceHelp(),
+    agentHelp(),
     permissionHelp,
     configHelp,
     orchestrationHelp,

@@ -1,10 +1,11 @@
-import { expect, test } from "bun:test";
+import { expect, test, beforeEach } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { CommandRouter } from "../../../src/commands/command-router";
 import { listAgentTemplates } from "../../../src/config/agent-templates";
 import { normalizeWorkspacePath } from "../../../src/commands/workspace-path";
+import { setLocale, t } from "../../../src/i18n";
 import {
   MemoryConfigStore,
   MemoryStateStore,
@@ -14,6 +15,10 @@ import {
   createTransport,
   getUpdatePermissionPolicyMock,
 } from "./command-router-test-support";
+
+beforeEach(() => {
+  setLocale("zh");
+});
 
 test("returns help text", async () => {
   const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
@@ -340,7 +345,7 @@ test("adds a claude agent from the built-in template and reflects it in /agents"
   const addReply = await router.handle("wx:user", "/agent add claude");
   const listReply = await router.handle("wx:user", "/agents");
 
-  expect(addReply.text).toBe('Agent「claude」已保存');
+  expect(addReply.text).toBe(t().agent.saved("claude"));
   expect(config.agents.claude).toEqual({ driver: "claude" });
   expect(listReply.text).toBe(["已注册的 Agent：", "- codex", "- claude"].join("\n"));
 });
@@ -354,7 +359,7 @@ test("adds a codex agent from the built-in template", async () => {
 
   const reply = await router.handle("wx:user", "/agent add codex");
 
-  expect(reply.text).toBe('Agent「codex」已保存');
+  expect(reply.text).toBe(t().agent.saved("codex"));
   expect(config.agents.codex).toEqual({
     driver: "codex",
   });
@@ -368,7 +373,7 @@ test("adds an acpx built-in agent from the built-in template", async () => {
 
   const reply = await router.handle("wx:user", "/agent add kimi");
 
-  expect(reply.text).toBe('Agent「kimi」已保存');
+  expect(reply.text).toBe(t().agent.saved("kimi"));
   expect(config.agents.kimi).toEqual({
     driver: "kimi",
   });
@@ -384,12 +389,12 @@ test("/agent add is idempotent and refuses to overwrite a different existing con
   const existingReply = await router.handle("wx:user", "/agent add codex");
   const customReply = await router.handle("wx:user", "/agent add qwen");
 
-  expect(existingReply.text).toBe("Agent「codex」已存在");
-  expect(customReply.text).toBe("Agent「qwen」已存在且配置不同。请先执行 /agent rm qwen");
+  expect(existingReply.text).toBe(t().agent.alreadyExists("codex"));
+  expect(customReply.text).toBe(t().agent.alreadyExistsDifferent("qwen"));
   expect(config.agents.qwen).toEqual({ driver: "qwen", command: "custom-qwen" });
 });
 
-test("returns a chinese hint for unknown agent templates", async () => {
+test("returns a hint for unknown agent templates", async () => {
   const config = createConfig();
   const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
   const transport = createTransport();
@@ -397,7 +402,7 @@ test("returns a chinese hint for unknown agent templates", async () => {
 
   const reply = await router.handle("wx:user", "/agent add unknown");
 
-  expect(reply.text).toBe(`暂不支持这个 Agent 模板。当前可用：${listAgentTemplates().join("、")}`);
+  expect(reply.text).toBe(t().agent.unsupportedTemplate(listAgentTemplates().join("、")));
 });
 
 test("removes an agent and reflects it in /agents", async () => {
@@ -410,14 +415,14 @@ test("removes an agent and reflects it in /agents", async () => {
   const removeReply = await router.handle("wx:user", "/agent rm claude");
   const listReply = await router.handle("wx:user", "/agents");
 
-  expect(removeReply.text).toBe('Agent「claude」已删除');
+  expect(removeReply.text).toBe(t().agent.removed("claude"));
   expect(config.agents).toEqual({
     codex: { driver: "codex" },
   });
   expect(listReply.text).toBe(["已注册的 Agent：", "- codex"].join("\n"));
 });
 
-test("returns a chinese hint when removing an unknown agent", async () => {
+test("returns a hint when removing an unknown agent", async () => {
   const config = createConfig();
   const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
   const transport = createTransport();
@@ -425,7 +430,7 @@ test("returns a chinese hint when removing an unknown agent", async () => {
 
   const reply = await router.handle("wx:user", "/agent rm missing");
 
-  expect(reply.text).toBe("没有找到这个 Agent。");
+  expect(reply.text).toBe(t().agent.notFound);
 });
 
 test("renders workspaces in Chinese", async () => {
@@ -460,7 +465,7 @@ test("creates a workspace via command and lists it immediately", async () => {
   const createReply = await router.handle("wx:user", `/workspace new frontend --cwd "${dir}"`);
   const listReply = await router.handle("wx:user", "/workspaces");
 
-  expect(createReply.text).toBe('工作区「frontend」已保存');
+  expect(createReply.text).toBe(t().workspace.saved("frontend"));
   expect(listReply.text).toBe(
     ["已注册的工作区：", "- backend: /tmp/backend", `- frontend: ${normalizeWorkspacePath(dir)}`].join("\n"),
   );
@@ -477,7 +482,7 @@ test("creates a workspace via the short alias and cwd flag", async () => {
 
   const reply = await router.handle("wx:user", `/ws new frontend -d "${dir}"`);
 
-  expect(reply.text).toBe('工作区「frontend」已保存');
+  expect(reply.text).toBe(t().workspace.saved("frontend"));
   expect(config.workspaces.frontend).toEqual({ cwd: normalizeWorkspacePath(dir) });
 
   await rm(dir, { recursive: true, force: true });
@@ -494,8 +499,7 @@ test("/ws new sanitizes a name with spaces and reports the rewrite", async () =>
     const reply = await router.handle("wx:user", `/ws new "My Repo" -d "${dir}"`);
 
     expect(reply.text).toBe(
-      '名称 "My Repo" 含有特殊字符，已保存为「My-Repo」。如需保留原名请加 --raw。\n' +
-        "工作区「My-Repo」已保存",
+      t().workspace.nameSanitized("My Repo", "My-Repo") + "\n" + t().workspace.saved("My-Repo"),
     );
     expect(config.workspaces["My-Repo"]).toEqual({ cwd: normalizeWorkspacePath(dir) });
     expect(config.workspaces["My Repo"]).toBeUndefined();
@@ -514,7 +518,7 @@ test("/ws new --raw keeps a name with spaces", async () => {
 
     const reply = await router.handle("wx:user", `/ws new "My Repo" -d "${dir}" --raw`);
 
-    expect(reply.text).toBe("工作区「My Repo」已保存");
+    expect(reply.text).toBe(t().workspace.saved("My Repo"));
     expect(config.workspaces["My Repo"]).toEqual({ cwd: normalizeWorkspacePath(dir) });
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -529,7 +533,7 @@ test("rejects creating a workspace when cwd does not exist", async () => {
 
   const reply = await router.handle("wx:user", '/ws new missing -d "E:\\definitely-missing\\repo"');
 
-  expect(reply.text).toContain("工作区路径不存在");
+  expect(reply.text).toBe(t().workspace.pathNotFound("E:\\definitely-missing\\repo"));
   expect(config.workspaces.missing).toBeUndefined();
 });
 
@@ -542,7 +546,7 @@ test("removes a workspace via command", async () => {
 
   const reply = await router.handle("wx:user", "/workspace rm frontend");
 
-  expect(reply.text).toBe('工作区「frontend」已删除');
+  expect(reply.text).toBe(t().workspace.removed("frontend"));
   expect(config.workspaces).toEqual({
     backend: { cwd: "/tmp/backend" },
   });

@@ -4,5 +4,7 @@ import { session } from "./session";
 import { nativeSession } from "./native-session";
 import { recovery } from "./recovery";
 import { shortcut } from "./shortcut";
+import { workspace } from "./workspace";
+import { agent } from "./agent";
 
-export const en: Messages = { common, session, nativeSession, recovery, shortcut };
+export const en: Messages = { common, session, nativeSession, recovery, shortcut, workspace, agent };

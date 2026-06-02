@@ -283,10 +283,75 @@ export interface ShortcutMessages {
   workspacePathNotFound: (cwd: string) => string;
 }
 
+export interface WorkspaceMessages {
+  // handleWorkspaceCreate — no config
+  noWritableConfig: string;
+
+  // handleWorkspaceCreate — path not found
+  pathNotFound: (cwd: string) => string;
+
+  // handleWorkspaceCreate — name sanitization notice
+  nameSanitized: (original: string, saved: string) => string;
+
+  // handleWorkspaceCreate — saved confirmation
+  saved: (name: string) => string;
+
+  // handleWorkspaceRemove — no config
+  // (reuses noWritableConfig)
+
+  // handleWorkspaceRemove — removed confirmation
+  removed: (name: string) => string;
+
+  // workspaceHelp metadata
+  helpSummary: string;
+  helpCmdList: string;
+  helpCmdListDesc: string;
+  helpCmdListOrAlias: string;
+  helpCmdListOrAliasDesc: string;
+  helpCmdNew: string;
+  helpCmdNewDesc: string;
+  helpCmdRm: string;
+  helpCmdRmDesc: string;
+}
+
+export interface AgentMessages {
+  // handleAgentAdd / handleAgentRemove — no config
+  noWritableConfig: string;
+
+  // handleAgentAdd — unsupported template
+  unsupportedTemplate: (available: string) => string;
+
+  // handleAgentAdd — already exists (identical)
+  alreadyExists: (name: string) => string;
+
+  // handleAgentAdd — already exists (different config)
+  alreadyExistsDifferent: (name: string) => string;
+
+  // handleAgentAdd — saved confirmation
+  saved: (name: string) => string;
+
+  // handleAgentRemove — not found
+  notFound: string;
+
+  // handleAgentRemove — removed confirmation
+  removed: (name: string) => string;
+
+  // agentHelp metadata
+  helpSummary: string;
+  helpCmdList: string;
+  helpCmdListDesc: string;
+  helpCmdAdd: (templates: string) => string;
+  helpCmdAddDesc: string;
+  helpCmdRm: string;
+  helpCmdRmDesc: string;
+}
+
 export interface Messages {
   common: CommonMessages;
   session: SessionMessages;
   nativeSession: NativeSessionMessages;
   recovery: RecoveryMessages;
   shortcut: ShortcutMessages;
+  workspace: WorkspaceMessages;
+  agent: AgentMessages;
 }

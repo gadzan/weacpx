@@ -11,6 +11,8 @@ const MIGRATED_PREFIXES = [
   "src/commands/handlers/native-session-handler.ts",
   "src/commands/handlers/session-recovery-handler.ts",
   "src/commands/handlers/session-shortcut-handler.ts",
+  "src/commands/handlers/workspace-handler.ts",
+  "src/commands/handlers/agent-handler.ts",
 ];
 
 const CJK = /[㐀-鿿豈-﫿]/;

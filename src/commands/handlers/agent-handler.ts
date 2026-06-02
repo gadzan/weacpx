@@ -2,55 +2,61 @@ import { renderAgents } from "../../formatting/render-text";
 import { getAgentTemplate, listAgentTemplates, sameAgentConfig } from "../../config/agent-templates";
 import type { HelpTopicMetadata } from "../help/help-types";
 import type { CommandRouterContext, RouterResponse } from "../router-types";
+import { t } from "../../i18n";
 
-export const agentHelp: HelpTopicMetadata = {
-  topic: "agent",
-  aliases: ["agents"],
-  summary: "管理已注册的 Agent。",
-  commands: [
-    { usage: "/agents", description: "查看当前已注册的 Agent" },
-    { usage: `/agent add <${listAgentTemplates().join("|")}>`, description: "添加内置 Agent 模板" },
-    { usage: "/agent rm <name>", description: "删除一个 Agent" },
-  ],
-  examples: ["/agent add claude", "/agent rm codex"],
-};
+export function agentHelp(): HelpTopicMetadata {
+  const a = t().agent;
+  return {
+    topic: "agent",
+    aliases: ["agents"],
+    summary: a.helpSummary,
+    commands: [
+      { usage: a.helpCmdList, description: a.helpCmdListDesc },
+      { usage: a.helpCmdAdd(listAgentTemplates().join("|")), description: a.helpCmdAddDesc },
+      { usage: a.helpCmdRm, description: a.helpCmdRmDesc },
+    ],
+    examples: ["/agent add claude", "/agent rm codex"],
+  };
+}
 
 export function handleAgents(context: CommandRouterContext): RouterResponse {
   return { text: context.config ? renderAgents(context.config) : "No config loaded." };
 }
 
 export async function handleAgentAdd(context: CommandRouterContext, templateName: string): Promise<RouterResponse> {
+  const a = t().agent;
   if (!context.config || !context.configStore) {
-    return { text: "当前没有加载可写入的配置。" };
+    return { text: a.noWritableConfig };
   }
 
   const template = getAgentTemplate(templateName);
   if (!template) {
-    return { text: `暂不支持这个 Agent 模板。当前可用：${listAgentTemplates().join("、")}` };
+    return { text: a.unsupportedTemplate(listAgentTemplates().join("、")) };
   }
 
   const existing = context.config.agents[templateName];
   if (existing) {
     if (sameAgentConfig(existing, template)) {
-      return { text: `Agent「${templateName}」已存在` };
+      return { text: a.alreadyExists(templateName) };
     }
-    return { text: `Agent「${templateName}」已存在且配置不同。请先执行 /agent rm ${templateName}` };
+    return { text: a.alreadyExistsDifferent(templateName) };
   }
 
   const updated = await context.configStore.upsertAgent(templateName, template);
   context.replaceConfig(updated);
-  return { text: `Agent「${templateName}」已保存` };
+  return { text: a.saved(templateName) };
 }
 
 export async function handleAgentRemove(context: CommandRouterContext, agentName: string): Promise<RouterResponse> {
+  const a = t().agent;
   if (!context.config || !context.configStore) {
-    return { text: "当前没有加载可写入的配置。" };
+    return { text: a.noWritableConfig };
   }
   if (!context.config.agents[agentName]) {
-    return { text: "没有找到这个 Agent。" };
+    return { text: a.notFound };
   }
 
   const updated = await context.configStore.removeAgent(agentName);
   context.replaceConfig(updated);
-  return { text: `Agent「${agentName}」已删除` };
+  return { text: a.removed(agentName) };
 }
