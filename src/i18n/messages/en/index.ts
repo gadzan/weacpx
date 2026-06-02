@@ -1,4 +1,5 @@
 import type { Messages } from "../../types";
 import { common } from "./common";
+import { session } from "./session";
 
-export const en: Messages = { common };
+export const en: Messages = { common, session };

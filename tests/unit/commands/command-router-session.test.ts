@@ -1,14 +1,19 @@
-import { beforeAll, expect, mock, test } from "bun:test";
+import { beforeAll, beforeEach, expect, mock, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { CommandRouter } from "../../../src/commands/command-router";
 import { getChannelIdFromChatKey, registerKnownChannelId } from "../../../src/channels/channel-scope";
 import { QuotaManager } from "../../../src/weixin/messaging/quota-manager";
+import { setLocale, t } from "../../../src/i18n";
 
 beforeAll(() => {
   registerKnownChannelId("feishu");
   registerKnownChannelId("yuanbao");
+});
+
+beforeEach(() => {
+  setLocale("zh");
 });
 import { normalizeWorkspacePath } from "../../../src/commands/workspace-path";
 import { MissingOptionalDepError, AutoInstallFailedError } from "../../../src/recovery/errors";
@@ -60,7 +65,7 @@ test("creates and selects a new session", async () => {
 
   const reply = await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
 
-  expect(reply.text).toBe('会话「api-fix」已创建并切换');
+  expect(reply.text).toBe(t().session.sessionCreated("api-fix"));
 });
 
 test("stores recovered transport agent command after session creation", async () => {
@@ -104,7 +109,7 @@ test("attaches and selects an existing session without creating it through trans
     "/session attach review --agent codex --ws backend --name existing-review",
   );
 
-  expect(reply.text).toBe('会话「review」已绑定并切换');
+  expect(reply.text).toBe(t().session.sessionAttached("review"));
   expect((transport.ensureSession as ReturnType<typeof mock>).mock.calls).toHaveLength(0);
   await expect(sessions.getCurrentSession("wx:user")).resolves.toMatchObject({
     alias: "review",
@@ -151,8 +156,7 @@ test("rejects attaching a session name that does not exist in acpx", async () =>
     "/session attach review --agent codex --ws backend --name missing-review",
   );
 
-  expect(reply.text).toContain("没有找到可绑定的已有会话");
-  expect(reply.text).toContain("/session attach review --agent codex --ws backend --name <会话名>");
+  expect(reply.text).toContain(t().session.sessionAttachNotFound("review", "codex", "backend"));
   expect(await sessions.listSessions("wx:user")).toEqual([]);
   await expect(sessions.getCurrentSession("wx:user")).resolves.toBeNull();
 });
@@ -170,10 +174,7 @@ test("attach hint quotes a workspace name containing a space", async () => {
     '/session attach review --agent codex --ws "My Repo" --name missing-review',
   );
 
-  expect(reply.text).toContain("没有找到可绑定的已有会话");
-  expect(reply.text).toContain(
-    '/session attach review --agent codex --ws "My Repo" --name <会话名>',
-  );
+  expect(reply.text).toContain(t().session.sessionAttachNotFound("review", "codex", '"My Repo"'));
 });
 
 test("renders status for the current session", async () => {
@@ -184,8 +185,9 @@ test("renders status for the current session", async () => {
   await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
   const reply = await router.handle("wx:user", "/status");
 
+  const s = t().session;
   expect(reply.text).toBe(
-    ["当前会话：", "- 名称：api-fix", "- Agent：codex", "- 工作区：backend"].join("\n"),
+    [s.statusHeader, s.statusNameLabel("api-fix"), s.statusAgentLabel("codex"), s.statusWorkspaceLabel("backend")].join("\n"),
   );
 });
 
@@ -196,9 +198,7 @@ test("rejects /session tail when no session is selected", async () => {
 
   const reply = await router.handle("wx:user", "/session tail");
 
-  expect(reply.text).toContain("当前还没有选中的会话");
-  expect(reply.text).toContain("/session new");
-  expect(reply.text).toContain("/use");
+  expect(reply.text).toBe(t().session.noCurrent);
 });
 
 test("proxies /session tail [N] to the transport for the current session", async () => {
@@ -232,7 +232,8 @@ test("renders sessions list in Chinese", async () => {
   await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
   const reply = await router.handle("wx:user", "/sessions");
 
-  expect(reply.text).toBe(["会话列表：", "- api-fix (codex @ backend) [当前]"].join("\n"));
+  const s = t().session;
+  expect(reply.text).toBe([s.sessionListHeader, `${s.sessionListItem("api-fix", "codex", "backend")} ${s.currentLabel}`].join("\n"));
 });
 
 test("lists sessions for bare session commands and aliases", async () => {
@@ -244,8 +245,10 @@ test("lists sessions for bare session commands and aliases", async () => {
   const bareReply = await router.handle("wx:user", "/session");
   const aliasReply = await router.handle("wx:user", "/ss");
 
-  expect(bareReply.text).toBe(["会话列表：", "- api-fix (codex @ backend) [当前]"].join("\n"));
-  expect(aliasReply.text).toBe(["会话列表：", "- api-fix (codex @ backend) [当前]"].join("\n"));
+  const s2 = t().session;
+  const expectedList = [s2.sessionListHeader, `${s2.sessionListItem("api-fix", "codex", "backend")} ${s2.currentLabel}`].join("\n");
+  expect(bareReply.text).toBe(expectedList);
+  expect(aliasReply.text).toBe(expectedList);
 });
 
 test("session help mentions /ssn native sessions", async () => {
@@ -254,7 +257,7 @@ test("session help mentions /ssn native sessions", async () => {
   const reply = await router.handle("wx:user", "/help session");
 
   expect(reply.text).toContain("/ssn");
-  expect(reply.text).toContain("本地 native 会话");
+  expect(reply.text).toContain(t().session.sessionHelpCmdSsnDesc);
 });
 
 test("ssn help alias renders native session guidance", async () => {
@@ -264,7 +267,7 @@ test("ssn help alias renders native session guidance", async () => {
 
   expect(reply.text).toContain("帮助主题：native");
   expect(reply.text).toContain("/ssn");
-  expect(reply.text).toContain("本地 native 会话");
+  expect(reply.text).toContain(t().session.nativeHelpCmdSsnDesc);
   expect(reply.text).toContain("docs/native-sessions.md");
 });
 
@@ -275,7 +278,7 @@ test("creates a session via the short alias and agent flag", async () => {
 
   const reply = await router.handle("wx:user", "/ss new api-fix -a codex --ws backend");
 
-  expect(reply.text).toBe('会话「api-fix」已创建并切换');
+  expect(reply.text).toBe(t().session.sessionCreated("api-fix"));
 });
 
 
@@ -568,9 +571,10 @@ test("shows the effective reply mode for the current session", async () => {
 
   const reply = await router.handle("wx:user", "/replymode");
 
-  expect(reply.text).toContain("全局默认：stream");
-  expect(reply.text).toContain("当前会话覆盖：未设置");
-  expect(reply.text).toContain("当前生效：stream");
+  const s3 = t().session;
+  expect(reply.text).toContain(s3.replyModeGlobalDefault("stream"));
+  expect(reply.text).toContain(s3.replyModeSessionOverride(s3.modeNotSet));
+  expect(reply.text).toContain(s3.replyModeEffective("stream"));
 });
 
 test("sets and resets the current session reply mode override", async () => {
@@ -585,10 +589,11 @@ test("sets and resets the current session reply mode override", async () => {
   const showReply = await router.handle("wx:user", "/replymode");
   const resetReply = await router.handle("wx:user", "/replymode reset");
 
+  const s4 = t().session;
   expect(setReply.text).toContain("final");
-  expect(showReply.text).toContain("当前会话覆盖：final");
-  expect(showReply.text).toContain("当前生效：final");
-  expect(resetReply.text).toContain("已重置");
+  expect(showReply.text).toContain(s4.replyModeSessionOverride("final"));
+  expect(showReply.text).toContain(s4.replyModeEffective("final"));
+  expect(resetReply.text).toContain(s4.replyModeReset("stream"));
 });
 
 // ── Task 8: ensureTransportSession reply + auto-install recovery ──────────────
@@ -900,7 +905,7 @@ test("/session use resolves display alias inside current channel", async () => {
 
   const response = await router.handle("feishu:default:oc_chat", "/use backend:codex");
 
-  expect(response.text).toContain("已切到 backend:codex");
+  expect(response.text).toContain(t().session.switched("backend:codex", "codex", "backend"));
   const current = await sessions.getCurrentSession("feishu:default:oc_chat");
   expect(current?.alias).toBe("feishu:backend:codex");
 });
@@ -1373,8 +1378,7 @@ test("/use <fragment>: unique match switches and echoes identity", async () => {
 
   const res = await router.handle("wx:user", "/use front");
 
-  expect(res.text).toContain("已切到 frontend-fix · claude · frontend");
-  expect(res.text).toContain("（上一个：api-review）");
+  expect(res.text).toContain(t().session.switchedWithPrev("frontend-fix", "claude", "frontend", "api-review"));
 });
 
 test("/use <fragment>: ambiguous lists candidates without switching", async () => {
@@ -1385,7 +1389,7 @@ test("/use <fragment>: ambiguous lists candidates without switching", async () =
 
   const res = await router.handle("wx:user", "/use api");
 
-  expect(res.text).toContain("匹配到多个会话");
+  expect(res.text).toContain(t().session.ambiguousSession("api"));
   expect(res.text).toContain("api-review");
   expect(res.text).toContain("api-smoke");
   // current session unchanged
@@ -1399,8 +1403,7 @@ test("/use <fragment>: no match guides to /sessions", async () => {
 
   const res = await router.handle("wx:user", "/use zzz");
 
-  expect(res.text).toContain("没有匹配「zzz」");
-  expect(res.text).toContain("/sessions");
+  expect(res.text).toContain(t().session.noMatchingSession("zzz"));
 });
 
 test("/use -: switches back to previous with identity echo", async () => {
@@ -1412,7 +1415,7 @@ test("/use -: switches back to previous with identity echo", async () => {
 
   const res = await router.handle("wx:user", "/use -");
 
-  expect(res.text).toContain("已切到 api-review");
+  expect(res.text).toContain(t().session.switched("api-review", "codex", "backend"));
   expect((await sessions.getCurrentSession("wx:user"))?.alias).toBe("api-review");
 });
 
@@ -1423,5 +1426,5 @@ test("/use -: friendly message when there is no previous", async () => {
 
   const res = await router.handle("wx:nobody", "/use -");
 
-  expect(res.text).toContain("还没有上一个会话");
+  expect(res.text).toContain(t().session.noPreviousSession);
 });

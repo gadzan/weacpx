@@ -1,4 +1,5 @@
-import { expect, mock, test } from "bun:test";
+import { beforeEach, expect, mock, test } from "bun:test";
+import { setLocale } from "../../../src/i18n";
 import { CommandRouter } from "../../../src/commands/command-router";
 import type { SessionAgentCommandResolver } from "./command-router-test-support";
 import {
@@ -32,6 +33,10 @@ import {
   getRequestDelegateMock,
   getSetModeMock,
 } from "./command-router-test-support";
+
+beforeEach(() => {
+  setLocale("zh");
+});
 
 test("emits perf marks for prompt transport lifecycle", async () => {
   const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());

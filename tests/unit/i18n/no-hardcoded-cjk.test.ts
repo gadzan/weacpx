@@ -5,7 +5,10 @@ import { join } from "node:path";
 // Path prefixes (repo-relative, forward-slash) that MUST be free of CJK string
 // literals. Widen this list as each domain is migrated, then replace with
 // ["src/"] in the final flip.
-const MIGRATED_PREFIXES = ["src/i18n/messages/en/"];
+const MIGRATED_PREFIXES = [
+  "src/i18n/messages/en/",
+  "src/commands/handlers/session-handler.ts",
+];
 
 const CJK = /[㐀-鿿豈-﫿]/;
 
