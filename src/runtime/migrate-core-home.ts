@@ -2,6 +2,7 @@ import { cpSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { CORE_HOME_DIR_NAME, CORE_HOME_LEGACY_DIR_NAME } from "./core-home";
+import { t } from "../i18n/index.js";
 
 export type MigrateCoreHomeReason =
   | "already-current"
@@ -54,20 +55,17 @@ export function migrateCoreHome(home: string, deps: MigrateCoreHomeDeps = {}): M
 
   const legacyPid = readLegacyDaemonPid(legacy);
   if (legacyPid !== null && isProcessAlive(legacyPid)) {
-    log(
-      `检测到运行中的旧守护进程 (pid ${legacyPid})，暂不迁移 ${legacy} → ${primary}；` +
-        `请先停止守护进程（weacpx stop / xacpx stop）后重试，期间仍使用旧目录。`,
-    );
+    log(t().migrate.daemonRunning(legacyPid, legacy, primary));
     return { migrated: false, reason: "daemon-running", from: legacy };
   }
 
   try {
     cpSync(legacy, primary, { recursive: true });
-    log(`已将状态目录从 ${legacy} 复制到 ${primary}（旧目录保留为备份，可手动删除）。`);
+    log(t().migrate.copied(legacy, primary));
     return { migrated: true, reason: "copied", from: legacy, to: primary };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    log(`迁移状态目录 ${legacy} → ${primary} 失败，继续使用旧目录：${detail}`);
+    log(t().migrate.failed(legacy, primary, detail));
     return { migrated: false, reason: "failed", from: legacy };
   }
 }

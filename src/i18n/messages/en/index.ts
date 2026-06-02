@@ -22,5 +22,8 @@ import { cli } from "./cli";
 import { cliUpdate } from "./cli-update";
 import { channelCli } from "./channel-cli";
 import { pluginCli } from "./plugin-cli";
+import { login } from "./login";
+import { weixin } from "./weixin";
+import { migrate } from "./migrate";
 
-export const en: Messages = { common, session, nativeSession, recovery, shortcut, workspace, agent, later, scheduledRender, orchestration, coordinatorPrompt, workerPrompt, config, permission, help, hints, router, acpxNote, render, cli, cliUpdate, channelCli, pluginCli };
+export const en: Messages = { common, session, nativeSession, recovery, shortcut, workspace, agent, later, scheduledRender, orchestration, coordinatorPrompt, workerPrompt, config, permission, help, hints, router, acpxNote, render, cli, cliUpdate, channelCli, pluginCli, login, weixin, migrate };

@@ -24,6 +24,7 @@ import type { RuntimeMediaStore } from "../channels/media-store.js";
 import type { PerfTracer } from "../perf/perf-tracer.js";
 import type { ActiveTurnRegistry } from "../sessions/active-turn-registry.js";
 import { logger } from "./util/logger.js";
+import { t } from "../i18n/index.js";
 
 export type LoginOptions = {
   /** Override the API base URL. */
@@ -78,7 +79,7 @@ export async function login(opts?: LoginOptions): Promise<string> {
   const log = opts?.log ?? console.log;
   const apiBaseUrl = opts?.baseUrl ?? DEFAULT_BASE_URL;
 
-  log("正在启动微信扫码登录...");
+  log(t().login.startingLogin);
 
   const startResult = await startWeixinLoginWithQr({
     apiBaseUrl,
@@ -89,7 +90,7 @@ export async function login(opts?: LoginOptions): Promise<string> {
     throw new Error(startResult.message);
   }
 
-  log("\n使用微信扫描以下二维码，以完成连接：\n");
+  log(t().login.scanInstruction);
   try {
     const qrcodeterminal = await import("qrcode-terminal");
     await new Promise<void>((resolve) => {
@@ -99,10 +100,10 @@ export async function login(opts?: LoginOptions): Promise<string> {
       });
     });
   } catch {
-    log(`二维码链接: ${startResult.qrcodeUrl}`);
+    log(t().login.qrLinkFallback(startResult.qrcodeUrl!));
   }
 
-  log("\n等待扫码...\n");
+  log(t().login.waitingForScan);
 
   const waitResult = await waitForWeixinLogin({
     sessionKey: startResult.sessionKey,
@@ -123,7 +124,7 @@ export async function login(opts?: LoginOptions): Promise<string> {
   });
   registerWeixinAccountId(normalizedId);
 
-  log("\n✅ 与微信连接成功！");
+  log(t().login.loginSuccessLine);
   return normalizedId;
 }
 
@@ -134,12 +135,12 @@ export function logout(opts?: { log?: (msg: string) => void }): void {
   const log = opts?.log ?? console.log;
   const ids = listWeixinAccountIds();
   if (ids.length === 0) {
-    log("当前没有已登录的账号");
+    log(t().login.noAccountsLoggedIn);
     return;
   }
   for (const id of ids) clearContextTokensForAccount(id);
   clearAllWeixinAccounts();
-  log("✅ 已退出登录");
+  log(t().login.logoutSuccess);
 }
 
 /**
@@ -164,7 +165,7 @@ export async function start(agent: Agent, opts?: StartOptions): Promise<void> {
   if (!accountId) {
     const ids = listWeixinAccountIds();
     if (ids.length === 0) {
-      throw new Error("没有已登录的账号，请先运行 login");
+      throw new Error(t().login.noAccountsError);
     }
     accountId = ids[0];
     if (ids.length > 1) {
@@ -174,9 +175,7 @@ export async function start(agent: Agent, opts?: StartOptions): Promise<void> {
 
   const account = resolveWeixinAccount(accountId);
   if (!account.configured) {
-    throw new Error(
-      `账号 ${accountId} 未配置 (缺少 token)，请先运行 login`,
-    );
+    throw new Error(t().login.accountNotConfigured(accountId!));
   }
 
   restoreContextTokens(account.accountId);

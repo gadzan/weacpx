@@ -4,6 +4,7 @@ import { apiGetFetch, apiPostFetch } from "../api/api.js";
 import { listIndexedWeixinAccountIds, loadWeixinAccount } from "./accounts.js";
 import { logger } from "../util/logger.js";
 import { redactToken } from "../util/redact.js";
+import { t } from "../../i18n/index.js";
 
 type ActiveLogin = {
   sessionKey: string;
@@ -198,7 +199,7 @@ export async function startWeixinLoginWithQr(opts: {
   if (!opts.force && existing && isLoginFresh(existing) && existing.qrcodeUrl) {
     return {
       qrcodeUrl: existing.qrcodeUrl,
-      message: "二维码已就绪，请使用微信扫描。",
+      message: t().login.qrReady,
       sessionKey,
     };
   }
@@ -225,7 +226,7 @@ export async function startWeixinLoginWithQr(opts: {
 
     return {
       qrcodeUrl: qrResponse.qrcode_img_content,
-      message: "使用微信扫描以下二维码，以完成连接。",
+      message: t().login.qrScanToConnect,
       sessionKey,
     };
   } catch (err) {
@@ -259,20 +260,20 @@ async function refreshQRCode(
     logger.info(
       `refreshQRCode: new QR code obtained (${qrRefreshCount}/${MAX_QR_REFRESH_COUNT}) qrcode=${redactToken(qrResponse.qrcode)}`,
     );
-    process.stdout.write(`🔄 新二维码已生成，请重新扫描\n\n`);
+    process.stdout.write(t().login.newQrGenerated);
     try {
       const qrterm = await import("qrcode-terminal");
       qrterm.default.generate(qrResponse.qrcode_img_content, { small: true });
-      process.stdout.write(`如果二维码未能成功展示，请用浏览器打开以下链接扫码：\n`);
+      process.stdout.write(t().login.qrBrowserFallback);
       process.stdout.write(`${qrResponse.qrcode_img_content}\n`);
     } catch {
-      process.stdout.write(`二维码未加载成功，请用浏览器打开以下链接扫码：\n`);
+      process.stdout.write(t().login.qrLoadFailed);
       process.stdout.write(`${qrResponse.qrcode_img_content}\n`);
     }
     return { success: true };
   } catch (refreshErr) {
     logger.error(`refreshQRCode: failed to refresh QR code: ${String(refreshErr)}`);
-    return { success: false, message: `刷新二维码失败: ${String(refreshErr)}` };
+    return { success: false, message: t().login.qrRefreshFailed(String(refreshErr)) };
   }
 }
 
@@ -289,7 +290,7 @@ export async function waitForWeixinLogin(opts: {
     logger.warn(`waitForWeixinLogin: no active login sessionKey=${opts.sessionKey}`);
     return {
       connected: false,
-      message: "当前没有进行中的登录，请先发起登录。",
+      message: t().login.noActiveLogin,
     };
   }
 
@@ -298,7 +299,7 @@ export async function waitForWeixinLogin(opts: {
     activeLogins.delete(opts.sessionKey);
     return {
       connected: false,
-      message: "二维码已过期，请重新生成。",
+      message: t().login.qrExpiredBeforeStart,
     };
   }
 
@@ -335,7 +336,7 @@ export async function waitForWeixinLogin(opts: {
             activeLogin.pendingVerifyCode = undefined;
           }
           if (!scannedPrinted) {
-            process.stdout.write("\n👀 已扫码，在微信继续操作...\n");
+            process.stdout.write(t().login.scanned);
             scannedPrinted = true;
           }
           break;
@@ -349,11 +350,11 @@ export async function waitForWeixinLogin(opts: {
             activeLogins.delete(opts.sessionKey);
             return {
               connected: false,
-              message: "登录超时：二维码多次过期，请重新开始登录流程。",
+              message: t().login.loginTimeoutTooManyExpiries,
             };
           }
 
-          process.stdout.write(`\n⏳ 二维码已过期，正在刷新...(${qrRefreshCount}/${MAX_QR_REFRESH_COUNT})\n`);
+          process.stdout.write(t().login.qrExpiringRefresh(qrRefreshCount, MAX_QR_REFRESH_COUNT));
           logger.info(
             `waitForWeixinLogin: QR expired, refreshing (${qrRefreshCount}/${MAX_QR_REFRESH_COUNT})`,
           );
@@ -388,8 +389,8 @@ export async function waitForWeixinLogin(opts: {
         }
         case "need_verifycode": {
           const verifyPrompt = activeLogin.pendingVerifyCode
-            ? "❌ 你输入的数字不匹配，请重新输入："
-            : "输入手机微信显示的数字，以继续连接：";
+            ? t().login.verifyCodeMismatch
+            : t().login.verifyCodePrompt;
           let code: string;
           try {
             code = await readVerifyCodeFromStdin(verifyPrompt);
@@ -398,7 +399,7 @@ export async function waitForWeixinLogin(opts: {
             activeLogins.delete(opts.sessionKey);
             return {
               connected: false,
-              message: "需要输入配对码，但当前环境没有交互式终端。请在前台运行 `xacpx login` 完成登录。",
+              message: t().login.verifyCodeNoTty,
             };
           }
           activeLogin.pendingVerifyCode = code;
@@ -408,7 +409,7 @@ export async function waitForWeixinLogin(opts: {
           logger.warn(
             `waitForWeixinLogin: verify code blocked, qrRefreshCount=${qrRefreshCount} sessionKey=${opts.sessionKey}`,
           );
-          process.stdout.write("\n⛔ 多次输入错误，请稍后再试。\n");
+          process.stdout.write(t().login.verifyCodeBlocked);
           activeLogin.pendingVerifyCode = undefined;
           qrRefreshCount++;
           if (qrRefreshCount > MAX_QR_REFRESH_COUNT) {
@@ -418,7 +419,7 @@ export async function waitForWeixinLogin(opts: {
             activeLogins.delete(opts.sessionKey);
             return {
               connected: false,
-              message: "多次输入错误，连接流程已停止。请稍后再试。",
+              message: t().login.verifyCodeBlockedStop,
             };
           }
           const blockedRefreshResult = await refreshQRCode(
@@ -444,7 +445,7 @@ export async function waitForWeixinLogin(opts: {
             logger.error("Login confirmed but ilink_bot_id missing from response");
             return {
               connected: false,
-              message: "登录失败：服务器未返回 ilink_bot_id。",
+              message: t().login.loginMissingBotId,
             };
           }
 
@@ -461,7 +462,7 @@ export async function waitForWeixinLogin(opts: {
             accountId: statusResponse.ilink_bot_id,
             baseUrl: statusResponse.baseurl,
             userId: statusResponse.ilink_user_id,
-            message: "✅ 与微信连接成功！",
+            message: t().login.loginSuccess,
           };
         }
       }
@@ -484,6 +485,6 @@ export async function waitForWeixinLogin(opts: {
   activeLogins.delete(opts.sessionKey);
   return {
     connected: false,
-    message: "登录超时，请重试。",
+    message: t().login.loginTimeout,
   };
 }

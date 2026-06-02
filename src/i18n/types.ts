@@ -1093,6 +1093,127 @@ export interface PluginCliMessages {
   compatCompatibleVersionsNotSatisfied: (packageName: string, requirement: string, currentVersion: string) => string;
 }
 
+export interface LoginMessages {
+  // startWeixinLoginWithQr — existing session reused
+  qrReady: string;
+
+  // startWeixinLoginWithQr — new session started
+  qrScanToConnect: string;
+
+  // waitForWeixinLogin — no active login
+  noActiveLogin: string;
+
+  // waitForWeixinLogin — QR already expired before polling
+  qrExpiredBeforeStart: string;
+
+  // waitForWeixinLogin — too many QR expiries
+  loginTimeoutTooManyExpiries: string;
+
+  // refreshQRCode — new QR generated (written to stdout)
+  newQrGenerated: string;
+
+  // refreshQRCode — browser fallback after successful generation
+  qrBrowserFallback: string;
+
+  // refreshQRCode — browser fallback when qrcode-terminal fails to load
+  qrLoadFailed: string;
+
+  // refreshQRCode — refresh API call failed
+  qrRefreshFailed: (detail: string) => string;
+
+  // waitForWeixinLogin — scanned status (written to stdout)
+  scanned: string;
+
+  // waitForWeixinLogin — QR expired during polling (written to stdout)
+  qrExpiringRefresh: (current: number, max: number) => string;
+
+  // waitForWeixinLogin — verify code: wrong input
+  verifyCodeMismatch: string;
+
+  // waitForWeixinLogin — verify code: first prompt
+  verifyCodePrompt: string;
+
+  // waitForWeixinLogin — verify code: no TTY available
+  verifyCodeNoTty: string;
+
+  // waitForWeixinLogin — verify code blocked (written to stdout)
+  verifyCodeBlocked: string;
+
+  // waitForWeixinLogin — verify code blocked, max retries reached
+  verifyCodeBlockedStop: string;
+
+  // waitForWeixinLogin — confirmed but missing ilink_bot_id
+  loginMissingBotId: string;
+
+  // waitForWeixinLogin — confirmed success
+  loginSuccess: string;
+
+  // waitForWeixinLogin — overall timeout
+  loginTimeout: string;
+
+  // bot.login — starting
+  startingLogin: string;
+
+  // bot.login — scan instruction (printed before QR)
+  scanInstruction: string;
+
+  // bot.login — QR link fallback (when qrcode-terminal not available)
+  qrLinkFallback: (url: string) => string;
+
+  // bot.login — waiting for scan
+  waitingForScan: string;
+
+  // bot.login — overall success (printed after connect)
+  loginSuccessLine: string;
+
+  // bot.logout — no accounts
+  noAccountsLoggedIn: string;
+
+  // bot.logout — success
+  logoutSuccess: string;
+
+  // bot.start — no accounts (Error message)
+  noAccountsError: string;
+
+  // bot.start — account not configured (Error message)
+  accountNotConfigured: (accountId: string) => string;
+}
+
+export interface WeixinMessages {
+  // handleEcho — timing block header and rows
+  echoTimingHeader: string;
+  echoTimingEventTime: (iso: string) => string;
+  echoTimingPlatformDelay: (delay: string) => string;
+  echoTimingPluginDelay: (ms: number) => string;
+
+  // /toggle-debug
+  debugEnabled: string;
+  debugDisabled: string;
+
+  // /clear
+  sessionCleared: string;
+
+  // /logout — no accounts
+  noAccountsLoggedIn: string;
+
+  // /logout — success
+  logoutSuccess: string;
+
+  // handleSlashCommand — command execution error
+  commandFailed: (detail: string) => string;
+}
+
+export interface MigrateMessages {
+  // migrateCoreHome — legacy daemon still alive
+  daemonRunning: (pid: number, legacy: string, primary: string) => string;
+
+  // migrateCoreHome — copy succeeded
+  copied: (legacy: string, primary: string) => string;
+
+  // migrateCoreHome — copy failed
+  failed: (legacy: string, primary: string, detail: string) => string;
+}
+
 export interface Messages {
   common: CommonMessages;
   session: SessionMessages;
@@ -1117,4 +1238,7 @@ export interface Messages {
   cliUpdate: CliUpdateMessages;
   channelCli: ChannelCliMessages;
   pluginCli: PluginCliMessages;
+  login: LoginMessages;
+  weixin: WeixinMessages;
+  migrate: MigrateMessages;
 }

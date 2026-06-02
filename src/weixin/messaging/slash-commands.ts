@@ -10,6 +10,7 @@
 import type { WeixinApiOptions } from "../api/api.js";
 import { clearAllWeixinAccounts, listWeixinAccountIds } from "../auth/accounts.js";
 import { logger } from "../util/logger.js";
+import { t } from "../../i18n/index.js";
 
 import { buildFinalHeadsUp } from "./final-heads-up.js";
 import type { PendingFinalChunk } from "./quota-manager.js";
@@ -74,10 +75,10 @@ async function handleEcho(
   const eventTs = eventTimestamp ?? 0;
   const platformDelay = eventTs > 0 ? `${receivedAt - eventTs}ms` : "N/A";
   const timing = [
-    "⏱ 通道耗时",
-    `├ 事件时间: ${eventTs > 0 ? new Date(eventTs).toISOString() : "N/A"}`,
-    `├ 平台→插件: ${platformDelay}`,
-    `└ 插件处理: ${Date.now() - receivedAt}ms`,
+    t().weixin.echoTimingHeader,
+    t().weixin.echoTimingEventTime(eventTs > 0 ? new Date(eventTs).toISOString() : "N/A"),
+    t().weixin.echoTimingPlatformDelay(platformDelay),
+    t().weixin.echoTimingPluginDelay(Date.now() - receivedAt),
   ].join("\n");
   await sendReply(ctx, timing);
 }
@@ -186,14 +187,14 @@ export async function handleSlashCommand(
         await sendReply(
           ctx,
           enabled
-            ? "Debug 模式已开启"
-            : "Debug 模式已关闭",
+            ? t().weixin.debugEnabled
+            : t().weixin.debugDisabled,
         );
         return { handled: true };
       }
       case "/clear": {
         await ctx.onClear?.();
-        await sendReply(ctx, "✅ 会话已清除，重新开始对话");
+        await sendReply(ctx, t().weixin.sessionCleared);
         return { handled: true };
       }
       case "/jx": {
@@ -207,11 +208,11 @@ export async function handleSlashCommand(
       }
       case "/logout": {
         if (listWeixinAccountIds().length === 0) {
-          await sendReply(ctx, "当前没有已登录的账号");
+          await sendReply(ctx, t().weixin.noAccountsLoggedIn);
           return { handled: true };
         }
         clearAllWeixinAccounts();
-        await sendReply(ctx, "✅ 已退出登录，清除所有账号凭证");
+        await sendReply(ctx, t().weixin.logoutSuccess);
         return { handled: true };
       }
       default:
@@ -220,9 +221,9 @@ export async function handleSlashCommand(
   } catch (err) {
     logger.error(`[weixin] Slash command error: ${String(err)}`);
     try {
-      await sendReply(ctx, `❌ 指令执行失败: ${String(err).slice(0, 200)}`);
+      await sendReply(ctx, t().weixin.commandFailed(String(err).slice(0, 200)));
     } catch {
-      // 发送错误消息也失败了，只能记日志
+      // send of error message also failed; log only
     }
     return { handled: true };
   }

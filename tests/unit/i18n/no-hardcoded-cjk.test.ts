@@ -32,6 +32,8 @@ const MIGRATED_PREFIXES = [
   "src/plugins/plugin-cli.ts",
   "src/plugins/validate-plugin.ts",
   "src/plugins/compatibility.ts",
+  "src/weixin/messaging/slash-commands.ts",
+  "src/runtime/migrate-core-home.ts",
 ];
 
 // Match only Han (Chinese) characters. Using \p{Script=Han} (not a raw BMP range)
