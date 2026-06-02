@@ -18,5 +18,7 @@ import { hints } from "./hints";
 import { router } from "./router";
 import { acpxNote } from "./acpx-note";
 import { render } from "./render";
+import { cli } from "./cli";
+import { cliUpdate } from "./cli-update";
 
-export const zh: Messages = { common, session, nativeSession, recovery, shortcut, workspace, agent, later, scheduledRender, orchestration, coordinatorPrompt, workerPrompt, config, permission, help, hints, router, acpxNote, render };
+export const zh: Messages = { common, session, nativeSession, recovery, shortcut, workspace, agent, later, scheduledRender, orchestration, coordinatorPrompt, workerPrompt, config, permission, help, hints, router, acpxNote, render, cli, cliUpdate };

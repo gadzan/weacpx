@@ -9,6 +9,7 @@ import { updatePluginPackage } from "./plugins/package-manager.js";
 import { importPluginFromHome } from "./plugins/plugin-loader.js";
 import { validateWeacpxPlugin } from "./plugins/validate-plugin.js";
 import { coreEnv } from "./runtime/core-env.js";
+import { t } from "./i18n";
 
 // Rename forward-compat: weacpx is being renamed to xacpx (`x → acp → x`) at
 // 0.8.0. This descriptor lets a `weacpx update` running on 0.7.x cross over to
@@ -90,7 +91,7 @@ export async function handleUpdateCli(args: string[], deps: UpdateCliDeps): Prom
     });
   }
 
-  deps.print("可更新项：");
+  deps.print(t().cliUpdate.updatesAvailable);
   for (let index = 0; index < targets.length; index += 1) {
     const target = targets[index]!;
     deps.print(`${index + 1}. ${formatTarget(target)}`);
@@ -98,7 +99,7 @@ export async function handleUpdateCli(args: string[], deps: UpdateCliDeps): Prom
 
   const unavailable = targets.filter((target) => !target.latestVersion || (target.kind === "plugin" && !target.pinned));
   if (all && unavailable.length > 0) {
-    deps.print(`以下项目无法检查最新版本，已取消更新：${unavailable.map((target) => target.name).join(", ")}`);
+    deps.print(t().cliUpdate.unavailableAborted(unavailable.map((target) => target.name).join(", ")));
     return 1;
   }
   const candidates = targets.filter((target) => target.latestVersion && (target.kind !== "plugin" || target.pinned) && (target.successorPackage ? true : target.currentVersion !== target.latestVersion));
@@ -108,7 +109,7 @@ export async function handleUpdateCli(args: string[], deps: UpdateCliDeps): Prom
     return selected.exitCode;
   }
   if (selected.targets.length === 0) {
-    deps.print("没有需要更新的项目。");
+    deps.print(t().cliUpdate.nothingToUpdate);
     return 0;
   }
 
@@ -130,16 +131,16 @@ export async function handleUpdateCli(args: string[], deps: UpdateCliDeps): Prom
         if (!all && !explicitTargets[0]) {
           if (!deps.isInteractive()) {
             deps.print(successorPackage
-              ? `weacpx 已更名为 ${successorPackage}；非交互模式请使用 \`weacpx update --all\` 或 \`weacpx update weacpx\` 确认迁移。`
-              : `更新 ${target.name} 本体需要确认；非交互模式请使用 \`${target.name} update --all\` 或 \`${target.name} update ${target.name}\`。`);
+              ? t().cliUpdate.renameNeedsConfirmNonInteractive(successorPackage)
+              : t().cliUpdate.selfUpdateNeedsConfirmNonInteractive(target.name));
             return 1;
           }
           const question = successorPackage
-            ? `weacpx 已更名为 ${successorPackage}，确认迁移到 ${successorPackage}？[y/N] `
-            : `确认更新 ${target.name} 本体？[y/N] `;
+            ? t().cliUpdate.renameConfirmPrompt(successorPackage)
+            : t().cliUpdate.selfUpdateConfirmPrompt(target.name);
           const answer = (await deps.promptText(question)).trim().toLowerCase();
           if (answer !== "y" && answer !== "yes") {
-            deps.print(successorPackage ? `已取消迁移到 ${successorPackage}。` : `已取消更新 ${target.name} 本体。`);
+            deps.print(successorPackage ? t().cliUpdate.renameCancelled(successorPackage) : t().cliUpdate.selfUpdateCancelled(target.name));
             continue;
           }
         }
@@ -149,11 +150,11 @@ export async function handleUpdateCli(args: string[], deps: UpdateCliDeps): Prom
           // leaves the user with no working CLI).
           await stopDaemon();
           await selfMigrator({ from: target.name, to: successorPackage, toVersion: target.latestVersion ?? undefined });
-          deps.print(`weacpx 已更名为 ${successorPackage}，已迁移至 ${successorPackage} ${target.latestVersion ?? "latest"}。今后请使用 \`${successorPackage}\` 命令；若此前在后台运行，请用 \`${successorPackage} start\` 重新启动。`);
+          deps.print(t().cliUpdate.renameMigrated(successorPackage, target.latestVersion ?? "latest"));
           continue;
         }
         await selfUpdater(target.name);
-        deps.print(`${target.name} 已更新：${target.latestVersion ?? "latest"}`);
+        deps.print(t().cliUpdate.selfUpdated(target.name, target.latestVersion ?? "latest"));
         continue;
       }
 
@@ -168,16 +169,16 @@ export async function handleUpdateCli(args: string[], deps: UpdateCliDeps): Prom
           try {
             await pluginUpdater({ packageName: target.name, version: previousVersion });
           } catch (rollbackError) {
-            deps.print(`回滚 ${target.name} 到 ${previousVersion} 失败：${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`);
+            deps.print(t().cliUpdate.pluginRollbackFailed(target.name, previousVersion, rollbackError instanceof Error ? rollbackError.message : String(rollbackError)));
           }
         }
         throw validationError;
       }
-      if (!existing) throw new Error(`配置中没有找到插件 ${target.name}`);
+      if (!existing) throw new Error(t().cliUpdate.pluginNotInConfig(target.name));
       if (existing && target.latestVersion) existing.version = target.latestVersion;
-      deps.print(`插件 ${target.name} 已更新：${target.latestVersion ?? "latest"}`);
+      deps.print(t().cliUpdate.pluginUpdated(target.name, target.latestVersion ?? "latest"));
     } catch (error) {
-      deps.print(`${target.name} 更新失败：${error instanceof Error ? error.message : String(error)}`);
+      deps.print(t().cliUpdate.updateFailed(target.name, error instanceof Error ? error.message : String(error)));
       return 1;
     }
   }
@@ -190,14 +191,14 @@ export async function handleUpdateCli(args: string[], deps: UpdateCliDeps): Prom
 }
 
 function formatTarget(target: UpdateTarget): string {
-  const current = target.currentVersion ?? "未锁定";
-  const latest = target.latestVersion ?? "无法检查";
+  const current = target.currentVersion ?? t().cliUpdate.versionUnlocked;
+  const latest = target.latestVersion ?? t().cliUpdate.versionUnknown;
   if (target.kind === "self") {
     return target.successorPackage
-      ? `weacpx → ${target.successorPackage} (${current} -> ${latest}，改名)`
-      : `${target.name} (${current} -> ${latest})`;
+      ? t().cliUpdate.formatRename(target.successorPackage, current, latest)
+      : t().cliUpdate.formatSelf(target.name, current, latest);
   }
-  return `插件 ${target.name} (${current} -> ${latest})`;
+  return t().cliUpdate.formatPlugin(target.name, current, latest);
 }
 
 async function selectTargets(
@@ -208,9 +209,9 @@ async function selectTargets(
   if (input.explicitTarget) {
     const target = targets.find((entry) => entry.name === input.explicitTarget
       || (entry.kind === "self" && (input.explicitTarget === "weacpx" || input.explicitTarget === entry.successorPackage)));
-    if (!target) return { ok: false, message: `没有找到更新项：${input.explicitTarget}`, exitCode: 1 };
-    if (!target.latestVersion) return { ok: false, message: `${target.name} 无法检查最新版本，已跳过。`, exitCode: 1 };
-    if (target.kind === "plugin" && !target.pinned) return { ok: false, message: `${target.name} 未记录当前版本；请先使用 \`xacpx plugin update ${target.name}\` 或显式选择版本。`, exitCode: 1 };
+    if (!target) return { ok: false, message: t().cliUpdate.targetNotFound(input.explicitTarget), exitCode: 1 };
+    if (!target.latestVersion) return { ok: false, message: t().cliUpdate.targetVersionUnknown(target.name), exitCode: 1 };
+    if (target.kind === "plugin" && !target.pinned) return { ok: false, message: t().cliUpdate.targetNotPinned(target.name), exitCode: 1 };
     if (!target.successorPackage && target.currentVersion === target.latestVersion) return { ok: true, targets: [] };
     return { ok: true, targets: [target] };
   }
@@ -218,10 +219,10 @@ async function selectTargets(
   if (input.all || targets.length === 1) return { ok: true, targets: candidates };
 
   if (!input.deps.isInteractive()) {
-    return { ok: false, message: "检测到已安装插件；非交互模式请使用 `xacpx update --all` 或 `xacpx update <name>`。", exitCode: 1 };
+    return { ok: false, message: t().cliUpdate.multiTargetNonInteractive, exitCode: 1 };
   }
 
-  const answer = (await input.deps.promptText("请选择要更新的项目（数字，逗号分隔，a=全部，回车取消）：")).trim().toLowerCase();
+  const answer = (await input.deps.promptText(t().cliUpdate.selectionPrompt)).trim().toLowerCase();
   if (!answer) return { ok: true, targets: [] };
   if (answer === "a" || answer === "all") return { ok: true, targets: candidates };
 
@@ -229,11 +230,11 @@ async function selectTargets(
   for (const part of answer.split(",")) {
     const index = Number.parseInt(part.trim(), 10);
     if (!Number.isFinite(index) || index < 1 || index > targets.length) {
-      return { ok: false, message: `无效选择：${part.trim()}`, exitCode: 1 };
+      return { ok: false, message: t().cliUpdate.selectionInvalid(part.trim()), exitCode: 1 };
     }
     const target = targets[index - 1]!;
-    if (!target.latestVersion) return { ok: false, message: `${target.name} 无法检查最新版本，已跳过。`, exitCode: 1 };
-    if (target.kind === "plugin" && !target.pinned) return { ok: false, message: `${target.name} 未记录当前版本；请先使用 \`xacpx plugin update ${target.name}\` 或显式选择版本。`, exitCode: 1 };
+    if (!target.latestVersion) return { ok: false, message: t().cliUpdate.targetVersionUnknown(target.name), exitCode: 1 };
+    if (target.kind === "plugin" && !target.pinned) return { ok: false, message: t().cliUpdate.targetNotPinned(target.name), exitCode: 1 };
     if (!target.successorPackage && target.currentVersion === target.latestVersion) continue;
     if (!selected.includes(target)) selected.push(target);
   }

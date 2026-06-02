@@ -843,6 +843,117 @@ export interface AcpxNoteMessages {
   fallback: (line: string) => string;
 }
 
+export interface CliMessages {
+  // HELP_LINES — usage text printed by --help and on unknown commands
+  helpLines: string[];
+
+  // start command
+  alreadyRunning: string;
+  started: string;
+  startFailed: (detail: string) => string;
+
+  // status command
+  running: string;
+  notRunning: string;
+  indeterminate: string;
+
+  // stop command
+  stopped: string;
+
+  // restart command
+  restarting: string;
+  restartNotRunning: string;
+  restartFailed: (detail: string) => string;
+  restartIndeterminate: string;
+  restartIndeterminateHint: string;
+
+  // daemon log hints
+  checkAppLog: (path: string) => string;
+  checkStderrLog: (path: string) => string;
+
+  // workspace commands
+  workspaceEmpty: string;
+  workspaceListHeader: string;
+  workspaceNameEmpty: string;
+  workspaceNameSanitized: (sourceLabel: string, original: string, saved: string) => string;
+  workspaceSourceLabelDir: string;
+  workspaceSourceLabelName: string;
+  workspaceAlreadyExists: (name: string, cwd: string) => string;
+  workspaceConflictPath: (name: string, cwd: string) => string;
+  workspaceConflictHint: (name: string) => string;
+  workspaceSaved: (name: string, cwd: string) => string;
+  workspaceNotFound: (name: string) => string;
+  workspaceRemoved: (name: string) => string;
+
+  // agent commands
+  agentEmpty: string;
+  agentListHeader: string;
+  agentTemplatesHeader: string;
+  agentNameEmpty: string;
+  agentUnsupportedTemplate: (templates: string[]) => string;
+  agentAlreadyExists: (name: string) => string;
+  agentAlreadyExistsDifferent: (name: string) => string;
+  agentSaved: (name: string) => string;
+  agentNotFound: (name: string) => string;
+  agentRemoved: (name: string) => string;
+
+  // later commands
+  laterIdEmpty: string;
+  laterNotFound: (id: string) => string;
+  laterNotFoundHint: string;
+  laterCancelled: (id: string) => string;
+}
+
+export interface CliUpdateMessages {
+  // handleUpdateCli — listing header
+  updatesAvailable: string;
+
+  // handleUpdateCli — unavailable / abort
+  unavailableAborted: (names: string) => string;
+
+  // handleUpdateCli — nothing to do
+  nothingToUpdate: string;
+
+  // handleUpdateCli — non-interactive self-update confirmation required
+  selfUpdateNeedsConfirmNonInteractive: (name: string) => string;
+  renameNeedsConfirmNonInteractive: (successor: string) => string;
+
+  // handleUpdateCli — interactive self-update confirmation prompt
+  selfUpdateConfirmPrompt: (name: string) => string;
+  renameConfirmPrompt: (successor: string) => string;
+
+  // handleUpdateCli — confirmation declined
+  selfUpdateCancelled: (name: string) => string;
+  renameCancelled: (successor: string) => string;
+
+  // handleUpdateCli — success messages
+  selfUpdated: (name: string, version: string) => string;
+  renameMigrated: (successor: string, version: string) => string;
+  pluginUpdated: (name: string, version: string) => string;
+  pluginRollbackFailed: (name: string, version: string, error: string) => string;
+  pluginNotInConfig: (name: string) => string;
+  updateFailed: (name: string, error: string) => string;
+
+  // selectTargets — no target found
+  targetNotFound: (name: string) => string;
+  targetVersionUnknown: (name: string) => string;
+  targetNotPinned: (name: string) => string;
+
+  // selectTargets — non-interactive multi-target
+  multiTargetNonInteractive: string;
+
+  // selectTargets — interactive selection prompt
+  selectionPrompt: string;
+  selectionInvalid: (part: string) => string;
+
+  // formatTarget
+  formatSelf: (name: string, current: string, latest: string) => string;
+  formatRename: (successor: string, current: string, latest: string) => string;
+  formatPlugin: (name: string, current: string, latest: string) => string;
+  versionUnlocked: string;
+  versionUnknown: string;
+}
+
 export interface Messages {
   common: CommonMessages;
   session: SessionMessages;
@@ -863,4 +974,6 @@ export interface Messages {
   router: RouterMessages;
   acpxNote: AcpxNoteMessages;
   render: RenderMessages;
+  cli: CliMessages;
+  cliUpdate: CliUpdateMessages;
 }
