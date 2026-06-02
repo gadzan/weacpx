@@ -2,7 +2,7 @@
 
 ## Overview
 
-xacpx supports running agent sessions inside group chats. The orchestration system lets you manage **task groups** — sets of related agent tasks that can be cancelled, cleaned up, or deleted as a unit. This page explains the three group management commands and when to use each one.
+xacpx supports running agent sessions inside group chats. The orchestration system lets you manage **task groups** — sets of related agent tasks that can be cancelled, cleaned up, or deleted as a unit. This page covers group setup (bot membership and mentions), the permission model, how normal sessions behave in groups, and the three task-group management commands and when to use each one.
 
 Quick reference:
 
@@ -96,7 +96,7 @@ If the group still has running or pending tasks, `/group delete` is refused. The
 
 *Situation B — tasks finished but clean-up is not yet complete:*
 
-If the group has reached its final state but the fan-in / injection clean-up has not completed, the delete is still rejected. Options:
+If the group has reached its final state but the coordinator's final result-collection step (fan-in / injection clean-up) has not completed, the delete is still rejected. Options:
 - Continue the current coordinator thread to allow clean-up to finish naturally.
 - Wait for the clean-up to complete, then delete.
 
@@ -111,13 +111,15 @@ If the group has reached its final state but the fan-in / injection clean-up has
    - No → continue the coordinator thread and wait for clean-up to complete.
    - Yes → `/group delete <groupId>`, or run `/groups clean` to clear all finished groups at once.
 
-**Typical sequence:**
+**Independent examples** (each line is a standalone action, not a sequence to run together):
 
 ```text
-/group cancel review-batch
-/groups clean
-/group delete review-batch
+/group cancel review-batch   # stop the running work in review-batch (group is kept)
+/group delete review-batch   # remove review-batch once it is safely finished
+/groups clean                # sweep all safely finished groups under this thread at once
 ```
+
+Note that `/groups clean` and `/group delete <groupId>` are alternatives: once a group is safely finished, `/groups clean` already removes it, so a follow-up `/group delete` for the same group is unnecessary (and would fail because the group no longer exists).
 
 **Inspect before acting:** When viewing `/group` details:
 - Group has `running` tasks → cancel first.

@@ -94,7 +94,7 @@ Each string after `--` is sent as a separate chat message in sequence. The `--ch
 
 ## Test layout
 
-```
+```text
 tests/
   unit/         Default test suite; mirrors src/ structure
   integration/  Reserved for cross-module tests (not yet enforced)

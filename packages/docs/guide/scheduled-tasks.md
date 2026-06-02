@@ -59,7 +59,7 @@ Message: check CI
 
 ### Time syntax
 
-**Relative — English (two tokens: `in` + amount + unit):**
+**Relative — English (two words: `in` followed by `<amount><unit>`, e.g. `in 10m`):**
 
 ```text
 /lt in 10m check CI

@@ -72,11 +72,10 @@ xacpx channel add feishu \
 
 Flag reference:
 
-| Flag | Default | Description |
-|---|---|---|
-| `--domain feishu` | `feishu` | Use `feishu` for Feishu, `lark` for Lark. |
-| `--require-mention true` | `true` | Group messages require an @-mention of the bot before xacpx processes them. |
-| `--require-mention false` | — | Process all group messages without requiring @-mention. Use carefully. |
+| Flag | Values | Default | Description |
+|---|---|---|---|
+| `--domain` | `feishu` \| `lark` | `feishu` | Use `feishu` for Feishu, `lark` for Lark. |
+| `--require-mention` | `true` \| `false` | `true` | When `true`, group messages require an @-mention of the bot before xacpx processes them. Set `false` to process all group messages (use carefully). |
 
 **Prerequisites for the Feishu app:**
 - Enable bot capability.
