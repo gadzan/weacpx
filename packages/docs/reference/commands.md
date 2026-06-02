@@ -245,9 +245,11 @@ Supported time formats:
 | Format | Examples |
 |--------|---------|
 | Relative (English) | `/lt in 2h check CI`, `/lt in 30m summarize`, `/lt in 1d review` |
-| Relative (Chinese) | `/lt 30分钟后 总结进展`, `/lt 2小时后 检查` |
+| Relative (Chinese) | `/lt 30分钟后 summarize progress`, `/lt 2小时后 check` |
 | Named date | `/lt today 21:30 continue`, `/lt tomorrow 09:00 check PR`, `/lt 明天 09:00 look at PR` |
 | Day of week | `/lt friday 09:00 check PR`, `/lt 周五 09:00 continue` |
+
+Chinese time tokens map to English as: `30分钟后` = in 30 minutes, `2小时后` = in 2 hours, `明天` = tomorrow, `周五` = Friday. See [Scheduled Tasks](/guide/scheduled-tasks) for the full bilingual time syntax.
 
 ### List and cancel
 

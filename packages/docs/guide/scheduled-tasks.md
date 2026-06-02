@@ -69,10 +69,12 @@ Message: check CI
 
 **Relative — Chinese (one compact token, no space):**
 
+The parser also accepts Chinese relative-time tokens, where `分钟后` means "minutes later", `小时后` means "hours later", and `天后` means "days later":
+
 ```text
-/lt 10分钟后 check CI
-/lt 2小时后 check CI
-/lt 1天后 summarize progress
+/lt 10分钟后 check CI          # = in 10 minutes
+/lt 2小时后 check CI           # = in 2 hours
+/lt 1天后 summarize progress   # = in 1 day
 ```
 
 Supported units:
@@ -83,7 +85,7 @@ Supported units:
 | Hours | `h`, `hour`, `hours`, `小时` |
 | Days | `d`, `day`, `days`, `天` |
 
-Decimals (`1.5h`) and Chinese numerals (`一小时后`, `半小时后`) are not supported. Chinese relative tokens must have no internal spaces (`10 分钟后` is not recognized).
+Decimals (`1.5h`) and Chinese numerals (`一小时后` = "one hour later", `半小时后` = "half an hour later") are not supported. Chinese relative tokens must have no internal spaces (`10 分钟后`, with a space, is not recognized).
 
 **Absolute — today / tomorrow / day-after-tomorrow:**
 
@@ -105,7 +107,7 @@ If `today` or `at` specifies a time that has already passed today, the command i
 **Absolute — day of week:**
 
 ```text
-/lt 周五 09:00 review PR
+/lt 周五 09:00 review PR        # 周五 = Friday
 /lt fri 09:00 review PR
 /lt friday 09:00 review PR
 ```
@@ -114,13 +116,15 @@ Resolves to the nearest upcoming occurrence of that weekday within the next 7 da
 
 Supported: all 7 days in both Chinese (`周日/周天/星期日` … `周六/星期六`) and English (`sun/sunday` … `sat/saturday`).
 
-**Unsupported expressions** (v1 deliberately excludes these to avoid misinterpretation):
+**Unsupported expressions** (v1 deliberately excludes these vague natural-language forms to avoid misinterpretation):
 
 ```text
 明早  今晚  下午三点  周五晚上  下周一  月底  饭后  睡前
 ```
 
-When a time expression is not recognized, xacpx shows a format guide:
+In English these read, in order: *tomorrow morning, tonight, 3 p.m., Friday evening, next Monday, end of month, after a meal, before bed*. Use the explicit relative/absolute/day-of-week forms above instead.
+
+When a time expression is not recognized, xacpx shows a format guide (the guide is bilingual; `30分钟后` means "in 30 minutes" and `周五` means "Friday"):
 
 ```text
 Time format not recognized.

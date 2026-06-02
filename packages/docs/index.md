@@ -52,37 +52,6 @@ xacpx is a chat-channel console for remotely controlling `acpx` agent sessions. 
 
 You can use xacpx to drive Codex, Claude Code, Gemini, OpenCode, and any other agent that `acpx` supports — all from a familiar messaging interface.
 
-## See it in action
-
-<div class="xacpx-showcase">
-<div class="xacpx-terminal">
-<div class="xacpx-terminal__bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><em>xacpx · chat → agent</em></div>
-<pre class="xacpx-terminal__body"><code><span class="c-blue">$</span> xacpx start
-<span class="c-green">✓</span> daemon ready · pid 48213
-<span class="c-blue">/ss</span> codex -d ~/projects/backend
-<span class="c-green">✓</span> session <span class="c-dim">codex-e8e552e7</span> ready
-fix the failing auth test
-<span class="c-blue">▸</span> analyzing 3 files…
-<span class="c-green">✓</span> patch applied · tests green</code></pre>
-</div>
-<div class="xacpx-phone">
-<div class="xacpx-phone__bezel">
-<div class="xacpx-phone__notch"></div>
-<div class="xacpx-phone__screen">
-<div class="xacpx-chat__head"><span class="status-dot"></span> Codex · backend</div>
-<div class="xacpx-chat__body">
-<div class="bubble me">/ss codex -d ~/proj/backend</div>
-<div class="bubble agent">Session <strong>codex-e8e552e7</strong> ready ✓</div>
-<div class="bubble me">fix the failing auth test</div>
-<div class="bubble agent">Patched <code>auth.test.ts</code> — all tests green ✅</div>
-<div class="bubble me">/status</div>
-<div class="bubble agent">Idle · 1 session · last run 12s ago</div>
-</div>
-</div>
-</div>
-</div>
-</div>
-
 ## When to use it
 
 xacpx is the right tool when you want lightweight, on-the-go access to long-running agent sessions. Common scenarios include:

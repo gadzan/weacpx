@@ -57,6 +57,6 @@ Each inbound prompt is **bound at dispatch time** to whatever session the chat i
 When you switch away from a running session, its turn keeps executing in the background. Yuanbao is a linear-text channel, so it follows the **WeChat "A-semantics"** (not Feishu's card-based B-semantics):
 
 - A backgrounded turn's **mid-stream output is suppressed** — it is not sent into the chat that now shows a different session.
-- On completion, its **final answer is stored** and a short ping is sent to the active chat: `✅ <alias> 已完成，/use <alias> 查看结果` (or `⚠️ <alias> 失败，/use <alias> 查看详情`).
+- On completion, its **final answer is stored** and a short ping is sent to the active chat: `✅ <alias> 已完成，/use <alias> 查看结果` (or `⚠️ <alias> 失败，/use <alias> 查看详情`). These literal Chinese pings mean: `<alias>` is done — send `/use <alias>` to view the result; or `<alias>` failed — send `/use <alias>` to view details.
 - Switching **back** to that session (`/use <alias>`) **replays** the stored result.
 - `/sessions` marks sessions with an unfinished or unread background completion using `●`.
