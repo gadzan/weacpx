@@ -669,6 +669,101 @@ export interface WorkerPromptMessages {
   answerLabel: string;
 }
 
+export interface ConfigMessages {
+  // configHelp metadata
+  helpSummary: string;
+  helpCmdShow: string;
+  helpCmdShowDesc: string;
+  helpCmdSet: string;
+  helpCmdSetDesc: string;
+
+  // handleConfigShow — section headers
+  showSupportedHeader: string;
+  showLegacyHeader: string;
+  showExamplesHeader: string;
+
+  // handleConfigShow — legacy path display strings
+  legacyWechatReplyMode: string;
+  legacyChannelType: string;
+  legacyChannels: string;
+
+  // handleConfigSet — no writable config
+  noWritableConfig: string;
+
+  // handleConfigSet — success
+  updated: (path: string, value: string) => string;
+
+  // applySupportedConfigUpdate — language
+  languageInvalid: string;
+
+  // applySupportedConfigUpdate — transport.type
+  transportTypeInvalid: string;
+
+  // applySupportedConfigUpdate — transport.command
+  transportCommandEmpty: string;
+
+  // applySupportedConfigUpdate — transport.permissionMode
+  transportPermissionModeInvalid: string;
+
+  // applySupportedConfigUpdate — transport.nonInteractivePermissions
+  transportNonInteractiveInvalid: string;
+
+  // applySupportedConfigUpdate — transport.permissionPolicy
+  transportPermissionPolicyEmpty: string;
+
+  // applySupportedConfigUpdate — logging.level
+  loggingLevelInvalid: string;
+
+  // applySupportedConfigUpdate — positive number validation
+  mustBePositiveNumber: (path: string) => string;
+
+  // applySupportedConfigUpdate — channel.type (legacy, write disabled)
+  channelTypeDisabled: string;
+
+  // applySupportedConfigUpdate — channel.replyMode
+  channelReplyModeInvalid: string;
+
+  // applySupportedConfigUpdate — wechat.replyMode (legacy)
+  wechatReplyModeInvalid: string;
+
+  // applySupportedConfigUpdate — wechat.replyMode mapped renderedValue
+  wechatReplyModeMapped: (value: string) => string;
+
+  // applySupportedConfigUpdate — dynamic path: agent not found
+  agentNotFound: (name: string) => string;
+
+  // applySupportedConfigUpdate — dynamic path: field cannot be empty
+  fieldEmpty: (path: string) => string;
+
+  // applySupportedConfigUpdate — dynamic path: workspace not found
+  workspaceNotFound: (name: string) => string;
+
+  // applySupportedConfigUpdate — unsupported path
+  pathNotSupported: (path: string) => string;
+}
+
+export interface PermissionMessages {
+  // permissionHelp metadata
+  helpSummary: string;
+  helpCmdShow: string;
+  helpCmdShowDesc: string;
+  helpCmdSet: string;
+  helpCmdSetDesc: string;
+  helpCmdAuto: string;
+  helpCmdAutoDesc: string;
+  helpCmdAutoSet: string;
+  helpCmdAutoSetDesc: string;
+
+  // handlePermissionModeSet / handlePermissionAutoSet — no writable config
+  noWritableConfig: string;
+
+  // renderPermissionStatus — title variants
+  statusTitleCurrent: string;
+  statusTitleAutoStatus: string;
+  statusTitleModeUpdated: string;
+  statusTitleAutoUpdated: string;
+}
+
 export interface Messages {
   common: CommonMessages;
   session: SessionMessages;
@@ -682,4 +777,6 @@ export interface Messages {
   orchestration: OrchestrationMessages;
   coordinatorPrompt: CoordinatorPromptMessages;
   workerPrompt: WorkerPromptMessages;
+  config: ConfigMessages;
+  permission: PermissionMessages;
 }

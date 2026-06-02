@@ -173,11 +173,11 @@ export class CommandRouter {
         case "agent.rm":
           return await handleAgentRemove(this.createHandlerContext(), command.name);
         case "permission.status":
-          return handlePermissionStatus(this.createHandlerContext(), "当前权限模式：");
+          return handlePermissionStatus(this.createHandlerContext());
         case "permission.mode.set":
           return await handlePermissionModeSet(this.createHandlerContext(), command.mode);
         case "permission.auto.status":
-          return handlePermissionAutoStatus(this.createHandlerContext(), "当前非交互策略：");
+          return handlePermissionAutoStatus(this.createHandlerContext());
         case "permission.auto.set":
           return await handlePermissionAutoSet(this.createHandlerContext(), command.policy);
         case "config.show":

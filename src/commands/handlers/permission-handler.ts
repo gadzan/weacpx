@@ -2,30 +2,35 @@ import type { NonInteractivePermissions, PermissionMode, AppConfig } from "../..
 import { cloneAppConfig } from "../config-clone";
 import type { HelpTopicMetadata } from "../help/help-types";
 import type { CommandRouterContext, RouterResponse } from "../router-types";
+import { t } from "../../i18n";
 
-export const permissionHelp: HelpTopicMetadata = {
-  topic: "permission",
-  aliases: ["pm"],
-  summary: "查看和修改 transport 权限策略。",
-  commands: [
-    { usage: "/pm 或 /permission", description: "查看当前权限模式" },
-    { usage: "/pm set <allow|read|deny>", description: "设置审批级别" },
-    { usage: "/pm auto", description: "查看当前非交互策略" },
-    { usage: "/pm auto <deny|fail>", description: "设置非交互策略" },
-  ],
-  examples: ["/pm set read", "/pm auto deny"],
-};
+export function permissionHelp(): HelpTopicMetadata {
+  const p = t().permission;
+  return {
+    topic: "permission",
+    aliases: ["pm"],
+    summary: p.helpSummary,
+    commands: [
+      { usage: p.helpCmdShow, description: p.helpCmdShowDesc },
+      { usage: p.helpCmdSet, description: p.helpCmdSetDesc },
+      { usage: p.helpCmdAuto, description: p.helpCmdAutoDesc },
+      { usage: p.helpCmdAutoSet, description: p.helpCmdAutoSetDesc },
+    ],
+    examples: ["/pm set read", "/pm auto deny"],
+  };
+}
 
-export function handlePermissionStatus(context: CommandRouterContext, title: string): RouterResponse {
-  return { text: renderPermissionStatus(context.config, title) };
+export function handlePermissionStatus(context: CommandRouterContext): RouterResponse {
+  return { text: renderPermissionStatus(context.config, t().permission.statusTitleCurrent) };
 }
 
 export async function handlePermissionModeSet(
   context: CommandRouterContext,
   mode: PermissionMode,
 ): Promise<RouterResponse> {
+  const p = t().permission;
   if (!context.config || !context.configStore) {
-    return { text: "当前没有加载可写入的配置。" };
+    return { text: p.noWritableConfig };
   }
 
   const previous = cloneAppConfig(context.config);
@@ -40,19 +45,20 @@ export async function handlePermissionModeSet(
     throw error;
   }
   context.replaceConfig(updated);
-  return { text: renderPermissionStatus(context.config, "权限模式已更新：") };
+  return { text: renderPermissionStatus(context.config, p.statusTitleModeUpdated) };
 }
 
-export function handlePermissionAutoStatus(context: CommandRouterContext, title: string): RouterResponse {
-  return { text: renderPermissionStatus(context.config, title) };
+export function handlePermissionAutoStatus(context: CommandRouterContext): RouterResponse {
+  return { text: renderPermissionStatus(context.config, t().permission.statusTitleAutoStatus) };
 }
 
 export async function handlePermissionAutoSet(
   context: CommandRouterContext,
   policy: NonInteractivePermissions,
 ): Promise<RouterResponse> {
+  const p = t().permission;
   if (!context.config || !context.configStore) {
-    return { text: "当前没有加载可写入的配置。" };
+    return { text: p.noWritableConfig };
   }
 
   const previous = cloneAppConfig(context.config);
@@ -67,7 +73,7 @@ export async function handlePermissionAutoSet(
     throw error;
   }
   context.replaceConfig(updated);
-  return { text: renderPermissionStatus(context.config, "非交互策略已更新：") };
+  return { text: renderPermissionStatus(context.config, p.statusTitleAutoUpdated) };
 }
 
 export function renderPermissionStatus(config: AppConfig | undefined, title: string): string {

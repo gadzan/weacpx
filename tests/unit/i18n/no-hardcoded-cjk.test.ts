@@ -15,6 +15,8 @@ const MIGRATED_PREFIXES = [
   "src/commands/handlers/agent-handler.ts",
   "src/commands/handlers/later-handler.ts",
   "src/commands/handlers/orchestration-handler.ts",
+  "src/commands/handlers/config-handler.ts",
+  "src/commands/handlers/permission-handler.ts",
   "src/scheduled/scheduled-render.ts",
   "src/orchestration/render-delegate-group-result.ts",
   "src/orchestration/build-coordinator-prompt.ts",

@@ -11,5 +11,7 @@ import { scheduledRender } from "./scheduled-render";
 import { orchestration } from "./orchestration";
 import { coordinatorPrompt } from "./coordinator-prompt";
 import { workerPrompt } from "./worker-prompt";
+import { config } from "./config";
+import { permission } from "./permission";
 
-export const zh: Messages = { common, session, nativeSession, recovery, shortcut, workspace, agent, later, scheduledRender, orchestration, coordinatorPrompt, workerPrompt };
+export const zh: Messages = { common, session, nativeSession, recovery, shortcut, workspace, agent, later, scheduledRender, orchestration, coordinatorPrompt, workerPrompt, config, permission };
