@@ -30,8 +30,11 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
+      - name: Install docs dependencies
+        run: npm install --prefix packages/docs --workspaces=false --no-audit --no-fund --package-lock=false
+
       - name: Build docs
-        run: npx --yes vitepress@1.6.4 build packages/docs
+        run: npm run --prefix packages/docs build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
