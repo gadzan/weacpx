@@ -145,6 +145,7 @@ function startProgressHeartbeat(
 
 import { createPerfTracer, createNoopPerfTracer, type PerfTracer } from "./perf/perf-tracer";
 import { bootstrapBuiltinChannels } from "./channels/bootstrap.js";
+import { setLocale, resolveLocale, getLocale } from "./i18n";
 
 export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Promise<AppRuntime> {
   bootstrapBuiltinChannels();
@@ -153,8 +154,10 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
   const config = await loadConfig(paths.configPath, {
     defaultLoggingLevel: deps.defaultLoggingLevel,
   });
+  setLocale(resolveLocale({ configLanguage: config.language }));
   const reloadRuntimeConfig = async (): Promise<AppConfig> => {
     const updated = await configStore.load();
+    setLocale(resolveLocale({ configLanguage: updated.language }));
     replaceRuntimeConfig(config, updated);
     return config;
   };

@@ -8,6 +8,7 @@ import {
 import { BridgeServer } from "./bridge-server";
 import { BridgeRuntime } from "./bridge-runtime";
 import { coreEnv } from "../runtime/core-env";
+import { setLocale, resolveLocale } from "../i18n";
 
 type BridgeInput = AsyncIterable<string> & {
   close(): void;
@@ -81,5 +82,6 @@ export async function runBridgeMain(): Promise<void> {
 }
 
 if (import.meta.main) {
+  setLocale(resolveLocale({ configLanguage: process.env.XACPX_LANG }));
   await runBridgeMain();
 }

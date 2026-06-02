@@ -5,6 +5,7 @@ import { spawn as spawnPty } from "node-pty";
 import { resolveSpawnCommand } from "../../process/spawn-command";
 import type { NonInteractivePermissions, PermissionMode } from "../../config/types";
 import type { ToolUseEvent } from "../../channels/types.js";
+import { getLocale } from "../../i18n";
 import type {
   AgentSessionListQuery,
   AgentSessionListResult,
@@ -127,7 +128,7 @@ async function defaultPtyRunner(command: string, args: string[], options?: RunOp
       cols: 80,
       rows: 24,
       cwd: process.cwd(),
-      env: process.env as Record<string, string>,
+      env: { ...process.env, XACPX_LANG: getLocale() } as Record<string, string>,
     });
     let output = "";
 

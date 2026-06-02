@@ -13,6 +13,7 @@ import { PromptCommandError } from "../prompt-output";
 import { MissingOptionalDepError } from "../../recovery/errors";
 import { terminateProcessTree } from "../../process/terminate-process-tree";
 import type { ToolUseEvent } from "../../channels/types.js";
+import { getLocale } from "../../i18n";
 
 type WriteLine = (line: string) => boolean | void;
 
@@ -205,6 +206,7 @@ export async function spawnAcpxBridgeClient(
     cwd: options.cwd ?? process.cwd(),
     env: {
       ...process.env,
+      XACPX_LANG: getLocale(),
       XACPX_BRIDGE_ACPX_COMMAND: options.acpxCommand ?? "acpx",
       XACPX_BRIDGE_PERMISSION_MODE: options.permissionMode ?? "approve-all",
       XACPX_BRIDGE_NON_INTERACTIVE_PERMISSIONS: options.nonInteractivePermissions ?? "deny",

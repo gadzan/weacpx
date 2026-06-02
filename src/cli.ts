@@ -49,6 +49,7 @@ import { handleChannelCli, type ChannelCliDeps } from "./channels/cli/channel-cl
 import { handlePluginCli, type PluginCliDeps } from "./plugins/plugin-cli";
 import { createStartupWaitUi } from "./cli/startup-wait-ui";
 import type { DaemonStartupWait } from "./daemon/daemon-controller";
+import { setLocale, resolveLocale, getLocale } from "./i18n";
 
 
 export interface PrepareMcpCoordinatorStartupInput {
@@ -284,6 +285,18 @@ import { bootstrapBuiltinChannels } from "./channels/bootstrap.js";
 const INFO_ONLY_COMMANDS = new Set(["version", "--version", "-v", "--help", "-h"]);
 
 export async function runCli(args: string[], deps: CliDeps = {}): Promise<number> {
+  {
+    let configLanguage: string | undefined;
+    try {
+      const localePaths = (await import("./main")).resolveRuntimePaths();
+      configLanguage = (await loadConfig(localePaths.configPath)).language;
+    } catch {
+      // Best-effort locale bootstrap: never let config problems break a CLI command.
+      // Missing/invalid config falls back to the system locale here; the real config
+      // load+validation happens later during command handling and surfaces errors there.
+    }
+    setLocale(resolveLocale({ configLanguage }));
+  }
   bootstrapBuiltinChannels();
   const command = args[0];
   const print = deps.print ?? ((line: string) => console.log(line));
@@ -418,6 +431,8 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       return result;
     }
     case "mcp-stdio":
+      // mcp-stdio runs as an acpx-spawned child: prefer the parent-injected XACPX_LANG over config.
+      setLocale(resolveLocale({ configLanguage: process.env.XACPX_LANG }));
       return await (deps.mcpStdio ?? ((subArgs) => defaultMcpStdio(subArgs, { stderr: deps.stderr })))(args.slice(1));
     case "start": {
       const controller = deps.controller ?? createDefaultController(deps);
@@ -1210,7 +1225,7 @@ function createDefaultController(deps: Pick<CliDeps, "isProcessRunning"> = {}): 
     processExecPath: process.execPath,
     cliEntryPath: resolveCliEntryPath(),
     cwd: process.cwd(),
-    env: process.env,
+    env: { ...process.env, XACPX_LANG: getLocale() },
     ...(deps.isProcessRunning ? { isProcessRunning: deps.isProcessRunning } : {}),
   });
   return {

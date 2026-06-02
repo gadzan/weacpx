@@ -8,6 +8,7 @@ import type { NonInteractivePermissions, PermissionMode } from "../config/types"
 import { resolveSpawnCommand } from "../process/spawn-command";
 import { terminateProcessTree } from "../process/terminate-process-tree";
 import { quoteIfNeeded } from "../util/text.js";
+import { getLocale } from "../i18n";
 import { coreEnv } from "../runtime/core-env";
 
 export interface AcpxMcpServerSpec {
@@ -161,6 +162,7 @@ export class AcpxQueueOwnerLauncher {
     await this.spawnOwner(spawnSpec.command, spawnSpec.args, {
       env: {
         ...stringEnv(this.baseEnv),
+        XACPX_LANG: getLocale(),
         ACPX_QUEUE_OWNER_PAYLOAD: JSON.stringify(payload),
       },
     });
