@@ -284,6 +284,10 @@ export interface ShortcutMessages {
 }
 
 export interface WorkspaceMessages {
+  // render-text: renderWorkspaces
+  workspacesEmpty: string;
+  workspacesHeader: string;
+
   // handleWorkspaceCreate — no config
   noWritableConfig: string;
 
@@ -315,6 +319,10 @@ export interface WorkspaceMessages {
 }
 
 export interface AgentMessages {
+  // render-text: renderAgents
+  agentsEmpty: string;
+  agentsHeader: string;
+
   // handleAgentAdd / handleAgentRemove — no config
   noWritableConfig: string;
 
@@ -458,6 +466,169 @@ export interface ScheduledRenderMessages {
   weekdaySat: string;
 }
 
+export interface OrchestrationMessages {
+  // handler guard — no current session
+  noCurrentSession: string;
+
+  // handler guard — orchestration service not enabled
+  serviceUnavailable: string;
+
+  // handler — task/group not found
+  taskNotFound: string;
+  groupNotFound: string;
+
+  // render-text: renderDelegateSuccess
+  delegateSuccessCreated: (taskId: string) => string;
+  delegateSuccessWorker: (workerSession: string) => string;
+
+  // render-text: renderGroupCreated
+  groupCreatedId: (groupId: string) => string;
+  groupCreatedTitle: (title: string) => string;
+
+  // render-text: renderGroupList
+  groupListEmpty: string;
+  groupListHeader: string;
+
+  // render-text: renderGroupSummary
+  groupSummaryId: (groupId: string) => string;
+  groupSummaryTitle: (title: string) => string;
+  groupSummaryCoordinator: (coordinatorSession: string) => string;
+  groupSummaryTotal: (count: number) => string;
+  groupSummaryPending: (count: number) => string;
+  groupSummaryRunning: (count: number) => string;
+  groupSummaryCompleted: (count: number) => string;
+  groupSummaryFailed: (count: number) => string;
+  groupSummaryCancelled: (count: number) => string;
+  groupSummaryTerminal: (isTerminal: boolean) => string;
+  groupSummaryTerminalYes: string;
+  groupSummaryTerminalNo: string;
+  groupSummaryInjectionPending: (pending: boolean) => string;
+  groupSummaryInjectionAppliedAt: (time: string) => string;
+  groupSummaryLastInjectionError: (error: string) => string;
+  groupSummaryMembersHeader: string;
+
+  // render-text: renderGroupCancelSuccess
+  groupCancelSuccessId: (groupId: string) => string;
+  groupCancelSuccessCancelledCount: (count: number) => string;
+  groupCancelSuccessSkippedCount: (count: number) => string;
+
+  // render-text: renderTaskList
+  taskListEmpty: string;
+  taskListHeader: string;
+
+  // render-text: renderTaskSummary
+  taskSummaryId: (taskId: string) => string;
+  taskSummaryStatus: (status: string) => string;
+  taskSummaryCoordinator: (coordinatorSession: string) => string;
+  taskSummaryWorker: (workerSession: string) => string;
+  taskSummaryWorkerUnassigned: string;
+  taskSummaryTargetAgent: (agent: string) => string;
+  taskSummaryRole: (role: string) => string;
+  taskSummaryGroup: (groupId: string) => string;
+  taskSummarySource: (sourceKind: string, sourceHandle: string, roleSuffix: string) => string;
+  taskSummaryTask: (task: string) => string;
+  taskSummarySummary: (summary: string) => string;
+  taskSummaryLatestProgress: (progress: string) => string;
+  taskSummaryResult: (result: string) => string;
+  taskSummaryTimelineHeader: string;
+
+  // render-text: renderTaskCancelSuccess
+  taskCancelAlreadyDone: (taskId: string) => string;
+  taskCancelRequested: (taskId: string) => string;
+  taskCancelled: (taskId: string) => string;
+  taskCurrentStatus: (status: string) => string;
+
+  // render-text: renderTaskApprovalSuccess
+  taskApproved: (taskId: string) => string;
+
+  // render-text: renderTaskRejectSuccess
+  taskRejected: (taskId: string) => string;
+
+  // render-text: renderTaskConfirmationUnavailable
+  taskConfirmationUnavailable: (taskId: string) => string;
+
+  // render-text: renderTasksCleanResult
+  tasksCleanEmpty: string;
+  tasksCleanRemovedTasks: (count: number) => string;
+  tasksCleanRemovedBindings: (count: number) => string;
+
+  // render-text: renderTaskListItem (inline rendering)
+  taskListItemGroup: (groupId: string) => string;
+  taskListItemSource: (sourceKind: string, sourceHandle: string, roleSuffix: string) => string;
+  taskListItemNoticePending: string;
+  taskListItemInjectionPending: string;
+  taskListItemCancelling: string;
+
+  // render-text: renderGroupListItem (inline rendering)
+  groupListItemInjectionPending: string;
+  groupListItemTotal: (count: number) => string;
+  groupListItemPending: (count: number) => string;
+  groupListItemRunning: (count: number) => string;
+  groupListItemCompleted: (count: number) => string;
+  groupListItemFailed: (count: number) => string;
+  groupListItemCancelled: (count: number) => string;
+
+  // render-delegate-group-result: truncate
+  truncatedResult: (taskId: string) => string;
+
+  // render-delegate-group-result: pickNextAction
+  nextActionNoMembers: string;
+  nextActionMixed: string;
+  nextActionAllFailed: string;
+  nextActionOtherOnly: string;
+  nextActionMostlySuccess: string;
+  nextActionAllSuccess: string;
+
+  // orchestrationHelp metadata
+  helpSummary: string;
+  helpCmdDg: string;
+  helpCmdDgDesc: string;
+  helpCmdDelegate: string;
+  helpCmdDelegateDesc: string;
+  helpCmdDelegateRole: string;
+  helpCmdDelegateRoleDesc: string;
+  helpCmdDelegateGroup: string;
+  helpCmdDelegateGroupDesc: string;
+  helpCmdGroupNew: string;
+  helpCmdGroupNewDesc: string;
+  helpCmdGroupGet: string;
+  helpCmdGroupGetDesc: string;
+  helpCmdGroupAdd: string;
+  helpCmdGroupAddDesc: string;
+  helpCmdGroupAddRole: string;
+  helpCmdGroupAddRoleDesc: string;
+  helpCmdGroupCancel: string;
+  helpCmdGroupCancelDesc: string;
+  helpCmdGroups: string;
+  helpCmdGroupsDesc: string;
+  helpCmdTasks: string;
+  helpCmdTasksDesc: string;
+  helpCmdTasksStatus: string;
+  helpCmdTasksStatusDesc: string;
+  helpCmdTasksStuck: string;
+  helpCmdTasksStuckDesc: string;
+  helpCmdTasksClean: string;
+  helpCmdTasksCleanDesc: string;
+  helpCmdTaskGet: string;
+  helpCmdTaskGetDesc: string;
+  helpCmdTaskApprove: string;
+  helpCmdTaskApproveDesc: string;
+  helpCmdTaskReject: string;
+  helpCmdTaskRejectDesc: string;
+  helpCmdTaskCancel: string;
+  helpCmdTaskCancelDesc: string;
+  helpExample1: string;
+  helpExample2: string;
+  helpExample3: string;
+  helpExample4: string;
+  helpExample5: string;
+  helpExample6: string;
+  helpExample7: string;
+  helpExample8: string;
+  helpExample9: string;
+  helpExample10: string;
+}
+
 export interface Messages {
   common: CommonMessages;
   session: SessionMessages;
@@ -468,4 +639,5 @@ export interface Messages {
   agent: AgentMessages;
   later: LaterMessages;
   scheduledRender: ScheduledRenderMessages;
+  orchestration: OrchestrationMessages;
 }

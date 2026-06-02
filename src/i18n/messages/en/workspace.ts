@@ -1,6 +1,10 @@
 import type { WorkspaceMessages } from "../../types";
 
 export const workspace: WorkspaceMessages = {
+  // render-text: renderWorkspaces
+  workspacesEmpty: "No workspaces registered yet.",
+  workspacesHeader: "Registered workspaces:",
+
   // handleWorkspaceCreate — no config
   noWritableConfig: "No writable config is currently loaded.",
 

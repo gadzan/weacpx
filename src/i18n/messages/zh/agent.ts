@@ -1,6 +1,10 @@
 import type { AgentMessages } from "../../types";
 
 export const agent: AgentMessages = {
+  // render-text: renderAgents
+  agentsEmpty: "还没有注册任何 Agent。",
+  agentsHeader: "已注册的 Agent：",
+
   // handleAgentAdd / handleAgentRemove — no config
   noWritableConfig: "当前没有加载可写入的配置。",
 

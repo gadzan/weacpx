@@ -17,48 +17,48 @@ import {
 import type { ResolvedSession } from "../../transport/types";
 import type { HelpTopicMetadata } from "../help/help-types";
 import type { CommandRouterContext, OrchestrationRouterOps, RouterResponse } from "../router-types";
+import { t } from "../../i18n";
 
-const NO_CURRENT_SESSION_TEXT = "当前还没有选中的会话。请先执行 /session new ... 或 /use <alias>。";
-const TASK_NOT_FOUND_TEXT = "没有找到对应任务。";
-const GROUP_NOT_FOUND_TEXT = "没有找到对应任务组。";
-
-export const orchestrationHelp: HelpTopicMetadata = {
-  topic: "orchestration",
-  aliases: ["delegate", "dg", "task", "tasks", "group", "groups"],
-  summary: "委派子任务、组织任务组、查看任务状态，并处理待确认的编排请求。",
-  commands: [
-    { usage: "/dg <agent> <task>", description: "把当前主线中的子任务快速委派给目标 agent" },
-    { usage: "/delegate <agent> <task>", description: "把当前主线中的子任务委派给目标 agent" },
-    { usage: "/delegate <agent> --role <role> <task>", description: "按指定角色模板委派子任务" },
-    { usage: "/delegate <agent> --group <groupId> <task>", description: "把委派任务附加到指定任务组" },
-    { usage: "/group new <title>", description: "在当前主线下创建一个任务组" },
-    { usage: "/group <id>", description: "查看单个任务组详情" },
-    { usage: "/group add <groupId> <agent> <task>", description: "把子任务加入已有任务组（等价于 /delegate --group）" },
-    { usage: "/group add <groupId> <agent> --role <role> <task>", description: "按角色模板把子任务加入已有任务组" },
-    { usage: "/group cancel <groupId>", description: "取消指定任务组下所有未结束任务" },
-    { usage: "/groups", description: "查看当前主线下的任务组列表" },
-    { usage: "/tasks", description: "查看当前主线下的任务列表" },
-    { usage: "/tasks --status <state>", description: "按状态过滤任务（running/completed/failed/cancelled/needs_confirmation）" },
-    { usage: "/tasks --stuck", description: "只看心跳超时的 running 任务" },
-    { usage: "/tasks clean", description: "清理当前主线下的已结束任务和无效绑定" },
-    { usage: "/task <id>", description: "查看单个任务详情" },
-    { usage: "/task approve <id>", description: "批准一个 needs_confirmation 任务并开始派发" },
-    { usage: "/task reject <id>", description: "拒绝一个 needs_confirmation 任务" },
-    { usage: "/task cancel <id>", description: "取消当前主线下的任务" },
-  ],
-  examples: [
-    "/dg claude 审查当前方案的 3 个最高风险点",
-    "/dg claude --group review-batch 审查接口设计",
-    "/dg codex --role planner 把这个需求拆成最小实现步骤",
-    "/group new parallel review",
-    "/group add review-batch claude --role reviewer 审查接口设计",
-    "/groups",
-    "/group cancel review-batch",
-    "/tasks",
-    "/tasks clean",
-    "/task approve task_123",
-  ],
-};
+export function orchestrationHelp(): HelpTopicMetadata {
+  const o = t().orchestration;
+  return {
+    topic: "orchestration",
+    aliases: ["delegate", "dg", "task", "tasks", "group", "groups"],
+    summary: o.helpSummary,
+    commands: [
+      { usage: o.helpCmdDg, description: o.helpCmdDgDesc },
+      { usage: o.helpCmdDelegate, description: o.helpCmdDelegateDesc },
+      { usage: o.helpCmdDelegateRole, description: o.helpCmdDelegateRoleDesc },
+      { usage: o.helpCmdDelegateGroup, description: o.helpCmdDelegateGroupDesc },
+      { usage: o.helpCmdGroupNew, description: o.helpCmdGroupNewDesc },
+      { usage: o.helpCmdGroupGet, description: o.helpCmdGroupGetDesc },
+      { usage: o.helpCmdGroupAdd, description: o.helpCmdGroupAddDesc },
+      { usage: o.helpCmdGroupAddRole, description: o.helpCmdGroupAddRoleDesc },
+      { usage: o.helpCmdGroupCancel, description: o.helpCmdGroupCancelDesc },
+      { usage: o.helpCmdGroups, description: o.helpCmdGroupsDesc },
+      { usage: o.helpCmdTasks, description: o.helpCmdTasksDesc },
+      { usage: o.helpCmdTasksStatus, description: o.helpCmdTasksStatusDesc },
+      { usage: o.helpCmdTasksStuck, description: o.helpCmdTasksStuckDesc },
+      { usage: o.helpCmdTasksClean, description: o.helpCmdTasksCleanDesc },
+      { usage: o.helpCmdTaskGet, description: o.helpCmdTaskGetDesc },
+      { usage: o.helpCmdTaskApprove, description: o.helpCmdTaskApproveDesc },
+      { usage: o.helpCmdTaskReject, description: o.helpCmdTaskRejectDesc },
+      { usage: o.helpCmdTaskCancel, description: o.helpCmdTaskCancelDesc },
+    ],
+    examples: [
+      o.helpExample1,
+      o.helpExample2,
+      o.helpExample3,
+      o.helpExample4,
+      o.helpExample5,
+      o.helpExample6,
+      o.helpExample7,
+      o.helpExample8,
+      o.helpExample9,
+      o.helpExample10,
+    ],
+  };
+}
 
 export async function handleDelegateRequest(
   context: CommandRouterContext,
@@ -72,7 +72,7 @@ export async function handleDelegateRequest(
 ): Promise<RouterResponse> {
   const session = await getCurrentSession(context, chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().orchestration.noCurrentSession };
   }
 
   const orchestration = getOrchestration(context);
@@ -104,7 +104,7 @@ export async function handleGroupCreate(
 ): Promise<RouterResponse> {
   const session = await getCurrentSession(context, chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().orchestration.noCurrentSession };
   }
 
   const orchestration = getOrchestration(context);
@@ -126,7 +126,7 @@ export async function handleGroupList(
 ): Promise<RouterResponse> {
   const session = await getCurrentSession(context, chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().orchestration.noCurrentSession };
   }
 
   const orchestration = getOrchestration(context);
@@ -148,7 +148,7 @@ export async function handleGroupGet(
 ): Promise<RouterResponse> {
   const session = await getCurrentSession(context, chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().orchestration.noCurrentSession };
   }
 
   const orchestration = getOrchestration(context);
@@ -161,7 +161,7 @@ export async function handleGroupGet(
     coordinatorSession: session.transportSession,
   });
   if (!group) {
-    return { text: GROUP_NOT_FOUND_TEXT };
+    return { text: t().orchestration.groupNotFound };
   }
   return { text: renderGroupSummary(group) };
 }
@@ -173,7 +173,7 @@ export async function handleGroupCancel(
 ): Promise<RouterResponse> {
   const session = await getCurrentSession(context, chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().orchestration.noCurrentSession };
   }
 
   const orchestration = getOrchestration(context);
@@ -186,7 +186,7 @@ export async function handleGroupCancel(
     coordinatorSession: session.transportSession,
   });
   if (!group) {
-    return { text: GROUP_NOT_FOUND_TEXT };
+    return { text: t().orchestration.groupNotFound };
   }
 
   const cancelled = await orchestration.cancelGroup({
@@ -208,7 +208,7 @@ export async function handleGroupDelegate(
 ): Promise<RouterResponse> {
   const session = await getCurrentSession(context, chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().orchestration.noCurrentSession };
   }
 
   const orchestration = getOrchestration(context);
@@ -221,7 +221,7 @@ export async function handleGroupDelegate(
     coordinatorSession: session.transportSession,
   });
   if (!group) {
-    return { text: GROUP_NOT_FOUND_TEXT };
+    return { text: t().orchestration.groupNotFound };
   }
 
   return await handleDelegateRequest(
@@ -243,7 +243,7 @@ export async function handleTaskList(
 ): Promise<RouterResponse> {
   const session = await getCurrentSession(context, chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().orchestration.noCurrentSession };
   }
 
   const orchestration = getOrchestration(context);
@@ -261,7 +261,7 @@ export async function handleTaskList(
 export async function handleTaskGet(context: CommandRouterContext, chatKey: string, taskId: string): Promise<RouterResponse> {
   const session = await getCurrentSession(context, chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().orchestration.noCurrentSession };
   }
 
   const orchestration = getOrchestration(context);
@@ -271,7 +271,7 @@ export async function handleTaskGet(context: CommandRouterContext, chatKey: stri
 
   const task = await orchestration.getTask(taskId);
   if (!task || task.coordinatorSession !== session.transportSession) {
-    return { text: TASK_NOT_FOUND_TEXT };
+    return { text: t().orchestration.taskNotFound };
   }
 
   return { text: renderTaskSummary(task) };
@@ -284,7 +284,7 @@ export async function handleTaskApprove(
 ): Promise<RouterResponse> {
   const session = await getCurrentSession(context, chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().orchestration.noCurrentSession };
   }
 
   const orchestration = getOrchestration(context);
@@ -294,7 +294,7 @@ export async function handleTaskApprove(
 
   const task = await orchestration.getTask(taskId);
   if (!task || task.coordinatorSession !== session.transportSession) {
-    return { text: TASK_NOT_FOUND_TEXT };
+    return { text: t().orchestration.taskNotFound };
   }
   if (task.status !== "needs_confirmation") {
     return { text: renderTaskConfirmationUnavailable(task) };
@@ -315,7 +315,7 @@ export async function handleTaskReject(
 ): Promise<RouterResponse> {
   const session = await getCurrentSession(context, chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().orchestration.noCurrentSession };
   }
 
   const orchestration = getOrchestration(context);
@@ -325,7 +325,7 @@ export async function handleTaskReject(
 
   const task = await orchestration.getTask(taskId);
   if (!task || task.coordinatorSession !== session.transportSession) {
-    return { text: TASK_NOT_FOUND_TEXT };
+    return { text: t().orchestration.taskNotFound };
   }
   if (task.status !== "needs_confirmation") {
     return { text: renderTaskConfirmationUnavailable(task) };
@@ -346,7 +346,7 @@ export async function handleTaskCancel(
 ): Promise<RouterResponse> {
   const session = await getCurrentSession(context, chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().orchestration.noCurrentSession };
   }
 
   const orchestration = getOrchestration(context);
@@ -356,7 +356,7 @@ export async function handleTaskCancel(
 
   const task = await orchestration.getTask(taskId);
   if (!task || task.coordinatorSession !== session.transportSession) {
-    return { text: TASK_NOT_FOUND_TEXT };
+    return { text: t().orchestration.taskNotFound };
   }
 
   const cancelled = await orchestration.requestTaskCancellation({
@@ -370,7 +370,7 @@ export async function handleTaskCancel(
 export async function handleTasksClean(context: CommandRouterContext, chatKey: string): Promise<RouterResponse> {
   const session = await getCurrentSession(context, chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().orchestration.noCurrentSession };
   }
 
   const orchestration = getOrchestration(context);

@@ -22,7 +22,7 @@ function buildHelpTopics(): HelpTopicMetadata[] {
     agentHelp(),
     permissionHelp,
     configHelp,
-    orchestrationHelp,
+    orchestrationHelp(),
     modeHelp(),
     replyModeHelp(),
     statusHelp(),

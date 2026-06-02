@@ -4,70 +4,77 @@ import type {
   OrchestrationGroupSummary,
   OrchestrationTaskRecord,
 } from "../orchestration/orchestration-types";
+import { t } from "../i18n";
 
 export function renderAgents(config: AppConfig): string {
   const names = Object.keys(config.agents);
+  const a = t().agent;
   if (names.length === 0) {
-    return "还没有注册任何 Agent。";
+    return a.agentsEmpty;
   }
-  return ["已注册的 Agent：", ...names.map((name) => `- ${name}`)].join("\n");
+  return [a.agentsHeader, ...names.map((name) => `- ${name}`)].join("\n");
 }
 
 export function renderWorkspaces(config: AppConfig): string {
   const names = Object.entries(config.workspaces);
+  const w = t().workspace;
   if (names.length === 0) {
-    return "还没有注册任何工作区。";
+    return w.workspacesEmpty;
   }
-  return ["已注册的工作区：", ...names.map(([name, workspace]) => `- ${name}: ${workspace.cwd}`)].join("\n");
+  return [w.workspacesHeader, ...names.map(([name, workspace]) => `- ${name}: ${workspace.cwd}`)].join("\n");
 }
 
 export function renderOrchestrationUnavailable(): string {
-  return "当前未启用任务编排服务。";
+  return t().orchestration.serviceUnavailable;
 }
 
 export function renderDelegateSuccess(taskId: string, workerSession: string): string {
-  return [`已创建委派任务「${taskId}」`, `worker 会话：${workerSession}`].join("\n");
+  const o = t().orchestration;
+  return [o.delegateSuccessCreated(taskId), o.delegateSuccessWorker(workerSession)].join("\n");
 }
 
 export function renderGroupCreated(group: OrchestrationGroupRecord): string {
-  return [`已创建任务组「${group.groupId}」`, `- 标题：${group.title}`].join("\n");
+  const o = t().orchestration;
+  return [o.groupCreatedId(group.groupId), o.groupCreatedTitle(group.title)].join("\n");
 }
 
 export function renderGroupList(groups: OrchestrationGroupSummary[]): string {
+  const o = t().orchestration;
   if (groups.length === 0) {
-    return "当前协调会话下还没有任务组。";
+    return o.groupListEmpty;
   }
 
-  return ["当前协调会话的任务组：", ...groups.map((group) => renderGroupListItem(group))].join("\n");
+  return [o.groupListHeader, ...groups.map((group) => renderGroupListItem(group))].join("\n");
 }
 
 export function renderGroupSummary(summary: OrchestrationGroupSummary): string {
   const { group, tasks } = summary;
+  const o = t().orchestration;
   const lines = [
-    `任务组「${group.groupId}」`,
-    `- 标题：${group.title}`,
-    `- 协调会话：${group.coordinatorSession}`,
-    `- 总任务数：${summary.totalTasks}`,
-    `- 待确认：${summary.pendingApprovalTasks}`,
-    `- 运行中：${summary.runningTasks}`,
-    `- 已完成：${summary.completedTasks}`,
-    `- 已失败：${summary.failedTasks}`,
-    `- 已取消：${summary.cancelledTasks}`,
-    `- 是否终态：${summary.terminal ? "是" : "否"}`,
+    o.groupSummaryId(group.groupId),
+    o.groupSummaryTitle(group.title),
+    o.groupSummaryCoordinator(group.coordinatorSession),
+    o.groupSummaryTotal(summary.totalTasks),
+    o.groupSummaryPending(summary.pendingApprovalTasks),
+    o.groupSummaryRunning(summary.runningTasks),
+    o.groupSummaryCompleted(summary.completedTasks),
+    o.groupSummaryFailed(summary.failedTasks),
+    o.groupSummaryCancelled(summary.cancelledTasks),
+    o.groupSummaryTerminal(summary.terminal),
   ];
 
   if (group.injectionPending !== undefined) {
-    lines.push(`- 注入待处理：${group.injectionPending ? "是" : "否"}`);
+    lines.push(o.groupSummaryInjectionPending(group.injectionPending));
   }
   if (group.injectionAppliedAt) {
-    lines.push(`- 注入完成时间：${group.injectionAppliedAt}`);
+    lines.push(o.groupSummaryInjectionAppliedAt(group.injectionAppliedAt));
   }
   if (group.lastInjectionError) {
-    lines.push(`- 最近注入错误：${group.lastInjectionError}`);
+    lines.push(o.groupSummaryLastInjectionError(group.lastInjectionError));
   }
 
   if (tasks.length > 0) {
-    lines.push("- 成员：");
+    lines.push(o.groupSummaryMembersHeader);
     for (const task of tasks) {
       lines.push(`  - ${task.taskId} [${task.status}] ${task.targetAgent}`);
     }
@@ -81,19 +88,21 @@ export function renderGroupCancelSuccess(input: {
   cancelledTaskIds: string[];
   skippedTaskIds: string[];
 }): string {
+  const o = t().orchestration;
   return [
-    `任务组「${input.summary.group.groupId}」已发起取消`,
-    `- 已请求取消：${input.cancelledTaskIds.length}`,
-    `- 已跳过终态任务：${input.skippedTaskIds.length}`,
+    o.groupCancelSuccessId(input.summary.group.groupId),
+    o.groupCancelSuccessCancelledCount(input.cancelledTaskIds.length),
+    o.groupCancelSuccessSkippedCount(input.skippedTaskIds.length),
   ].join("\n");
 }
 
 export function renderTaskList(tasks: OrchestrationTaskRecord[]): string {
+  const o = t().orchestration;
   if (tasks.length === 0) {
-    return "当前协调会话下还没有任务。";
+    return o.taskListEmpty;
   }
 
-  return ["当前协调会话的任务：", ...tasks.map((task) => renderTaskListItem(task))].join("\n");
+  return [o.taskListHeader, ...tasks.map((task) => renderTaskListItem(task))].join("\n");
 }
 
 interface TimelineEvent {
@@ -103,22 +112,23 @@ interface TimelineEvent {
 }
 
 export function renderTaskSummary(task: OrchestrationTaskRecord): string {
+  const o = t().orchestration;
   const header = [
-    `任务「${task.taskId}」`,
-    `- 状态：${task.status}`,
-    `- 协调会话：${task.coordinatorSession}`,
-    `- worker 会话：${task.workerSession ?? "未分配"}`,
-    `- 目标 Agent：${task.targetAgent}`,
+    o.taskSummaryId(task.taskId),
+    o.taskSummaryStatus(task.status),
+    o.taskSummaryCoordinator(task.coordinatorSession),
+    o.taskSummaryWorker(task.workerSession ?? o.taskSummaryWorkerUnassigned),
+    o.taskSummaryTargetAgent(task.targetAgent),
   ];
-  if (task.role) header.push(`- 角色：${task.role}`);
-  if (task.groupId) header.push(`- 任务组：${task.groupId}`);
+  if (task.role) header.push(o.taskSummaryRole(task.role));
+  if (task.groupId) header.push(o.taskSummaryGroup(task.groupId));
   if (task.status === "needs_confirmation") {
-    header.push(`- 来源：${task.sourceKind} / ${task.sourceHandle}${task.role ? ` / ${task.role}` : ""}`);
+    header.push(o.taskSummarySource(task.sourceKind, task.sourceHandle, task.role ? ` / ${task.role}` : ""));
   }
-  header.push(`- 任务：${task.task}`);
-  if (task.summary.trim().length > 0) header.push(`- 摘要：${task.summary}`);
-  if (task.lastProgressSummary) header.push(`- 最新进展：${task.lastProgressSummary}`);
-  if (task.resultText.trim().length > 0) header.push(`- 结果：${task.resultText}`);
+  header.push(o.taskSummaryTask(task.task));
+  if (task.summary.trim().length > 0) header.push(o.taskSummarySummary(task.summary));
+  if (task.lastProgressSummary) header.push(o.taskSummaryLatestProgress(task.lastProgressSummary));
+  if (task.resultText.trim().length > 0) header.push(o.taskSummaryResult(task.resultText));
 
   const events: TimelineEvent[] = [];
   events.push({ at: task.createdAt, event: "created" });
@@ -139,68 +149,77 @@ export function renderTaskSummary(task: OrchestrationTaskRecord): string {
   events.sort((a, b) => a.at.localeCompare(b.at));
 
   const timeline = events.length > 0
-    ? ["- 时间线：", ...events.map((e) => `  - [${e.at}] ${e.event}${e.detail ? `: ${e.detail}` : ""}`)]
+    ? [o.taskSummaryTimelineHeader, ...events.map((e) => `  - [${e.at}] ${e.event}${e.detail ? `: ${e.detail}` : ""}`)]
     : [];
 
   return [...header, ...timeline].join("\n");
 }
 
 export function renderTaskCancelSuccess(task: OrchestrationTaskRecord): string {
+  const o = t().orchestration;
   if (task.status === "completed" || task.status === "failed" || task.status === "cancelled") {
-    return [`任务「${task.taskId}」已结束。`, `- 当前状态：${task.status}`].join("\n");
+    return [o.taskCancelAlreadyDone(task.taskId), o.taskCurrentStatus(task.status)].join("\n");
   }
   if (task.cancelRequestedAt) {
-    return [`已请求取消任务「${task.taskId}」。`, `- 当前状态：${task.status}`].join("\n");
+    return [o.taskCancelRequested(task.taskId), o.taskCurrentStatus(task.status)].join("\n");
   }
-  return [`任务「${task.taskId}」已取消。`, `- 当前状态：${task.status}`].join("\n");
+  return [o.taskCancelled(task.taskId), o.taskCurrentStatus(task.status)].join("\n");
 }
 
 export function renderTaskApprovalSuccess(task: OrchestrationTaskRecord): string {
-  return [`已批准任务「${task.taskId}」。`, `- 当前状态：${task.status}`].join("\n");
+  const o = t().orchestration;
+  return [o.taskApproved(task.taskId), o.taskCurrentStatus(task.status)].join("\n");
 }
 
 export function renderTaskRejectSuccess(task: OrchestrationTaskRecord): string {
-  return [`已拒绝任务「${task.taskId}」。`, `- 当前状态：${task.status}`].join("\n");
+  const o = t().orchestration;
+  return [o.taskRejected(task.taskId), o.taskCurrentStatus(task.status)].join("\n");
 }
 
 export function renderTaskConfirmationUnavailable(task: OrchestrationTaskRecord): string {
-  return [`任务「${task.taskId}」当前不是待确认状态。`, `- 当前状态：${task.status}`].join("\n");
+  const o = t().orchestration;
+  return [o.taskConfirmationUnavailable(task.taskId), o.taskCurrentStatus(task.status)].join("\n");
 }
 
 export function renderTasksCleanResult(removedTasks: number, removedBindings: number): string {
+  const o = t().orchestration;
   if (removedTasks === 0 && removedBindings === 0) {
-    return "当前协调会话下没有可清理的任务。";
+    return o.tasksCleanEmpty;
   }
 
   const lines: string[] = [];
   if (removedTasks > 0) {
-    lines.push(`已清理 ${removedTasks} 个已结束的任务。`);
+    lines.push(o.tasksCleanRemovedTasks(removedTasks));
   }
   if (removedBindings > 0) {
-    lines.push(`已释放 ${removedBindings} 个无效的 worker 绑定。`);
+    lines.push(o.tasksCleanRemovedBindings(removedBindings));
   }
   return lines.join("\n");
 }
 
 function renderTaskListItem(task: OrchestrationTaskRecord): string {
+  const o = t().orchestration;
   const role = task.role ? ` / ${task.role}` : "";
-  const group = task.groupId ? `；组：${task.groupId}` : "";
+  const group = task.groupId ? o.taskListItemGroup(task.groupId) : "";
   const summary = task.summary.trim().length > 0 ? `：${task.summary}` : "";
-  const source = task.status === "needs_confirmation" ? `；来源：${task.sourceKind} / ${task.sourceHandle}${task.role ? ` / ${task.role}` : ""}` : "";
+  const source = task.status === "needs_confirmation"
+    ? o.taskListItemSource(task.sourceKind, task.sourceHandle, task.role ? ` / ${task.role}` : "")
+    : "";
   const reliability = [
-    task.noticePending ? "通知待重试" : "",
-    task.injectionPending ? "注入待重试" : "",
-    task.cancelRequestedAt && !task.cancelCompletedAt && task.status === "running" ? "取消中" : "",
+    task.noticePending ? o.taskListItemNoticePending : "",
+    task.injectionPending ? o.taskListItemInjectionPending : "",
+    task.cancelRequestedAt && !task.cancelCompletedAt && task.status === "running" ? o.taskListItemCancelling : "",
   ]
     .filter(Boolean)
     .map((item) => `；${item}`)
     .join("");
-  return `- ${task.taskId} [${task.status}] ${task.targetAgent}${role} -> ${task.workerSession ?? "未分配"}${group}${source}${summary}${reliability}`;
+  return `- ${task.taskId} [${task.status}] ${task.targetAgent}${role} -> ${task.workerSession ?? o.taskSummaryWorkerUnassigned}${group}${source}${summary}${reliability}`;
 }
 
 function renderGroupListItem(group: OrchestrationGroupSummary): string {
+  const o = t().orchestration;
   const reliability = [
-    group.group.injectionPending ? "注入待重试" : "",
+    group.group.injectionPending ? o.groupListItemInjectionPending : "",
   ]
     .filter(Boolean)
     .map((item) => `；${item}`)
@@ -208,12 +227,12 @@ function renderGroupListItem(group: OrchestrationGroupSummary): string {
   return [
     `- ${group.group.groupId}`,
     group.group.title,
-    `总计 ${group.totalTasks}`,
-    `待确认 ${group.pendingApprovalTasks}`,
-    `运行中 ${group.runningTasks}`,
-    `完成 ${group.completedTasks}`,
-    `失败 ${group.failedTasks}`,
-    `取消 ${group.cancelledTasks}${reliability}`,
+    o.groupListItemTotal(group.totalTasks),
+    o.groupListItemPending(group.pendingApprovalTasks),
+    o.groupListItemRunning(group.runningTasks),
+    o.groupListItemCompleted(group.completedTasks),
+    o.groupListItemFailed(group.failedTasks),
+    `${o.groupListItemCancelled(group.cancelledTasks)}${reliability}`,
   ].join(" | ");
 }
 

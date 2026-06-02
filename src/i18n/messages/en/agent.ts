@@ -1,6 +1,10 @@
 import type { AgentMessages } from "../../types";
 
 export const agent: AgentMessages = {
+  // render-text: renderAgents
+  agentsEmpty: "No agents registered yet.",
+  agentsHeader: "Registered agents:",
+
   // handleAgentAdd / handleAgentRemove — no config
   noWritableConfig: "No writable config is currently loaded.",
 

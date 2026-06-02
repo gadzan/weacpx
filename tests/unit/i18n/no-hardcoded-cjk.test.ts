@@ -14,7 +14,9 @@ const MIGRATED_PREFIXES = [
   "src/commands/handlers/workspace-handler.ts",
   "src/commands/handlers/agent-handler.ts",
   "src/commands/handlers/later-handler.ts",
+  "src/commands/handlers/orchestration-handler.ts",
   "src/scheduled/scheduled-render.ts",
+  "src/orchestration/render-delegate-group-result.ts",
 ];
 
 const CJK = /[㐀-鿿豈-﫿]/;

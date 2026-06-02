@@ -1,6 +1,10 @@
 import type { WorkspaceMessages } from "../../types";
 
 export const workspace: WorkspaceMessages = {
+  // render-text: renderWorkspaces
+  workspacesEmpty: "还没有注册任何工作区。",
+  workspacesHeader: "已注册的工作区：",
+
   // handleWorkspaceCreate — no config
   noWritableConfig: "当前没有加载可写入的配置。",
 
