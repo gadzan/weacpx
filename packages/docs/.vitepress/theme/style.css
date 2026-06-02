@@ -1,227 +1,342 @@
 /* =========================================================================
-   xacpx docs — Brutalist (neobrutalism) home page
-   Thick ink borders, hard offset shadows, square edges, bold yellow accent,
-   graph-paper canvas. Scoped to .VPHome so inner documentation pages stay
-   clean and readable.
+   xacpx docs theme
+   Design: minimalist, modern, functional, high-contrast. Dark-mode-first,
+   white/gray text, bright blue + green accents, bold sans-serif headers,
+   card-based grids, single-page scroll. Brand colors apply site-wide; the
+   richer showcase visuals are scoped to the home page.
    ========================================================================= */
 
 :root {
-  --xacpx-ink: #111111;
-  --xacpx-accent: #ffd400; /* signal yellow */
-  --xacpx-accent-2: #19d3c5; /* teal */
-  --xacpx-accent-3: #ff5c8a; /* hot pink */
-  --xacpx-paper: #faf9f0;
+  --xacpx-blue: #4493f8;
+  --xacpx-blue-strong: #1f6feb;
+  --xacpx-green: #3fb950;
+  --xacpx-green-strong: #2ea043;
+
+  /* site-wide brand (links, buttons, active states) */
+  --vp-c-brand-1: #4493f8;
+  --vp-c-brand-2: #2f81f7;
+  --vp-c-brand-3: #1f6feb;
+  --vp-c-brand-soft: rgba(68, 147, 248, 0.14);
+
+  /* gradient hero title, blue → green */
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(120deg, #4493f8 28%, #3fb950);
+
+  --vp-button-brand-bg: var(--xacpx-blue-strong);
+  --vp-button-brand-hover-bg: #2f81f7;
+  --vp-button-brand-active-bg: #195bc0;
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-hover-border: transparent;
 }
 
-/* ---- canvas: warm paper + graph-paper grid -------------------------------- */
-.VPHome {
-  background-color: var(--xacpx-paper);
-  background-image:
-    linear-gradient(rgba(0, 0, 0, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 0, 0, 0.06) 1px, transparent 1px);
-  background-size: 26px 26px;
-
-  /* brand/alt button palette, scoped to the home page */
-  --vp-button-brand-bg: var(--xacpx-accent);
-  --vp-button-brand-text: var(--xacpx-ink);
-  --vp-button-brand-border: var(--xacpx-ink);
-  --vp-button-brand-hover-bg: #ffe04d;
-  --vp-button-brand-hover-text: var(--xacpx-ink);
-  --vp-button-brand-hover-border: var(--xacpx-ink);
-  --vp-button-brand-active-bg: var(--xacpx-accent);
-  --vp-button-brand-active-text: var(--xacpx-ink);
-  --vp-button-brand-active-border: var(--xacpx-ink);
-
-  --vp-button-alt-bg: #ffffff;
-  --vp-button-alt-text: var(--xacpx-ink);
-  --vp-button-alt-border: var(--xacpx-ink);
-  --vp-button-alt-hover-bg: #ffffff;
-  --vp-button-alt-hover-text: var(--xacpx-ink);
-  --vp-button-alt-hover-border: var(--xacpx-ink);
-  --vp-button-alt-active-bg: #ffffff;
-  --vp-button-alt-active-border: var(--xacpx-ink);
+.dark {
+  --vp-c-brand-1: #5b9dff;
+  --vp-c-brand-2: #4493f8;
+  --vp-c-brand-3: #2f81f7;
+  --vp-c-brand-soft: rgba(68, 147, 248, 0.18);
 }
 
-.dark .VPHome {
-  --xacpx-paper: #0e0e0e;
-  background-color: var(--xacpx-paper);
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
-
-  --vp-button-brand-border: #ffffff;
-  --vp-button-brand-hover-border: #ffffff;
-  --vp-button-brand-active-border: #ffffff;
-  --vp-button-alt-bg: #161616;
-  --vp-button-alt-text: #ffffff;
-  --vp-button-alt-border: #ffffff;
-  --vp-button-alt-hover-bg: #161616;
-  --vp-button-alt-hover-text: #ffffff;
-  --vp-button-alt-hover-border: #ffffff;
-  --vp-button-alt-active-bg: #161616;
-  --vp-button-alt-active-border: #ffffff;
-}
-
-/* ---- hero name: ink text inside a yellow highlight block ------------------- */
-.VPHome .VPHero .name.clip {
-  --vp-home-hero-name-color: var(--xacpx-ink);
-  display: inline-block;
-  padding: 0.05em 0.22em;
-  background: var(--xacpx-accent);
-  border: 3px solid var(--xacpx-ink);
-  box-shadow: 8px 8px 0 var(--xacpx-ink);
-  font-weight: 900;
+/* ---- typography: bold, clean, large headers ------------------------------- */
+.VPHero .name.clip {
+  font-weight: 800;
   letter-spacing: -0.03em;
-  line-height: 1.15;
+  line-height: 1.08;
 }
 
-.dark .VPHome .VPHero .name.clip {
-  /* stays dark ink on the yellow block for contrast */
-  --vp-home-hero-name-color: var(--xacpx-ink);
-  border-color: #ffffff;
-  box-shadow: 8px 8px 0 #ffffff;
+.VPHero .text {
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
-/* ---- hero text + tagline -------------------------------------------------- */
-.VPHome .VPHero .text {
-  font-weight: 800;
-  letter-spacing: -0.01em;
+/* ---- home canvas: subtle high-contrast glow ------------------------------- */
+.VPHome {
+  position: relative;
 }
 
-.VPHome .VPHero .tagline {
-  font-weight: 600;
-  color: var(--vp-c-text-1);
-  border-left: 6px solid var(--xacpx-accent);
-  padding-left: 14px;
+.VPHome::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 620px;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(60% 50% at 22% 0%, rgba(68, 147, 248, 0.16), transparent 70%),
+    radial-gradient(55% 45% at 82% 8%, rgba(63, 185, 80, 0.13), transparent 72%);
 }
 
-/* ---- buttons: square, bordered, hard shadow, press feedback ---------------- */
-.VPHome .VPButton {
-  border-radius: 0 !important;
-  border-width: 3px !important;
-  border-style: solid !important;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  box-shadow: 5px 5px 0 var(--xacpx-ink);
-  transition: transform 0.08s ease, box-shadow 0.08s ease;
+.dark .VPHome::before {
+  background:
+    radial-gradient(60% 50% at 22% 0%, rgba(68, 147, 248, 0.22), transparent 70%),
+    radial-gradient(55% 45% at 82% 8%, rgba(63, 185, 80, 0.16), transparent 72%);
 }
 
-.dark .VPHome .VPButton {
-  box-shadow: 5px 5px 0 #ffffff;
+.VPHome .VPHero,
+.VPHome .VPFeatures,
+.VPHome .vp-doc {
+  position: relative;
+  z-index: 1;
 }
 
-.VPHome .VPButton:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 8px 8px 0 var(--xacpx-ink);
-}
-
-.dark .VPHome .VPButton:hover {
-  box-shadow: 8px 8px 0 #ffffff;
-}
-
-.VPHome .VPButton:active {
-  transform: translate(2px, 2px);
-  box-shadow: 2px 2px 0 var(--xacpx-ink);
-}
-
-.dark .VPHome .VPButton:active {
-  box-shadow: 2px 2px 0 #ffffff;
-}
-
-/* ---- feature cards: bordered blocks with hard shadow + accent header ------- */
+/* ---- feature cards: clean grid, hover lift, accent icon chips -------------- */
 .VPHome .VPFeature {
-  border: 3px solid var(--xacpx-ink) !important;
-  border-radius: 0 !important;
-  background-color: #ffffff;
-  box-shadow: 7px 7px 0 var(--xacpx-ink);
-  transition: transform 0.1s ease, box-shadow 0.1s ease;
-}
-
-.dark .VPHome .VPFeature {
-  background-color: #161616;
-  border-color: #ffffff !important;
-  box-shadow: 7px 7px 0 #ffffff;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 14px;
+  background-color: var(--vp-c-bg-soft);
+  transition: transform 0.25s ease, border-color 0.25s ease,
+    box-shadow 0.25s ease;
 }
 
 .VPHome .VPFeature:hover {
-  transform: translate(-3px, -3px);
-  box-shadow: 10px 10px 0 var(--xacpx-ink);
+  transform: translateY(-6px);
+  border-color: var(--xacpx-blue);
+  box-shadow: 0 14px 34px -16px rgba(68, 147, 248, 0.55);
 }
 
-.dark .VPHome .VPFeature:hover {
-  box-shadow: 10px 10px 0 #ffffff;
+.VPHome .VPFeature .icon {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: linear-gradient(
+    135deg,
+    rgba(68, 147, 248, 0.18),
+    rgba(63, 185, 80, 0.18)
+  );
+  border: 1px solid var(--vp-c-divider);
+  color: var(--xacpx-blue);
 }
 
-/* per-card accent top stripe (cycles yellow / teal / pink) */
-.VPHome .VPFeatures .items .item:nth-child(3n + 1) .VPFeature {
-  border-top: 9px solid var(--xacpx-accent) !important;
+.VPHome .VPFeature .icon svg {
+  width: 24px;
+  height: 24px;
 }
 
-.VPHome .VPFeatures .items .item:nth-child(3n + 2) .VPFeature {
-  border-top: 9px solid var(--xacpx-accent-2) !important;
-}
-
-.VPHome .VPFeatures .items .item:nth-child(3n + 3) .VPFeature {
-  border-top: 9px solid var(--xacpx-accent-3) !important;
+/* alternate icon accent: blue / green */
+.VPHome .VPFeatures .items .item:nth-child(3n + 2) .VPFeature .icon {
+  color: var(--xacpx-green);
 }
 
 .VPHome .VPFeature .title {
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.01em;
 }
 
-/* if a feature ever declares an icon, square it off with an ink border */
-.VPHome .VPFeature .icon {
-  border-radius: 0 !important;
-  background: var(--xacpx-accent) !important;
-  border: 2px solid var(--xacpx-ink);
+.VPHome .VPFeature .link-text-value {
+  color: var(--vp-c-brand-1);
+  font-weight: 600;
 }
 
-.dark .VPHome .VPFeature .icon {
-  border-color: #ffffff;
-}
-
-/* ---- markdown sections rendered below the hero/features -------------------- */
+/* ---- section headers in home markdown ------------------------------------- */
 .VPHome .vp-doc h2 {
   border-top: 0;
-  margin-top: 44px;
+  margin-top: 64px;
   padding-top: 0;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.01em;
-}
-
-.VPHome .vp-doc h2::before {
-  content: "";
-  display: inline-block;
-  width: 0.7em;
-  height: 0.7em;
-  margin-right: 0.5em;
-  background: var(--xacpx-accent);
-  border: 2px solid var(--xacpx-ink);
-  vertical-align: -0.05em;
-}
-
-.dark .VPHome .vp-doc h2::before {
-  border-color: #ffffff;
-}
-
-/* tables in the home markdown get the bordered-block treatment */
-.VPHome .vp-doc table {
-  border: 3px solid var(--xacpx-ink);
-  box-shadow: 6px 6px 0 var(--xacpx-ink);
-}
-
-.dark .VPHome .vp-doc table {
-  border-color: #ffffff;
-  box-shadow: 6px 6px 0 #ffffff;
-}
-
-.VPHome .vp-doc th {
-  background: var(--xacpx-accent);
-  color: var(--xacpx-ink);
+  font-size: 30px;
   font-weight: 800;
-  text-transform: uppercase;
+  letter-spacing: -0.02em;
+}
+
+.VPHome .vp-doc h2::after {
+  content: "";
+  display: block;
+  width: 54px;
+  height: 4px;
+  margin-top: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--xacpx-blue), var(--xacpx-green));
+}
+
+/* ---- "See it in action": terminal + phone mockup -------------------------- */
+.xacpx-showcase {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 28px;
+  align-items: stretch;
+  margin: 28px 0 8px;
+}
+
+@media (max-width: 760px) {
+  .xacpx-showcase {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* terminal snippet */
+.xacpx-terminal {
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 14px;
+  overflow: hidden;
+  background: #0d1117;
+  box-shadow: 0 18px 44px -22px rgba(0, 0, 0, 0.7);
+}
+
+.xacpx-terminal__bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  background: #161b22;
+  border-bottom: 1px solid #21262d;
+}
+
+.xacpx-terminal__bar .dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #30363d;
+}
+
+.xacpx-terminal__bar .dot:nth-child(1) {
+  background: #ff5f56;
+}
+.xacpx-terminal__bar .dot:nth-child(2) {
+  background: #ffbd2e;
+}
+.xacpx-terminal__bar .dot:nth-child(3) {
+  background: #27c93f;
+}
+
+.xacpx-terminal__bar em {
+  margin-left: 8px;
+  font-style: normal;
+  font-size: 12px;
+  color: #8b949e;
   letter-spacing: 0.02em;
+}
+
+.xacpx-terminal__body {
+  margin: 0;
+  padding: 18px 18px 20px;
+  background: #0d1117;
+  color: #e6edf3;
+  font-family: var(--vp-font-family-mono);
+  font-size: 13.5px;
+  line-height: 1.7;
+  overflow-x: auto;
+}
+
+.xacpx-terminal__body code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+
+.xacpx-terminal .c-blue {
+  color: #6cb6ff;
+  font-weight: 700;
+}
+.xacpx-terminal .c-green {
+  color: #57d364;
+  font-weight: 700;
+}
+.xacpx-terminal .c-dim {
+  color: #8b949e;
+}
+
+/* mobile UI mockup */
+.xacpx-phone {
+  display: flex;
+  justify-content: center;
+}
+
+.xacpx-phone__bezel {
+  position: relative;
+  width: 268px;
+  border-radius: 40px;
+  padding: 12px;
+  background: linear-gradient(160deg, #20242c, #0c0e12);
+  border: 1px solid #2b313b;
+  box-shadow: 0 24px 50px -24px rgba(0, 0, 0, 0.8);
+}
+
+.xacpx-phone__notch {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 116px;
+  height: 22px;
+  border-radius: 0 0 14px 14px;
+  background: #0c0e12;
+  z-index: 2;
+}
+
+.xacpx-phone__screen {
+  border-radius: 30px;
+  overflow: hidden;
+  background: #0f1217;
+  height: 430px;
+  display: flex;
+  flex-direction: column;
+}
+
+.xacpx-chat__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 26px 16px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #e6edf3;
+  background: #141821;
+  border-bottom: 1px solid #20262f;
+}
+
+.xacpx-chat__head .status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--xacpx-green);
+  box-shadow: 0 0 0 3px rgba(63, 185, 80, 0.22);
+}
+
+.xacpx-chat__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 12px;
+  overflow-y: auto;
+}
+
+.xacpx-chat__body .bubble {
+  max-width: 82%;
+  padding: 9px 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  border-radius: 14px;
+  word-break: break-word;
+}
+
+.xacpx-chat__body .bubble code {
+  background: rgba(255, 255, 255, 0.14);
+  color: inherit;
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-size: 11.5px;
+}
+
+.xacpx-chat__body .bubble.me {
+  align-self: flex-end;
+  background: linear-gradient(135deg, var(--xacpx-blue), var(--xacpx-blue-strong));
+  color: #fff;
+  border-bottom-right-radius: 5px;
+  font-family: var(--vp-font-family-mono);
+  font-size: 11.5px;
+}
+
+.xacpx-chat__body .bubble.agent {
+  align-self: flex-start;
+  background: #1c2230;
+  color: #d7dee8;
+  border: 1px solid #262d3a;
+  border-bottom-left-radius: 5px;
+}
+
+.xacpx-chat__body .bubble.agent strong {
+  color: var(--xacpx-green);
 }

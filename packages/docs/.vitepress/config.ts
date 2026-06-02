@@ -8,6 +8,7 @@ export default defineConfig({
   base: '/xacpx/',
   cleanUrls: true,
   lastUpdated: true,
+  appearance: 'dark',
   themeConfig: {
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
