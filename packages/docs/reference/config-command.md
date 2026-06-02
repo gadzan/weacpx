@@ -12,7 +12,7 @@ For the complete list of all configuration fields (including those not exposed v
 
 ## Show configuration
 
-```
+```text
 /config
 ```
 
@@ -24,13 +24,13 @@ There is no explicit `/config get` command. Use `/config` to see the current whi
 
 ## Set a value
 
-```
+```text
 /config set <path> <value>
 ```
 
 Examples:
 
-```
+```text
 /config set channel.replyMode final
 /config set logging.level debug
 /config set transport.permissionMode approve-reads
@@ -69,7 +69,7 @@ Examples:
 
 `/config` does not expose a delete operation. To remove a field, edit `~/.xacpx/config.json` directly. For removing agents or workspaces, use the dedicated commands:
 
-```
+```text
 /agent rm <name>
 /workspace rm <name>
 ```
@@ -80,7 +80,7 @@ Examples:
 
 Any path not in the list above is rejected:
 
-```
+```text
 /config set transport.missing x
 → "This configuration path is not supported"
 ```
@@ -119,7 +119,7 @@ This is a real, persistent configuration change — not a temporary session over
 
 ## Examples
 
-```
+```text
 /config set channel.replyMode final          # change the global default reply mode
 /config set logging.level debug              # enable debug logging
 /config set transport.permissionMode approve-reads

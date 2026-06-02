@@ -1,6 +1,6 @@
 # Configuration Reference
 
-`~/.xacpx/config.json` is the main configuration file for xacpx. To manage chat channels (WeChat, Feishu, Yuanbao) from the terminal, see the channel management docs. To modify a subset of fields from within the chat interface, see the [/config Command](/reference/config-command).
+`~/.xacpx/config.json` is the main configuration file for xacpx. To manage chat channels (WeChat, Feishu, Yuanbao) from the terminal, see [Channel Management](/guide/channel-management). To modify a subset of fields from within the chat interface, see the [/config Command](/reference/config-command).
 
 ## File locations
 
@@ -23,7 +23,7 @@ Environment variable overrides:
 
 ## Top-level schema
 
-```json
+```jsonc
 {
   "transport": { ... },
   "logging": { ... },
@@ -117,7 +117,7 @@ Registered agent map. Keys are agent names used by `/agent add`, `/session new -
 
 Built-in templates (use `driver` only; let `acpx` resolve the alias):
 
-| Template | driver |
+| Template | Driver |
 |----------|--------|
 | `codex` | `"codex"` |
 | `claude` | `"claude"` |

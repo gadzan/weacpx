@@ -41,7 +41,7 @@ A successful switch echoes your new identity, for example:
 
 > **Feishu difference (streaming card semantics):** switched-away sessions own their own streaming card, which continues updating in the chat timeline to completion. Switching back does **not** replay the final result — it is already visible in that card. Completion notifications are shorter: `✅ <alias> done` / `⚠️ <alias> failed`. The `●` unread marker in `/sessions` still applies.
 
-```
+```text
 /ss codex -d /Users/me/projects/backend
 /ss claude --ws backend
 /ss new codex -d /Users/me/projects/frontend
@@ -61,7 +61,7 @@ If a transport-level `acpx` session already exists, attach it to a logical sessi
 | `/session attach <alias> --agent <agent> --ws <workspace> --name <transport-session>` | Attach an existing transport session |
 | `/ss attach <alias> -a <agent> --ws <workspace> --name <transport-session>` | Short form |
 
-```
+```text
 /ss attach demo -a codex --ws backend --name existing-demo
 ```
 
@@ -82,7 +82,7 @@ Bare `/ssn` uses the current session context; specify context explicitly if none
 | `/ssn attach <sessionId> -a fix-ci` | Attach by full session ID with a custom alias |
 | `/ss attach native <sessionId> -a fix-ci` | Long form of the above |
 
-```
+```text
 /ssn codex --ws project
 /ssn 1
 /ssn attach 019e5d48 -a fix-ci
@@ -110,7 +110,7 @@ An agent is a named configuration for an underlying tool such as `codex`, `claud
 
 Built-in template names: `codex`, `claude`, `pi`, `openclaw`, `gemini`, `cursor`, `copilot`, `droid`, `factory-droid`, `factorydroid`, `iflow`, `kilocode`, `kimi`, `kiro`, `opencode`, `qoder`, `qwen`, `trae`.
 
-```
+```text
 /agent add codex
 /agent add claude
 /agent add kimi
@@ -131,13 +131,13 @@ A workspace maps a short name to an absolute directory path on the machine runni
 
 Names are normalized to `[a-zA-Z0-9._-]+`: spaces, CJK characters, and other symbols are replaced with `-`; duplicates get a `-2`, `-3` suffix. Use `--raw` to keep the name exactly as given:
 
-```
+```text
 /ws new "My Project" -d /Users/me/projects/my-project --raw
 ```
 
 With `--raw`, subsequent commands must quote the name: `/ws rm "My Project"`, `/ss codex --ws "My Project"`.
 
-```
+```text
 /ws new backend -d /Users/me/projects/backend
 /workspaces
 /workspace rm backend
@@ -201,7 +201,7 @@ Currently supported paths:
 
 > **Note:** Performance debug log settings (`logging.perf.*`) are not on the `/config set` whitelist. Edit `~/.xacpx/config.json` directly and restart the daemon for those to take effect.
 
-```
+```text
 /config set channel.replyMode final
 /config set logging.level debug
 /config set transport.sessionInitTimeoutMs 30000
@@ -221,7 +221,7 @@ Permission policy controls whether the underlying agent can automatically execut
 | `/pm auto deny` | `deny` | Auto-deny in non-interactive scenarios |
 | `/pm auto fail` | `fail` | Fail immediately in non-interactive scenarios |
 
-```
+```text
 /pm
 /pm set read
 /pm auto deny
@@ -256,7 +256,7 @@ Supported time formats:
 | `/lt list` | Show all pending scheduled tasks |
 | `/lt cancel <id>` | Cancel a pending task |
 
-```
+```text
 /lt in 2h check CI
 /lt tomorrow 09:00 check PR
 /lt list
@@ -288,7 +288,7 @@ Supported time formats:
 
 Common topics: `agent`, `workspace`, `session`, `native` (or `ssn`), `replymode`, `mode`, `status`, `cancel`, `config`, `permission`, `orchestration`, `later`.
 
-```
+```text
 /help
 /help ss
 /help ssn
@@ -313,7 +313,7 @@ Orchestration commands require an active current session, which acts as the coor
 | `/delegate <agent> --group <groupId> <task>` | Delegate into an existing task group |
 | `/delegate <agent> --role <role> --group <groupId> <task>` | Role + group together |
 
-```
+```text
 /dg claude review the 3 highest-risk points in the current plan
 /delegate codex --role planner break this requirement into minimal implementation steps
 /delegate claude --group review-batch review the API design
@@ -338,7 +338,7 @@ Groups let you fan out multiple independent sub-tasks in parallel and track them
 
 There is no `/group delete`. To stop unfinished tasks use `/group cancel <groupId>`; to clean up finished tasks use `/tasks clean`.
 
-```
+```text
 /group new review-batch
 /group add review-batch claude review API design
 /group add review-batch codex --role reviewer review test coverage
@@ -364,7 +364,7 @@ There is no `/group delete`. To stop unfinished tasks use `/group cancel <groupI
 
 States supported by `/tasks --status`: `pending`, `needs_confirmation`, `running`, `completed`, `failed`, `cancelled`.
 
-```
+```text
 /tasks
 /tasks --status running --sort updatedAt --order desc
 /tasks --stuck

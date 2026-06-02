@@ -61,7 +61,7 @@ No `--workspace` flag is needed. xacpx generates a process-scoped external coord
 
 ## Delegation lifecycle
 
-```
+```text
 delegate_request
   → taskId returned, status: running (or queued if parallel slots are full)
   → monitor via task_watch / tasks/get / task_get
