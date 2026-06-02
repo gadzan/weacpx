@@ -245,6 +245,10 @@ async function addPlugin(packageSpec: string, rawArgs: string[], deps: PluginCli
   });
   try {
     await install(installInput);
+    // npm may prune our synthetic node_modules/xacpx and node_modules/weacpx
+    // plugin-api shims as extraneous during install. Refresh them before
+    // importing the just-installed plugin for validation.
+    await ensurePluginHome(pluginHome);
   } catch (error) {
     deps.print(`插件 ${packageSpec} 安装失败：${describeError(error)}`);
     return 1;
@@ -371,6 +375,8 @@ async function updatePlugins(args: string[], deps: PluginCliDeps): Promise<numbe
     const updateInput = nextVersion ? { packageName: existing.name, version: nextVersion } : { packageName: existing.name };
     try {
       await update(updateInput);
+      // Package managers can prune the plugin-api shim during update too.
+      await ensurePluginHome(pluginHome);
     } catch (error) {
       deps.print(`插件 ${existing.name} 更新失败：${describeError(error)}`);
       return 1;

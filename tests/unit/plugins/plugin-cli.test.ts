@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { AppConfig } from "../../../src/config/types";
 import { handlePluginCli, looksLikePath } from "../../../src/plugins/plugin-cli";
@@ -97,6 +100,51 @@ test("plugin add installs, validates, saves config, and does not enable channel"
   expect(harness.getConfig().channels).toEqual([{ id: "weixin", type: "weixin", enabled: true }]);
   expect(harness.lines).toContain("插件 xacpx-channel-demo 已安装");
   expect(harness.lines).toContain("提供频道：demo");
+});
+
+test("plugin add refreshes plugin-api shim after npm install prunes it", async () => {
+  const pluginHome = await mkdtemp(join(tmpdir(), "xacpx-plugin-cli-"));
+  let config = baseConfig();
+  const lines: string[] = [];
+  try {
+    const code = await handlePluginCli(["add", "demo-plugin"], {
+      loadConfig: async () => structuredClone(config) as AppConfig,
+      saveConfig: async (next: AppConfig) => { config = structuredClone(next) as AppConfig; },
+      print: (line: string) => lines.push(line),
+      isInteractive: () => false,
+      promptText: async () => "",
+      getDaemonStatus: async () => ({ state: "stopped" as const }),
+      restartDaemon: async () => 0,
+      pluginHome,
+      installPackage: async () => {
+        await rm(join(pluginHome, "node_modules", "xacpx"), { recursive: true, force: true });
+        const packageDir = join(pluginHome, "node_modules", "demo-plugin");
+        await mkdir(packageDir, { recursive: true });
+        await writeFile(
+          join(packageDir, "package.json"),
+          JSON.stringify({ name: "demo-plugin", type: "module", exports: { ".": "./index.js" } }, null, 2),
+        );
+        await writeFile(
+          join(packageDir, "index.js"),
+          [
+            'import { WEACPX_PLUGIN_API_VERSION } from "xacpx/plugin-api";',
+            "export default {",
+            '  name: "demo-plugin",',
+            "  apiVersion: WEACPX_PLUGIN_API_VERSION,",
+            '  channels: [{ type: "demo", factory: () => ({}) }],',
+            "};",
+          ].join("\n"),
+        );
+      },
+      inspectPlugins: async () => [],
+    });
+
+    expect(code).toBe(0);
+    expect(config.plugins).toEqual([{ name: "demo-plugin", enabled: true }]);
+    expect(lines).toContain("插件 demo-plugin 已安装");
+  } finally {
+    await rm(pluginHome, { recursive: true, force: true });
+  }
 });
 
 test("plugin rm removes plugin config and package", async () => {
