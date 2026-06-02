@@ -2,20 +2,16 @@
 
 ## Overview
 
-xacpx supports running agent sessions inside group chats. The orchestration system lets you manage **task groups** — sets of related agent tasks that can be cancelled, cleaned up, or deleted as a unit. This page covers group setup (bot membership and mentions), the permission model, how normal sessions behave in groups, and the three task-group management commands and when to use each one.
+xacpx supports running agent sessions inside group chats. The orchestration system lets you fan out related agent sub-tasks into **task groups** and track them collectively. This page covers group setup (bot membership and mentions), the permission model, how normal sessions behave in groups, and how to stop and clean up group work.
 
-Quick reference:
+Quick reference for the commands most relevant to running and winding down group work:
 
 | Command | Effect | Affects running tasks? |
 |---|---|---|
-| `/group cancel <groupId>` | Stop all in-progress work in a group | Yes |
-| `/groups clean` | Bulk-remove safely finished groups under the current coordinator thread | No |
-| `/group delete <groupId>` | Remove a single safely finished group | No |
+| `/group cancel <groupId>` | Cancel all unfinished tasks in a group | Yes |
+| `/tasks clean` | Remove finished tasks and stale bindings under the current coordinator | No |
 
-One-line summary:
-- **cancel** — stop work that is still running.
-- **clean** — batch-remove shells of groups that have already finished.
-- **delete** — remove one safely finished group shell.
+> There is **no** `/group delete` and **no** `/groups clean`. To stop a group's unfinished work use `/group cancel <groupId>`; to clean up finished tasks use `/tasks clean`. See the full surface in [Command Reference](/reference/commands).
 
 ## Setup
 
@@ -42,11 +38,21 @@ Sessions in a group chat work the same as in a direct message: xacpx maps an ali
 
 ### Task groups
 
-Task groups are used with the orchestration system to manage batches of parallel or sequential agent tasks. Each group has a `groupId`.
+Task groups let you fan out multiple independent sub-tasks in parallel from a coordinator session and track them collectively. Each group has a `groupId`. Group commands require an active current session, which acts as the coordinator.
 
-#### `/group cancel <groupId>`
+The core group lifecycle commands are:
 
-Cancels all in-progress tasks within the group. The group itself is preserved so you can inspect results, continue clean-up, or make decisions based on partial output.
+| Command | Description |
+|---|---|
+| `/group new <title>` | Create a task group |
+| `/groups` | List task groups (supports `--status`, `--stuck`, `--sort`, `--order` filters) |
+| `/group <id>` | Show a single group's details |
+| `/group add <groupId> <agent> <task>` | Add a sub-task to a group |
+| `/group cancel <groupId>` | Cancel all unfinished tasks in the group |
+
+#### Stop a group's work — `/group cancel <groupId>`
+
+Cancels all unfinished tasks within the group. Already-finished tasks are left as-is, and the group itself is preserved so you can still inspect results and partial output.
 
 ```text
 /group cancel review-batch
@@ -55,75 +61,38 @@ Cancels all in-progress tasks within the group. The group itself is preserved so
 Use this when:
 - The group's direction was wrong and you want to stop it.
 - You want to stop execution but retain context for review.
-- You are not sure whether the group can be deleted yet — stop it first, then decide.
 
-#### `/groups clean`
+#### Clean up finished work — `/tasks clean`
 
-Bulk-removes all safely completed group shells under the current coordinator thread. Only touches groups that are empty or fully finished with clean-up complete. Does not cancel or touch any running groups.
-
-```text
-/groups clean
-```
-
-Use this when:
-- You want to clear out completed group shells in one step.
-- You do not want to run `/group delete` individually for each finished group.
-- You only want to affect the current coordinator thread, not groups from other threads.
-
-#### `/group delete <groupId>`
-
-Removes a single group. Only allowed when the group is in a safe state:
-- It is empty (no tasks ever created in it), or
-- It is fully finished with clean-up complete and no remaining active tasks.
-
-When deleting a safely completed group, xacpx also:
-- Clears the terminal task records for the group.
-- Releases worker bindings that are no longer in use.
+There is no per-group delete command. To tidy up after a group finishes, use `/tasks clean`, which removes **finished tasks** (completed, failed, cancelled) and stale worker bindings under the current coordinator. It is **task-scoped, not group-scoped** — it sweeps finished tasks across the coordinator rather than deleting a specific group shell.
 
 ```text
-/group delete review-batch
+/tasks clean
 ```
 
-**Deletion is rejected in two situations:**
+`/tasks clean` does not cancel anything that is still running. If a group still has unfinished tasks, cancel them first with `/group cancel <groupId>`, then run `/tasks clean` to clear the finished records.
 
-*Situation A — active tasks remain:*
-
-If the group still has running or pending tasks, `/group delete` is refused. The correct sequence:
-
-1. `/group cancel <groupId>` — stop the running tasks.
-2. Wait for all tasks in the group to reach a terminal state.
-3. `/group delete <groupId>` — now the delete is allowed.
-
-*Situation B — tasks finished but clean-up is not yet complete:*
-
-If the group has reached its final state but the coordinator's final result-collection step (fan-in / injection clean-up) has not completed, the delete is still rejected. Options:
-- Continue the current coordinator thread to allow clean-up to finish naturally.
-- Wait for the clean-up to complete, then delete.
+To inspect tasks before cleaning, use `/tasks` (with optional `--status`, `--stuck`, `--sort`, `--order` filters) and `/task <id>` for a single task's details.
 
 ## Best practices
 
-**Decision flow for a group:**
+**Winding down a group:**
 
-1. Is this group still running?
-   - Yes → `/group cancel <groupId>` first.
+1. Is the group still running work you no longer want?
+   - Yes → `/group cancel <groupId>` to stop its unfinished tasks.
    - No → proceed to step 2.
-2. Has this group finished clean-up safely?
-   - No → continue the coordinator thread and wait for clean-up to complete.
-   - Yes → `/group delete <groupId>`, or run `/groups clean` to clear all finished groups at once.
+2. Want to tidy up finished task records?
+   - Run `/tasks clean` to remove finished tasks and stale bindings under the current coordinator.
 
-**Independent examples** (each line is a standalone action, not a sequence to run together):
+**Typical commands:**
 
 ```text
-/group cancel review-batch   # stop the running work in review-batch (group is kept)
-/group delete review-batch   # remove review-batch once it is safely finished
-/groups clean                # sweep all safely finished groups under this thread at once
+/group cancel review-batch   # stop the unfinished work in review-batch (group is kept)
+/tasks clean                 # remove finished tasks and stale bindings under this coordinator
 ```
 
-Note that `/groups clean` and `/group delete <groupId>` are alternatives: once a group is safely finished, `/groups clean` already removes it, so a follow-up `/group delete` for the same group is unnecessary (and would fail because the group no longer exists).
+`/tasks clean` only ever touches **finished** tasks. Run `/group cancel <groupId>` first if a group still has running work you want stopped; then `/tasks clean` clears the finished records.
 
-**Inspect before acting:** When viewing `/group` details:
-- Group has `running` tasks → cancel first.
-- Group has no active tasks → consider deleting.
-- Group appears finished but reports clean-up pending → wait for clean-up, then delete.
+**Inspect before acting:** Use `/groups` to see groups and their status, `/group <id>` for one group's details, and `/tasks` (optionally `/task <id>`) to review individual tasks before cleaning.
 
-**Stick to one coordinator thread per clean operation.** `/groups clean` only touches groups under the current coordinator thread. If you have multiple coordinator threads, clean each thread separately to avoid unintended cross-thread changes.
+**`/tasks clean` is scoped to the current coordinator.** It cleans finished tasks under the coordinator session you are in, not across other coordinators. Run it from each coordinator session whose finished tasks you want to clear.
