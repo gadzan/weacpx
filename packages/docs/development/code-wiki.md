@@ -27,6 +27,18 @@ xacpx is a "message channel ↔ command router ↔ acpx session driver" bridge:
 | Session state | [`src/sessions/session-service.ts`](https://github.com/gadzan/xacpx/blob/main/src/sessions/session-service.ts) | `SessionService` |
 | Transport boundary | [`src/transport/types.ts`](https://github.com/gadzan/xacpx/blob/main/src/transport/types.ts) | `SessionTransport` interface |
 
+### App assembly and startup lifecycle
+
+`buildApp()` is the dependency injection center — it assembles config, state, logger, sessions, transport, orchestration, router, and agent into an `AppRuntime`: [`src/main.ts`](https://github.com/gadzan/xacpx/blob/main/src/main.ts)
+
+`runConsole()` owns the startup sequence, signal-driven shutdown, and cleanup consistency: [`src/run-console.ts`](https://github.com/gadzan/xacpx/blob/main/src/run-console.ts)
+
+1. `buildApp(paths)` assembles the runtime.
+2. In daemon mode: write daemon runtime metadata, start the orchestration IPC server, start the heartbeat.
+3. Acquire the consumer lock (prevents multiple processes consuming the same WeChat account simultaneously).
+4. `channels.startAll(...)` — parallel channel startup.
+5. `finally`: stop IPC / dispose / stopAll / release lock.
+
 ## Command routing
 
 ### Data flow (WeChat to acpx)
@@ -86,15 +98,7 @@ interface SessionTransport {
 Two implementations:
 
 - **`acpx-cli`** ([`src/transport/acpx-cli/`](https://github.com/gadzan/xacpx/blob/main/src/transport/acpx-cli)) — spawns `acpx` as a child process; optionally allocates a PTY via `node-pty`.
-- **`acpx-bridge`** ([`src/transport/acpx-bridge/`](https://github.com/gadzan/xacpx/blob/main/src/transport/acpx-bridge)) — talks to the bridge subprocess over JSONL. Better for concurrency and event isolation.
-
-### Bridge subprocess
-
-The bridge isolates `acpx` driving into a separate process:
-
-- Protocol: one JSON line in → one JSON line out + events (`prompt.segment`, `session.progress`, `session.note`): [`src/transport/acpx-bridge/acpx-bridge-protocol.ts`](https://github.com/gadzan/xacpx/blob/main/src/transport/acpx-bridge/acpx-bridge-protocol.ts)
-- `BridgeServer.handleLine()` — parses a request line and writes a response: [`src/bridge/bridge-server.ts`](https://github.com/gadzan/xacpx/blob/main/src/bridge/bridge-server.ts)
-- Session-scoped scheduling: `SESSION_SCOPED_METHODS` serialize by `[agentIdentity, cwd, name]`. `cancel` runs on the higher-priority control lane.
+- **`acpx-bridge`** ([`src/transport/acpx-bridge/`](https://github.com/gadzan/xacpx/blob/main/src/transport/acpx-bridge)) — talks to a separate bridge subprocess over a JSONL protocol. Better for concurrency and event isolation. See the [Bridge subsystem](#bridge-subsystem) section for the subprocess and protocol details.
 
 ### acpx resolution order
 
@@ -141,16 +145,23 @@ The daemon combines three signals to determine liveness: the PID file, whether t
 
 ## Bridge subsystem
 
-`runConsole()` startup sequence:
-1. `buildApp(paths)` assembles the runtime.
-2. In daemon mode: write daemon runtime metadata, start the orchestration IPC server, start the heartbeat.
-3. Acquire consumer lock (prevents multiple processes consuming the same WeChat account simultaneously).
-4. `channels.startAll(...)` — parallel channel startup.
-5. `finally`: stop IPC / dispose / stopAll / release lock.
+The bridge isolates `acpx` driving into a separate subprocess, giving the main process a more controllable concurrency and event channel. It backs the `acpx-bridge` transport implementation.
 
-Source: [`src/run-console.ts`](https://github.com/gadzan/xacpx/blob/main/src/run-console.ts)
+### Entry and runtime
 
-`buildApp()` is the dependency injection center — assembles config, state, logger, sessions, transport, orchestration, router, and agent into an `AppRuntime`: [`src/main.ts`](https://github.com/gadzan/xacpx/blob/main/src/main.ts)
+- [`src/bridge/bridge-main.ts`](https://github.com/gadzan/xacpx/blob/main/src/bridge/bridge-main.ts) — entry point for the bridge subprocess (handles `acpx` stdio).
+- [`src/bridge/bridge-server.ts`](https://github.com/gadzan/xacpx/blob/main/src/bridge/bridge-server.ts) — parses bridge protocol JSON lines and delegates to the runtime.
+- [`src/bridge/bridge-runtime.ts`](https://github.com/gadzan/xacpx/blob/main/src/bridge/bridge-runtime.ts) — wraps raw `acpx` commands (`sessions new`, `prompt`, `cancel`).
+
+### JSONL protocol
+
+- Methods: `ensureSession / hasSession / prompt / setMode / cancel / removeSession / ...`: [`src/transport/acpx-bridge/acpx-bridge-protocol.ts`](https://github.com/gadzan/xacpx/blob/main/src/transport/acpx-bridge/acpx-bridge-protocol.ts)
+- Message kinds: `request` / `response` plus `event` (`prompt.segment`, `session.progress`, `session.note`).
+- Strict one-JSON-line-per-message protocol: the main process can receive `session.progress` and `prompt.segment` as events. `prompt.text` may be an empty string only when media is present.
+
+### Server scheduling
+
+`BridgeServer.handleLine()` takes one JSON line in and writes one JSON line out; errors are uniformly wrapped as a `BridgeErrorResponse`. Session-scoped requests (`SESSION_SCOPED_METHODS`) form a `scheduleKey` from `[agentIdentity, cwd, name]` and serialize per key. `cancel` runs on a higher-priority `control` lane so it preempts an in-flight prompt. Source: [`src/bridge/bridge-server.ts`](https://github.com/gadzan/xacpx/blob/main/src/bridge/bridge-server.ts)
 
 ## Configuration and state
 
@@ -192,6 +203,6 @@ Source: [`src/logging/app-logger.ts`](https://github.com/gadzan/xacpx/blob/main/
 
 `xacpx mcp-stdio` starts an MCP stdio server and exposes orchestration tools:
 - Identity parsing (`coordinatorSession` / `sourceHandle` / `workspace`) and external coordinator registration: [`src/cli.ts`](https://github.com/gadzan/xacpx/blob/main/src/cli.ts)
-- MCP server run loop: [`src/mcp/xacpx-mcp-server.ts`](https://github.com/gadzan/xacpx/blob/main/src/mcp/xacpx-mcp-server.ts)
+- MCP server run loop: [`src/mcp/weacpx-mcp-server.ts`](https://github.com/gadzan/xacpx/blob/main/src/mcp/weacpx-mcp-server.ts) (the MCP source files intentionally keep `weacpx-` filenames for compatibility)
 
 This mode requires the daemon to be running (the orchestration IPC endpoint must be available). The live MCP server name exposed to external hosts is intentionally still `weacpx` (tool prefix `mcp__weacpx__*`) for backward compatibility.

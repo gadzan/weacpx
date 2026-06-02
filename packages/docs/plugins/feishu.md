@@ -137,12 +137,16 @@ When you switch away from a running session, its turn keeps executing. Feishu us
 
 ## Permissions and fallback behavior
 
+The channel surfaces missing-scope errors automatically: when the Feishu API returns a permission error, the bot extracts the missing scope from the grant URL and sends that URL to the user (once per 5-minute cooldown), so the exact scope your app needs is reported at runtime.
+
+Two scopes are explicitly required by the channel's reply paths:
+
 | Scope | Required for |
 | --- | --- |
-| `im:message:send_as_bot` | All reply modes |
-| `im:message.p2p_msg:readonly` | Receiving direct messages |
-| `im:message.group_msg:readonly` | Receiving group messages |
+| `im:message:send_as_bot` | Sending replies (all reply modes) |
 | `cardkit:card:write` | Streaming card creation and updates |
+
+Beyond these, the bot also needs the standard Feishu message-receiving scopes for the chat types you use (typically the direct-message and group-message read scopes). Configure these in the Feishu developer console; the channel's runtime grant prompt will name any that are missing.
 
 If `cardkit:card:write` is missing, the channel automatically falls back to static mode for that turn and logs `feishu.streaming.fallback`. A grant URL is sent to the user on the first failure within each 5-minute window.
 

@@ -240,7 +240,7 @@ Both are typically included in the same merge as the implementation.
 | Add or change an orchestration capability | `src/orchestration/orchestration-service.ts` + IPC files; tests in `tests/unit/orchestration/` |
 | Change daemon start/stop behavior | `src/daemon/`; if status fields change, update `daemon-status.ts` and this docs site |
 | Change `xacpx doctor` | `src/doctor/index.ts` and its probes |
-| Change `xacpx mcp-stdio` exposed tools | `src/mcp/xacpx-mcp-tools.ts` |
+| Change `xacpx mcp-stdio` exposed tools | `src/mcp/weacpx-mcp-tools.ts` (MCP source files keep `weacpx-` filenames for compatibility) |
 | Change `state.json` schema | `src/state/types.ts` + `state-store.ts` parsing; consider migration |
 | Add or change public plugin API types | `src/plugin-api.ts` re-exports + `bun run build:plugin-api` |
 | Fix the test runner | `scripts/run-tests-lib.mjs` (`buildTestPlan`) |
