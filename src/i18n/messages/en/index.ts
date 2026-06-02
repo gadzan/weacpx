@@ -9,5 +9,7 @@ import { agent } from "./agent";
 import { later } from "./later";
 import { scheduledRender } from "./scheduled-render";
 import { orchestration } from "./orchestration";
+import { coordinatorPrompt } from "./coordinator-prompt";
+import { workerPrompt } from "./worker-prompt";
 
-export const en: Messages = { common, session, nativeSession, recovery, shortcut, workspace, agent, later, scheduledRender, orchestration };
+export const en: Messages = { common, session, nativeSession, recovery, shortcut, workspace, agent, later, scheduledRender, orchestration, coordinatorPrompt, workerPrompt };

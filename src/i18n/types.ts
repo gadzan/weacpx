@@ -629,6 +629,46 @@ export interface OrchestrationMessages {
   helpExample10: string;
 }
 
+export interface CoordinatorPromptMessages {
+  // build-coordinator-prompt.ts — pending results section header
+  pendingResultsHeader: string;
+
+  // build-coordinator-prompt.ts — human reply binding section
+  humanReplyBindingHeader: string;
+  reopenedOutsideSnapshotLabel: string;
+
+  // build-coordinator-prompt.ts — active package still awaiting reply
+  activePackageAwaitingReply: string;
+
+  // build-coordinator-prompt.ts — package not yet delivered
+  packageNotDelivered: string;
+
+  // build-coordinator-prompt.ts — active package not closed
+  activePackageNotClosed: string;
+  recentHumanPackageLabel: string;
+
+  // build-coordinator-prompt.ts — user message label
+  userMessageLabel: string;
+}
+
+export interface WorkerPromptMessages {
+  // worker-prompts.ts — buildWorkerTaskPrompt
+  taskHeader: string;
+  taskIdLabel: (taskId: string) => string;
+  taskWorkerSessionLabel: (workerSession: string) => string;
+  taskRoleLabel: (role: string) => string;
+  taskInstruction: string;
+  taskBlockerInstruction: string;
+  taskProgressInstruction: string;
+  taskProgressNote: string;
+  taskContentLabel: (task: string) => string;
+
+  // worker-prompts.ts — buildWorkerAnswerPrompt
+  answerHeader: string;
+  answerInstruction: string;
+  answerLabel: string;
+}
+
 export interface Messages {
   common: CommonMessages;
   session: SessionMessages;
@@ -640,4 +680,6 @@ export interface Messages {
   later: LaterMessages;
   scheduledRender: ScheduledRenderMessages;
   orchestration: OrchestrationMessages;
+  coordinatorPrompt: CoordinatorPromptMessages;
+  workerPrompt: WorkerPromptMessages;
 }

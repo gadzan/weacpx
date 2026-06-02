@@ -1,6 +1,11 @@
-import { expect, test } from "bun:test";
+import { expect, test, beforeEach } from "bun:test";
+import { setLocale, t } from "../../../src/i18n";
 
 import { buildCoordinatorPrompt, shouldBindHumanReply } from "../../../src/orchestration/build-coordinator-prompt";
+
+beforeEach(() => {
+  setLocale("zh");
+});
 
 test("renders follow-up context for a delivered active package with unresolved tasks", async () => {
   const result = await buildCoordinatorPrompt({
@@ -28,13 +33,13 @@ test("renders follow-up context for a delivered active package with unresolved t
     userText: "继续",
   });
 
-  expect(result.promptText).toContain("当前 active human package 仍未收口，请先继续 follow-up，不要新开问题包。");
+  expect(result.promptText).toContain(t().coordinatorPrompt.activePackageNotClosed);
   expect(result.promptText).toContain("unresolved_tasks:");
   expect(result.promptText).toContain("task_id: task-1");
   expect(result.promptText).toContain("question_id: question-1");
-  expect(result.promptText).toContain("最近一次发给 human 的问题包：");
+  expect(result.promptText).toContain(t().coordinatorPrompt.recentHumanPackageLabel);
   expect(result.promptText).toContain("请确认数据库方案。");
-  expect(result.promptText).toContain("用户最新消息：\n继续");
+  expect(result.promptText).toContain(t().coordinatorPrompt.userMessageLabel + "\n继续");
   expect(result.taskIds).toEqual([]);
   expect(result.groupIds).toEqual([]);
   expect(result.claimHumanReply).toBeUndefined();
@@ -128,7 +133,7 @@ test("does not auto-bind a human reply when the same chatKey arrives through a d
   });
 
   expect(result.claimHumanReply).toBeUndefined();
-  expect(result.promptText).toContain("当前仍有一个 active human package 等待回复。");
+  expect(result.promptText).toContain(t().coordinatorPrompt.activePackageAwaitingReply);
 });
 
 test("shows reopened tasks outside the awaited snapshot while a package reply is still pending", async () => {
@@ -168,7 +173,7 @@ test("shows reopened tasks outside the awaited snapshot while a package reply is
   });
 
   expect(result.claimHumanReply).toBeUndefined();
-  expect(result.promptText).toContain("当前仍有一个 active human package 等待回复。");
+  expect(result.promptText).toContain(t().coordinatorPrompt.activePackageAwaitingReply);
   expect(result.promptText).toContain("reopened_tasks_outside_snapshot:");
   expect(result.promptText).toContain("task_id: task-2");
   expect(result.promptText).toContain("question_id: question-2");
@@ -206,7 +211,7 @@ test("shows reopened tasks outside the snapshot when the latest package message 
     userText: "继续",
   });
 
-  expect(result.promptText).toContain("当前问题包尚未成功送达 human");
+  expect(result.promptText).toContain(t().coordinatorPrompt.packageNotDelivered);
   expect(result.promptText).toContain("reopened_tasks_outside_snapshot:");
   expect(result.promptText).toContain("task_id: task-2");
   expect(result.promptText).toContain("question_id: question-2");
@@ -270,7 +275,7 @@ test("does not inject unrelated blocked tasks into a turn that is bound to an aw
     userText: "继续用 SQLite。",
   });
 
-  expect(result.promptText).toContain("当前存在一个等待 human 回复的问题包");
+  expect(result.promptText).toContain(t().coordinatorPrompt.humanReplyBindingHeader);
   expect(result.promptText).not.toContain("[delegate_question_package]");
   expect(result.promptText).not.toContain("task_id: task-blocked-1");
   expect(result.promptText).not.toContain("question-blocked-1");
@@ -345,6 +350,51 @@ test("shouldBindHumanReply returns false when deliveryAccountId mismatches", () 
       },
     }),
   ).toBe(false);
+});
+
+test("byte-for-byte zh prompt for the active-package-not-closed follow-up path", async () => {
+  setLocale("zh");
+  const result = await buildCoordinatorPrompt({
+    orchestration: {
+      listPendingCoordinatorResults: async () => [],
+      getActiveHumanQuestionPackage: async () => ({
+        packageId: "package-1",
+        promptText: "请确认数据库方案。",
+        deliveredAt: "2026-04-13T12:00:00.000Z",
+        deliveredChatKey: "wx:user-1",
+        openTaskIds: ["task-1"],
+        openTaskQuestions: [
+          {
+            taskId: "task-1",
+            questionId: "question-1",
+            question: "Should I keep SQLite?",
+            whyBlocked: "Need the database decision",
+            whatIsNeeded: "A confirmed database choice",
+          },
+        ],
+        queuedCount: 0,
+      }),
+    },
+    coordinatorSession: "backend:main",
+    userText: "继续",
+  });
+
+  // Hardcoded Chinese expectation reconstructed independently from the original
+  // prompt text — NOT read from t(). Mirrors the worker-prompts byte tests.
+  const expected =
+    "当前 active human package 仍未收口，请先继续 follow-up，不要新开问题包。\n\n" +
+    "unresolved_tasks:\n" +
+    "- task_id: task-1\n" +
+    "  question_id: question-1\n" +
+    "  question: Should I keep SQLite?\n" +
+    "  why_blocked: Need the database decision\n" +
+    "  what_is_needed: A confirmed database choice\n\n" +
+    "最近一次发给 human 的问题包：\n" +
+    "请确认数据库方案。\n\n" +
+    "用户最新消息：\n" +
+    "继续";
+
+  expect(result.promptText).toBe(expected);
 });
 
 test("truncates prompt when sections exceed maxPromptLength", async () => {

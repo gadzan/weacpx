@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { truncateText } from "../util/text.js";
 import type { OrchestrationGroupRecord, OrchestrationTaskRecord } from "./orchestration-types";
 import { renderDelegateGroupResultBlocks } from "./render-delegate-group-result";
@@ -172,7 +173,7 @@ export async function buildCoordinatorPrompt(input: {
       blocks.push(renderDelegateResultBlocks(standaloneResults));
     }
     sections.push(
-      ["以下是自上次以来完成的委派任务结果，请先吸收这些结果再回答用户问题。", blocks.join("\n\n")]
+      [t().coordinatorPrompt.pendingResultsHeader, blocks.join("\n\n")]
         .filter(Boolean)
         .join("\n\n"),
     );
@@ -217,13 +218,13 @@ export async function buildCoordinatorPrompt(input: {
   if (shouldBind && activePackage) {
     sections.push(
       [
-        "当前存在一个等待 human 回复的问题包，请先判断这条回复解决了哪些 task。",
+        t().coordinatorPrompt.humanReplyBindingHeader,
         activePackage.promptText,
         renderTaskQuestionScope("message_snapshot_tasks:", messageSnapshotQuestions),
         ...(reopenedOutsideSnapshot.length > 0
           ? [
               renderTaskQuestionScope(
-                "reopened_tasks_outside_snapshot: 以下 task 不属于当前待解释消息，只能作为后续 follow-up 参考，不要用本次 human 回复直接解决。",
+                t().coordinatorPrompt.reopenedOutsideSnapshotLabel,
                 reopenedOutsideSnapshot,
               ),
             ]
@@ -233,7 +234,7 @@ export async function buildCoordinatorPrompt(input: {
   } else if (activePackage?.awaitingReplyMessageId && messageSnapshotQuestions.length > 0) {
     sections.push(
       [
-        "当前仍有一个 active human package 等待回复。",
+        t().coordinatorPrompt.activePackageAwaitingReply,
         activePackage.promptText,
         ...(reopenedOutsideSnapshot.length > 0
           ? [renderTaskQuestionScope("reopened_tasks_outside_snapshot:", reopenedOutsideSnapshot)]
@@ -243,7 +244,7 @@ export async function buildCoordinatorPrompt(input: {
   } else if (activePackage && !activePackage.deliveredAt) {
     sections.push(
       [
-        "当前问题包尚未成功送达 human，请先按普通主线对话处理，并提醒该问题包仍待送达或继续。",
+        t().coordinatorPrompt.packageNotDelivered,
         activePackage.promptText,
         ...(reopenedOutsideSnapshot.length > 0
           ? [renderTaskQuestionScope("reopened_tasks_outside_snapshot:", reopenedOutsideSnapshot)]
@@ -253,15 +254,15 @@ export async function buildCoordinatorPrompt(input: {
   } else if (activePackage && (activePackage.openTaskQuestions?.length ?? 0) > 0) {
     sections.push(
       [
-        "当前 active human package 仍未收口，请先继续 follow-up，不要新开问题包。",
+        t().coordinatorPrompt.activePackageNotClosed,
         renderTaskQuestionScope("unresolved_tasks:", activePackage.openTaskQuestions ?? []),
-        ["最近一次发给 human 的问题包：", activePackage.promptText].join("\n"),
+        [t().coordinatorPrompt.recentHumanPackageLabel, activePackage.promptText].join("\n"),
       ].join("\n\n"),
     );
   }
 
   if (input.userText) {
-    sections.push(["用户最新消息：", input.userText].join("\n"));
+    sections.push([t().coordinatorPrompt.userMessageLabel, input.userText].join("\n"));
   }
 
   const claimHumanReply =
