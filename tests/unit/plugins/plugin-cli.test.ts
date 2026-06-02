@@ -102,6 +102,19 @@ test("plugin add installs, validates, saves config, and does not enable channel"
   expect(harness.lines).toContain("提供频道：demo");
 });
 
+test("plugin add replaces legacy weacpx package config with canonical xacpx package", async () => {
+  const harness = createHarness(baseConfig({
+    plugins: [{ name: "@ganglion/weacpx-channel-feishu", version: "0.2.2", enabled: true }],
+  }));
+
+  const code = await handlePluginCli(["add", "@ganglion/xacpx-channel-feishu"], harness.deps);
+
+  expect(code).toBe(0);
+  expect(harness.calls).toEqual(["install:@ganglion/xacpx-channel-feishu:"]);
+  expect(harness.getConfig().plugins).toEqual([{ name: "@ganglion/xacpx-channel-feishu", enabled: true }]);
+  expect(harness.lines).toContain("插件 @ganglion/xacpx-channel-feishu 已安装");
+});
+
 test("plugin add refreshes plugin-api shim after npm install prunes it", async () => {
   const pluginHome = await mkdtemp(join(tmpdir(), "xacpx-plugin-cli-"));
   let config = baseConfig();

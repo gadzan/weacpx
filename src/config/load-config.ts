@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import { normalizeWorkspacePath } from "../commands/workspace-path";
+import { isLegacyPluginPackageName, normalizePluginPackageName } from "../plugins/plugin-renames";
 import { resolveAgentCommand } from "./resolve-agent-command";
 import type {
   AgentConfig,
@@ -362,7 +363,8 @@ function parsePluginConfig(raw: unknown, index: number): PluginConfig {
   if (!isRecord(raw)) {
     throw new Error(`plugins[${index}] must be an object`);
   }
-  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  const rawName = typeof raw.name === "string" ? raw.name.trim() : "";
+  const name = normalizePluginPackageName(rawName);
   if (!name) {
     throw new Error(`plugins[${index}].name must be a non-empty string`);
   }
@@ -384,15 +386,26 @@ function parsePlugins(rawPlugins: unknown): PluginConfig[] {
   if (!Array.isArray(rawPlugins)) {
     throw new Error("plugins must be an array");
   }
-  const parsed = rawPlugins.map((entry, index) => parsePluginConfig(entry, index));
-  const names = new Set<string>();
+  const parsed = rawPlugins.map((entry, index) => ({
+    plugin: parsePluginConfig(entry, index),
+    originalName: isRecord(entry) && typeof entry.name === "string" ? entry.name.trim() : "",
+  }));
+  const pluginsByName = new Map<string, { plugin: PluginConfig; originalName: string }>();
   for (const entry of parsed) {
-    if (names.has(entry.name)) {
+    const existing = pluginsByName.get(entry.plugin.name);
+    if (!existing) {
+      pluginsByName.set(entry.plugin.name, entry);
+      continue;
+    }
+    const hasLegacyName = isLegacyPluginPackageName(existing.originalName) || isLegacyPluginPackageName(entry.originalName);
+    if (!hasLegacyName) {
       throw new Error("plugins names must be unique");
     }
-    names.add(entry.name);
+    if (isLegacyPluginPackageName(existing.originalName) && !isLegacyPluginPackageName(entry.originalName)) {
+      pluginsByName.set(entry.plugin.name, entry);
+    }
   }
-  return parsed;
+  return Array.from(pluginsByName.values()).map((entry) => entry.plugin);
 }
 
 function parseRuntimeChannelConfig(raw: unknown, index: number): ChannelRuntimeConfig {

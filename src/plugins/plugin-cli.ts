@@ -9,6 +9,7 @@ import { importPluginFromHome } from "./plugin-loader.js";
 import { validateWeacpxPlugin } from "./validate-plugin.js";
 import { inspectPlugins, type PluginDoctorIssue } from "./plugin-doctor.js";
 import { listKnownPlugins } from "./known-plugins.js";
+import { normalizePluginPackageName } from "./plugin-renames.js";
 
 export function looksLikePath(spec: string): boolean {
   return (
@@ -138,7 +139,8 @@ function parseRestartAndVersionFlags(args: string[]): { ok: true; rest: string[]
 }
 
 function findPlugin(plugins: PluginConfig[], name: string): PluginConfig | undefined {
-  return plugins.find((plugin) => plugin.name === name);
+  const normalizedName = normalizePluginPackageName(name);
+  return plugins.find((plugin) => normalizePluginPackageName(plugin.name) === normalizedName);
 }
 
 async function validateInstalledPluginDefault(packageName: string, pluginHome: string): Promise<{ name: string; channels: string[] }> {
@@ -254,9 +256,9 @@ async function addPlugin(packageSpec: string, rawArgs: string[], deps: PluginCli
     return 1;
   }
 
-  const recordedName = looksLikePath(packageSpec)
+  const recordedName = normalizePluginPackageName(looksLikePath(packageSpec)
     ? await resolveLocalPluginName(installSpec, pluginHome, namesBeforeInstall)
-    : packageSpec;
+    : packageSpec);
 
   const validate = deps.validateInstalledPlugin ?? ((name: string) => validateInstalledPluginDefault(name, pluginHome));
   let summary: { name: string; channels: string[] };
@@ -276,7 +278,9 @@ async function addPlugin(packageSpec: string, rawArgs: string[], deps: PluginCli
     enabled: true,
   };
   if (existing) {
-    config.plugins = config.plugins.map((entry) => (entry.name === recordedName ? next : entry));
+    config.plugins = config.plugins
+      .filter((entry) => normalizePluginPackageName(entry.name) !== recordedName)
+      .concat(next);
   } else {
     config.plugins = [...config.plugins, next];
   }
