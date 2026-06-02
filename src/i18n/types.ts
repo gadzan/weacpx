@@ -155,7 +155,138 @@ export interface SessionMessages {
   cancelHelpCmdStopAliasDesc: string;
 }
 
+export interface NativeSessionMessages {
+  // handleNativeSessionList — unsupported transport
+  transportNotSupported: string;
+
+  // handleNativeSessionList — no sessions found
+  noSessionsFound: (agentDisplayName: string, workspaceLabel: string) => string;
+  noSessionsFoundHint: string;
+
+  // handleNativeSessionSelect
+  selectPrompt: string;
+  noCachedList: string;
+  indexOutOfRange: string;
+
+  // attachNativeSession
+  attachNotSupported: string;
+  alreadySwitched: (agentDisplayName: string, displayAlias: string) => string;
+  attachVerificationFailed: (agentDisplayName: string) => string;
+  attachedAndSwitched: (agentDisplayName: string, displayAlias: string) => string;
+
+  // resolveNativeTarget / resolveNativeWorkspace
+  noContextHint: string;
+  agentNotRegistered: (agent: string) => string;
+  workspaceNotRegistered: (workspace: string) => string;
+  workspacePathNotFound: (cwd: string) => string;
+  noWritableConfig: string;
+
+  // renderNativeSessionTableList
+  tableHeader: (agentDisplayName: string, workspaceLabel: string) => string;
+  tableColNum: string;
+  tableColTitle: string;
+  tableColUpdatedAt: string;
+  tableColId: string;
+  tableAttachedLabel: (displayAlias: string) => string;
+  tableAttachedCurrent: string;
+  tableActions: string;
+  tableActionAttach: string;
+  tableActionAlias: string;
+  tableActionHelp: string;
+  tableMore: (cmd: string) => string;
+
+  // renderNativeSessionCardList
+  cardHeader: (agentDisplayName: string, workspaceLabel: string) => string;
+  cardReplyHint: string;
+  cardTimeLabel: (updatedAt: string) => string;
+  cardIdLabel: (idTail: string) => string;
+  cardAttachedLabel: (displayAlias: string) => string;
+  cardAttachedCurrent: string;
+  cardActions: string;
+  cardActionAttach: string;
+  cardActionAlias: string;
+  cardActionHelp: string;
+  cardMore: (cmd: string) => string;
+
+  // renderNativeListError / renderNativeResumeError
+  listError: (agentDisplayName: string, errorMessage: string) => string;
+  listErrorHint: string;
+  listErrorHelp: string;
+  resumeError: (agentDisplayName: string, errorMessage: string) => string;
+  resumeErrorHint: string;
+  resumeErrorHelp: string;
+}
+
+export interface RecoveryMessages {
+  // renderTransportError — transient session
+  transientSessionFailed: string;
+  transientSessionHint: string;
+
+  // renderTransportError — normal session unavailable
+  sessionUnavailable: (alias: string) => string;
+  sessionUnavailableRenewHint: (alias: string, agent: string, quotedWorkspace: string) => string;
+  sessionUnavailableAttachHint: (alias: string, agent: string, quotedWorkspace: string) => string;
+
+  // renderTransportError — partial output
+  sessionInterrupted: (alias: string) => string;
+  sessionInterruptedHint: string;
+  sessionInterruptedError: (summary: string) => string;
+
+  // renderSessionCreationError (AutoInstallFailedError)
+  autoInstallHeadlineFixed: string;
+  autoInstallHeadlineFailed: string;
+  autoInstallOriginalError: string;
+  autoInstallStepVerifyFailed: (label: string) => string;
+  autoInstallStepError: (label: string, stderrTail: string) => string;
+  autoInstallManual: (pkg: string) => string;
+  autoInstallLog: (logPath: string) => string;
+  autoInstallScopePrecise: (manager?: string, path?: string) => string;
+  autoInstallScopeGlobal: string;
+
+  // renderSessionCreationFailure / renderSessionCreationVerificationError
+  sessionCreationFailed: string;
+  sessionCreationVerificationDetail: string;
+  sessionCreationError: (summary: string) => string;
+  sessionCreationAttachHint: (alias: string, agent: string, quotedWorkspace: string) => string;
+}
+
+export interface ShortcutMessages {
+  // handleSessionShortcutCommand — no config
+  noConfig: string;
+
+  // agent not registered
+  agentNotRegistered: (agent: string, hint: string) => string;
+  agentNotRegisteredAvailable: (names: string) => string;
+  agentNotRegisteredNone: string;
+
+  // reuse existing logical session
+  reuseHeader: (display: string) => string;
+  reuseWorkspace: (name: string) => string;
+  reuseSession: (display: string) => string;
+
+  // new session created
+  createdHeader: (display: string) => string;
+  createdNewWorkspace: (name: string, cwd: string) => string;
+  createdReusedWorkspace: (name: string) => string;
+  createdNewSession: (display: string) => string;
+
+  // renderShortcutSessionCreationError
+  creationFailed: (alias: string) => string;
+  creationFailedNewWorkspace: (name: string, cwd: string) => string;
+  creationFailedReusedWorkspace: (name: string) => string;
+  creationFailedSession: string;
+
+  // resolveShortcutWorkspace — workspace errors
+  workspaceNotRegistered: (workspace: string, hint: string) => string;
+  workspaceAvailable: (names: string) => string;
+  workspaceNone: string;
+  workspacePathNotFound: (cwd: string) => string;
+}
+
 export interface Messages {
   common: CommonMessages;
   session: SessionMessages;
+  nativeSession: NativeSessionMessages;
+  recovery: RecoveryMessages;
+  shortcut: ShortcutMessages;
 }

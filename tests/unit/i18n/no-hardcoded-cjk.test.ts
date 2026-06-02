@@ -8,6 +8,9 @@ import { join } from "node:path";
 const MIGRATED_PREFIXES = [
   "src/i18n/messages/en/",
   "src/commands/handlers/session-handler.ts",
+  "src/commands/handlers/native-session-handler.ts",
+  "src/commands/handlers/session-recovery-handler.ts",
+  "src/commands/handlers/session-shortcut-handler.ts",
 ];
 
 const CJK = /[㐀-鿿豈-﫿]/;

@@ -3,6 +3,7 @@ import type { RouterResponse, SessionRecoveryOps } from "../router-types";
 import { isPartialPromptOutputError, summarizeTransportError } from "../transport-diagnostics";
 import { AutoInstallFailedError } from "../../recovery/errors";
 import { quoteWorkspaceNameIfNeeded } from "../workspace-name";
+import { t } from "../../i18n";
 
 export function renderTransportError(session: ResolvedSession, error: unknown): RouterResponse {
   const message = error instanceof Error ? error.message : String(error);
@@ -14,16 +15,17 @@ export function renderTransportError(session: ResolvedSession, error: unknown): 
       // its `later-<id>` alias would be nonsensical.
       return {
         text: [
-          "定时任务的临时会话启动失败，本次任务未能执行。",
-          "临时会话由系统在执行时自动创建，无需手动操作；如需重排，请用 /lt 重新安排。",
+          t().recovery.transientSessionFailed,
+          t().recovery.transientSessionHint,
         ].join("\n"),
       };
     }
+    const quotedWs = quoteWorkspaceNameIfNeeded(session.workspace);
     return {
       text: [
-        `当前会话「${session.alias}」暂时不可用。`,
-        `请先在微信里重新执行：/session new ${session.alias} --agent ${session.agent} --ws ${quoteWorkspaceNameIfNeeded(session.workspace)}`,
-        `如果你要绑定一个已有会话，再执行：/session attach ${session.alias} --agent ${session.agent} --ws ${quoteWorkspaceNameIfNeeded(session.workspace)} --name <会话名>`,
+        t().recovery.sessionUnavailable(session.alias),
+        t().recovery.sessionUnavailableRenewHint(session.alias, session.agent, quotedWs),
+        t().recovery.sessionUnavailableAttachHint(session.alias, session.agent, quotedWs),
       ].join("\n"),
     };
   }
@@ -34,9 +36,9 @@ export function renderTransportError(session: ResolvedSession, error: unknown): 
 
   return {
     text: [
-      `当前会话「${session.alias}」执行中断，未收到最终回复。`,
-      "请直接重试；如果长时间无响应，可先发送 /cancel 后再重试。",
-      `错误信息：${summarizeTransportError(message)}`,
+      t().recovery.sessionInterrupted(session.alias),
+      t().recovery.sessionInterruptedHint,
+      t().recovery.sessionInterruptedError(summarizeTransportError(message)),
     ].join("\n"),
   };
 }
@@ -44,33 +46,32 @@ export function renderTransportError(session: ResolvedSession, error: unknown): 
 export function renderSessionCreationError(session: ResolvedSession, error: unknown): RouterResponse {
   if (error instanceof AutoInstallFailedError) {
     const { original, steps, logPath } = error;
+    const r = t().recovery;
     const allVerifyFailed = steps.length > 0 && steps.every((s) => s.reason === "verify-failed");
-    const headline = allVerifyFailed
-      ? `⚠️ 自动安装已执行但未能修复会话启动问题`
-      : `❌ 自动安装失败`;
+    const headline = allVerifyFailed ? r.autoInstallHeadlineFixed : r.autoInstallHeadlineFailed;
     const stepLines = steps
       .map((s) => {
         const perStepPath = s.path ?? (s.scope === "precise" ? original.parentPackagePath : null);
         const label = s.scope === "precise"
-          ? `精确${s.manager ? ` / ${s.manager}` : ""}${perStepPath ? ` / ${perStepPath}` : ""}`
-          : "全局";
+          ? r.autoInstallScopePrecise(s.manager, perStepPath ?? undefined)
+          : r.autoInstallScopeGlobal;
         if (s.reason === "verify-failed") {
-          return `安装已执行但验证失败（${label}）：会话仍抛出缺失依赖错误`;
+          return r.autoInstallStepVerifyFailed(label);
         }
-        return `安装错误（${label}）：\n${s.stderrTail}`;
+        return r.autoInstallStepError(label, s.stderrTail);
       })
       .join("\n\n");
     return {
       text: [
         headline,
         ``,
-        `原始错误：`,
+        r.autoInstallOriginalError,
         original.rawMessage,
         ``,
         stepLines,
         ``,
-        `请手动执行：npm install -g ${original.package}`,
-        `详细日志：${logPath}`,
+        r.autoInstallManual(original.package),
+        r.autoInstallLog(logPath),
       ].join("\n"),
     };
   }
@@ -85,15 +86,16 @@ export function renderSessionCreationError(session: ResolvedSession, error: unkn
 }
 
 export function renderSessionCreationVerificationError(session: ResolvedSession): RouterResponse {
-  return renderSessionCreationFailure(session, "未检测到可用的后端会话。");
+  return renderSessionCreationFailure(session, t().recovery.sessionCreationVerificationDetail);
 }
 
 function renderSessionCreationFailure(session: ResolvedSession, detail: string): RouterResponse {
+  const r = t().recovery;
   return {
     text: [
-      "会话创建失败。",
-      `错误信息：${summarizeTransportError(detail)}`,
-      `如果你要先绑定一个已有会话，可以执行：/session attach ${session.alias} --agent ${session.agent} --ws ${quoteWorkspaceNameIfNeeded(session.workspace)} --name <会话名>`,
+      r.sessionCreationFailed,
+      r.sessionCreationError(summarizeTransportError(detail)),
+      r.sessionCreationAttachHint(session.alias, session.agent, quoteWorkspaceNameIfNeeded(session.workspace)),
     ].join("\n"),
   };
 }

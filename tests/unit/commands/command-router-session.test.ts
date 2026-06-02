@@ -92,9 +92,9 @@ test("rejects session creation when acpx reports success but the named session i
 
   const reply = await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
 
-  expect(reply.text).toContain("会话创建失败");
-  expect(reply.text).toContain("错误信息：未检测到可用的后端会话。");
-  expect(reply.text).toContain("/session attach api-fix --agent codex --ws backend --name <会话名>");
+  expect(reply.text).toContain(t().recovery.sessionCreationFailed);
+  expect(reply.text).toContain(t().recovery.sessionCreationError(t().recovery.sessionCreationVerificationDetail));
+  expect(reply.text).toContain(t().recovery.sessionCreationAttachHint("api-fix", "codex", "backend"));
   expect(await sessions.listSessions("wx:user")).toEqual([]);
   await expect(sessions.getCurrentSession("wx:user")).resolves.toBeNull();
 });
@@ -293,7 +293,7 @@ test("does not create a workspace from the shortcut command when the agent is in
 
   const reply = await router.handle("wx:user", `/ss missing-agent -d "${dir}"`);
 
-  expect(reply.text).toContain("Agent「missing-agent」未注册");
+  expect(reply.text).toContain(t().shortcut.agentNotRegistered("missing-agent", t().shortcut.agentNotRegisteredAvailable("codex")));
   expect(config.workspaces[workspaceName]).toBeUndefined();
   expect(await sessions.listSessions("wx:user")).toEqual([]);
 
@@ -310,9 +310,9 @@ test("creates a workspace and session from the shortcut command", async () => {
 
   const reply = await router.handle("wx:user", `/ss codex -d "${dir}"`);
 
-  expect(reply.text).toContain(`已创建并切换到会话「${workspaceName}:codex」`);
-  expect(reply.text).toContain(`新增工作区：${workspaceName} -> ${normalizeWorkspacePath(dir)}`);
-  expect(reply.text).toContain(`新增会话：${workspaceName}:codex`);
+  expect(reply.text).toContain(t().shortcut.createdHeader(`${workspaceName}:codex`));
+  expect(reply.text).toContain(t().shortcut.createdNewWorkspace(workspaceName, normalizeWorkspacePath(dir)));
+  expect(reply.text).toContain(t().shortcut.createdNewSession(`${workspaceName}:codex`));
   expect(await sessions.getCurrentSession("wx:user")).toMatchObject({
     alias: `${workspaceName}:codex`,
     workspace: workspaceName,
@@ -334,7 +334,7 @@ test("shortcut auto-registers a workspace with a sanitized name when cwd has spa
 
   const reply = await router.handle("wx:user", `/ss codex -d "${dir}"`);
 
-  expect(reply.text).toContain(`新增工作区：My-Project -> ${normalizeWorkspacePath(dir)}`);
+  expect(reply.text).toContain(t().shortcut.createdNewWorkspace("My-Project", normalizeWorkspacePath(dir)));
   expect(config.workspaces["My-Project"]).toEqual({ cwd: normalizeWorkspacePath(dir) });
   expect(config.workspaces["My Project"]).toBeUndefined();
 
@@ -360,7 +360,7 @@ test("shortcut creation still selects the session when agent command refresh fai
 
   const reply = await router.handle("wx:user", `/ss codex -d "${dir}"`);
 
-  expect(reply.text).toContain(`已创建并切换到会话「${workspaceName}:codex」`);
+  expect(reply.text).toContain(t().shortcut.createdHeader(`${workspaceName}:codex`));
   expect(await sessions.getCurrentSession("wx:user")).toMatchObject({
     alias: `${workspaceName}:codex`,
     workspace: workspaceName,
@@ -378,9 +378,9 @@ test("reuses an existing workspace and session from the workspace shortcut comma
 
   const reply = await router.handle("wx:user", "/ss codex --ws weacpx");
 
-  expect(reply.text).toContain("已创建并切换到会话「weacpx:codex」");
-  expect(reply.text).toContain("复用工作区：weacpx");
-  expect(reply.text).toContain("新增会话：weacpx:codex");
+  expect(reply.text).toContain(t().shortcut.createdHeader("weacpx:codex"));
+  expect(reply.text).toContain(t().shortcut.createdReusedWorkspace("weacpx"));
+  expect(reply.text).toContain(t().shortcut.createdNewSession("weacpx:codex"));
   expect(await sessions.getCurrentSession("wx:user")).toMatchObject({
     alias: "weacpx:codex",
     workspace: "weacpx",
@@ -399,7 +399,7 @@ test("workspace shortcut refreshes config saved by another process", async () =>
 
   const reply = await router.handle("wx:user", "/ss codex --ws agent");
 
-  expect(reply.text).toContain("已创建并切换到会话「agent:codex」");
+  expect(reply.text).toContain(t().shortcut.createdHeader("agent:codex"));
   expect(await sessions.getCurrentSession("wx:user")).toMatchObject({
     alias: "agent:codex",
     workspace: "agent",
@@ -415,8 +415,7 @@ test("rejects the workspace shortcut command when the workspace is missing", asy
 
   const reply = await router.handle("wx:user", "/ss codex --ws missing");
 
-  expect(reply.text).toContain("工作区「missing」未注册");
-  expect(reply.text).toContain("当前可用：backend");
+  expect(reply.text).toContain(t().shortcut.workspaceNotRegistered("missing", t().shortcut.workspaceAvailable("backend")));
   expect(await sessions.listSessions("wx:user")).toEqual([]);
 });
 
@@ -432,7 +431,7 @@ test("reuses the derived workspace and session from the shortcut command", async
   const reply = await router.handle("wx:user", `/ss codex -d "${dir}"`);
 
   expect(reply.text).toBe(
-    [`已切换到会话「${workspaceName}:codex」`, `- 复用工作区：${workspaceName}`, `- 复用会话：${workspaceName}:codex`].join("\n"),
+    [t().shortcut.reuseHeader(`${workspaceName}:codex`), t().shortcut.reuseWorkspace(workspaceName), t().shortcut.reuseSession(`${workspaceName}:codex`)].join("\n"),
   );
   expect((transport.ensureSession as ReturnType<typeof mock>).mock.calls).toHaveLength(1);
 
@@ -449,7 +448,7 @@ test("creates uniquely named sessions for the explicit workspace shortcut create
   await router.handle("wx:user", "/ss new codex --ws weacpx");
   const reply = await router.handle("wx:user", "/ss new codex --ws weacpx");
 
-  expect(reply.text).toContain("已创建并切换到会话「weacpx:codex-2」");
+  expect(reply.text).toContain(t().shortcut.createdHeader("weacpx:codex-2"));
   expect(await sessions.getCurrentSession("wx:user")).toMatchObject({
     alias: "weacpx:codex-2",
     transportSession: "weacpx:codex-2",
@@ -472,7 +471,7 @@ test("auto-renames the derived workspace when the basename already exists for an
   await router.handle("wx:user", `/ss codex -d "${firstDir}"`);
   const reply = await router.handle("wx:user", `/ss codex -d "${secondDir}"`);
 
-  expect(reply.text).toContain("新增工作区：weacpx-2");
+  expect(reply.text).toContain(t().shortcut.createdNewWorkspace("weacpx-2", normalizeWorkspacePath(secondDir)));
   expect(config.workspaces["weacpx-2"]).toEqual({ cwd: normalizeWorkspacePath(secondDir) });
 
   await rm(parent, { recursive: true, force: true });
@@ -490,7 +489,7 @@ test("creates uniquely named sessions for the explicit shortcut create command",
   await router.handle("wx:user", `/ss new codex -d "${dir}"`);
   const reply = await router.handle("wx:user", `/ss new codex -d "${dir}"`);
 
-  expect(reply.text).toContain(`已创建并切换到会话「${workspaceName}:codex-2」`);
+  expect(reply.text).toContain(t().shortcut.createdHeader(`${workspaceName}:codex-2`));
   expect(await sessions.getCurrentSession("wx:user")).toMatchObject({
     alias: `${workspaceName}:codex-2`,
     transportSession: `${workspaceName}:codex-2`,
@@ -512,8 +511,8 @@ test("keeps the shortcut-created workspace but avoids a ghost session when trans
 
   const reply = await router.handle("wx:user", `/ss codex -d "${dir}"`);
 
-  expect(reply.text).toContain(`会话「${workspaceName}:codex」创建失败。`);
-  expect(reply.text).toContain(`已新增工作区：${workspaceName} -> ${normalizeWorkspacePath(dir)}`);
+  expect(reply.text).toContain(t().shortcut.creationFailed(`${workspaceName}:codex`));
+  expect(reply.text).toContain(t().shortcut.creationFailedNewWorkspace(workspaceName, normalizeWorkspacePath(dir)));
   expect(config.workspaces[workspaceName]).toEqual({ cwd: normalizeWorkspacePath(dir) });
   expect(await sessions.listSessions("wx:user")).toEqual([]);
   await expect(sessions.getCurrentSession("wx:user")).resolves.toBeNull();
@@ -874,7 +873,7 @@ test("feishu session shortcut creates scoped internal alias but displays plain a
 
   const response = await router.handle("feishu:default:oc_chat", "/ss codex --ws backend");
 
-  expect(response.text).toContain("已创建并切换到会话「backend:codex」");
+  expect(response.text).toContain(t().shortcut.createdHeader("backend:codex"));
   expect(await sessions.getSession("feishu:backend:codex")).not.toBeNull();
   expect(await sessions.getSession("backend:codex")).toBeNull();
 });
@@ -890,7 +889,7 @@ test("weixin session shortcut reuses legacy alias when present", async () => {
 
   const response = await router.handle("weixin:default:wxid_alice", "/ss codex --ws backend");
 
-  expect(response.text).toContain("已切换到会话「backend:codex」");
+  expect(response.text).toContain(t().shortcut.reuseHeader("backend:codex"));
   expect(await sessions.getSession("weixin:backend:codex")).toBeNull();
 });
 
@@ -918,7 +917,7 @@ test("/ss keeps reusing existing logical sessions without listing native session
   await router.handle("wx:user", "/ss codex --ws project");
   const reply = await router.handle("wx:user", "/ss codex --ws project");
 
-  expect(reply.text).toContain("已切换到会话");
+  expect(reply.text).toContain(t().shortcut.reuseHeader("project:codex"));
   expect((transport.listAgentSessions as ReturnType<typeof mock>).mock.calls).toHaveLength(0);
 });
 
@@ -941,13 +940,13 @@ test("/ssn lists native sessions from the current session context", async () => 
   await router.handle("wx:user", "/ss codex --ws project");
   const reply = await router.handle("wx:user", "/ssn");
 
-  expect(reply.text).toContain("本地 Codex 会话（project）");
+  expect(reply.text).toContain(t().nativeSession.cardHeader("Codex", "project"));
   expect(reply.text).toContain("【1】 Fix CI");
-  expect(reply.text).toContain("时间：2026-05-26");
-  expect(reply.text).toContain("ID：…e8e552e7");
-  expect(reply.text).toContain("接入：/ssn 1");
-  expect(reply.text).toContain("指定别名：/ssn 1 -a fix-ci");
-  expect(reply.text).not.toContain("| # | 标题 | 更新时间 | ID |");
+  expect(reply.text).toContain(t().nativeSession.cardTimeLabel("2026-05-26 01:00"));
+  expect(reply.text).toContain(t().nativeSession.cardIdLabel("…e8e552e7"));
+  expect(reply.text).toContain(t().nativeSession.cardActionAttach);
+  expect(reply.text).toContain(t().nativeSession.cardActionAlias);
+  expect(reply.text).not.toContain(`| ${t().nativeSession.tableColNum} | ${t().nativeSession.tableColTitle} |`);
   expect(reply.text).not.toContain("61456d60-b7e1-47e6-8641-72bbe8e552e7");
   expect(transport.listAgentSessions).toHaveBeenCalledWith({
     agent: "codex",
@@ -972,11 +971,11 @@ test("/ssn renders long WeChat native session lists as cards with id tails", asy
 
   const reply = await router.handle("wx:user", "/ssn codex --ws project");
 
-  expect(reply.text).not.toContain("| # | 标题 | 更新时间 | ID |");
+  expect(reply.text).not.toContain(`| ${t().nativeSession.tableColNum} | ${t().nativeSession.tableColTitle} |`);
   expect(reply.text).toContain("【1】 修复一个很长的微信表格分页标题 1");
   expect(reply.text).toContain("【7】 修复一个很长的微信表格分页标题 7");
-  expect(reply.text).toContain("ID：…00000001");
-  expect(reply.text).toContain("ID：…00000007");
+  expect(reply.text).toContain(t().nativeSession.cardIdLabel("…00000001"));
+  expect(reply.text).toContain(t().nativeSession.cardIdLabel("…00000007"));
 });
 
 test("/ssn keeps one table header for long Feishu native session lists", async () => {
@@ -995,7 +994,8 @@ test("/ssn keeps one table header for long Feishu native session lists", async (
 
   const reply = await router.handle("feishu:default:oc_chat", "/ssn codex --ws project");
 
-  expect(reply.text?.match(/\| # \| 标题 \| 更新时间 \| ID \|/g)).toHaveLength(1);
+  const tableHeaderRegex = new RegExp(`\\| ${t().nativeSession.tableColNum} \\| ${t().nativeSession.tableColTitle} \\| ${t().nativeSession.tableColUpdatedAt} \\| ${t().nativeSession.tableColId} \\|`, "g");
+  expect(reply.text?.match(tableHeaderRegex)).toHaveLength(1);
   expect(reply.text).toContain("| 7 | 修复一个很长的飞书表格分页标题 7 |");
 });
 
@@ -1013,7 +1013,7 @@ test("/ssn renders cards for a non-weixin channel that declares the cards format
 
   const reply = await router.handle("feishu:default:oc_chat", "/ssn codex --ws project");
 
-  expect(reply.text).not.toContain("| # | 标题 | 更新时间 | ID |");
+  expect(reply.text).not.toContain(`| ${t().nativeSession.tableColNum} | ${t().nativeSession.tableColTitle} |`);
   expect(reply.text).toContain("【1】 Fix CI");
   expect(reply.text).toContain("【2】 Add tests");
 });
@@ -1039,7 +1039,7 @@ test("/ssn preserves transport method this binding when listing native sessions"
 
   const reply = await router.handle("wx:user", "/ssn codex --ws project");
 
-  expect(reply.text).toContain("已接入本地 Codex 会话并切换");
+  expect(reply.text).toContain(t().nativeSession.attachedAndSwitched("Codex", "codex-thread-1"));
   expect(transport.client.calls).toEqual([
     {
       agent: "codex",
@@ -1059,7 +1059,7 @@ test("/ssn explicit target auto-attaches a single native session", async () => {
 
   const reply = await router.handle("wx:user", "/ssn codex --ws project");
 
-  expect(reply.text).toContain("已接入本地 Codex 会话并切换");
+  expect(reply.text).toContain(t().nativeSession.attachedAndSwitched("Codex", "codex-e8e552e7"));
   expect(transport.resumeAgentSession).toHaveBeenCalledWith(
     expect.objectContaining({ alias: "codex-e8e552e7", transportSession: "codex-e8e552e7" }),
     "61456d60-b7e1-47e6-8641-72bbe8e552e7",
@@ -1083,7 +1083,7 @@ test("/ssn avoids clobbering an existing transport session owned by another alia
 
   const reply = await router.handle("wx:user", "/ssn codex --ws project");
 
-  expect(reply.text).toContain("已接入本地 Codex 会话并切换");
+  expect(reply.text).toContain(t().nativeSession.attachedAndSwitched("Codex", "codex-e8e552e7-2"));
   expect(transport.resumeAgentSession).toHaveBeenCalledWith(
     expect.objectContaining({ alias: "codex-e8e552e7-2", transportSession: "codex-e8e552e7-2" }),
     "61456d60-b7e1-47e6-8641-72bbe8e552e7",
@@ -1117,7 +1117,7 @@ test("/ssn attach by raw session id uses the requested alias", async () => {
 
   const reply = await router.handle("wx:user", "/ssn attach thread-raw -a fix-ci");
 
-  expect(reply.text).toContain("已接入本地 Codex 会话并切换");
+  expect(reply.text).toContain(t().nativeSession.attachedAndSwitched("Codex", "fix-ci"));
   expect(transport.resumeAgentSession).toHaveBeenCalledWith(
     expect.objectContaining({ alias: "fix-ci", transportSession: "fix-ci" }),
     "thread-raw",
@@ -1145,7 +1145,7 @@ test("/ssn caches multiple candidates and /ssn 1 attaches the cached item", asyn
 
   expect(listReply.text).toContain("【1】 Fix CI");
   expect(listReply.text).toContain("【2】 Refactor");
-  expect(attachReply.text).toContain("已接入本地 Codex 会话并切换");
+  expect(attachReply.text).toContain(t().nativeSession.attachedAndSwitched("Codex", "codex-thread-2"));
   expect(transport.resumeAgentSession).toHaveBeenCalledWith(expect.any(Object), "thread-2");
   await expect(sessions.getCurrentSession("wx:user")).resolves.toMatchObject({ agentSessionId: "thread-2" });
 });
@@ -1164,7 +1164,7 @@ test("/ssn 1 -a sets the alias when attaching a cached candidate", async () => {
   await router.handle("wx:user", "/ssn codex --ws project");
   const reply = await router.handle("wx:user", "/ssn 2 -a fix-ci");
 
-  expect(reply.text).toContain("已接入本地 Codex 会话并切换");
+  expect(reply.text).toContain(t().nativeSession.attachedAndSwitched("Codex", "fix-ci"));
   expect(transport.resumeAgentSession).toHaveBeenCalledWith(
     expect.objectContaining({ alias: "fix-ci", transportSession: "fix-ci" }),
     "thread-2",
@@ -1250,7 +1250,7 @@ test("/ssn --all cached selection resumes using the selected candidate cwd", asy
     await router.handle("wx:user", "/ssn codex --ws project --all");
     const reply = await router.handle("wx:user", "/ssn 2");
 
-    expect(reply.text).toContain("已接入本地 Codex 会话并切换");
+    expect(reply.text).toContain(t().nativeSession.attachedAndSwitched("Codex", "codex-thread-2"));
     expect(transport.resumeAgentSession).toHaveBeenCalledWith(
       expect.objectContaining({ cwd: normalizeWorkspacePath(dir) }),
       "thread-2",
@@ -1276,7 +1276,7 @@ test("/ssn 1 switches to an already attached native session", async () => {
   await router.handle("wx:user", "/ssn");
   const reply = await router.handle("wx:user", "/ssn 1");
 
-  expect(reply.text).toContain("已切换到已接入的本地会话");
+  expect(reply.text).toContain(t().nativeSession.alreadySwitched("Codex", "codex-thread-1"));
   expect((transport.resumeAgentSession as ReturnType<typeof mock>).mock.calls).toHaveLength(1);
 });
 
@@ -1296,7 +1296,7 @@ test("/ssn 1 switch response renders display alias for scoped channels", async (
   await router.handle("feishu:default:oc_chat", "/ssn");
   const reply = await router.handle("feishu:default:oc_chat", "/ssn 1");
 
-  expect(reply.text).toContain("已切换到已接入的本地会话：Codex · codex-thread-1");
+  expect(reply.text).toContain(t().nativeSession.alreadySwitched("Codex", "codex-thread-1"));
   expect(reply.text).not.toContain("feishu:codex-thread-1");
   expect((transport.resumeAgentSession as ReturnType<typeof mock>).mock.calls).toHaveLength(1);
 });
@@ -1309,8 +1309,8 @@ test("/ssn reports unsupported native listing when transport returns undefined",
 
   const reply = await router.handle("wx:user", "/ssn codex --ws project");
 
-  expect(reply.text).toContain("当前 transport 不支持列出本地会话");
-  expect(reply.text).toContain("/ss");
+  expect(reply.text).toContain(t().nativeSession.transportNotSupported);
+
 });
 
 test("/ssn renders friendly messages for native list and resume failures", async () => {
@@ -1320,8 +1320,8 @@ test("/ssn renders friendly messages for native list and resume failures", async
 
   const listReply = await router.handle("wx:user", "/ssn codex --ws project");
 
-  expect(listReply.text).toContain("本地 Codex 会话查询失败：list unsupported");
-  expect(listReply.text).toContain("继续使用 /ss");
+  expect(listReply.text).toContain(t().nativeSession.listError("Codex", "list unsupported"));
+  expect(listReply.text).toContain(t().nativeSession.listErrorHint);
 
   (transport.listAgentSessions as ReturnType<typeof mock>).mockResolvedValueOnce({
     source: "agent",
@@ -1331,8 +1331,8 @@ test("/ssn renders friendly messages for native list and resume failures", async
 
   const resumeReply = await router.handle("wx:user", "/ssn codex --ws project");
 
-  expect(resumeReply.text).toContain("本地 Codex 会话接入失败：resume unsupported");
-  expect(resumeReply.text).toContain("继续使用 /ss");
+  expect(resumeReply.text).toContain(t().nativeSession.resumeError("Codex", "resume unsupported"));
+  expect(resumeReply.text).toContain(t().nativeSession.resumeErrorHint);
 });
 
 test("/ssn clears stale cached native sessions after an empty list response", async () => {
@@ -1355,8 +1355,8 @@ test("/ssn clears stale cached native sessions after an empty list response", as
   const selectReply = await router.handle("wx:user", "/ssn 1");
 
   expect(firstReply.text).toContain("【1】 Fix CI");
-  expect(emptyReply.text).toContain("没有找到本地 Codex 会话");
-  expect(selectReply.text).toContain("当前没有可用的 native 会话列表");
+  expect(emptyReply.text).toContain(t().nativeSession.noSessionsFound("Codex", "project"));
+  expect(selectReply.text).toContain(t().nativeSession.noCachedList);
   expect(transport.resumeAgentSession).not.toHaveBeenCalled();
 });
 

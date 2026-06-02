@@ -3,6 +3,7 @@ import { basenameForWorkspacePath, normalizeWorkspacePath, pathExists, sameWorks
 import type { CommandRouterContext, RouterResponse, SessionShortcutOps } from "../router-types";
 import { AutoInstallFailedError } from "../../recovery/errors";
 import { getChannelIdFromChatKey, scopeDisplayAliasToInternal, toDisplaySessionAlias } from "../../channels/channel-scope";
+import { t } from "../../i18n";
 
 interface ShortcutWorkspaceResolution {
   name: string;
@@ -20,15 +21,15 @@ export async function handleSessionShortcutCommand(
   createNew: boolean,
 ): Promise<RouterResponse> {
   if (!context.config || !context.configStore) {
-    return { text: "当前没有加载可写入的配置。" };
+    return { text: t().shortcut.noConfig };
   }
 
   if (!context.config.agents[agent]) {
     const agents = Object.keys(context.config.agents);
     const hint = agents.length > 0
-      ? `当前可用：${agents.join("、")}`
-      : "当前没有已注册的 Agent，请先执行 /agent add <模板>";
-    return { text: `Agent「${agent}」未注册。${hint}` };
+      ? t().shortcut.agentNotRegisteredAvailable(agents.join("、"))
+      : t().shortcut.agentNotRegisteredNone;
+    return { text: t().shortcut.agentNotRegistered(agent, hint) };
   }
 
   const workspace = await resolveShortcutWorkspace(context, target);
@@ -56,9 +57,9 @@ export async function handleSessionShortcutCommand(
     });
     return {
       text: [
-        `已切换到会话「${display}」`,
-        `- 复用工作区：${workspace.name}`,
-        `- 复用会话：${display}`,
+        t().shortcut.reuseHeader(display),
+        t().shortcut.reuseWorkspace(workspace.name),
+        t().shortcut.reuseSession(display),
       ].join("\n"),
     };
   }
@@ -97,9 +98,11 @@ export async function handleSessionShortcutCommand(
 
     return {
       text: [
-        `已创建并切换到会话「${display}」`,
-        workspace.reused ? `- 复用工作区：${workspace.name}` : `- 新增工作区：${workspace.name} -> ${workspace.cwd}`,
-        `- 新增会话：${display}`,
+        t().shortcut.createdHeader(display),
+        workspace.reused
+          ? t().shortcut.createdReusedWorkspace(workspace.name)
+          : t().shortcut.createdNewWorkspace(workspace.name, workspace.cwd),
+        t().shortcut.createdNewSession(display),
       ].join("\n"),
     };
   } finally {
@@ -116,9 +119,9 @@ async function resolveShortcutWorkspace(
     if (!workspace) {
       const workspaces = Object.keys(context.config?.workspaces ?? {});
       const hint = workspaces.length > 0
-        ? `当前可用：${workspaces.join("、")}`
-        : "当前没有已注册的工作区，请先执行 /ws new <名称> -d <路径>";
-      return { error: `工作区「${target.workspace}」未注册。${hint}` };
+        ? t().shortcut.workspaceAvailable(workspaces.join("、"))
+        : t().shortcut.workspaceNone;
+      return { error: t().shortcut.workspaceNotRegistered(target.workspace, hint) };
     }
 
     return {
@@ -131,7 +134,7 @@ async function resolveShortcutWorkspace(
   const cwdInput = target.cwd ?? "";
   const cwd = normalizeWorkspacePath(cwdInput);
   if (!(await pathExists(cwd))) {
-    return { error: `工作区路径不存在：${cwdInput}` };
+    return { error: t().shortcut.workspacePathNotFound(cwdInput) };
   }
 
   const existingByPath = Object.entries(context.config?.workspaces ?? {}).find(([, workspace]) =>
@@ -187,9 +190,11 @@ function renderShortcutSessionCreationError(
 ): RouterResponse {
   return {
     text: [
-      `会话「${alias}」创建失败。`,
-      workspace.reused ? `- 复用工作区：${workspace.name}` : `- 已新增工作区：${workspace.name} -> ${workspace.cwd}`,
-      "- 会话未创建，请重试。",
+      t().shortcut.creationFailed(alias),
+      workspace.reused
+        ? t().shortcut.creationFailedReusedWorkspace(workspace.name)
+        : t().shortcut.creationFailedNewWorkspace(workspace.name, workspace.cwd),
+      t().shortcut.creationFailedSession,
     ].join("\n"),
   };
 }
