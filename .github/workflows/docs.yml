@@ -2,7 +2,8 @@ name: Deploy VitePress docs to Pages
 
 on:
   push:
-    branches: [main]
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 permissions:
@@ -21,17 +22,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
       - name: Build docs
-        run: bun run docs:build
+        run: npx --yes vitepress@1.6.4 build packages/docs
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
