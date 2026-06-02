@@ -20,5 +20,7 @@ import { acpxNote } from "./acpx-note";
 import { render } from "./render";
 import { cli } from "./cli";
 import { cliUpdate } from "./cli-update";
+import { channelCli } from "./channel-cli";
+import { pluginCli } from "./plugin-cli";
 
-export const en: Messages = { common, session, nativeSession, recovery, shortcut, workspace, agent, later, scheduledRender, orchestration, coordinatorPrompt, workerPrompt, config, permission, help, hints, router, acpxNote, render, cli, cliUpdate };
+export const en: Messages = { common, session, nativeSession, recovery, shortcut, workspace, agent, later, scheduledRender, orchestration, coordinatorPrompt, workerPrompt, config, permission, help, hints, router, acpxNote, render, cli, cliUpdate, channelCli, pluginCli };

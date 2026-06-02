@@ -3,6 +3,8 @@
 // whether a plugin built for a given WeacpxPlugin API version and core
 // version range is compatible with the running xacpx.
 
+import { t } from "../i18n";
+
 export const WEACPX_PLUGIN_API_VERSION = 1 as const;
 export const WEACPX_PLUGIN_API_SUPPORTED_VERSIONS: readonly number[] = [1];
 
@@ -116,14 +118,11 @@ export function validatePluginCompatibility(
 
   const apiVersion = metadata.apiVersion;
   if (typeof apiVersion !== "number") {
-    throw new Error(`插件 ${packageName} 缺少必需字段 apiVersion`);
+    throw new Error(t().pluginCli.compatMissingApiVersion(packageName));
   }
   if (!WEACPX_PLUGIN_API_SUPPORTED_VERSIONS.includes(apiVersion)) {
     const supported = WEACPX_PLUGIN_API_SUPPORTED_VERSIONS.join(", ");
-    throw new Error(
-      `插件 ${packageName} 使用不支持的 apiVersion ${apiVersion}; supported: ${supported}; ` +
-      `请安装与当前 xacpx 兼容的插件版本 (install a compatible plugin)`,
-    );
+    throw new Error(t().pluginCli.compatUnsupportedApiVersion(packageName, apiVersion, supported));
   }
 
   if (!currentWeacpxVersion || currentWeacpxVersion === "unknown") {
@@ -138,20 +137,17 @@ export function validatePluginCompatibility(
   const minVersionField = metadata.minXacpxVersion !== undefined ? "minXacpxVersion" : "minWeacpxVersion";
   if (minVersion !== undefined) {
     if (typeof minVersion !== "string") {
-      throw new Error(`插件 ${packageName} 元数据非法：${minVersionField} 必须是字符串 (invalid plugin metadata)`);
+      throw new Error(t().pluginCli.compatInvalidMinVersion(packageName, minVersionField));
     }
     let satisfied: boolean;
     try {
       satisfied = compareSemver(normalizedCurrent, minVersion) >= 0;
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      throw new Error(`插件 ${packageName} 元数据非法：${minVersionField} (${detail}) (invalid plugin metadata)`);
+      throw new Error(t().pluginCli.compatInvalidMinVersionDetail(packageName, minVersionField, detail));
     }
     if (!satisfied) {
-      throw new Error(
-        `插件 ${packageName} requires xacpx >=${minVersion}; ` +
-        `current is ${currentWeacpxVersion}; upgrade xacpx`,
-      );
+      throw new Error(t().pluginCli.compatMinVersionNotSatisfied(packageName, minVersion, currentWeacpxVersion));
     }
   }
 
@@ -160,20 +156,17 @@ export function validatePluginCompatibility(
     metadata.compatibleXacpxVersions !== undefined ? "compatibleXacpxVersions" : "compatibleWeacpxVersions";
   if (compatibleVersions !== undefined) {
     if (typeof compatibleVersions !== "string") {
-      throw new Error(`插件 ${packageName} 元数据非法：${compatibleField} 必须是字符串 (invalid plugin metadata)`);
+      throw new Error(t().pluginCli.compatInvalidCompatibleVersions(packageName, compatibleField));
     }
     let satisfied: boolean;
     try {
       satisfied = isVersionSatisfied(normalizedCurrent, compatibleVersions);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      throw new Error(`插件 ${packageName} 元数据非法：${compatibleField} (${detail}) (invalid plugin metadata)`);
+      throw new Error(t().pluginCli.compatInvalidCompatibleVersionsDetail(packageName, compatibleField, detail));
     }
     if (!satisfied) {
-      throw new Error(
-        `插件 ${packageName} requires xacpx ${compatibleVersions}; ` +
-        `current is ${currentWeacpxVersion}; upgrade xacpx`,
-      );
+      throw new Error(t().pluginCli.compatCompatibleVersionsNotSatisfied(packageName, compatibleVersions, currentWeacpxVersion));
     }
   }
 }

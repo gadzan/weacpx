@@ -954,6 +954,145 @@ export interface CliUpdateMessages {
   versionUnknown: string;
 }
 
+export interface ChannelCliMessages {
+  // listChannels
+  noChannels: string;
+  channelListHeader: string;
+
+  // showChannel / showChannelAccount
+  channelNotFound: (type: string) => string;
+  channelHeader: (id: string) => string;
+  channelNoMultiAccount: (type: string) => string;
+  channelAccountNotFound: (type: string, accountId: string) => string;
+  channelAccountHeader: (id: string, accountId: string) => string;
+
+  // addChannel
+  missingRequiredFlags: (flags: string) => string;
+  channelAlreadyExistsSame: (type: string) => string;
+  channelAlreadyExistsDifferent: (type: string) => string;
+  channelAdded: (type: string) => string;
+
+  // removeChannel
+  cannotRemoveLastEnabled: string;
+  channelRemoved: (id: string) => string;
+
+  // setChannelEnabled
+  cannotDisableLastEnabled: string;
+  channelEnabledToggled: (id: string, enabled: boolean) => string;
+
+  // addChannelAccount
+  channelAccountAlreadyExists: (type: string, accountId: string) => string;
+  channelAccountAdded: (type: string, accountId: string) => string;
+  channelReEnabled: (type: string) => string;
+
+  // removeChannelAccount
+  channelAccountRemoveBlockedLast: (accountId: string, type: string) => string;
+  channelAccountRemovedWithChannel: (type: string, accountId: string) => string;
+  channelAccountRemoveBlockedAllDisabled: (type: string, accountId: string, remainingIds: string) => string;
+  channelAccountDefaultSwitched: (newDefault: string) => string;
+  channelAccountRemoved: (type: string, accountId: string) => string;
+
+  // setChannelAccountEnabled
+  channelAccountIncomplete: (accountId: string, issues: string) => string;
+  channelAccountCannotDisableLast: (type: string) => string;
+  channelAccountEnabledToggled: (type: string, accountId: string, enabled: boolean) => string;
+
+  // unknownChannelType
+  unknownChannelType: (type: string) => string;
+  supportedBuiltinChannels: (types: string) => string;
+
+  // maybeRestartAfterMutation
+  savedNoRestart: string;
+  savedDaemonIndeterminate: string;
+  savedDaemonRunning: string;
+  restartPrompt: string;
+  savedRestartPending: string;
+  savedDaemonStopped: string;
+
+  // runRestart
+  savedRestartFailed: (message: string) => string;
+  checkLog: (path: string) => string;
+  orRunLater: string;
+}
+
+export interface PluginCliMessages {
+  // listPlugins
+  noPlugins: string;
+  pluginListHeader: string;
+
+  // addPlugin
+  unrecognizedArgs: (args: string) => string;
+  pluginInstallFailed: (packageSpec: string, error: string) => string;
+  pluginValidateFailed: (recordedName: string, error: string) => string;
+  pluginInstalled: (recordedName: string) => string;
+  providesChannels: (channels: string) => string;
+
+  // removePlugin
+  pluginNotFound: (packageName: string) => string;
+  pluginUninstallFailed: (packageName: string, error: string) => string;
+  pluginRemoved: (packageName: string) => string;
+
+  // updatePlugins
+  pluginUpdateFailed: (name: string, error: string) => string;
+  pluginUpdateValidateFailed: (name: string, message: string) => string;
+  pluginRolledBack: (version: string) => string;
+  pluginRollbackFailed: (name: string, version: string, message: string) => string;
+  pluginRollbackUnavailable: (name: string) => string;
+  pluginUpdated: (name: string) => string;
+
+  // setPluginEnabled
+  pluginEnabledToggled: (packageName: string, enabled: boolean) => string;
+
+  // dependencyGuard
+  dependencyGuardBlocked: (ids: string) => string;
+  dependencyGuardBlockedUnknown: (pluginName: string, ids: string) => string;
+
+  // doctorPlugins
+  pluginDoctorOk: string;
+
+  // knownPlugins
+  noKnownPlugins: string;
+  knownPluginsHeader: string;
+  knownPluginsInstallLabel: string;
+  knownPluginsInstallCmd: string;
+
+  // resolveLocalPluginName
+  cannotResolveLocalPluginName: (installSpec: string) => string;
+
+  // maybeRestartAfterMutation
+  savedNoRestart: string;
+  savedDaemonIndeterminate: string;
+  savedDaemonRunning: string;
+  restartPrompt: string;
+  savedRestartPending: string;
+  savedDaemonStopped: string;
+
+  // runRestart
+  savedRestartFailed: (message: string) => string;
+  checkLog: (path: string) => string;
+  orRunLater: string;
+
+  // validateWeacpxPlugin (validate-plugin.ts)
+  pluginNoDefaultExport: (packageName: string) => string;
+  pluginNameMismatch: (packageName: string, name: string) => string;
+  pluginChannelsNotArray: (packageName: string) => string;
+  pluginIllegalChannelType: (packageName: string, type: string) => string;
+  pluginIllegalChannelTypeNoType: (packageName: string) => string;
+  pluginDuplicateChannelType: (packageName: string, type: string) => string;
+  pluginMissingFactory: (packageName: string, type: string) => string;
+  pluginInvalidCliProvider: (packageName: string, type: string) => string;
+
+  // validatePluginCompatibility (compatibility.ts)
+  compatMissingApiVersion: (packageName: string) => string;
+  compatUnsupportedApiVersion: (packageName: string, apiVersion: number, supported: string) => string;
+  compatInvalidMinVersion: (packageName: string, field: string) => string;
+  compatInvalidMinVersionDetail: (packageName: string, field: string, detail: string) => string;
+  compatMinVersionNotSatisfied: (packageName: string, minVersion: string, currentVersion: string) => string;
+  compatInvalidCompatibleVersions: (packageName: string, field: string) => string;
+  compatInvalidCompatibleVersionsDetail: (packageName: string, field: string, detail: string) => string;
+  compatCompatibleVersionsNotSatisfied: (packageName: string, requirement: string, currentVersion: string) => string;
+}
+
 export interface Messages {
   common: CommonMessages;
   session: SessionMessages;
@@ -976,4 +1115,6 @@ export interface Messages {
   render: RenderMessages;
   cli: CliMessages;
   cliUpdate: CliUpdateMessages;
+  channelCli: ChannelCliMessages;
+  pluginCli: PluginCliMessages;
 }

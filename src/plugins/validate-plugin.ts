@@ -3,6 +3,7 @@ import { readVersion } from "../version.js";
 import type { WeacpxPlugin } from "./types.js";
 import { WEACPX_PLUGIN_API_VERSION } from "./types.js";
 import { validatePluginCompatibility } from "./compatibility.js";
+import { t } from "../i18n";
 
 export interface ValidateWeacpxPluginOptions {
   /**
@@ -21,7 +22,7 @@ export function validateWeacpxPlugin(
 ): WeacpxPlugin {
   const plugin = isRecord(value) && "default" in value ? value.default : value;
   if (!isRecord(plugin)) {
-    throw new Error(`插件 ${packageName} 没有默认导出 xacpx plugin definition`);
+    throw new Error(t().pluginCli.pluginNoDefaultExport(packageName));
   }
 
   const currentWeacpxVersion = options.currentWeacpxVersion ?? readVersion();
@@ -37,10 +38,10 @@ export function validateWeacpxPlugin(
   );
 
   if ("name" in plugin && typeof plugin.name === "string" && plugin.name.trim() && plugin.name.trim() !== packageName) {
-    throw new Error(`插件 ${packageName} 声明的 name 与安装包名不一致：${plugin.name}`);
+    throw new Error(t().pluginCli.pluginNameMismatch(packageName, plugin.name));
   }
   if ("channels" in plugin && plugin.channels !== undefined && !Array.isArray(plugin.channels)) {
-    throw new Error(`插件 ${packageName} 的 channels 必须是数组`);
+    throw new Error(t().pluginCli.pluginChannelsNotArray(packageName));
   }
 
   const channels = Array.isArray(plugin.channels) ? plugin.channels : [];
@@ -48,19 +49,19 @@ export function validateWeacpxPlugin(
   for (const channel of channels) {
     if (!isRecord(channel) || typeof channel.type !== "string" || !channel.type.trim() || channel.type.includes(":")) {
       const type = isRecord(channel) && "type" in channel ? String(channel.type) : "";
-      throw new Error(type ? `插件 ${packageName} 注册了非法频道类型：${type}` : `插件 ${packageName} 注册了非法频道类型`);
+      throw new Error(type ? t().pluginCli.pluginIllegalChannelType(packageName, type) : t().pluginCli.pluginIllegalChannelTypeNoType(packageName));
     }
     const type = channel.type.trim();
     if (seenTypes.has(type)) {
-      throw new Error(`插件 ${packageName} 重复注册频道类型：${type}`);
+      throw new Error(t().pluginCli.pluginDuplicateChannelType(packageName, type));
     }
     seenTypes.add(type);
     if (typeof channel.factory !== "function") {
-      throw new Error(`插件 ${packageName} 的频道 ${type} 缺少 factory`);
+      throw new Error(t().pluginCli.pluginMissingFactory(packageName, type));
     }
     if ("cliProvider" in channel && channel.cliProvider !== undefined) {
       if (!isRecord(channel.cliProvider) || channel.cliProvider.type !== type) {
-        throw new Error(`插件 ${packageName} 的频道 ${type} cliProvider.type 必须等于频道 type`);
+        throw new Error(t().pluginCli.pluginInvalidCliProvider(packageName, type));
       }
     }
   }

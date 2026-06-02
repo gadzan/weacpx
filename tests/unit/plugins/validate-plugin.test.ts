@@ -1,6 +1,9 @@
-import { expect, test } from "bun:test";
+import { expect, test, beforeAll } from "bun:test";
 
 import { validateWeacpxPlugin } from "../../../src/plugins/validate-plugin";
+import { setLocale, t } from "../../../src/i18n";
+
+beforeAll(() => { setLocale("zh"); });
 
 test("validateWeacpxPlugin accepts a channel plugin", () => {
   const plugin = validateWeacpxPlugin({
@@ -16,13 +19,13 @@ test("validateWeacpxPlugin accepts a channel plugin", () => {
 });
 
 test("validateWeacpxPlugin rejects invalid plugin shapes", () => {
-  expect(() => validateWeacpxPlugin(null, "x", { currentWeacpxVersion: "0.3.3" })).toThrow("插件 x 没有默认导出 xacpx plugin definition");
+  expect(() => validateWeacpxPlugin(null, "x", { currentWeacpxVersion: "0.3.3" })).toThrow(t().pluginCli.pluginNoDefaultExport("x"));
   expect(() => validateWeacpxPlugin({ apiVersion: 2 }, "x", { currentWeacpxVersion: "0.3.3" })).toThrow(/apiVersion 2/);
   expect(() => validateWeacpxPlugin({}, "x", { currentWeacpxVersion: "0.3.3" })).toThrow(/apiVersion/);
-  expect(() => validateWeacpxPlugin({ apiVersion: 1, name: "other" }, "x", { currentWeacpxVersion: "0.3.3" })).toThrow("插件 x 声明的 name 与安装包名不一致：other");
-  expect(() => validateWeacpxPlugin({ apiVersion: 1, channels: [{}] }, "x", { currentWeacpxVersion: "0.3.3" })).toThrow("插件 x 注册了非法频道类型");
-  expect(() => validateWeacpxPlugin({ apiVersion: 1, channels: [{ type: "a:b", factory: () => ({ id: "a:b", start: async () => {} }) }] }, "x", { currentWeacpxVersion: "0.3.3" })).toThrow("插件 x 注册了非法频道类型：a:b");
-  expect(() => validateWeacpxPlugin({ apiVersion: 1, channels: [{ type: "demo" }] }, "x", { currentWeacpxVersion: "0.3.3" })).toThrow("插件 x 的频道 demo 缺少 factory");
+  expect(() => validateWeacpxPlugin({ apiVersion: 1, name: "other" }, "x", { currentWeacpxVersion: "0.3.3" })).toThrow(t().pluginCli.pluginNameMismatch("x", "other"));
+  expect(() => validateWeacpxPlugin({ apiVersion: 1, channels: [{}] }, "x", { currentWeacpxVersion: "0.3.3" })).toThrow(t().pluginCli.pluginIllegalChannelTypeNoType("x"));
+  expect(() => validateWeacpxPlugin({ apiVersion: 1, channels: [{ type: "a:b", factory: () => ({ id: "a:b", start: async () => {} }) }] }, "x", { currentWeacpxVersion: "0.3.3" })).toThrow(t().pluginCli.pluginIllegalChannelType("x", "a:b"));
+  expect(() => validateWeacpxPlugin({ apiVersion: 1, channels: [{ type: "demo" }] }, "x", { currentWeacpxVersion: "0.3.3" })).toThrow(t().pluginCli.pluginMissingFactory("x", "demo"));
 });
 
 test("validateWeacpxPlugin retains compatibility metadata on the normalized plugin", () => {

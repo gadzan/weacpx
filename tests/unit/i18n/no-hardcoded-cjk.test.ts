@@ -28,6 +28,10 @@ const MIGRATED_PREFIXES = [
   "src/formatting/render-text.ts",
   "src/cli.ts",
   "src/cli-update.ts",
+  "src/channels/cli/channel-cli.ts",
+  "src/plugins/plugin-cli.ts",
+  "src/plugins/validate-plugin.ts",
+  "src/plugins/compatibility.ts",
 ];
 
 // Match only Han (Chinese) characters. Using \p{Script=Han} (not a raw BMP range)
