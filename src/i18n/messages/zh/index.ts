@@ -13,5 +13,9 @@ import { coordinatorPrompt } from "./coordinator-prompt";
 import { workerPrompt } from "./worker-prompt";
 import { config } from "./config";
 import { permission } from "./permission";
+import { help } from "./help";
+import { hints } from "./hints";
+import { router } from "./router";
+import { acpxNote } from "./acpx-note";
 
-export const zh: Messages = { common, session, nativeSession, recovery, shortcut, workspace, agent, later, scheduledRender, orchestration, coordinatorPrompt, workerPrompt, config, permission };
+export const zh: Messages = { common, session, nativeSession, recovery, shortcut, workspace, agent, later, scheduledRender, orchestration, coordinatorPrompt, workerPrompt, config, permission, help, hints, router, acpxNote };

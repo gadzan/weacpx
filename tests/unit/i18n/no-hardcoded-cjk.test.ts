@@ -21,9 +21,17 @@ const MIGRATED_PREFIXES = [
   "src/orchestration/render-delegate-group-result.ts",
   "src/orchestration/build-coordinator-prompt.ts",
   "src/orchestration/worker-prompts.ts",
+  "src/commands/handlers/help-handler.ts",
+  "src/commands/command-hints.ts",
+  "src/commands/command-router.ts",
+  "src/commands/translate-acpx-note.ts",
 ];
 
-const CJK = /[㐀-鿿豈-﫿]/;
+// Match only Han (Chinese) characters. Using \p{Script=Han} (not a raw BMP range)
+// is important: above-BMP emoji like 📖🔍💻 are encoded as surrogate pairs whose
+// code units fall inside naive CJK BMP ranges and would false-positive. Emoji are
+// allowed in catalogs (incl. the English ones); only Han characters are flagged.
+const CJK = /\p{Script=Han}/u;
 
 function listTsFiles(dir: string, acc: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {

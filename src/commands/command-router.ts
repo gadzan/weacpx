@@ -579,14 +579,14 @@ export class CommandRouter {
       perfSpan?.mark("session.ready");
     } catch (err) {
       if (!(err instanceof MissingOptionalDepError)) throw err;
-      await reply?.(`📦 检测到缺失依赖 \`${err.package}\`，正在自动安装…`);
+      await reply?.(t().router.depMissing(err.package));
 
       const paths = await this.discoverPaths(err.package, err.parentPackagePath, {
         cwd: session.cwd,
       });
       const result = await this.autoInstall(err.package, paths, {
         verify: async () => {
-          await reply?.(`🔄 安装完成，正在验证会话启动…`);
+          await reply?.(t().router.depInstallVerifying);
           try {
             await attemptSession("ensure_session.verify");
             perfSpan?.mark("session.ready");
@@ -623,7 +623,7 @@ export class CommandRouter {
       const now = Date.now();
       if (now - lastMessageAt < HEARTBEAT_SUPPRESS_MS) return;
       const elapsed = Math.floor((now - startedAt) / 1000);
-      void reply(`⏳ \`${session.agent}\` 仍在准备中…（已等待 ${elapsed}s）`).catch(() => {});
+      void reply(t().router.agentHeartbeat(session.agent, elapsed)).catch(() => {});
       lastMessageAt = now;
     };
     const heartbeatTimer = reply
@@ -635,12 +635,12 @@ export class CommandRouter {
       const now = Date.now();
       if (typeof progress === "string") {
         if (progress === "spawn") {
-          void reply(`🚀 正在启动 \`${session.agent}\`…`).catch(() => {});
+          void reply(t().router.agentSpawning(session.agent)).catch(() => {});
           lastMessageAt = now;
         } else if (progress === "initializing") {
           if (now - lastMessageAt >= DEBOUNCE_MS) {
             const elapsed = Math.floor((now - startedAt) / 1000);
-            void reply(`🔧 \`${session.agent}\` 初始化中…（已等待 ${elapsed}s）`).catch(() => {});
+            void reply(t().router.agentInitializing(session.agent, elapsed)).catch(() => {});
             lastMessageAt = now;
           }
         }
@@ -651,7 +651,7 @@ export class CommandRouter {
       const translated = translateAcpxNote(progress.text);
       if (!translated) return;
       const elapsed = Math.floor((now - startedAt) / 1000);
-      void reply(`${translated}（已等待 ${elapsed}s）`).catch(() => {});
+      void reply(t().router.acpxNoteElapsed(translated, elapsed)).catch(() => {});
       lastMessageAt = now;
     };
 

@@ -265,7 +265,7 @@ test("ssn help alias renders native session guidance", async () => {
 
   const reply = await router.handle("wx:user", "/help ssn");
 
-  expect(reply.text).toContain("帮助主题：native");
+  expect(reply.text).toContain(t().help.topicHeader("native"));
   expect(reply.text).toContain("/ssn");
   expect(reply.text).toContain(t().session.nativeHelpCmdSsnDesc);
   expect(reply.text).toContain("docs/native-sessions.md");
@@ -625,8 +625,8 @@ test("ensureTransportSession retries once after auto-install succeeds", async ()
   const response = await router.handle("chat1", "/ss opencode --ws weacpx", reply);
   expect(response.text).toBeDefined();
   expect(calls).toBe(2);
-  expect(replies.some((t) => t.includes("检测到缺失依赖"))).toBe(true);
-  expect(replies.some((t) => t.includes("正在验证会话启动"))).toBe(true);
+  expect(replies.some((r) => r.includes(t().router.depMissing("opencode-windows-x64")))).toBe(true);
+  expect(replies.some((r) => r.includes(t().router.depInstallVerifying))).toBe(true);
 });
 
 test("renders AutoInstallFailedError when auto-install fails", async () => {

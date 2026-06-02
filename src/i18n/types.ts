@@ -764,6 +764,77 @@ export interface PermissionMessages {
   statusTitleAutoUpdated: string;
 }
 
+export interface HelpMessages {
+  // handleInvalidCommand — with dedicated topic
+  invalidCommandPrefix: string;
+
+  // handleInvalidCommand — fallback (no topic)
+  invalidCommandFallbackHeader: string;
+  invalidCommandFallbackFormat: string;
+  invalidCommandFallbackExample: string;
+
+  // renderHelpIndex — common entry list
+  indexCommonHeader: string;
+  indexEntryShortcut: string;
+  indexEntryNative: string;
+  indexEntryUse: string;
+  indexEntryStatus: string;
+  indexTopicsHeader: string;
+  indexViewTopicHeader: string;
+  indexViewTopicExample: string;
+
+  // renderHelpTopic — labels
+  topicHeader: (name: string) => string;
+  topicSummary: (summary: string) => string;
+  topicAliases: (aliases: string) => string;
+  topicCommandsHeader: string;
+  topicExamplesHeader: string;
+  topicNotesHeader: string;
+
+  // renderUnknownHelpTopic
+  unknownTopicHeader: (name: string) => string;
+  unknownTopicAvailableHeader: string;
+}
+
+export interface HintsMessages {
+  // listWeacpxCommandHints — /help description
+  helpDescription: string;
+}
+
+export interface RouterMessages {
+  // ensureTransportSession — auto-install progress
+  depMissing: (pkg: string) => string;
+  depInstallVerifying: string;
+
+  // createProgressHandler — heartbeat / spawn / initializing
+  agentHeartbeat: (agent: string, elapsed: number) => string;
+  agentSpawning: (agent: string) => string;
+  agentInitializing: (agent: string, elapsed: number) => string;
+
+  // createProgressHandler — acpx note with elapsed
+  acpxNoteElapsed: (note: string, elapsed: number) => string;
+}
+
+export interface AcpxNoteMessages {
+  // translateAcpxNote — built-in agent spawn
+  spawnBuiltIn: (name: string) => string;
+
+  // translateAcpxNote — generic agent spawn
+  spawnAgent: string;
+
+  // translateAcpxNote — downloading deps
+  downloading: string;
+
+  // translateAcpxNote — installing/extracting deps
+  installing: string;
+
+  // translateAcpxNote — initializing
+  initializing: string;
+
+  // translateAcpxNote — fallback raw line
+  fallback: (line: string) => string;
+}
+
 export interface Messages {
   common: CommonMessages;
   session: SessionMessages;
@@ -779,4 +850,8 @@ export interface Messages {
   workerPrompt: WorkerPromptMessages;
   config: ConfigMessages;
   permission: PermissionMessages;
+  help: HelpMessages;
+  hints: HintsMessages;
+  router: RouterMessages;
+  acpxNote: AcpxNoteMessages;
 }
