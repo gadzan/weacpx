@@ -121,6 +121,8 @@ The `/session attach` command creates only the logical session — the xacpx ali
 /ss attach <alias> -a <agent> --ws <workspace> --name <acpx-session-name>
 ```
 
+Here `-a <agent>` (short for `--agent`) selects the agent to bind, and `--name <acpx-session-name>` is the name of the existing `acpx` transport session.
+
 For example, if you created a session manually:
 
 ```bash
@@ -180,7 +182,7 @@ After registering, reference the workspace by name in chat commands:
 /ss codex --ws backend
 ```
 
-Names with spaces or special characters are automatically normalized to `[a-zA-Z0-9._-]+`. Pass `--raw` to preserve the original name, but note that you will need to quote it everywhere.
+Names with spaces or special characters are automatically normalized to use only letters, digits, dots, underscores, and hyphens. Pass `--raw` to preserve the original name, but note that you will need to quote it everywhere.
 
 ### Register agents
 
@@ -194,6 +196,8 @@ xacpx agent rm kimi
 ```
 
 ## Local dry run
+
+This section is for contributors working from the repository source; published-binary users can skip it.
 
 You can test the console without a WeChat account or any chat credentials using the built-in dry-run mode:
 
@@ -232,7 +236,7 @@ For the full command reference, see [Command Reference](/reference/commands). Fo
 
 ---
 
-### Local development (from source)
+## Local development (from source)
 
 If you are working from the repository source rather than the published package, use these commands instead of the installed `xacpx` binary:
 
