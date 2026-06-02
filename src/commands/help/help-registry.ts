@@ -12,7 +12,7 @@ import {
   statusHelp,
 } from "../handlers/session-handler";
 import { workspaceHelp } from "../handlers/workspace-handler";
-import { laterHelpMetadata } from "../handlers/later-handler";
+import { laterHelp } from "../handlers/later-handler";
 
 function buildHelpTopics(): HelpTopicMetadata[] {
   return [
@@ -27,7 +27,7 @@ function buildHelpTopics(): HelpTopicMetadata[] {
     replyModeHelp(),
     statusHelp(),
     cancelHelp(),
-    laterHelpMetadata,
+    laterHelp(),
   ];
 }
 

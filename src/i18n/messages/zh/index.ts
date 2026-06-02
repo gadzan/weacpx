@@ -6,5 +6,7 @@ import { recovery } from "./recovery";
 import { shortcut } from "./shortcut";
 import { workspace } from "./workspace";
 import { agent } from "./agent";
+import { later } from "./later";
+import { scheduledRender } from "./scheduled-render";
 
-export const zh: Messages = { common, session, nativeSession, recovery, shortcut, workspace, agent };
+export const zh: Messages = { common, session, nativeSession, recovery, shortcut, workspace, agent, later, scheduledRender };

@@ -64,6 +64,7 @@ import { handleWorkspaces, handleWorkspaceCreate, handleWorkspaceRemove } from "
 import { handleSessionShortcutCommand } from "./handlers/session-shortcut-handler";
 import { handleNativeSessionList, handleNativeSessionSelect } from "./handlers/native-session-handler";
 import { handleLaterHelp, handleLaterCreate, handleLaterList, handleLaterCancel } from "./handlers/later-handler";
+import { t } from "../i18n";
 import { renderSessionCreationError, renderSessionCreationVerificationError, renderTransportError, tryRecoverMissingSession } from "./handlers/session-recovery-handler";
 import { autoInstallOptionalDep as defaultAutoInstall } from "../recovery/auto-install-optional-dep";
 import { discoverParentPackagePaths as defaultDiscoverPaths } from "../recovery/discover-parent-package-paths";
@@ -290,13 +291,13 @@ export class CommandRouter {
         case "task.cancel":
           return await handleTaskCancel(this.createHandlerContext(), chatKey, command.taskId);
         case "later.help":
-          if (!this.scheduled) return { text: "定时任务服务未启用。" };
+          if (!this.scheduled) return { text: t().later.serviceNotEnabled };
           return handleLaterHelp();
         case "later.list":
-          if (!this.scheduled) return { text: "定时任务服务未启用。" };
+          if (!this.scheduled) return { text: t().later.serviceNotEnabled };
           return handleLaterList(this.scheduled);
         case "later.create": {
-          if (!this.scheduled) return { text: "定时任务服务未启用。" };
+          if (!this.scheduled) return { text: t().later.serviceNotEnabled };
           if (this.scheduledDelivery && !this.scheduledDelivery.supportsScheduledMessages(chatKey)) {
             return { text: renderLaterUnsupportedChannel() };
           }
@@ -317,7 +318,7 @@ export class CommandRouter {
           );
         }
         case "later.cancel":
-          if (!this.scheduled) return { text: "定时任务服务未启用。" };
+          if (!this.scheduled) return { text: t().later.serviceNotEnabled };
           return await handleLaterCancel(command.id, this.scheduled);
         case "prompt": {
           const sessionContext = this.createSessionHandlerContext(undefined, perfSpan);

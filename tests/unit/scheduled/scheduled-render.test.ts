@@ -1,7 +1,12 @@
-import { expect, test } from "bun:test";
+import { expect, test, beforeAll } from "bun:test";
 
 import { renderLaterHelp, renderLaterList, renderTaskCreated } from "../../../src/scheduled/scheduled-render";
 import type { ScheduledTaskRecord } from "../../../src/scheduled/scheduled-types";
+import { setLocale, t } from "../../../src/i18n";
+
+beforeAll(() => {
+  setLocale("zh");
+});
 
 const boundTask: ScheduledTaskRecord = {
   id: "k8f2",
@@ -38,22 +43,22 @@ const legacyTask: ScheduledTaskRecord = {
 };
 
 test("renders help", () => {
-  expect(renderLaterHelp()).toContain("/lt in 2h 检查 CI");
+  expect(renderLaterHelp()).toContain(t().scheduledRender.helpCreateEx1);
 });
 
 test("renders bound + legacy task as 会话：<alias>", () => {
-  expect(renderTaskCreated(boundTask, "backend-codex")).toContain("会话：backend-codex");
-  expect(renderTaskCreated(legacyTask, "backend-codex")).toContain("会话：backend-codex");
+  expect(renderTaskCreated(boundTask, "backend-codex")).toContain(t().scheduledRender.boundSession("backend-codex"));
+  expect(renderTaskCreated(legacyTask, "backend-codex")).toContain(t().scheduledRender.boundSession("backend-codex"));
 });
 
-test("renders temp task as 临时会话（workspace · agent）", () => {
+test("renders temp task as temp session label", () => {
   const text = renderTaskCreated(tempTask, "backend-codex");
-  expect(text).toContain("临时会话（backend · codex）");
-  expect(text).not.toContain("会话：backend-codex");
+  expect(text).toContain(t().scheduledRender.tempSession("backend", "codex"));
+  expect(text).not.toContain(t().scheduledRender.boundSession("backend-codex"));
 });
 
 test("list renders each task by its mode", () => {
   const text = renderLaterList([boundTask, tempTask], (alias) => (alias === "internal" ? "backend-codex" : alias));
-  expect(text).toContain("会话：backend-codex");
-  expect(text).toContain("临时会话（backend · codex）");
+  expect(text).toContain(t().scheduledRender.boundSession("backend-codex"));
+  expect(text).toContain(t().scheduledRender.tempSession("backend", "codex"));
 });

@@ -346,6 +346,118 @@ export interface AgentMessages {
   helpCmdRmDesc: string;
 }
 
+export interface LaterMessages {
+  // command-router.ts — scheduled service not enabled
+  serviceNotEnabled: string;
+
+  // handleLaterCreate — flags mutually exclusive
+  bindAndTempMutuallyExclusive: string;
+
+  // handleLaterCreate — no current session
+  noSession: string;
+  noSessionHint: string;
+  noSessionExampleNew: string;
+  noSessionExampleUse: string;
+
+  // handleLaterCreate — slash-prefixed message rejected
+  slashMessageRejected: string;
+  slashMessageHint: string;
+  slashMessageExample: string;
+
+  // handleLaterCancel — success
+  cancelSuccess: (id: string) => string;
+
+  // handleLaterCancel — not found
+  cancelNotFound: (id: string) => string;
+  cancelNotFoundHint: string;
+
+  // renderTimeParseError
+  missingMessage: string;
+  tooSoon: string;
+  outOfRange: string;
+  pastTodayTime: (value: string) => string;
+  unrecognizedTime: string;
+  unrecognizedTimeFormats: string;
+  unrecognizedTimeExample1: string;
+  unrecognizedTimeExample2: string;
+  unrecognizedTimeExample3: string;
+  unrecognizedTimeExample4: string;
+
+  // laterHelp metadata
+  helpSummary: string;
+  helpCmdCreate: string;
+  helpCmdCreateDesc: string;
+  helpCmdBind: string;
+  helpCmdBindDesc: string;
+  helpCmdTemp: string;
+  helpCmdTempDesc: string;
+  helpCmdList: string;
+  helpCmdListDesc: string;
+  helpCmdCancel: string;
+  helpCmdCancelDesc: string;
+  helpExample1: string;
+  helpExample2: string;
+  helpExample3: string;
+  helpExample4: string;
+  helpExample5: string;
+  helpNote1: string;
+  helpNote2: string;
+  helpNote3: string;
+  helpNote4: string;
+  helpNote5: string;
+  helpNote6: string;
+  helpNote7: string;
+}
+
+export interface ScheduledRenderMessages {
+  // sessionLabel
+  tempSession: (workspace: string, agent: string) => string;
+  boundSession: (displaySession: string) => string;
+
+  // renderLaterHelp
+  helpUsage: string;
+  helpCreate: string;
+  helpCreateEx1: string;
+  helpCreateEx2: string;
+  helpCreateEx3: string;
+  helpCreateEx4: string;
+  helpView: string;
+  helpViewCmd: string;
+  helpCancel: string;
+  helpCancelCmd: string;
+  helpNotes: string;
+  helpNote1: string;
+  helpNote2: string;
+  helpNote3: string;
+  helpNote4: string;
+  helpNote5: string;
+  helpNote6: string;
+  helpNote7: string;
+
+  // renderLaterUnsupportedChannel
+  unsupportedChannel: string;
+  unsupportedChannelReason: string;
+  unsupportedChannelHint: string;
+
+  // renderTaskCreated
+  taskCreated: (id: string) => string;
+  taskExecuteAt: (datetime: string) => string;
+  taskContent: (preview: string) => string;
+
+  // renderLaterList
+  listEmpty: string;
+  listHeader: string;
+
+  // formatLocalDateTime — weekdays
+  weekdaySun: string;
+  weekdayMon: string;
+  weekdayTue: string;
+  weekdayWed: string;
+  weekdayThu: string;
+  weekdayFri: string;
+  weekdaySat: string;
+}
+
 export interface Messages {
   common: CommonMessages;
   session: SessionMessages;
@@ -354,4 +466,6 @@ export interface Messages {
   shortcut: ShortcutMessages;
   workspace: WorkspaceMessages;
   agent: AgentMessages;
+  later: LaterMessages;
+  scheduledRender: ScheduledRenderMessages;
 }
