@@ -186,7 +186,6 @@ Currently supported paths:
 - `transport.sessionInitTimeoutMs`
 - `transport.permissionMode`
 - `transport.nonInteractivePermissions`
-- `transport.permissionPolicy`
 - `logging.level`
 - `logging.maxSizeBytes`
 - `logging.maxFiles`
