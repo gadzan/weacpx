@@ -5,11 +5,13 @@ import type {
   PermissionMode,
   ReplyMode,
 } from "../../config/types";
+import { isLocale } from "../../i18n/resolve-locale";
 import type { HelpTopicMetadata } from "../help/help-types";
 import type { CommandRouterContext, RouterResponse } from "../router-types";
 import { cloneAppConfig } from "../config-clone";
 
 const SUPPORTED_CONFIG_PATHS = [
+  "language",
   "transport.type",
   "transport.command",
   "transport.sessionInitTimeoutMs",
@@ -92,6 +94,11 @@ function applySupportedConfigUpdate(
   rawValue: string,
 ): { renderedValue: string } | { error: string } {
   switch (path) {
+    case "language": {
+      if (!isLocale(rawValue)) return { error: "language only supports: en, zh" };
+      config.language = rawValue;
+      return { renderedValue: rawValue };
+    }
     case "transport.type": {
       const parsed = parseEnum(rawValue, ["acpx-cli", "acpx-bridge"]);
       if (!parsed) return { error: "transport.type 只支持：acpx-cli、acpx-bridge" };

@@ -522,6 +522,7 @@ export class CommandRouter {
       allowedAgentRequestTargets: [...updated.orchestration.allowedAgentRequestTargets],
       allowedAgentRequestRoles: [...updated.orchestration.allowedAgentRequestRoles],
     };
+    this.config.language = updated.language;
   }
 
   private async refreshConfigFromStore(): Promise<void> {

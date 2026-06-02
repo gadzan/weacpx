@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { loadConfig } from "../../../src/config/load-config";
+import { loadConfig, parseConfig } from "../../../src/config/load-config";
 
 test("loads a valid config file", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
@@ -1045,4 +1045,24 @@ test("orchestration.maxParallelTasksPerAgent rejects non-positive / non-finite v
 
 test("orchestration.maxParallelTasksPerAgent floors a positive float to an integer", async () => {
   expect((await loadConfigWithMaxParallelTasksPerAgent(2.5)).orchestration.maxParallelTasksPerAgent).toBe(2);
+});
+
+test("parses a valid language field", () => {
+  const cfg = parseConfig({
+    transport: { type: "acpx-cli", command: "acpx" },
+    agents: { codex: { driver: "codex" } },
+    workspaces: { backend: { cwd: "/tmp/backend" } },
+    language: "zh",
+  });
+  expect(cfg.language).toBe("zh");
+});
+
+test("drops an invalid language field", () => {
+  const cfg = parseConfig({
+    transport: { type: "acpx-cli", command: "acpx" },
+    agents: { codex: { driver: "codex" } },
+    workspaces: { backend: { cwd: "/tmp/backend" } },
+    language: "fr",
+  });
+  expect(cfg.language).toBeUndefined();
 });

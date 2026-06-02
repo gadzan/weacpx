@@ -696,3 +696,27 @@ test("rolls back /config set transport.permissionMode when live transport update
     nonInteractivePermissions: "deny",
   });
 });
+
+test("sets language to a valid locale via /config set language", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle("wx:user", "/config set language zh");
+
+  expect(reply.text).toBe("配置已更新：language = zh");
+  expect(config.language).toBe("zh");
+});
+
+test("rejects an unsupported locale via /config set language", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle("wx:user", "/config set language fr");
+
+  expect(reply.text).toBe("language only supports: en, zh");
+  expect(config.language).toBeUndefined();
+});

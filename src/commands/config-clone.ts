@@ -22,5 +22,6 @@ export function cloneAppConfig(config: AppConfig): AppConfig {
       allowedAgentRequestTargets: [...config.orchestration.allowedAgentRequestTargets],
       allowedAgentRequestRoles: [...config.orchestration.allowedAgentRequestRoles],
     },
+    ...(config.language ? { language: config.language } : {}),
   };
 }

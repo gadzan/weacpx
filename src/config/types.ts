@@ -1,3 +1,5 @@
+import type { Locale } from "../i18n/resolve-locale";
+
 export type PermissionMode = "approve-all" | "approve-reads" | "deny-all";
 export type NonInteractivePermissions = "deny" | "fail";
 export type ReplyMode = "stream" | "final" | "verbose";
@@ -96,4 +98,5 @@ export interface AppConfig {
   workspaces: Record<string, WorkspaceConfig>;
   orchestration: OrchestrationConfig;
   later?: LaterConfig;
+  language?: Locale;
 }
