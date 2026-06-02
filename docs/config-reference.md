@@ -1,10 +1,10 @@
-# xacpx 配置参考
+# xacpx Configuration Reference
 
-`~/.xacpx/config.json` 是 xacpx 的主配置文件。
+`~/.xacpx/config.json` is xacpx's main configuration file.
 
-如果你想管理微信/飞书消息频道，请看 [`docs/channel-management.md`](./channel-management.md)。如果你想在聊天里直接修改一部分配置，而不是手改 JSON，请看 [`docs/config-command.md`](./config-command.md)。
+If you want to manage WeChat/Feishu message channels, see [`docs/channel-management.md`](./channel-management.md). If you want to modify part of the configuration directly from chat instead of hand-editing JSON, see [`docs/config-command.md`](./config-command.md).
 
-## 完整示例
+## Full Example
 
 ```json
 {
@@ -66,69 +66,69 @@
 
 ## `transport`
 
-与 acpx 后端的通信方式。
+How xacpx communicates with the acpx backend.
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Description |
 |------|------|------|------|
-| `type` | `"acpx-cli"` \| `"acpx-bridge"` | 是 | 通信方式。详见下方说明 |
-| `command` | `string` | 否 | 显式指定 acpx 二进制路径。不填则按优先级自动查找 |
-| `sessionInitTimeoutMs` | `number` | 否 | session 初始化超时时间（毫秒），默认 `120000`（2分钟） |
-| `permissionMode` | `"approve-all"` \| `"approve-reads"` \| `"deny-all"` | 否 | 权限模式，默认 `"approve-all"` |
-| `nonInteractivePermissions` | `"deny"` \| `"fail"` | 否 | 非交互场景权限策略，默认 `"deny"` |
-| `permissionPolicy` | `string` | 否 | acpx permission policy 文件路径（透传为 `acpx --permission-policy <value>`）；不填则不启用 |
-| `queueOwnerTtlSeconds` | `number` | 否 | acpx queue owner 空闲存活时长（秒），透传为 prompt 命令的 `acpx --ttl <value>`。默认 `1800`（30 分钟）；`0` = 永久存活。详见下方“减少 agent 冷启动”说明 |
+| `type` | `"acpx-cli"` \| `"acpx-bridge"` | Yes | Communication method. See notes below |
+| `command` | `string` | No | Explicitly specify the acpx binary path. When omitted, it is looked up automatically by priority |
+| `sessionInitTimeoutMs` | `number` | No | Session initialization timeout (milliseconds), defaults to `120000` (2 minutes) |
+| `permissionMode` | `"approve-all"` \| `"approve-reads"` \| `"deny-all"` | No | Permission mode, defaults to `"approve-all"` |
+| `nonInteractivePermissions` | `"deny"` \| `"fail"` | No | Permission policy for non-interactive scenarios, defaults to `"deny"` |
+| `permissionPolicy` | `string` | No | Path to the acpx permission policy file (passed through as `acpx --permission-policy <value>`); not enabled when omitted |
+| `queueOwnerTtlSeconds` | `number` | No | acpx queue owner idle time-to-live (seconds), passed through to the prompt command as `acpx --ttl <value>`. Defaults to `1800` (30 minutes); `0` = live forever. See the "Reducing agent cold starts" notes below |
 
-### `type` 可选值
+### `type` Options
 
-#### `"acpx-cli"`（默认）
+#### `"acpx-cli"` (default)
 
-直接在当前进程里 spawn acpx 子进程，每次操作（prompt/cancel/ensureSession）都启动一个新进程，执行完退出。内部使用 `node-pty` 分配 PTY。
+Spawns the acpx child process directly in the current process. Each operation (prompt/cancel/ensureSession) starts a new process that exits after completion. Internally uses `node-pty` to allocate a PTY.
 
-适合：本地开发、调试场景。
+Suitable for: local development and debugging scenarios.
 
 #### `"acpx-bridge"`
 
-启动一个独立的 bridge 子进程（`bridge-main.ts`），acpx 在里面常驻运行。所有操作通过 stdin/stdout JSON 协议以 RPC 方式发送，acpx 进程不会每次命令都重启。
+Starts a separate bridge child process (`bridge-main.ts`), inside which acpx runs persistently. All operations are sent via the stdin/stdout JSON protocol as RPCs, so the acpx process is not restarted for every command.
 
-适合：生产环境、更稳定的长时间运行。
+Suitable for: production environments, more stable long-running operation.
 
-### `command` 解析优先级
+### `command` Resolution Priority
 
-当 `transport.command` 未指定时，按以下顺序查找 acpx：
+When `transport.command` is not specified, acpx is looked up in the following order:
 
-1. 当前项目内安装的 `acpx`（`node_modules/.bin/acpx`）
-2. Shell `PATH` 中的 `acpx`
+1. `acpx` installed inside the current project (`node_modules/.bin/acpx`)
+2. `acpx` in the shell `PATH`
 
-显式指定 `command` 会覆盖上述行为。
+Explicitly specifying `command` overrides the above behavior.
 
-### 减少 agent 冷启动（`queueOwnerTtlSeconds`）
+### Reducing agent cold starts (`queueOwnerTtlSeconds`)
 
-acpx 在收到 prompt 时会拉起一个 **queue owner** 后台进程，它持有真正的 ACP agent（codex/claude 等 adapter）和模型上下文。xacpx 每条消息 spawn 的 `acpx prompt` 只是轻量前端，会通过 Unix socket 连到这个 queue owner——只要 owner 还活着，后续消息就**跳过 agent 冷启动**（adapter boot + `session/new`/`load`，通常数秒到数十秒）。
+When acpx receives a prompt, it spins up a **queue owner** background process that holds the actual ACP agent (codex/claude and other adapters) and the model context. The `acpx prompt` that xacpx spawns for each message is just a lightweight frontend that connects to this queue owner over a Unix socket — as long as the owner is still alive, subsequent messages **skip the agent cold start** (adapter boot + `session/new`/`load`, usually a few to tens of seconds).
 
-queue owner 的空闲存活时长由 acpx 的 `--ttl` 决定（acpx 自身默认 300 秒）。WeChat 对话天然有几分钟停顿，300 秒一过下一条消息就要冷启动。xacpx 默认把它设为 **1800 秒（30 分钟）**，覆盖绝大多数对话停顿；真正空闲后 agent 在 30 分钟内自动回收，daemon 停止后最多残留 30 分钟，自愈、不泄漏。
+The queue owner's idle time-to-live is determined by acpx's `--ttl` (acpx's own default is 300 seconds). WeChat conversations naturally have pauses of a few minutes, and once 300 seconds elapse the next message has to cold start. xacpx defaults it to **1800 seconds (30 minutes)**, covering the vast majority of conversation pauses; once truly idle, the agent is automatically reclaimed within 30 minutes, and after the daemon stops it lingers for at most 30 minutes — self-healing and leak-free.
 
-- 取值更大（如 `3600`）→ 更暖，但运行期残留窗口更长。
-- `0` → 永久存活，后续消息全程零冷启动；运行期每个 session 常驻一个 agent 进程，资源占用最高。
-- **daemon stop 时的清理**：xacpx 停止时会枚举自己的会话（普通用户会话 + orchestration worker 会话）并终止对应的 queue owner 进程（只杀进程、不 close acpx session，下次启动正常冷恢复）。因此即便 `ttl=0`，停止后也不会残留 owner。这是 best-effort：若清理失败或超时，owner 会按各自 TTL 自然过期（`ttl=0` 的则需手动清理），不影响停止流程。
-- 普通会话：透传为 `acpx prompt --ttl <value>`，由该 prompt 拉起的 queue owner 继承此 TTL。
-- orchestration coordinator 会话（设置了 `mcpCoordinatorSession`）：xacpx 会在 prompt 前预启 queue owner，该 owner 也按此 TTL 启动（内部转为毫秒），因此同样享受 warm 窗口。
-- `sessions new/ensure`、`cancel` 等命令本身不带 `--ttl`，不受影响。
-- 修改该值需重启 daemon 生效。
+- Larger values (e.g. `3600`) → warmer, but a longer lingering window during runtime.
+- `0` → live forever, zero cold starts for all subsequent messages; during runtime each session keeps a resident agent process, with the highest resource usage.
+- **Cleanup on daemon stop**: when xacpx stops, it enumerates its own sessions (regular user sessions + orchestration worker sessions) and terminates the corresponding queue owner processes (it only kills the processes, it does not close the acpx session, so the next startup recovers normally from cold). Therefore, even with `ttl=0`, no owner lingers after stopping. This is best-effort: if cleanup fails or times out, owners expire naturally according to their respective TTLs (those with `ttl=0` need manual cleanup), without affecting the stop flow.
+- Regular sessions: passed through as `acpx prompt --ttl <value>`; the queue owner spun up by that prompt inherits this TTL.
+- Orchestration coordinator sessions (with `mcpCoordinatorSession` set): xacpx pre-starts the queue owner before the prompt, and that owner is also started with this TTL (converted to milliseconds internally), so it likewise enjoys the warm window.
+- Commands like `sessions new/ensure` and `cancel` themselves do not carry `--ttl` and are not affected.
+- Changing this value requires restarting the daemon to take effect.
 
-### orchestration MCP 自动注入
+### Automatic orchestration MCP injection
 
-weacpx 会在向 acpx session 发送普通 prompt 前，临时启动 acpx 的 queue owner，并通过 `ACPX_QUEUE_OWNER_PAYLOAD` 注入名为 `weacpx` 的 stdio MCP server（工具前缀因此为 `mcp__weacpx__*`，例如 `mcp__weacpx__delegate_request`、`mcp__weacpx__scheduled_create`）。这样被 acpx 管理的 agent 可以看到 `delegate_request`、`scheduled_create` 等编排与定时任务工具。
+Before sending a regular prompt to an acpx session, weacpx temporarily starts acpx's queue owner and, via `ACPX_QUEUE_OWNER_PAYLOAD`, injects a stdio MCP server named `weacpx` (the tool prefix is therefore `mcp__weacpx__*`, e.g. `mcp__weacpx__delegate_request`, `mcp__weacpx__scheduled_create`). This way the agent managed by acpx can see orchestration and scheduled-task tools such as `delegate_request` and `scheduled_create`.
 
-这个兼容路径不会写入工作目录的 `.acpxrc.json`，也不会修改 `~/.acpx/config.json` 或替换 acpx home，因此不会影响 acpx 既有 sessions、流日志和 `index.json` 映射关系。
+This compatibility path does not write to the working directory's `.acpxrc.json`, nor does it modify `~/.acpx/config.json` or replace the acpx home, so it does not affect acpx's existing sessions, stream logs, or `index.json` mapping relationships.
 
-默认注入命令按以下顺序解析：
+The default injection command is resolved in the following order:
 
 1. `WEACPX_CLI_COMMAND`
-2. `WEACPX_DAEMON_ARG0` + 当前 Node 可执行文件
-3. 当前进程入口 `process.argv[1]` + 当前 Node 可执行文件
+2. `WEACPX_DAEMON_ARG0` + the current Node executable
+3. The current process entry `process.argv[1]` + the current Node executable
 4. `xacpx`
 
-如果 xacpx 不是通过标准 CLI/daemon 启动，或路径需要特殊包装，可以显式设置 `WEACPX_CLI_COMMAND`，例如：
+If xacpx is not launched through the standard CLI/daemon, or the path needs special wrapping, you can explicitly set `WEACPX_CLI_COMMAND`, for example:
 
 ```bash
 WEACPX_CLI_COMMAND="node /path/to/xacpx/dist/cli.js" xacpx run
@@ -163,62 +163,62 @@ rejects the prompt with the first observed error.
 
 ## `logging`
 
-运行日志配置。普通应用日志写入 `~/.xacpx/runtime/app.log`。
+Runtime logging configuration. Regular application logs are written to `~/.xacpx/runtime/app.log`.
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Description |
 |------|------|------|------|
-| `level` | `"error"` \| `"info"` \| `"debug"` | 否 | 应用日志级别，默认 `"info"` |
-| `maxSizeBytes` | `number` | 否 | 单个 app.log 文件大小上限，默认 `2097152` |
-| `maxFiles` | `number` | 否 | 保留的滚动 app.log 文件数，默认 `5`；`0` 表示超过大小后直接删除当前文件 |
-| `retentionDays` | `number` | 否 | 过期滚动 app.log 清理天数，默认 `7` |
-| `perf` | `object` | 否 | 性能 debug 日志配置，见下方 |
+| `level` | `"error"` \| `"info"` \| `"debug"` | No | Application log level, defaults to `"info"` |
+| `maxSizeBytes` | `number` | No | Maximum size of a single app.log file, defaults to `2097152` |
+| `maxFiles` | `number` | No | Number of rotated app.log files to retain, defaults to `5`; `0` means the current file is deleted directly once it exceeds the size |
+| `retentionDays` | `number` | No | Number of days after which expired rotated app.log files are cleaned up, defaults to `7` |
+| `perf` | `object` | No | Performance debug logging configuration, see below |
 
 ### `logging.perf`
 
-开启后，xacpx 会把 Weixin 入站消息从收到到最终出站完成（文本 final；如有媒体则包含媒体发送完成）的关键耗时写入独立文件 `~/.xacpx/runtime/perf.log`。每个 checkpoint 一行，最后有 `turn.done` 汇总行。
+When enabled, xacpx writes the key latencies of a Weixin inbound message from receipt to final outbound completion (the text final; including media send completion if media is present) into a separate file `~/.xacpx/runtime/perf.log`. There is one line per checkpoint, with a final `turn.done` summary line.
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Description |
 |------|------|------|------|
-| `enabled` | `boolean` | 否 | 是否启用 perf debug 日志，默认 `false` |
-| `maxSizeBytes` | `number` | 否 | 单个 perf.log 文件大小上限，默认 `5242880` |
-| `maxFiles` | `number` | 否 | 保留的滚动 perf.log 文件数，默认 `3`；`0` 表示超过大小后直接删除当前文件 |
-| `retentionDays` | `number` | 否 | 过期滚动 perf.log 清理天数，默认 `7` |
+| `enabled` | `boolean` | No | Whether to enable perf debug logging, defaults to `false` |
+| `maxSizeBytes` | `number` | No | Maximum size of a single perf.log file, defaults to `5242880` |
+| `maxFiles` | `number` | No | Number of rotated perf.log files to retain, defaults to `3`; `0` means the current file is deleted directly once it exceeds the size |
+| `retentionDays` | `number` | No | Number of days after which expired rotated perf.log files are cleaned up, defaults to `7` |
 
-注意：`logging.perf.enabled` 在 `buildApp()` 时绑定，修改该配置后需要重启 daemon 才会生效。当前只有内置 Weixin channel 接入 perf trace；其它插件 channel 即使开启该开关也不会写入自己的 turn。Weixin 出站媒体会记录 `reply.media_sent` / `reply.media_done`，耗时包含本地安全校验、上传到 Weixin CDN 以及发送媒体消息的总耗时；不细分上传与发送阶段。
+Note: `logging.perf.enabled` is bound at `buildApp()` time; changing this configuration requires restarting the daemon to take effect. Currently only the built-in Weixin channel is wired into perf tracing; other plugin channels do not write their own turns even with this switch enabled. Weixin outbound media records `reply.media_sent` / `reply.media_done`, and the latency includes the total time for local safety checks, uploading to the Weixin CDN, and sending the media message; it does not break down the upload and send phases separately.
 
 ---
 
 ## `channel`
 
-全局消息平台默认配置。
+Global default configuration for messaging platforms.
 
 ### `channel.replyMode`
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Description |
 |------|------|------|------|
-| `replyMode` | `"stream"` \| `"final"` \| `"verbose"` | 否 | 回复模式。默认 `"verbose"` |
+| `replyMode` | `"stream"` \| `"final"` \| `"verbose"` | No | Reply mode. Defaults to `"verbose"` |
 
-说明：
+Notes:
 
-- `stream`：有中间文本分段时，优先流式发送
-- `final`：抑制中间文本分段，只在最后发送一次最终文本
-- `verbose`：在 stream 基础上额外发送工具调用等实时事件
-- 这个配置是**全局默认值**
-- 可以通过 `/replymode` 为**当前逻辑会话**设置覆盖值
-- `/replymode reset` 会清除当前会话覆盖，回退到 `channel.replyMode`
-- `final` 只影响文本是否实时发送，不改变 acpx transport 的输出生成方式
+- `stream`: when there are intermediate text segments, send them in streaming fashion preferentially
+- `final`: suppress intermediate text segments, sending the final text only once at the end
+- `verbose`: on top of stream, additionally send real-time events such as tool calls
+- This configuration is a **global default value**
+- You can use `/replymode` to set an override for the **current logical session**
+- `/replymode reset` clears the current session override, falling back to `channel.replyMode`
+- `final` only affects whether text is sent in real time; it does not change how the acpx transport generates output
 
-### 兼容旧配置
+### Backward Compatibility
 
-旧配置文件中的 `wechat.replyMode` 仍然可以正常使用，加载时会自动映射到 `channel.replyMode`。保存后会写入 `channel` 格式。
+The `wechat.replyMode` in old configuration files still works; it is automatically mapped to `channel.replyMode` on load. After saving, it is written in the `channel` format.
 
 ---
 
 ## `channels`
 
-多频道运行配置。定义要启动的消息频道列表。省略时根据 `channel.type`（旧单频道配置）自动生成。
+Multi-channel runtime configuration. Defines the list of message channels to start. When omitted, it is generated automatically based on `channel.type` (the old single-channel configuration).
 
-推荐通过频道 CLI 管理这一段配置：
+It is recommended to manage this section of configuration through the channel CLI:
 
 ```bash
 xacpx channel list
@@ -227,66 +227,66 @@ xacpx channel disable weixin
 xacpx restart
 ```
 
-完整操作说明见：[docs/channel-management.md](./channel-management.md)。
+See full operation instructions in: [docs/channel-management.md](./channel-management.md).
 
 ### `ChannelRuntimeConfig`
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Description |
 |------|------|------|------|
-| `id` | `string` | 是 | 频道唯一标识，必须与 `type` 相同（内置：`"weixin"`；插件：例如 `"feishu"`、`"yuanbao"`） |
-| `type` | `string` | 是 | 频道类型。内置频道类型只有 `"weixin"`。`"feishu"` 由 `@ganglion/xacpx-channel-feishu` 提供，`"yuanbao"` 由 `@ganglion/xacpx-channel-yuanbao` 提供；其它类型由已安装插件提供 |
-| `enabled` | `boolean` | 否 | 是否启用。默认 `true` |
-| `options` | `object` | 视频道而定 | 频道配置（飞书/元宝字段见下方） |
+| `id` | `string` | Yes | Unique channel identifier, must be the same as `type` (built-in: `"weixin"`; plugins: e.g. `"feishu"`, `"yuanbao"`) |
+| `type` | `string` | Yes | Channel type. The only built-in channel type is `"weixin"`. `"feishu"` is provided by `@ganglion/xacpx-channel-feishu`, `"yuanbao"` is provided by `@ganglion/xacpx-channel-yuanbao`; other types are provided by installed plugins |
+| `enabled` | `boolean` | No | Whether to enable. Defaults to `true` |
+| `options` | `object` | Depends on the channel | Channel configuration (see Feishu/Yuanbao fields below) |
 
-### 飞书频道配置（`options`）
+### Feishu Channel Configuration (`options`)
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Description |
 |------|------|------|------|
-| `options.appId` | `string` | 单 bot 时必填；多 bot 可省 | 飞书应用 App ID。顶层填一份等价于"单 bot 默认账号"；多 bot 时把每个 bot 的 `appId` 写在 `accounts.<id>.appId`，顶层可留空 |
-| `options.appSecret` | `string` | 单 bot 时必填；多 bot 可省 | 飞书应用 App Secret。规则同 `appId` |
-| `options.domain` | `"feishu"` \| `"lark"` | 否 | API 域名。默认 `"feishu"` |
-| `options.requireMention` | `boolean` | 否 | 群聊是否需要 @机器人。默认 `true` |
-| `options.textMessageFormat` | `"text"` | 否 | 发送格式。当前仅支持 `"text"` |
-| `options.dedupTtlMs` | `number` | 否 | 消息去重 TTL（毫秒）。默认 `43200000`（12 小时） |
-| `options.dedupMaxEntries` | `number` | 否 | 去重缓存最大条目。默认 `5000` |
-| `options.defaultAccount` | `string` | 否 | 多 bot 模式下的默认账号 id；省略时优先 `default`，否则取第一个 `accounts.<id>` |
-| `options.accounts` | `object` | 否 | 按 `accountId` 索引的多账号覆盖配置；每个子项可覆盖 `appId/appSecret/domain/requireMention/dmPolicy/groupPolicy/allowFrom/enabled/name`。chatKey 形如 `feishu:<accountId>:<chatId>`。详见 [docs/channel-management.md](./channel-management.md#飞书多-bot同一频道多个账号) |
-| `options.dmPolicy` | `"open"` \| `"allowlist"` \| `"disabled"` | 否 | 私聊准入策略，默认 `"open"`（保持旧行为，任何人发起私聊都接收）。`"allowlist"` 时只接受 `allowFrom` 列表中的发送者；`"disabled"` 时全部丢弃 |
-| `options.groupPolicy` | `"open"` \| `"allowlist"` \| `"disabled"` | 否 | 群聊准入策略，默认 `"open"`。语义同 `dmPolicy`，`requireMention` 仍然独立生效 |
-| `options.allowFrom` | `string[]` | 否 | 发送者 `open_id` 白名单；只在任一 policy 为 `"allowlist"` 时生效。包含 `"*"` 等价于"任何带 open_id 的发送者"。`allowlist` 模式下不能为空 |
-| `options.replyMode` | `"static"` \| `"streaming"` \| `"auto"` | 否 | 回复呈现方式。默认 `"auto"`(私聊走 streaming、群聊走 static);`"static"` 为多条独立文本消息;`"streaming"` 改为一张 CardKit v2 交互卡片在一条消息里原地更新(thinking → streaming → complete/aborted/error,带耗时 footer 实时跳动、自动 reasoning 折叠、verbose 模式下工具调用渲染为可折叠 **🔧 工具调用** 面板而非内联文本、markdown 图片 URL → image_key 解析、字符级流式更新、daemon 退出时自动把卡片驱动到"已停止"状态)。机器人需具有 `cardkit:card:write` + `im:message:send_as_bot` 权限;首次创建卡片失败时会自动回退到 static 并打印 `feishu.streaming.fallback` 日志(权限缺失还会一次性把授权链接发给用户)。也可在 `options.accounts.<id>.replyMode` 上做账号级覆盖 |
+| `options.appId` | `string` | Required for a single bot; optional for multiple bots | Feishu app App ID. Filling one at the top level is equivalent to "the default account for a single bot"; for multiple bots, write each bot's `appId` under `accounts.<id>.appId`, and the top level may be left empty |
+| `options.appSecret` | `string` | Required for a single bot; optional for multiple bots | Feishu app App Secret. Same rule as `appId` |
+| `options.domain` | `"feishu"` \| `"lark"` | No | API domain. Defaults to `"feishu"` |
+| `options.requireMention` | `boolean` | No | Whether group chats require @-mentioning the bot. Defaults to `true` |
+| `options.textMessageFormat` | `"text"` | No | Send format. Currently only `"text"` is supported |
+| `options.dedupTtlMs` | `number` | No | Message deduplication TTL (milliseconds). Defaults to `43200000` (12 hours) |
+| `options.dedupMaxEntries` | `number` | No | Maximum entries in the dedup cache. Defaults to `5000` |
+| `options.defaultAccount` | `string` | No | The default account id in multi-bot mode; when omitted, `default` is preferred, otherwise the first `accounts.<id>` is taken |
+| `options.accounts` | `object` | No | Multi-account override configuration indexed by `accountId`; each sub-item may override `appId/appSecret/domain/requireMention/dmPolicy/groupPolicy/allowFrom/enabled/name`. The chatKey looks like `feishu:<accountId>:<chatId>`. See [docs/channel-management.md](./channel-management.md#feishu-multi-bot-multiple-accounts-in-one-channel) |
+| `options.dmPolicy` | `"open"` \| `"allowlist"` \| `"disabled"` | No | Direct-message admission policy, defaults to `"open"` (preserves old behavior, accepting direct messages from anyone). With `"allowlist"`, only senders in the `allowFrom` list are accepted; with `"disabled"`, all are discarded |
+| `options.groupPolicy` | `"open"` \| `"allowlist"` \| `"disabled"` | No | Group-chat admission policy, defaults to `"open"`. Same semantics as `dmPolicy`; `requireMention` still applies independently |
+| `options.allowFrom` | `string[]` | No | Sender `open_id` allowlist; only effective when either policy is `"allowlist"`. Including `"*"` is equivalent to "any sender with an open_id". Cannot be empty in `allowlist` mode |
+| `options.replyMode` | `"static"` \| `"streaming"` \| `"auto"` | No | Reply presentation method. Defaults to `"auto"` (direct messages use streaming, group chats use static); `"static"` is multiple independent text messages; `"streaming"` switches to a single CardKit v2 interactive card updated in place within one message (thinking → streaming → complete/aborted/error, with a latency footer that ticks in real time, automatic reasoning collapsing, tool calls rendered in verbose mode as a collapsible **🔧 工具调用** panel rather than inline text, markdown image URL → image_key resolution, character-level streaming updates, and the card automatically driven to a "stopped" state when the daemon exits). The bot needs the `cardkit:card:write` + `im:message:send_as_bot` permissions; if card creation fails the first time, it automatically falls back to static and prints a `feishu.streaming.fallback` log (when permissions are missing, it also sends the authorization link to the user once). You can also override at the account level on `options.accounts.<id>.replyMode` |
 
-### 元宝频道配置（`options`，由 `@ganglion/xacpx-channel-yuanbao` 提供）
+### Yuanbao Channel Configuration (`options`, provided by `@ganglion/xacpx-channel-yuanbao`)
 
-元宝频道由插件 `@ganglion/xacpx-channel-yuanbao` 提供：插件内置元宝签名、WebSocket、消息收发、chatKey 路由、inbound → agent、去重、同会话串行和基础 outbound 策略。先 `xacpx plugin add @ganglion/xacpx-channel-yuanbao`，再添加频道；正常用户不需要配置 gateway module。
+The Yuanbao channel is provided by the plugin `@ganglion/xacpx-channel-yuanbao`: the plugin has built-in Yuanbao signing, WebSocket, message send/receive, chatKey routing, inbound → agent, deduplication, per-session serialization, and a basic outbound policy. First run `xacpx plugin add @ganglion/xacpx-channel-yuanbao`, then add the channel; normal users do not need to configure the gateway module.
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Description |
 |------|------|------|------|
-| `options.appKey` | `string` | 与 `appSecret` 成对必填 | 元宝机器人 App Key |
-| `options.appSecret` | `string` | 与 `appKey` 成对必填 | 元宝机器人 App Secret |
-| `options.token` | `string` | 否 | 静态 token；兼容 `appKey:appSecret` 形式，加载时会拆成 appKey/appSecret。真正的静态 auth token 需要同时配置 `botId` |
-| `options.gatewayModule` | `string` | 否 | 兼容旧配置/开发调试用的外部 gateway 覆盖；普通用户不要配置 |
-| `options.botId` | `string` | 否 | 机器人账号 ID，用于本地识别 @机器人 与过滤自消息；通常 sign-token 会返回并自动补齐 |
-| `options.apiDomain` | `string` | 否 | 元宝 API 域名，默认 `"bot.yuanbao.tencent.com"` |
-| `options.wsUrl` | `string` | 否 | 元宝 WebSocket 地址，默认 `"wss://bot-wss.yuanbao.tencent.com/wss/connection"` |
-| `options.requireMention` | `boolean` | 否 | 群聊是否需要 @机器人。默认 `true` |
-| `options.replyToMode` | `"off"` \| `"first"` \| `"all"` | 否 | 引用回复策略，默认 `"first"` |
-| `options.overflowPolicy` | `"stop"` \| `"split"` | 否 | 超长文本策略，默认 `"split"` |
-| `options.maxChars` | `number` | 否 | xacpx 出站文本拆分阈值，默认 `3000` |
-| `options.outboundQueueStrategy` | `"immediate"` \| `"merge-text"` | 否 | gateway 可用的预留字段；xacpx 当前不执行合并队列 |
-| `options.minChars` / `options.idleMs` | `number` | 否 | gateway 可用的预留字段；xacpx 当前不执行基于空闲时间的合并 |
-| `options.mediaMaxMb` | `number` | 否 | 媒体大小上限，默认 `20` |
-| `options.historyLimit` | `number` | 否 | gateway 可用的预留字段，默认 `100` |
-| `options.disableBlockStreaming` | `boolean` | 否 | 是否禁用块状流式回复，默认 `false` |
-| `options.fallbackReply` | `string` | 否 | agent 无文本返回时发送的兜底文案 |
-| `options.markdownHintEnabled` | `boolean` | 否 | gateway 可用的预留字段，默认 `true` |
-| `options.accounts` | `object` | 否 | 多账号覆盖配置；子项会继承顶层配置 |
+| `options.appKey` | `string` | Required together with `appSecret` | Yuanbao bot App Key |
+| `options.appSecret` | `string` | Required together with `appKey` | Yuanbao bot App Secret |
+| `options.token` | `string` | No | Static token; compatible with the `appKey:appSecret` form, which is split into appKey/appSecret on load. A real static auth token requires `botId` to be configured as well |
+| `options.gatewayModule` | `string` | No | External gateway override for backward compatibility / development debugging; normal users should not configure it |
+| `options.botId` | `string` | No | Bot account ID, used to locally recognize @-mentions and filter self-messages; usually sign-token returns it and it is filled in automatically |
+| `options.apiDomain` | `string` | No | Yuanbao API domain, defaults to `"bot.yuanbao.tencent.com"` |
+| `options.wsUrl` | `string` | No | Yuanbao WebSocket address, defaults to `"wss://bot-wss.yuanbao.tencent.com/wss/connection"` |
+| `options.requireMention` | `boolean` | No | Whether group chats require @-mentioning the bot. Defaults to `true` |
+| `options.replyToMode` | `"off"` \| `"first"` \| `"all"` | No | Quote-reply policy, defaults to `"first"` |
+| `options.overflowPolicy` | `"stop"` \| `"split"` | No | Overlong-text policy, defaults to `"split"` |
+| `options.maxChars` | `number` | No | xacpx outbound text splitting threshold, defaults to `3000` |
+| `options.outboundQueueStrategy` | `"immediate"` \| `"merge-text"` | No | Reserved field available to the gateway; xacpx currently does not perform queue merging |
+| `options.minChars` / `options.idleMs` | `number` | No | Reserved fields available to the gateway; xacpx currently does not perform idle-time-based merging |
+| `options.mediaMaxMb` | `number` | No | Media size limit, defaults to `20` |
+| `options.historyLimit` | `number` | No | Reserved field available to the gateway, defaults to `100` |
+| `options.disableBlockStreaming` | `boolean` | No | Whether to disable block-style streaming replies, defaults to `false` |
+| `options.fallbackReply` | `string` | No | Fallback text sent when the agent returns no text |
+| `options.markdownHintEnabled` | `boolean` | No | Reserved field available to the gateway, defaults to `true` |
+| `options.accounts` | `object` | No | Multi-account override configuration; sub-items inherit the top-level configuration |
 
-### 微信频道扩展配置（`openclaw.json`）
+### WeChat Channel Extended Configuration (`openclaw.json`)
 
-内置 weixin 频道的 `options` 当前为空对象；以下字段从单独的 `openclaw.json` 文件读取（路径默认 `~/.xacpx/state/openclaw.json`，可用环境变量 `OPENCLAW_CONFIG` 覆盖）。这是 xacpx 从 openclaw 沿用过来的扩展点，**与主 `~/.xacpx/config.json` 不是同一个文件**。
+The `options` of the built-in weixin channel is currently an empty object; the following fields are read from a separate `openclaw.json` file (the path defaults to `~/.xacpx/state/openclaw.json` and can be overridden with the environment variable `OPENCLAW_CONFIG`). This is an extension point xacpx carried over from openclaw, and **it is not the same file as the main `~/.xacpx/config.json`**.
 
-文件根形如：
+The file root looks like:
 ```json
 {
   "channels": {
@@ -304,15 +304,15 @@ xacpx restart
 }
 ```
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Description |
 |------|------|------|------|
-| `routeTag` | `string` \| `number` | 否 | 写入 `SKRouteTag` 请求头，由后端用于灰度/分流；账号级 `accounts.<id>.routeTag` 优先于顶层 |
-| `botAgent` | `string` | 否 | UA 风格客户端标识，写入 `base_info.bot_agent`。语法 `name/version[ (comment)]`，多 token 用空格分隔；超长（>256 字节）截断；非法 token 静默丢弃；空时回退到 `xacpx`。账号级 `accounts.<id>.botAgent` 优先于顶层 |
-| `accounts.<id>` | `object` | 否 | 按 weixin 账号 id 覆盖顶层字段；目前可覆盖 `routeTag` 和 `botAgent` |
+| `routeTag` | `string` \| `number` | No | Written into the `SKRouteTag` request header, used by the backend for gray release / traffic splitting; the account-level `accounts.<id>.routeTag` takes precedence over the top level |
+| `botAgent` | `string` | No | UA-style client identifier, written into `base_info.bot_agent`. Syntax `name/version[ (comment)]`, multiple tokens separated by spaces; truncated if overlong (>256 bytes); illegal tokens are silently dropped; falls back to `xacpx` when empty. The account-level `accounts.<id>.botAgent` takes precedence over the top level |
+| `accounts.<id>` | `object` | No | Override top-level fields by weixin account id; currently `routeTag` and `botAgent` can be overridden |
 
-### 示例
+### Examples
 
-仅微信：
+WeChat only:
 
 ```json
 {
@@ -322,7 +322,7 @@ xacpx restart
 }
 ```
 
-微信 + 飞书：
+WeChat + Feishu:
 
 ```json
 {
@@ -342,7 +342,7 @@ xacpx restart
 }
 ```
 
-元宝（需先安装 `@ganglion/xacpx-channel-yuanbao`）：
+Yuanbao (requires installing `@ganglion/xacpx-channel-yuanbao` first):
 
 ```json
 {
@@ -364,79 +364,79 @@ xacpx restart
 }
 ```
 
-### 兼容旧配置
+### Backward Compatibility
 
-旧配置文件中的 `channel.type` 仍然可以正常使用，加载时会自动生成单频道的 `channels[]`。新的多频道配置推荐使用 `xacpx channel ...` 管理。
+The `channel.type` in old configuration files still works; a single-channel `channels[]` is generated automatically on load. The new multi-channel configuration is recommended to be managed with `xacpx channel ...`.
 
-旧版飞书配置中的 `feishu` 对象仍作为 legacy alias 兼容读取；新配置请统一写入 `options`。
+The `feishu` object in old Feishu configurations is still read for backward compatibility as a legacy alias; new configurations should uniformly be written into `options`.
 
 ---
 
 ## `plugins`
 
-通过 `xacpx plugin add <npm-package>` 安装的外部插件包。
+External plugin packages installed via `xacpx plugin add <npm-package>`.
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Description |
 |------|------|------|------|
-| `name` | `string` | 是 | npm 包名 |
-| `version` | `string` | 否 | 安装时记录的版本范围或版本号 |
-| `enabled` | `boolean` | 否 | 是否加载该插件，默认 `true` |
+| `name` | `string` | Yes | npm package name |
+| `version` | `string` | No | The version range or version number recorded at install time |
+| `enabled` | `boolean` | No | Whether to load this plugin, defaults to `true` |
 
 `plugins[]` is lifecycle metadata for packages installed under `~/.xacpx/plugins`. It does not enable a channel by itself; `channels[]` still controls which channel runtimes start. After changing plugin install, update, enable, disable, or remove state while the daemon is running, restart the daemon so plugin registration is reloaded.
 
-安装插件只表示频道类型可用，不会自动启用频道。启用频道仍然需要：
+Installing a plugin only means the channel type is available; it does not automatically enable the channel. Enabling a channel still requires:
 
 ```bash
 xacpx channel add <channel-type>
 ```
 
-详见 [`docs/plugin-development.md`](./plugin-development.md)。
+See [`docs/plugin-development.md`](./plugin-development.md).
 
 ---
 
 ## `agents`
 
-注册的 agent 映射表，key 为 agent 名称（供 `/agent add`、`/session new --agent` 使用）。
+The registered agent mapping, keyed by agent name (used by `/agent add`, `/session new --agent`).
 
-### Agent 配置
+### Agent Configuration
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Description |
 |------|------|------|------|
-| `driver` | `string` | 是 | agent 驱动类型，传递给 acpx 的第一位置参数 |
-| `command` | `string` | 否 | 显式指定自定义 agent 的原始命令。不填则使用 acpx 默认行为 |
+| `driver` | `string` | Yes | Agent driver type, passed as the first positional argument to acpx |
+| `command` | `string` | No | Explicitly specify the raw command for a custom agent. When omitted, acpx's default behavior is used |
 
-说明：
+Notes:
 
-- 内置模板建议只写 `driver`，让 `acpx` 自己解析对应 alias
-- `agent.command` 主要用于自定义 agent，不建议给内置 driver 手写原始命令
-- 旧版 `codex` raw command 配置在加载时会被自动忽略，回退为 `acpx codex ...`
+- For built-in templates, it is recommended to write only `driver` and let `acpx` resolve the corresponding alias itself
+- `agent.command` is mainly for custom agents; it is not recommended to hand-write a raw command for a built-in driver
+- The legacy `codex` raw command configuration is automatically ignored on load, falling back to `acpx codex ...`
 
-### 内置模板
+### Built-in Templates
 
-通过微信发送 `/agent add <name>`，或在终端运行 `xacpx agent add <name>` 时使用以下内置模板；终端也可以用 `xacpx agent templates` 查看模板列表。添加已存在且配置相同的 agent 是幂等操作；如果同名 agent 已有不同配置，命令会提示先删除，不会静默覆盖自定义配置。
+The following built-in templates are used when you send `/agent add <name>` via WeChat, or run `xacpx agent add <name>` in the terminal; in the terminal you can also use `xacpx agent templates` to view the template list. Adding an agent that already exists with the same configuration is an idempotent operation; if an agent with the same name already has a different configuration, the command prompts you to delete it first and will not silently overwrite the custom configuration.
 
-| 模板名 | driver | command |
+| Template Name | driver | command |
 |--------|--------|---------|
-| `codex` | `"codex"` | 无（使用 acpx 默认） |
-| `claude` | `"claude"` | 无（使用 acpx 默认） |
-| `pi` | `"pi"` | 无（使用 acpx 默认） |
-| `openclaw` | `"openclaw"` | 无（使用 acpx 默认） |
-| `gemini` | `"gemini"` | 无（使用 acpx 默认） |
-| `cursor` | `"cursor"` | 无（使用 acpx 默认） |
-| `copilot` | `"copilot"` | 无（使用 acpx 默认） |
-| `droid` | `"droid"` | 无（使用 acpx 默认） |
-| `factory-droid` | `"factory-droid"` | 无（使用 acpx 默认） |
-| `factorydroid` | `"factorydroid"` | 无（使用 acpx 默认） |
-| `iflow` | `"iflow"` | 无（使用 acpx 默认） |
-| `kilocode` | `"kilocode"` | 无（使用 acpx 默认） |
-| `kimi` | `"kimi"` | 无（使用 acpx 默认） |
-| `kiro` | `"kiro"` | 无（使用 acpx 默认） |
-| `opencode` | `"opencode"` | 无（使用 acpx 默认） |
-| `qoder` | `"qoder"` | 无（使用 acpx 默认） |
-| `qwen` | `"qwen"` | 无（使用 acpx 默认） |
-| `trae` | `"trae"` | 无（使用 acpx 默认） |
+| `codex` | `"codex"` | None (uses acpx default) |
+| `claude` | `"claude"` | None (uses acpx default) |
+| `pi` | `"pi"` | None (uses acpx default) |
+| `openclaw` | `"openclaw"` | None (uses acpx default) |
+| `gemini` | `"gemini"` | None (uses acpx default) |
+| `cursor` | `"cursor"` | None (uses acpx default) |
+| `copilot` | `"copilot"` | None (uses acpx default) |
+| `droid` | `"droid"` | None (uses acpx default) |
+| `factory-droid` | `"factory-droid"` | None (uses acpx default) |
+| `factorydroid` | `"factorydroid"` | None (uses acpx default) |
+| `iflow` | `"iflow"` | None (uses acpx default) |
+| `kilocode` | `"kilocode"` | None (uses acpx default) |
+| `kimi` | `"kimi"` | None (uses acpx default) |
+| `kiro` | `"kiro"` | None (uses acpx default) |
+| `opencode` | `"opencode"` | None (uses acpx default) |
+| `qoder` | `"qoder"` | None (uses acpx default) |
+| `qwen` | `"qwen"` | None (uses acpx default) |
+| `trae` | `"trae"` | None (uses acpx default) |
 
-### 示例
+### Example
 
 ```json
 {
@@ -462,18 +462,18 @@ xacpx channel add <channel-type>
 
 ## `workspaces`
 
-注册的工作区映射表，key 为工作区名称（供 `/workspace new`、`/session new --ws` 使用）。
+The registered workspace mapping, keyed by workspace name (used by `/workspace new`, `/session new --ws`).
 
-首次创建配置时会自动种入一个 `home` 工作区（`cwd` 为 `~`），让你开箱即用；不需要可用 `xacpx workspace rm home` 删除。
+When the configuration is first created, a `home` workspace is automatically seeded (with `cwd` as `~`) so it works out of the box; if you do not need it, you can delete it with `xacpx workspace rm home`.
 
-### Workspace 配置
+### Workspace Configuration
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Description |
 |------|------|------|------|
-| `cwd` | `string` | 是 | 工作区路径，acpx 的 `--cwd` 参数；支持以 `~` 开头，加载时展开为用户主目录 |
-| `description` | `string` | 否 | 描述信息，供 `/workspaces` 命令展示用 |
+| `cwd` | `string` | Yes | Workspace path, acpx's `--cwd` argument; supports paths starting with `~`, which is expanded to the user's home directory on load |
+| `description` | `string` | No | Description information, used for display by the `/workspaces` command |
 
-### 示例
+### Example
 
 ```json
 {
@@ -493,19 +493,19 @@ xacpx channel add <channel-type>
 
 ## `orchestration`
 
-控制 agent 发起委派请求时的默认守卫策略。
+Controls the default guard policy for when an agent initiates a delegate request.
 
 ### `orchestration.*`
 
-| 字段 | 类型 | 必填 | 默认值 | 说明 |
+| Field | Type | Required | Default | Description |
 |------|------|------|--------|------|
-| `maxPendingAgentRequestsPerCoordinator` | `number` | 否 | `3` | 单个 coordinator 下允许同时处于 `needs_confirmation` / `running` 的 agent 发起委派任务上限 |
-| `allowWorkerChainedRequests` | `boolean` | 否 | `false` | 是否允许 worker 会话再发起委派请求。默认拒绝，避免多跳扩散 |
-| `allowedAgentRequestTargets` | `string[]` | 否 | `[]` | 允许 agent 发起委派时指定的目标 agent 白名单。空数组表示不额外限制 |
-| `allowedAgentRequestRoles` | `string[]` | 否 | `[]` | 允许 agent 发起委派时使用的 role 白名单。空数组表示不额外限制 |
-| `maxParallelTasksPerAgent` | `number` | 否 | `3` | 每个 agent 可同时运行的并行委派任务上限（整数 ≥ 1），跨所有 coordinator 和工作区全局计数。超出上限的 `parallel: true` 任务创建为 `queued` 状态，不占用 acpx session；有 slot 释放时自动按创建时间顺序升为 `running` 并开始执行。`queued` 任务仍计入 `maxPendingAgentRequestsPerCoordinator` 配额 |
+| `maxPendingAgentRequestsPerCoordinator` | `number` | No | `3` | The upper limit of agent-initiated delegate tasks simultaneously in `needs_confirmation` / `running` state under a single coordinator |
+| `allowWorkerChainedRequests` | `boolean` | No | `false` | Whether to allow worker sessions to initiate further delegate requests. Denied by default to avoid multi-hop fan-out |
+| `allowedAgentRequestTargets` | `string[]` | No | `[]` | Allowlist of target agents that an agent may specify when initiating a delegate. An empty array means no additional restriction |
+| `allowedAgentRequestRoles` | `string[]` | No | `[]` | Allowlist of roles that an agent may use when initiating a delegate. An empty array means no additional restriction |
+| `maxParallelTasksPerAgent` | `number` | No | `3` | The upper limit of parallel delegate tasks each agent may run simultaneously (integer ≥ 1), counted globally across all coordinators and workspaces. `parallel: true` tasks exceeding the limit are created in `queued` state and do not occupy an acpx session; when a slot is freed, they are automatically promoted to `running` in creation-time order and begin execution. `queued` tasks still count toward the `maxPendingAgentRequestsPerCoordinator` quota |
 
-### 示例
+### Example
 
 ```json
 {
@@ -525,30 +525,30 @@ xacpx channel add <channel-type>
 
 ### `later.defaultMode`
 
-定时任务（`/lt`）的默认执行会话模式。
+The default execution session mode for scheduled tasks (`/lt`).
 
-- `"temp"`（默认）：到点新建临时会话执行，跑完即销毁。
-- `"bind"`：到点发送到创建时绑定的当前会话。
-- 单条任务可用 `--temp` / `--bind` 覆盖默认值。
+- `"temp"` (default): at the scheduled time, create a temporary session to execute, which is destroyed once finished.
+- `"bind"`: at the scheduled time, send to the current session that was bound at creation.
+- A single task can use `--temp` / `--bind` to override the default value.
 
 ---
 
-## 环境变量覆盖
+## Environment Variable Overrides
 
-以下环境变量可覆盖配置文件路径：
+The following environment variables can override configuration file paths:
 
-| 环境变量 | 说明 |
+| Environment Variable | Description |
 |----------|------|
-| `WEACPX_CONFIG` | 配置文件路径（默认 `~/.xacpx/config.json`） |
-| `WEACPX_STATE` | 状态文件路径（默认 `~/.xacpx/state.json`） |
-| `WEACPX_WEIXIN_SDK` | 强制指定 weixin-agent-sdk 入口文件路径 |
-| `WEACPX_ILINK_APP_ID` | 微信频道出网请求所携带的 `iLink-App-Id` 头。留空时不发送该头（向后兼容） |
+| `WEACPX_CONFIG` | Configuration file path (defaults to `~/.xacpx/config.json`) |
+| `WEACPX_STATE` | State file path (defaults to `~/.xacpx/state.json`) |
+| `WEACPX_WEIXIN_SDK` | Force-specify the weixin-agent-sdk entry file path |
+| `WEACPX_ILINK_APP_ID` | The `iLink-App-Id` header carried by the WeChat channel's outbound requests. When left empty, this header is not sent (backward compatible) |
 
 ---
 
-## 最小配置
+## Minimal Configuration
 
-以下配置即可正常启动：
+The following configuration is enough to start normally:
 
 ```json
 {
@@ -559,18 +559,18 @@ xacpx channel add <channel-type>
 }
 ```
 
-`transport.type` 默认为 `"acpx-bridge"`，其他字段留空或省略即可。agents 和 workspaces 可以先留空，后续在聊天里通过命令创建。
+`transport.type` defaults to `"acpx-bridge"`, and other fields can be left empty or omitted. agents and workspaces can be left empty for now and created later via commands in chat.
 
 ---
 
-## 通过聊天命令修改配置
+## Modifying Configuration via Chat Commands
 
-xacpx 支持通过 `/config` 和 `/config set <path> <value>` 修改**部分受支持字段**。
+xacpx supports modifying **some supported fields** via `/config` and `/config set <path> <value>`.
 
-注意：
+Note:
 
-- `/config` 不是任意 JSON 编辑器
-- 只允许修改白名单中的路径
-- `agents.<name>.*` / `workspaces.<name>.*` 仅在目标已存在时允许修改
+- `/config` is not an arbitrary JSON editor
+- Only paths in the allowlist may be modified
+- `agents.<name>.*` / `workspaces.<name>.*` may only be modified when the target already exists
 
-详见 [`docs/config-command.md`](./config-command.md)。
+See [`docs/config-command.md`](./config-command.md).
