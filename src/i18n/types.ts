@@ -815,6 +815,14 @@ export interface RouterMessages {
   acpxNoteElapsed: (note: string, elapsed: number) => string;
 }
 
+export interface RenderMessages {
+  // render-text: renderTaskProgress
+  taskProgress: (taskId: string, targetAgent: string, summary: string) => string;
+
+  // render-text: renderTaskHeartbeat
+  taskHeartbeat: (taskId: string, minutes: number) => string;
+}
+
 export interface AcpxNoteMessages {
   // translateAcpxNote — built-in agent spawn
   spawnBuiltIn: (name: string) => string;
@@ -854,4 +862,5 @@ export interface Messages {
   hints: HintsMessages;
   router: RouterMessages;
   acpxNote: AcpxNoteMessages;
+  render: RenderMessages;
 }

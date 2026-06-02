@@ -237,10 +237,10 @@ function renderGroupListItem(group: OrchestrationGroupSummary): string {
 }
 
 export function renderTaskProgress(task: OrchestrationTaskRecord, summary: string): string {
-  return `⏳ 任务「${task.taskId}」（${task.targetAgent}）：${summary}`;
+  return t().render.taskProgress(task.taskId, task.targetAgent, summary);
 }
 
 export function renderTaskHeartbeat(task: OrchestrationTaskRecord, elapsedSeconds: number): string {
   const minutes = Math.floor(elapsedSeconds / 60);
-  return `⏳ 任务「${task.taskId}」已运行 ${minutes} 分钟，等待中...`;
+  return t().render.taskHeartbeat(task.taskId, minutes);
 }

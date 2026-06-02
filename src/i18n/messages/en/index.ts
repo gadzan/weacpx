@@ -17,5 +17,6 @@ import { help } from "./help";
 import { hints } from "./hints";
 import { router } from "./router";
 import { acpxNote } from "./acpx-note";
+import { render } from "./render";
 
-export const en: Messages = { common, session, nativeSession, recovery, shortcut, workspace, agent, later, scheduledRender, orchestration, coordinatorPrompt, workerPrompt, config, permission, help, hints, router, acpxNote };
+export const en: Messages = { common, session, nativeSession, recovery, shortcut, workspace, agent, later, scheduledRender, orchestration, coordinatorPrompt, workerPrompt, config, permission, help, hints, router, acpxNote, render };

@@ -166,13 +166,13 @@ test("renders tasks clean result with counts", () => {
 test("renders task progress message", () => {
   const task = { taskId: "task-1", targetAgent: "claude" } as OrchestrationTaskRecord;
   expect(renderTaskProgress(task, "正在分析类型定义")).toBe(
-    "⏳ 任务「task-1」（claude）：正在分析类型定义",
+    t().render.taskProgress("task-1", "claude", "正在分析类型定义"),
   );
 });
 
 test("renders task heartbeat message", () => {
   const task = { taskId: "task-1" } as OrchestrationTaskRecord;
   expect(renderTaskHeartbeat(task, 300)).toBe(
-    "⏳ 任务「task-1」已运行 5 分钟，等待中...",
+    t().render.taskHeartbeat("task-1", 5),
   );
 });
