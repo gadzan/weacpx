@@ -1,4 +1,5 @@
 import { toDisplaySessionAlias } from "../../channels/channel-scope.js";
+import { t } from "../../i18n/index.js";
 
 // Short line sent to the foreground chat when a backgrounded session finishes,
 // so the user knows it is ready without dumping the full result. The result
@@ -6,8 +7,8 @@ import { toDisplaySessionAlias } from "../../channels/channel-scope.js";
 export function buildBackgroundCompletionNotice(internalAlias: string, status: "done" | "error"): string {
   const display = toDisplaySessionAlias(internalAlias);
   return status === "done"
-    ? `✅ ${display} 已完成，/use ${display} 查看结果`
-    : `⚠️ ${display} 失败，/use ${display} 查看详情`;
+    ? t().misc.bgSessionDone(display)
+    : t().misc.bgSessionError(display);
 }
 
 // Decide whether a background completion notice may be sent: it consumes one

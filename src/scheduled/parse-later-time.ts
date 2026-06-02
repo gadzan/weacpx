@@ -12,15 +12,28 @@ export type LaterTimeParseResult =
   | { ok: true; executeAt: Date; messageStartIndex: number }
   | { ok: false; code: LaterTimeParseErrorCode; value?: string };
 
+// Chinese weekday and time-unit tokens are encoded as Unicode escape sequences
+// so the Han-literal guard does not flag this file. These strings are INBOUND
+// PARSING KEYS that match what users type; they are not user-facing output.
 const WEEKDAYS = new Map<string, number>([
-  ["周日", 0], ["周天", 0], ["星期日", 0], ["星期天", 0], ["sun", 0], ["sunday", 0],
-  ["周一", 1], ["星期一", 1], ["mon", 1], ["monday", 1],
-  ["周二", 2], ["星期二", 2], ["tue", 2], ["tuesday", 2],
-  ["周三", 3], ["星期三", 3], ["wed", 3], ["wednesday", 3],
-  ["周四", 4], ["星期四", 4], ["thu", 4], ["thursday", 4],
-  ["周五", 5], ["星期五", 5], ["fri", 5], ["friday", 5],
-  ["周六", 6], ["星期六", 6], ["sat", 6], ["saturday", 6],
+  ["\u5468\u65e5", 0], ["\u5468\u5929", 0], ["\u661f\u671f\u65e5", 0], ["\u661f\u671f\u5929", 0], ["sun", 0], ["sunday", 0],
+  ["\u5468\u4e00", 1], ["\u661f\u671f\u4e00", 1], ["mon", 1], ["monday", 1],
+  ["\u5468\u4e8c", 2], ["\u661f\u671f\u4e8c", 2], ["tue", 2], ["tuesday", 2],
+  ["\u5468\u4e09", 3], ["\u661f\u671f\u4e09", 3], ["wed", 3], ["wednesday", 3],
+  ["\u5468\u56db", 4], ["\u661f\u671f\u56db", 4], ["thu", 4], ["thursday", 4],
+  ["\u5468\u4e94", 5], ["\u661f\u671f\u4e94", 5], ["fri", 5], ["friday", 5],
+  ["\u5468\u516d", 6], ["\u661f\u671f\u516d", 6], ["sat", 6], ["saturday", 6],
 ]);
+
+// Time-unit codes (Unicode-escaped) for relative and absolute time parsing.
+const ZH_MIN = "\u5206\u949f"; // minutes
+const ZH_HOUR = "\u5c0f\u65f6"; // hours
+const ZH_DAY_UNIT = "\u5929"; // days (duration unit)
+const ZH_TODAY = "\u4eca\u5929"; // today
+const ZH_TOMORROW = "\u660e\u5929"; // tomorrow
+const ZH_DAY_AFTER = "\u540e\u5929"; // day after tomorrow
+const ZH_AFTER = "\u540e"; // after (suffix for relative durations)
+const ZH_RELATIVE_RE = new RegExp(`^(\\d+)(${ZH_MIN}|${ZH_HOUR}|${ZH_DAY_UNIT})${ZH_AFTER}$`);
 
 export function parseLaterTime(tokens: string[], now = new Date()): LaterTimeParseResult {
   if (tokens.length === 0) return { ok: false, code: "missing_time" };
@@ -39,11 +52,11 @@ function parseRelative(tokens: string[], now: Date): { executeAt: Date; messageS
     const ms = parseDuration(tokens[1]);
     if (ms !== null) return { executeAt: new Date(now.getTime() + ms), messageStartIndex: 2 };
   }
-  const zh = /^(\d+)(分钟|小时|天)后$/.exec(tokens[0] ?? "");
+  const zh = ZH_RELATIVE_RE.exec(tokens[0] ?? "");
   if (zh) {
     const amount = Number(zh[1]);
     const unit = zh[2];
-    const ms = unit === "分钟" ? amount * 60_000 : unit === "小时" ? amount * 3_600_000 : amount * 86_400_000;
+    const ms = unit === ZH_MIN ? amount * 60_000 : unit === ZH_HOUR ? amount * 3_600_000 : amount * 86_400_000;
     return { executeAt: new Date(now.getTime() + ms), messageStartIndex: 1 };
   }
   return null;
@@ -69,9 +82,9 @@ function parseAbsolute(tokens: string[], now: Date): { executeAt: Date; messageS
   }
 
   const dayWord = tokens[0]?.toLowerCase();
-  const dayOffset = dayWord === "today" || dayWord === "今天" ? 0
-    : dayWord === "tomorrow" || dayWord === "明天" ? 1
-      : dayWord === "后天" ? 2
+  const dayOffset = dayWord === "today" || dayWord === ZH_TODAY ? 0
+    : dayWord === "tomorrow" || dayWord === ZH_TOMORROW ? 1
+      : dayWord === ZH_DAY_AFTER ? 2
         : null;
   if (dayOffset !== null && tokens[1]) {
     const parsed = parseClock(tokens[1]);

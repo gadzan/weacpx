@@ -6,9 +6,11 @@ import type { AppState } from "../../../src/state/types";
 import type { StateStore } from "../../../src/state/state-store";
 import { SessionService } from "../../../src/sessions/session-service";
 import { registerKnownChannelId } from "../../../src/channels/channel-scope";
+import { setLocale, t } from "../../../src/i18n";
 
 beforeAll(() => {
   registerKnownChannelId("feishu");
+  setLocale("zh");
 });
 
 function createConfig(): AppConfig {
@@ -203,7 +205,7 @@ test("rejects unknown workspaces", async () => {
   const store = new MemoryStateStore();
   const service = new SessionService(createConfig(), store, createEmptyState());
 
-  await expect(service.createSession("x", "codex", "missing")).rejects.toThrow("工作区「missing」未注册");
+  await expect(service.createSession("x", "codex", "missing")).rejects.toThrow(t().misc.workspaceNotRegistered("missing"));
 });
 
 test("rejects blank session aliases", async () => {

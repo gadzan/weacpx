@@ -212,7 +212,7 @@ export async function startWeixinLoginWithQr(opts: {
     logger.info(
       `QR code received, qrcode=${redactToken(qrResponse.qrcode)} imgContentLen=${qrResponse.qrcode_img_content?.length ?? 0}`,
     );
-    logger.info(`二维码链接: ${qrResponse.qrcode_img_content}`);
+    logger.info(`QR code URL: ${qrResponse.qrcode_img_content}`);
 
     const login: ActiveLogin = {
       sessionKey,

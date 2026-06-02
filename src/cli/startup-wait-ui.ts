@@ -1,4 +1,5 @@
 import type { DaemonStartupWait, DaemonStartupWaitPoll } from "../daemon/daemon-controller";
+import { t } from "../i18n/index.js";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const DEFAULT_SPINNER_FRAME = "⠋";
@@ -16,11 +17,10 @@ export function renderStartupWaitLine(input: {
 }): string {
   const elapsedSeconds = Math.floor(input.elapsedMs / 1_000);
   const timeoutSeconds = Math.ceil(input.timeoutMs / 1_000);
-  const detail = input.elapsedMs >= ENVIRONMENT_HINT_DELAY_MS
-    ? "，首次启动可能需要准备依赖和运行环境"
-    : "";
-
-  return `${input.frame} 正在创建初始会话${detail} ${elapsedSeconds}s / ${timeoutSeconds}s，按 Ctrl+B 跳过等待`;
+  if (input.elapsedMs >= ENVIRONMENT_HINT_DELAY_MS) {
+    return t().misc.startupWaitLineFirstBoot(input.frame, elapsedSeconds, timeoutSeconds);
+  }
+  return t().misc.startupWaitLine(input.frame, elapsedSeconds, timeoutSeconds);
 }
 
 export function createStartupWaitUi(input: {

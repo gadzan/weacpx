@@ -7,6 +7,7 @@ import { buildFinalHeadsUp } from "./final-heads-up";
 import type { PendingFinalChunk } from "./quota-manager";
 import { markdownToPlainText, sendMessageWeixin } from "./send";
 import { normalizeWeixinUserIdFromChatKey } from "./inbound";
+import { t } from "../../i18n/index.js";
 
 export interface ScheduledTurnDeps {
   agent: Agent;
@@ -155,7 +156,7 @@ export async function executeScheduledTurn(
       onReplySegment: sendReplySegment,
     });
   } catch (error) {
-    await sendReservedMidText(`定时任务执行失败：${error instanceof Error ? error.message : String(error)}`).catch(() => false);
+    await sendReservedMidText(t().misc.scheduledTaskFailed(error instanceof Error ? error.message : String(error))).catch(() => false);
     throw error;
   }
 

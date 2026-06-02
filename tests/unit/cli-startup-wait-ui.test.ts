@@ -1,7 +1,12 @@
-import { expect, test } from "bun:test";
+import { expect, test, beforeEach } from "bun:test";
 import { EventEmitter } from "node:events";
 
 import { createStartupWaitUi, renderStartupWaitLine } from "../../src/cli/startup-wait-ui";
+import { setLocale } from "../../src/i18n";
+
+beforeEach(() => {
+  setLocale("zh");
+});
 
 test("startup wait loading copy stays terse before twenty seconds", () => {
   const line = renderStartupWaitLine({

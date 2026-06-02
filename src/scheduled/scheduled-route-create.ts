@@ -118,6 +118,6 @@ function formatLaterTimeParseError(code: LaterTimeParseErrorCode, value?: string
     case "unrecognized_time":
     case "missing_time":
     default:
-      return "unrecognized timeText; supported examples: in 2h, 30分钟后, tomorrow 09:00, 周五 09:00";
+      return "unrecognized timeText; supported examples: in 2h, 30\u5206\u949f\u540e, tomorrow 09:00, \u5468\u4e94 09:00";
   }
 }

@@ -1214,6 +1214,96 @@ export interface MigrateMessages {
   failed: (legacy: string, primary: string, detail: string) => string;
 }
 
+export interface MiscMessages {
+  // console-agent: empty message guard
+  emptyMessage: string;
+
+  // config/default-workspace: default workspace description
+  defaultHomeWorkspaceDescription: string;
+
+  // plugins/known-plugins: channel descriptions
+  pluginChannelFeishu: string;
+  pluginChannelYuanbao: string;
+  pluginChannelInstallHint: (channelType: string, packageName: string) => string;
+
+  // doctor/orchestration-health: suggestions
+  orchestrationSuggestion1: string;
+  orchestrationSuggestion2: string;
+  orchestrationSuggestion3: string;
+
+  // cli/startup-wait-ui
+  startupWaitLine: (frame: string, elapsed: number, timeout: number) => string;
+  startupWaitLineFirstBoot: (frame: string, elapsed: number, timeout: number) => string;
+
+  // sessions/session-service: validation errors
+  workspaceNotRegistered: (workspace: string) => string;
+  agentNotRegistered: (agent: string) => string;
+
+  // transport/quota-gated-reply-sink
+  quotaHeadsUp: string;
+  quotaOverflowSummary: (count: number) => string;
+
+  // weixin/messaging/final-heads-up
+  finalHeadsUp: (total: number, sentSoFar: number, remaining: number) => string;
+
+  // weixin/messaging/inbound
+  quotedMessagePrefix: (parts: string) => string;
+
+  // weixin/messaging/scheduled-turn
+  scheduledTaskFailed: (message: string) => string;
+
+  // weixin/messaging/send-orchestration-notice
+  orchestrationTaskCompleted: (taskId: string, workerSession: string, result: string) => string;
+  orchestrationTaskFailed: (taskId: string, workerSession: string, reason: string) => string;
+  workerUnassigned: string;
+
+  // weixin/messaging/completion-notice
+  bgSessionDone: (display: string) => string;
+  bgSessionError: (display: string) => string;
+
+  // weixin/messaging/handle-weixin-message-turn
+  executionError: (message: string) => string;
+
+  // onboarding
+  onboardingFirstUsePrompt: (workspaceName: string) => string;
+  onboardingSelectAgent: string;
+  onboardingEnterChoice: string;
+  onboardingNoValidAgent: string;
+  onboardingCreatedWorkspace: (workspaceName: string, alias: string) => string;
+
+  // orchestration/render-human-question-package
+  humanQuestionQueued: (count: number) => string;
+  humanQuestionResumed: (taskId: string, summary: string) => string;
+  humanQuestionUnresolved: (taskId: string, summary: string) => string;
+  humanQuestionQueuedLine: (count: number) => string;
+
+  // orchestration/render-delegate-question-package
+  delegateQPackageInstr1: string;
+  delegateQPackageInstr2: string;
+  delegateQPackageInstr3: string;
+
+  // commands/command-policy
+  commandAccessDeniedSuffix: string;
+  commandAccessDeniedHint: string;
+  commandLabelThisMessage: string;
+
+  // commands/handlers/session-reset-handler
+  sessionResetNoCurrentSession: string;
+  sessionResetFailed: (alias: string) => string;
+  sessionResetSuccess: (alias: string) => string;
+
+  // scheduled/scheduled-dispatch
+  scheduledDispatchNoticeBound: (taskId: string, sessionDisplay: string, preview: string) => string;
+  scheduledDispatchNoticeTemp: (taskId: string, workspace: string, agent: string, preview: string) => string;
+
+  // channels/weixin-channel
+  weixinNoCredentials: string;
+
+  // weixin/bot.ts
+  weixinMultipleAccounts: (accountId: string) => string;
+  weixinBotStarting: (accountId: string) => string;
+}
+
 export interface Messages {
   common: CommonMessages;
   session: SessionMessages;
@@ -1241,4 +1331,5 @@ export interface Messages {
   login: LoginMessages;
   weixin: WeixinMessages;
   migrate: MigrateMessages;
+  misc: MiscMessages;
 }

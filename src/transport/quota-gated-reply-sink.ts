@@ -24,6 +24,7 @@
 import type { ReplyQuotaContext } from "./types";
 import { SegmentAggregator } from "./segment-aggregator";
 import { isQuotaDeferredError, QuotaDeferredError } from "../weixin/messaging/quota-errors";
+import { t } from "../i18n/index.js";
 
 export interface QuotaGatedReplySinkOptions {
   reply: (text: string) => Promise<void>;
@@ -58,9 +59,16 @@ export const ADAPTIVE_WINDOW_SCHEDULE_MS = [3_000, 6_000, 12_000, 24_000, 48_000
 //
 // /jx is a control-lane no-op slash command: it triggers monitor.onInbound to
 // reset the quota window but is dropped before reaching the agent, so the
-// task isn't fed a stray "1"/"继续" prompt.
-export const DEFAULT_HEADS_UP_TEXT =
-  "—\n⏳ 推送已达上限。回复 /jx 续看进度，或等待最终结果。";
+// task isn't fed a stray prompt.
+// The default heads-up text is resolved lazily from the i18n catalog so it
+// respects the runtime locale. Callers may override via headsUpText option.
+export function getDefaultHeadsUpText(): string {
+  return t().misc.quotaHeadsUp;
+}
+
+// Keep the const for backward-compat (tests + external callers that read it
+// as a static value). It resolves at module evaluation time (en locale).
+export const DEFAULT_HEADS_UP_TEXT = "—\n⏳ Push limit reached. Reply /jx to continue watching, or wait for the final result.";
 
 export interface QuotaGatedReplySink {
   feedSegment(segment: string): void;
@@ -108,7 +116,7 @@ export function createQuotaGatedReplySink(
             return ADAPTIVE_WINDOW_SCHEDULE_MS[idx]!;
           }
         : 5_000;
-  const headsUpText = options.headsUpText ?? DEFAULT_HEADS_UP_TEXT;
+  const headsUpText = options.headsUpText ?? getDefaultHeadsUpText();
   let overflowCount = 0;
   let pendingError: QuotaDeferredError | undefined;
   // Idempotency guard: heads-up should appear exactly once per inbound window
@@ -222,5 +230,5 @@ export function createQuotaGatedReplySink(
 
 export function buildOverflowSummary(overflowCount: number): string | undefined {
   if (overflowCount <= 0) return undefined;
-  return `（因消息次数限制省略 ${overflowCount} 条进度，请继续查看下方最终结果）`;
+  return t().misc.quotaOverflowSummary(overflowCount);
 }

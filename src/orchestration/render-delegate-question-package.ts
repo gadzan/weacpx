@@ -1,3 +1,5 @@
+import { t } from "../i18n/index.js";
+
 interface BlockedTaskInput {
   taskId: string;
   workerSession?: string;
@@ -60,9 +62,9 @@ export function renderDelegateQuestionPackage(input: RenderDelegateQuestionPacka
 
   sections.push("");
   sections.push("instructions:");
-  sections.push("- 先判断哪些问题你能直接回答");
-  sections.push("- 不能直接回答的，整理成一个面向 human 的问题包");
-  sections.push("- 不要直接把 human 原话转发给 worker");
+  sections.push(`- ${t().misc.delegateQPackageInstr1}`);
+  sections.push(`- ${t().misc.delegateQPackageInstr2}`);
+  sections.push(`- ${t().misc.delegateQPackageInstr3}`);
 
   return [
     "[delegate_question_package]",

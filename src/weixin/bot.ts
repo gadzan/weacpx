@@ -169,7 +169,7 @@ export async function start(agent: Agent, opts?: StartOptions): Promise<void> {
     }
     accountId = ids[0];
     if (ids.length > 1) {
-      log(`[weixin] 检测到多个账号，使用第一个: ${accountId}`);
+      log(t().misc.weixinMultipleAccounts(accountId!));
     }
   }
 
@@ -180,7 +180,7 @@ export async function start(agent: Agent, opts?: StartOptions): Promise<void> {
 
   restoreContextTokens(account.accountId);
 
-  log(`[weixin] 启动 bot, account=${account.accountId}`);
+  log(t().misc.weixinBotStarting(account.accountId));
 
   await monitorWeixinProvider({
     baseUrl: account.baseUrl,

@@ -1,12 +1,17 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, beforeEach } from "bun:test";
 
 import {
   ADAPTIVE_WINDOW_SCHEDULE_MS,
   createQuotaGatedReplySink,
-  DEFAULT_HEADS_UP_TEXT,
+  getDefaultHeadsUpText,
 } from "../../../src/transport/quota-gated-reply-sink";
 import { QuotaDeferredError } from "../../../src/weixin/messaging/quota-errors";
 import { QuotaManager } from "../../../src/weixin/messaging/quota-manager";
+import { setLocale } from "../../../src/i18n";
+
+beforeEach(() => {
+  setLocale("zh");
+});
 
 function makeClock(start = 0): { now: () => number; advance: (ms: number) => void } {
   let t = start;
@@ -152,10 +157,10 @@ describe("QuotaGatedReplySink deferred-error propagation", () => {
 
     // The first 5 must NOT contain the heads-up tail; only the 6th (last) does.
     for (let i = 0; i < 5; i += 1) {
-      expect(fileMessages[i]!.includes(DEFAULT_HEADS_UP_TEXT)).toBe(false);
+      expect(fileMessages[i]!.includes(getDefaultHeadsUpText())).toBe(false);
     }
-    expect(fileMessages[5]!.endsWith(DEFAULT_HEADS_UP_TEXT)).toBe(true);
-    expect(flushed.filter((m) => m.includes(DEFAULT_HEADS_UP_TEXT)).length).toBe(1);
+    expect(fileMessages[5]!.endsWith(getDefaultHeadsUpText())).toBe(true);
+    expect(flushed.filter((m) => m.includes(getDefaultHeadsUpText())).length).toBe(1);
   });
 
   test("custom headsUpText option is appended to the 6th message", async () => {
@@ -187,7 +192,7 @@ describe("QuotaGatedReplySink deferred-error propagation", () => {
     const withCustom = flushed.filter((m) => m.includes(customText));
     expect(withCustom.length).toBe(1);
     expect(withCustom[0]!.endsWith(customText)).toBe(true);
-    expect(flushed.filter((m) => m.includes(DEFAULT_HEADS_UP_TEXT)).length).toBe(0);
+    expect(flushed.filter((m) => m.includes(getDefaultHeadsUpText())).length).toBe(0);
   });
 
   test("finalize trailing on the 6th mid also carries heads-up tail", async () => {
@@ -220,7 +225,7 @@ describe("QuotaGatedReplySink deferred-error propagation", () => {
 
     expect(flushed).toHaveLength(1);
     expect(flushed[0]!.startsWith("only-trailing-content")).toBe(true);
-    expect(flushed[0]!.endsWith(DEFAULT_HEADS_UP_TEXT)).toBe(true);
+    expect(flushed[0]!.endsWith(getDefaultHeadsUpText())).toBe(true);
     expect(quota.snapshot(chatKey).midUsed).toBe(6);
     expect(sink.getOverflowCount()).toBe(0);
   });

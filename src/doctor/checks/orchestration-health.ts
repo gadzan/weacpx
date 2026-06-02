@@ -1,5 +1,6 @@
 import type { AppState } from "../../state/types";
 import type { DoctorCheckResult } from "../doctor-types";
+import { t } from "../../i18n/index.js";
 
 export interface CheckOrchestrationHealthOptions {
   loadState: () => Promise<AppState>;
@@ -70,9 +71,9 @@ export async function checkOrchestrationHealth(
     ...(problems > 0
       ? {
           suggestions: [
-            "查看 /tasks --stuck 定位卡住的任务",
-            "/task <id> 可看完整时间线定位错误点",
-            "必要时用 /task cancel 或 /tasks clean 恢复",
+            t().misc.orchestrationSuggestion1,
+            t().misc.orchestrationSuggestion2,
+            t().misc.orchestrationSuggestion3,
           ],
         }
       : {}),

@@ -3,38 +3,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 // Path prefixes (repo-relative, forward-slash) that MUST be free of CJK string
-// literals. Widen this list as each domain is migrated, then replace with
-// ["src/"] in the final flip.
-const MIGRATED_PREFIXES = [
-  "src/i18n/messages/en/",
-  "src/commands/handlers/session-handler.ts",
-  "src/commands/handlers/native-session-handler.ts",
-  "src/commands/handlers/session-recovery-handler.ts",
-  "src/commands/handlers/session-shortcut-handler.ts",
-  "src/commands/handlers/workspace-handler.ts",
-  "src/commands/handlers/agent-handler.ts",
-  "src/commands/handlers/later-handler.ts",
-  "src/commands/handlers/orchestration-handler.ts",
-  "src/commands/handlers/config-handler.ts",
-  "src/commands/handlers/permission-handler.ts",
-  "src/scheduled/scheduled-render.ts",
-  "src/orchestration/render-delegate-group-result.ts",
-  "src/orchestration/build-coordinator-prompt.ts",
-  "src/orchestration/worker-prompts.ts",
-  "src/commands/handlers/help-handler.ts",
-  "src/commands/command-hints.ts",
-  "src/commands/command-router.ts",
-  "src/commands/translate-acpx-note.ts",
-  "src/formatting/render-text.ts",
-  "src/cli.ts",
-  "src/cli-update.ts",
-  "src/channels/cli/channel-cli.ts",
-  "src/plugins/plugin-cli.ts",
-  "src/plugins/validate-plugin.ts",
-  "src/plugins/compatibility.ts",
-  "src/weixin/messaging/slash-commands.ts",
-  "src/runtime/migrate-core-home.ts",
-];
+// literals. Final flip: entire src/ tree is now enforced.
+const MIGRATED_PREFIXES = ["src/"];
 
 // Match only Han (Chinese) characters. Using \p{Script=Han} (not a raw BMP range)
 // is important: above-BMP emoji like 📖🔍💻 are encoded as surrogate pairs whose

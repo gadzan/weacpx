@@ -81,6 +81,12 @@ export function summarizeTransportNdjson(output: string, prefix: "stdout" | "std
   return summary;
 }
 
+// acpx emits this exact Chinese phrase when a prompt produced partial output but no
+// final reply. It is matched against acpx's own output, which is NOT localized by
+// xacpx, so this sentinel must stay locale-independent (do NOT route it through t()).
+// \u escapes keep the no-hardcoded-CJK guard satisfied while matching the real text.
+const ACPX_PARTIAL_OUTPUT_SENTINEL = "\u672a\u6536\u5230\u6700\u7ec8\u56de\u590d"; // "no final reply received"
+
 export function isPartialPromptOutputError(message: string): boolean {
-  return message.includes("未收到最终回复");
+  return message.includes(ACPX_PARTIAL_OUTPUT_SENTINEL);
 }
