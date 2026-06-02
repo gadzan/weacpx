@@ -1,0 +1,227 @@
+/* =========================================================================
+   xacpx docs — Brutalist (neobrutalism) home page
+   Thick ink borders, hard offset shadows, square edges, bold yellow accent,
+   graph-paper canvas. Scoped to .VPHome so inner documentation pages stay
+   clean and readable.
+   ========================================================================= */
+
+:root {
+  --xacpx-ink: #111111;
+  --xacpx-accent: #ffd400; /* signal yellow */
+  --xacpx-accent-2: #19d3c5; /* teal */
+  --xacpx-accent-3: #ff5c8a; /* hot pink */
+  --xacpx-paper: #faf9f0;
+}
+
+/* ---- canvas: warm paper + graph-paper grid -------------------------------- */
+.VPHome {
+  background-color: var(--xacpx-paper);
+  background-image:
+    linear-gradient(rgba(0, 0, 0, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.06) 1px, transparent 1px);
+  background-size: 26px 26px;
+
+  /* brand/alt button palette, scoped to the home page */
+  --vp-button-brand-bg: var(--xacpx-accent);
+  --vp-button-brand-text: var(--xacpx-ink);
+  --vp-button-brand-border: var(--xacpx-ink);
+  --vp-button-brand-hover-bg: #ffe04d;
+  --vp-button-brand-hover-text: var(--xacpx-ink);
+  --vp-button-brand-hover-border: var(--xacpx-ink);
+  --vp-button-brand-active-bg: var(--xacpx-accent);
+  --vp-button-brand-active-text: var(--xacpx-ink);
+  --vp-button-brand-active-border: var(--xacpx-ink);
+
+  --vp-button-alt-bg: #ffffff;
+  --vp-button-alt-text: var(--xacpx-ink);
+  --vp-button-alt-border: var(--xacpx-ink);
+  --vp-button-alt-hover-bg: #ffffff;
+  --vp-button-alt-hover-text: var(--xacpx-ink);
+  --vp-button-alt-hover-border: var(--xacpx-ink);
+  --vp-button-alt-active-bg: #ffffff;
+  --vp-button-alt-active-border: var(--xacpx-ink);
+}
+
+.dark .VPHome {
+  --xacpx-paper: #0e0e0e;
+  background-color: var(--xacpx-paper);
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+
+  --vp-button-brand-border: #ffffff;
+  --vp-button-brand-hover-border: #ffffff;
+  --vp-button-brand-active-border: #ffffff;
+  --vp-button-alt-bg: #161616;
+  --vp-button-alt-text: #ffffff;
+  --vp-button-alt-border: #ffffff;
+  --vp-button-alt-hover-bg: #161616;
+  --vp-button-alt-hover-text: #ffffff;
+  --vp-button-alt-hover-border: #ffffff;
+  --vp-button-alt-active-bg: #161616;
+  --vp-button-alt-active-border: #ffffff;
+}
+
+/* ---- hero name: ink text inside a yellow highlight block ------------------- */
+.VPHome .VPHero .name.clip {
+  --vp-home-hero-name-color: var(--xacpx-ink);
+  display: inline-block;
+  padding: 0.05em 0.22em;
+  background: var(--xacpx-accent);
+  border: 3px solid var(--xacpx-ink);
+  box-shadow: 8px 8px 0 var(--xacpx-ink);
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+
+.dark .VPHome .VPHero .name.clip {
+  /* stays dark ink on the yellow block for contrast */
+  --vp-home-hero-name-color: var(--xacpx-ink);
+  border-color: #ffffff;
+  box-shadow: 8px 8px 0 #ffffff;
+}
+
+/* ---- hero text + tagline -------------------------------------------------- */
+.VPHome .VPHero .text {
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.VPHome .VPHero .tagline {
+  font-weight: 600;
+  color: var(--vp-c-text-1);
+  border-left: 6px solid var(--xacpx-accent);
+  padding-left: 14px;
+}
+
+/* ---- buttons: square, bordered, hard shadow, press feedback ---------------- */
+.VPHome .VPButton {
+  border-radius: 0 !important;
+  border-width: 3px !important;
+  border-style: solid !important;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  box-shadow: 5px 5px 0 var(--xacpx-ink);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
+.dark .VPHome .VPButton {
+  box-shadow: 5px 5px 0 #ffffff;
+}
+
+.VPHome .VPButton:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 8px 8px 0 var(--xacpx-ink);
+}
+
+.dark .VPHome .VPButton:hover {
+  box-shadow: 8px 8px 0 #ffffff;
+}
+
+.VPHome .VPButton:active {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 var(--xacpx-ink);
+}
+
+.dark .VPHome .VPButton:active {
+  box-shadow: 2px 2px 0 #ffffff;
+}
+
+/* ---- feature cards: bordered blocks with hard shadow + accent header ------- */
+.VPHome .VPFeature {
+  border: 3px solid var(--xacpx-ink) !important;
+  border-radius: 0 !important;
+  background-color: #ffffff;
+  box-shadow: 7px 7px 0 var(--xacpx-ink);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.dark .VPHome .VPFeature {
+  background-color: #161616;
+  border-color: #ffffff !important;
+  box-shadow: 7px 7px 0 #ffffff;
+}
+
+.VPHome .VPFeature:hover {
+  transform: translate(-3px, -3px);
+  box-shadow: 10px 10px 0 var(--xacpx-ink);
+}
+
+.dark .VPHome .VPFeature:hover {
+  box-shadow: 10px 10px 0 #ffffff;
+}
+
+/* per-card accent top stripe (cycles yellow / teal / pink) */
+.VPHome .VPFeatures .items .item:nth-child(3n + 1) .VPFeature {
+  border-top: 9px solid var(--xacpx-accent) !important;
+}
+
+.VPHome .VPFeatures .items .item:nth-child(3n + 2) .VPFeature {
+  border-top: 9px solid var(--xacpx-accent-2) !important;
+}
+
+.VPHome .VPFeatures .items .item:nth-child(3n + 3) .VPFeature {
+  border-top: 9px solid var(--xacpx-accent-3) !important;
+}
+
+.VPHome .VPFeature .title {
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+/* if a feature ever declares an icon, square it off with an ink border */
+.VPHome .VPFeature .icon {
+  border-radius: 0 !important;
+  background: var(--xacpx-accent) !important;
+  border: 2px solid var(--xacpx-ink);
+}
+
+.dark .VPHome .VPFeature .icon {
+  border-color: #ffffff;
+}
+
+/* ---- markdown sections rendered below the hero/features -------------------- */
+.VPHome .vp-doc h2 {
+  border-top: 0;
+  margin-top: 44px;
+  padding-top: 0;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+
+.VPHome .vp-doc h2::before {
+  content: "";
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin-right: 0.5em;
+  background: var(--xacpx-accent);
+  border: 2px solid var(--xacpx-ink);
+  vertical-align: -0.05em;
+}
+
+.dark .VPHome .vp-doc h2::before {
+  border-color: #ffffff;
+}
+
+/* tables in the home markdown get the bordered-block treatment */
+.VPHome .vp-doc table {
+  border: 3px solid var(--xacpx-ink);
+  box-shadow: 6px 6px 0 var(--xacpx-ink);
+}
+
+.dark .VPHome .vp-doc table {
+  border-color: #ffffff;
+  box-shadow: 6px 6px 0 #ffffff;
+}
+
+.VPHome .vp-doc th {
+  background: var(--xacpx-accent);
+  color: var(--xacpx-ink);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
