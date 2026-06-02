@@ -14,11 +14,11 @@
   "author": "gadzan",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/gadzan/weacpx/issues"
+    "url": "https://github.com/gadzan/xacpx/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gadzan/weacpx.git"
+    "url": "git+https://github.com/gadzan/xacpx.git"
   },
   "type": "module",
   "bin": {

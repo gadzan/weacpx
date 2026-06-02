@@ -6,8 +6,8 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gadzan/weacpx.git",
-    "directory": "packages/weacpx-compat"
+    "url": "git+https://github.com/gadzan/xacpx.git",
+    "directory": "weacpx-compat"
   },
   "type": "module",
   "exports": {

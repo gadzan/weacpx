@@ -6,7 +6,7 @@
   "keywords": ["xacpx", "yuanbao", "channel", "plugin"],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ganglion-ai/weacpx.git",
+    "url": "git+https://github.com/gadzan/xacpx.git",
     "directory": "packages/channel-yuanbao"
   },
   "type": "module",
