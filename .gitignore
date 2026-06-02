@@ -19,3 +19,6 @@ undefined/
 # docs/superpowers
 docs/releases
 docs/202*
+packages/docs/.vitepress/cache
+packages/docs/.vitepress/dist
+.superpowers/
