@@ -192,6 +192,7 @@ Currently supported paths:
 - `logging.retentionDays`
 - `channel.type`
 - `channel.replyMode`
+- `language`
 
 **Dynamic fields** (target must already exist):
 - `agents.<name>.driver`

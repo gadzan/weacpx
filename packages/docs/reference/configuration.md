@@ -25,6 +25,7 @@ Environment variable overrides:
 
 ```jsonc
 {
+  "language": "en",
   "transport": { ... },
   "logging": { ... },
   "channel": { ... },
@@ -47,6 +48,12 @@ Environment variable overrides:
   "orchestration": {}
 }
 ```
+
+## Language
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `language` | `"en"` \| `"zh"` | No | Selects the language for all xacpx runtime output (chat replies, CLI output, orchestration prompts, messages). When absent, the language is inferred from the system locale on first run (`$LC_ALL`/`$LC_MESSAGES`/`$LANG`: starts with `zh` → Chinese, otherwise English) and persisted to config. Changeable in chat with `/config set language en`. Takes full effect after `xacpx restart`. |
 
 ## Transport configuration
 
@@ -322,6 +329,7 @@ The `logging.perf` tracer is bound at `buildApp()` time; changing it requires a 
 
 ```json
 {
+  "language": "en",
   "transport": {
     "type": "acpx-bridge",
     "command": "acpx",

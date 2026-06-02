@@ -192,6 +192,7 @@
 - `logging.retentionDays`
 - `channel.type`
 - `channel.replyMode`
+- `language`
 
 **动态字段**（目标必须已存在）：
 - `agents.<name>.driver`

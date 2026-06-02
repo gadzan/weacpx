@@ -378,6 +378,8 @@ opencode, qoder, qwen, trae
 /pm auto deny
 ```
 
+> `/config set language en`（或 `zh`）可切换 xacpx 的界面语言；缺省按系统 locale 自动推断。详见 [docs/config-reference.md](./docs/config-reference.md)。
+
 ### 多 Agent 编排
 
 README 里只保留用户视角的最常用命令。

@@ -25,6 +25,7 @@
 
 ```jsonc
 {
+  "language": "zh",
   "transport": { ... },
   "logging": { ... },
   "channel": { ... },
@@ -47,6 +48,12 @@
   "orchestration": {}
 }
 ```
+
+## 语言
+
+| 字段 | 类型 | 是否必填 | 说明 |
+|------|------|----------|------|
+| `language` | `"en"` \| `"zh"` | 否 | 选择 xacpx 运行时输出（聊天回复、CLI 输出、编排提示词等）的语言；缺省时首次启动按系统 locale（`$LANG` 等，`zh*` → 中文，否则英文）推断并写入配置；可用 `/config set language en` 修改；改后需 `xacpx restart` 生效 |
 
 ## 传输层配置
 
@@ -322,6 +329,7 @@ xacpx restart
 
 ```json
 {
+  "language": "zh",
   "transport": {
     "type": "acpx-bridge",
     "command": "acpx",
