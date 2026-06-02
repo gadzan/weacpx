@@ -273,12 +273,22 @@ async sendFinalText(chatKey: string, text: string) {
 ### `AppLogger`
 
 ```ts
-await logger.info(eventCode: string, message: string, fields?: Record<string, unknown>): Promise<void>
+export interface AppLogger {
+  debug: (event: string, message: string, context?: LogContext) => Promise<void>;
+  info: (event: string, message: string, context?: LogContext) => Promise<void>;
+  error: (event: string, message: string, context?: LogContext) => Promise<void>;
+}
+```
+
+Usage:
+
+```ts
+await logger.info("feishu.inbound.message", "received message", { chatKey });
 ```
 
 Conventions:
 - Use `<channel>.<area>.<verb>` event codes, e.g. `"feishu.inbound.message"`, `"yuanbao.gateway.connected"`.
-- Strip secrets and PII from `fields`. Never include `appSecret` or user tokens.
+- Strip secrets and PII from the `context` object. Never include `appSecret` or user tokens.
 - The daemon already adds timestamps and PID — do not repeat them.
 
 Logs are written to `~/.xacpx/runtime/app.log` and surfaced by `xacpx doctor --verbose`.
@@ -474,7 +484,7 @@ First-party plugins follow the path `packages/channel-<type>/` and are published
 
 Official plugins listed by `xacpx plugin known`:
 
-```
+```text
 - feishu   @ganglion/xacpx-channel-feishu   Feishu channel
 - yuanbao  @ganglion/xacpx-channel-yuanbao  Tencent Yuanbao channel
 

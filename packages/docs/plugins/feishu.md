@@ -41,7 +41,7 @@ The channel supports three reply modes controlled by `options.replyMode`:
 
 | Mode | Behavior |
 |------|-----------|
-| `"auto"` (default) | Streaming for direct (p2p) chats; static for groups. Groups already serialize visually in a thread, so the multi-message static path stays simpler there. |
+| `"auto"` (default) | Streaming for direct (p2p) chats; static for groups. Group chats already present messages sequentially in a thread, so the multi-message static path stays simpler there. |
 | `"streaming"` | The channel creates one CardKit v2 interactive card per turn and updates it in place: thinking → streaming → complete (or aborted/error). Output appears progressively in a single message slot. |
 | `"static"` | Every `reply()` chunk plus the final agent response are sent as separate text messages, each replying to the user's incoming message. |
 
@@ -98,7 +98,7 @@ Streaming mode requires the bot to have **`cardkit:card:write`** plus **`im:mess
 
 ## Tool call rendering
 
-When `channel.replyMode: "verbose"` (the default) is paired with streaming mode, tool calls are rendered as a collapsible **🔧 工具调用 (N)** panel above the answer body instead of inline text segments. Each step shows:
+When `channel.replyMode: "verbose"` — the xacpx session reply mode (config path `channel.replyMode`, values `stream` / `final` / `verbose`), which is separate from Feishu's `options.replyMode` (auto / streaming / static) documented above — is paired with streaming mode, tool calls are rendered as a collapsible **🔧 工具调用 (N)** panel above the answer body instead of inline text segments. Each step shows:
 
 - Status: ✅ / ⏳ / ❌
 - Kind icon: 📖 read · 🔍 search · 💻 execute · ✏️ edit · 🧠 think · 🔧 other
