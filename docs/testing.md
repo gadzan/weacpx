@@ -2,131 +2,131 @@
 
 ## Goal
 
-让测试目录和执行入口保持清晰、稳定、可维护。
+Keep the test directory and execution entry points clear, stable, and maintainable.
 
-生产代码放在 `src/`，测试代码放在 `tests/`，不要再把测试文件散落在源码目录里。
+Production code goes in `src/`, test code goes in `tests/`; don't scatter test files around the source directories anymore.
 
-## 目录约定
+## Directory Conventions
 
 ### `tests/unit/`
 
-默认单元测试目录。
+The default unit test directory.
 
-规则：
+Rules:
 
-- 目录结构尽量镜像 `src/`
-- 默认所有稳定、可重复、无外部环境依赖的测试都放这里
-- `npm test` 和 `npm run test:unit` 都跑这里
+- The directory structure should mirror `src/` as much as possible
+- By default, all stable, repeatable tests with no external-environment dependencies go here
+- Both `npm test` and `npm run test:unit` run this directory
 
 ### `tests/integration/`
 
-为真正跨模块、跨边界的测试预留。
+Reserved for tests that are genuinely cross-module and cross-boundary.
 
-只有当测试明显依赖多个模块协作，并且不适合继续放在 `tests/unit/` 时，再使用这个目录。
+Only use this directory when a test clearly depends on multiple modules collaborating and is no longer suitable to keep in `tests/unit/`.
 
-当前仓库还没有强制启用它。
+This repository does not yet enforce its use.
 
 ### `tests/smoke/`
 
-放真实环境烟测脚本或需要外部依赖的验证：
+Holds real-environment smoke test scripts or validations that need external dependencies:
 
-- 真实 `acpx`
-- 真实 bridge
-- 真实微信运行链路
+- Real `acpx`
+- Real bridge
+- Real WeChat runtime path
 
-这些测试不应进入默认 `npm test`，避免本地或 CI 因环境差异变得不稳定。
+These tests should not enter the default `npm test`, to avoid local or CI instability caused by environment differences.
 
 ### `tests/helpers/`
 
-放测试辅助函数、fixture builder、测试专用工具。
+Holds test helper functions, fixture builders, and test-only utilities.
 
-当前如果某个 helper 很小，也可以先内联在测试文件里；只有复用明显时再提取。
+For now, if a helper is very small, you can inline it in the test file first; only extract it when reuse becomes obvious.
 
-## 默认命令
+## Default Commands
 
-### 全量默认单元测试
+### Full Default Unit Tests
 
 ```bash
 npm test
 ```
 
-等价于：
+Equivalent to:
 
 ```bash
 npx tsc --noEmit
 node ./scripts/run-tests.mjs
 ```
 
-默认先执行 TypeScript 类型检查，再递归执行 `tests/unit/**/*.test.ts`。
+By default it first runs the TypeScript type check, then recursively runs `tests/unit/**/*.test.ts`.
 
-### 显式运行 unit tests
+### Explicitly Run Unit Tests
 
 ```bash
 npm run test:unit
 ```
 
-同样会先执行：
+This also first runs:
 
 ```bash
 npx tsc --noEmit
 ```
 
-### 构建验证
+### Build Verification
 
 ```bash
 bun run build
 ```
 
-## 新增测试时的规则
+## Rules When Adding New Tests
 
-1. 新测试默认放 `tests/unit/`
-2. 目录结构尽量镜像 `src/`
-3. 测试文件命名保持 `*.test.ts`
-4. 避免把临时排障脚本留在仓库根目录
-5. 需要真实环境的验证不要塞进默认测试套件
+1. New tests go in `tests/unit/` by default
+2. The directory structure should mirror `src/` as much as possible
+3. Keep test file names as `*.test.ts`
+4. Avoid leaving temporary troubleshooting scripts at the repository root
+5. Don't stuff validations that need a real environment into the default test suite
 
-## 什么时候放进 smoke
+## When to Put It in smoke
 
-下列情况优先考虑 `tests/smoke/` 而不是 `tests/unit/`：
+Prefer `tests/smoke/` over `tests/unit/` in the following cases:
 
-- 需要真实 `acpx` 会话
-- 需要真实 `~/.acpx` 状态写入
-- 需要真实微信登录
-- 需要外部网络、GUI、二维码扫描或本地 agent 运行环境
+- Needs a real `acpx` session
+- Needs real `~/.acpx` state writes
+- Needs a real WeChat login
+- Needs external network, GUI, QR code scanning, or a local agent runtime environment
 
-## 迁移后的规则
+## Rules After the Migration
 
-- `src/` 只放生产代码
-- `tests/` 只放测试代码
-- `scripts/` 只放运行脚本，不放测试主体
+- `src/` holds production code only
+- `tests/` holds test code only
+- `scripts/` holds run scripts only, not test bodies
 
-如果以后需要新增测试类型，优先在 `tests/` 下新增子目录，而不是重新把测试塞回 `src/`。
+If you need to add a new test type in the future, prefer adding a subdirectory under `tests/` rather than stuffing tests back into `src/`.
 
-## 会话创建体验（Smoke）
+## Session Creation Experience (Smoke)
 
-### 平台包缺失自愈
+### Self-Healing for Missing Platform Packages
 
-复现：
-1. 删除 opencode 安装目录下的 `node_modules/opencode-windows-x64`。
-2. 在微信中执行 `/ss opencode --ws weacpx`。
-3. 预期消息序列：
-   - 🚀 正在启动 `opencode`…
-   - 📦 检测到缺失依赖 `opencode-windows-x64`，正在自动安装…
-   - 🔄 安装完成，正在验证会话启动…
-   - 🚀 正在启动 `opencode`…（验证阶段的全新进度，计时从 0 开始）
-   - 🔧 `opencode` 初始化中…（已等待 Ns）（仅长耗时时）
-   - ✅ 会话已创建：...
+Reproduction:
+1. Delete `node_modules/opencode-windows-x64` under the opencode install directory.
+2. In WeChat, run `/ss opencode --ws weacpx`.
+3. Expected message sequence:
+   - 🚀 Starting `opencode`…
+   - 📦 Detected missing dependency `opencode-windows-x64`, auto-installing…
+   - 🔄 Installation complete, verifying session startup…
+   - 🚀 Starting `opencode`… (fresh progress for the verification phase, timing restarts from 0)
+   - 🔧 `opencode` initializing… (waited Ns) (only when it takes a long time)
+   - ✅ Session created: ...
 
-### 自愈失败
+### Self-Healing Failure
 
-两类失败：
+Two kinds of failure:
 
-- **npm 安装失败**（断网、权限等）：自动尝试精确（每个候选父包路径各一次，覆盖 Bun/npm/pnpm/yarn 全局与本地 node_modules）与全局共 N 次安装都非零退出。最终消息标题为 `❌ 自动安装失败`，列出每次 stderr 摘要（精确步骤会标注具体路径）、手动命令 `npm install -g <pkg>`、日志路径。
-- **安装成功但验证仍失败**（精确安装落在错误的依赖树上、资源已被 acpx 缓存）：安装 exit=0 但重新 ensureSession 仍抛缺失依赖。最终消息标题为 `⚠️ 自动安装已执行但未能修复会话启动问题`，每个步骤显示"安装已执行但验证失败（精确 / <path>｜全局）"，同样附手动命令与日志路径。
-- **跨包管理器发现**：weacpx 在自动安装前会枚举候选父包目录——Bridge 报告的 seed、`require.resolve` 能看到的本地 node_modules、`$BUN_INSTALL`/`~/.bun/install/global/node_modules`、以及 `npm root -g` / `pnpm root -g` / `yarn global dir`。存在 `package.json` 的目录依次作为 "精确" 安装步骤。
+- **npm installation failure** (no network, permissions, etc.): all N installations — automatically attempting the precise ones (once per candidate parent-package path, covering Bun/npm/pnpm/yarn global and local node_modules) and the global one — exit non-zero. The final message title is `❌ Auto-install failed`, listing the stderr summary of each attempt (precise steps annotate the specific path), the manual command `npm install -g <pkg>`, and the log path.
+- **Installation succeeds but verification still fails** (the precise install landed in the wrong dependency tree, the resource has already been cached by acpx): the install exits 0 but re-running ensureSession still throws a missing dependency. The final message title is `⚠️ Auto-install was performed but failed to fix the session startup problem`, where each step shows "install performed but verification failed (precise / <path> | global)", and likewise attaches the manual command and the log path.
+- **Cross-package-manager discovery**: before auto-installing, weacpx enumerates the candidate parent-package directories — the seed reported by the Bridge, the local node_modules visible to `require.resolve`, `$BUN_INSTALL`/`~/.bun/install/global/node_modules`, and `npm root -g` / `pnpm root -g` / `yarn global dir`. Directories that contain a `package.json` are used in turn as "precise" install steps.
 
-### 仅进度反馈
+### Progress Feedback Only
 
-在无错场景下，`/ss <agent>`：
-- < 3s：只看到 🚀 正在启动
-- ≥ 3s：🚀 后再见 🔧 初始化中…（已等待 Ns）
+In the error-free scenario, `/ss <agent>`:
+- < 3s: you only see 🚀 Starting
+- ≥ 3s: after 🚀 you also see 🔧 Initializing… (waited Ns)

@@ -1,33 +1,33 @@
-# `/config` 命令说明
+# `/config` Command Reference
 
-`/config` 是一个**受限的配置写入口**。
+`/config` is a **restricted configuration write entry point**.
 
-目标不是让聊天窗口变成任意 JSON 编辑器，而是：
+The goal is not to turn the chat window into an arbitrary JSON editor, but to:
 
-- 允许修改一组明确支持的配置字段
-- 拒绝不支持的字段
-- 拒绝不存在的动态项
-- 保持 `config.json` 结构稳定可校验
+- Allow modifying a set of explicitly supported configuration fields
+- Reject unsupported fields
+- Reject non-existent dynamic items
+- Keep the `config.json` structure stable and verifiable
 
 ---
 
-## 命令
+## Commands
 
-### 查看支持修改的字段
+### View the fields that can be modified
 
 ```text
 /config
 ```
 
-返回当前允许通过聊天命令修改的配置路径白名单。
+Returns the current allowlist of configuration paths that may be modified via chat commands.
 
-### 修改配置
+### Modify configuration
 
 ```text
 /config set <path> <value>
 ```
 
-例如：
+For example:
 
 ```text
 /config set channel.replyMode final
@@ -38,9 +38,9 @@
 
 ---
 
-## 当前支持的路径
+## Currently Supported Paths
 
-固定字段：
+Fixed fields:
 
 - `transport.type`
 - `transport.command`
@@ -54,16 +54,16 @@
 - `channel.replyMode`
 
 
-说明：性能 debug 日志 `logging.perf.*` 不支持通过聊天里的 `/config set` 动态开关。需要手动编辑 `~/.xacpx/config.json` 的 `logging.perf`，然后重启 daemon；该 tracer 在启动时绑定。
+Note: the performance debug log `logging.perf.*` does not support dynamic toggling via `/config set` in chat. You need to manually edit `logging.perf` in `~/.xacpx/config.json` and then restart the daemon; this tracer is bound at startup.
 
-兼容旧配置：
+Backward-compatible fields:
 
-- `channel.type`（旧单频道配置；多频道请使用 `xacpx channel ...`）
-- `channels[]`（多频道运行配置；推荐使用 `xacpx channel ...` 管理）
+- `channel.type` (old single-channel configuration; for multi-channel, use `xacpx channel ...`)
+- `channels[]` (multi-channel runtime configuration; recommended to manage with `xacpx channel ...`)
 
-飞书凭据和多频道配置请优先用电脑终端里的频道 CLI 管理，例如 `xacpx channel add feishu`。完整说明见 [`docs/channel-management.md`](./channel-management.md)。
+Feishu credentials and multi-channel configuration should preferably be managed with the channel CLI in your computer's terminal, e.g. `xacpx channel add feishu`. See full instructions in [`docs/channel-management.md`](./channel-management.md).
 
-动态字段：
+Dynamic fields:
 
 - `agents.<name>.driver`
 - `agents.<name>.command`
@@ -72,89 +72,89 @@
 
 ---
 
-## 规则
+## Rules
 
-### 1. 只允许白名单路径
+### 1. Only allowlisted paths are allowed
 
-不在上面列表里的路径，`/config set` 会直接拒绝。
+For paths not in the list above, `/config set` rejects them directly.
 
-例如：
+For example:
 
 ```text
 /config set transport.missing x
 ```
 
-会返回“不支持修改这个配置路径”。
+returns "modifying this configuration path is not supported".
 
-### 2. 不自动创建动态项
+### 2. Dynamic items are not created automatically
 
-以下路径要求目标已经存在：
+The following paths require the target to already exist:
 
 - `agents.<name>.*`
 - `workspaces.<name>.*`
 
-也就是说：
+That is:
 
-- `agents.claude.driver` 只有在 `claude` 这个 agent 已经存在时才能修改
-- `workspaces.backend.cwd` 只有在 `backend` 这个 workspace 已经存在时才能修改
+- `agents.claude.driver` can only be modified when the `claude` agent already exists
+- `workspaces.backend.cwd` can only be modified when the `backend` workspace already exists
 
-如果不存在，会直接报错，不会自动创建。
+If it does not exist, it errors out directly and does not create it automatically.
 
-### 3. 按字段类型校验
+### 3. Validation by field type
 
-不同路径会按各自类型校验。
+Different paths are validated according to their respective types.
 
-例如：
+For example:
 
-- `channel.replyMode` 只支持 `stream` / `final` / `verbose`
-- `wechat.replyMode`（兼容旧配置）同样只支持 `stream` / `final` / `verbose`
-- `transport.permissionMode` 只支持 `approve-all` / `approve-reads` / `deny-all`
-- `logging.maxFiles`、`logging.maxSizeBytes`、`logging.retentionDays`、`transport.sessionInitTimeoutMs` 必须是正数
+- `channel.replyMode` only supports `stream` / `final` / `verbose`
+- `wechat.replyMode` (backward-compatible configuration) likewise only supports `stream` / `final` / `verbose`
+- `transport.permissionMode` only supports `approve-all` / `approve-reads` / `deny-all`
+- `logging.maxFiles`, `logging.maxSizeBytes`, `logging.retentionDays`, `transport.sessionInitTimeoutMs` must be positive numbers
 
-### 4. 修改后会立即写回 `config.json`
+### 4. Changes are immediately written back to `config.json`
 
-`/config set` 成功后会：
+After `/config set` succeeds, it:
 
-1. 更新内存中的当前配置
-2. 持久化到 `~/.xacpx/config.json`
+1. Updates the current in-memory configuration
+2. Persists to `~/.xacpx/config.json`
 
-所以这是**真实配置修改**，不是临时会话状态。
+So this is a **real configuration change**, not a temporary session state.
 
 ---
 
-## 与其它命令的关系
+## Relationship with Other Commands
 
-`/config` 不是为了替代现有高层命令。
+`/config` is not meant to replace existing high-level commands.
 
-- `agent` 的创建和删除，仍然优先用：
+- For creating and deleting an `agent`, still prefer:
   - `/agent add`
   - `/agent rm`
-- `workspace` 的创建和删除，优先用高层命令：
+- For creating and deleting a `workspace`, prefer the high-level commands:
   - `/ws new`
   - `/workspace rm`
-  - 或在电脑当前目录执行 `xacpx workspace add [name]` / `xacpx workspace rm <name>`
-- `/replymode` 改的是**当前逻辑会话覆盖**
-- `channel.replyMode` 改的是**全局默认值**
+  - Or run `xacpx workspace add [name]` / `xacpx workspace rm <name>` in the computer's current directory
+- `/replymode` changes the **current logical session override**
+- `channel.replyMode` changes the **global default value**
 
-也就是说：
+That is:
 
-- `/config set channel.replyMode final`：改全局默认
-- `/replymode final`：只改当前逻辑会话
-- `/config set wechat.replyMode final`：兼容旧路径，等同于改 `channel.replyMode`
+- `/config set channel.replyMode final`: changes the global default
+- `/replymode final`: changes only the current logical session
+- `/config set wechat.replyMode final`: a backward-compatible path, equivalent to changing `channel.replyMode`
 
 ---
 
-## 设计边界
+## Design Boundaries
 
-这个命令故意**不支持任意深度 JSON 修改**。
+This command intentionally **does not support arbitrary-depth JSON modification**.
 
-原因很简单：
+The reason is simple:
 
-1. `config.json` 里既有固定字段，也有 `agents/workspaces` 这种动态 map
-2. 如果完全开放任意路径写入，很容易把配置写坏
-3. xacpx 的目标是“远程可控”，不是“远程手写配置文件”
+1. `config.json` has both fixed fields and dynamic maps such as `agents/workspaces`
+2. If arbitrary path writes were fully opened up, it would be easy to corrupt the configuration
+3. xacpx's goal is "remotely controllable", not "remotely hand-write the configuration file"
 
-所以 `/config` 的原则是：
+So the principle of `/config` is:
 
-- 只开放高频且可安全校验的字段
-- 其余字段保持显式实现
+- Only open up high-frequency fields that can be safely validated
+- Keep the rest of the fields explicitly implemented

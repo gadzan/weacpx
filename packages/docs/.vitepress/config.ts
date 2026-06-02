@@ -71,6 +71,7 @@ export default defineConfig({
             {
               text: 'Reference',
               items: [
+                { text: 'CLI Commands', link: '/reference/cli' },
                 { text: 'Commands', link: '/reference/commands' },
                 { text: 'Configuration', link: '/reference/configuration' },
                 { text: '/config Command', link: '/reference/config-command' },
@@ -137,6 +138,7 @@ export default defineConfig({
             {
               text: '参考',
               items: [
+                { text: 'CLI 命令', link: '/zh/reference/cli' },
                 { text: '命令参考', link: '/zh/reference/commands' },
                 { text: '配置参考', link: '/zh/reference/configuration' },
                 { text: '/config 命令', link: '/zh/reference/config-command' },

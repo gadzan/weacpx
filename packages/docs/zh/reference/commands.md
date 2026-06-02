@@ -2,6 +2,8 @@
 
 本页列出所有可从聊天频道（微信、飞书、元宝或插件频道）发送给 xacpx 的命令。日常使用的核心命令请参阅 README；若需完整命令列表、别名及参数格式，请阅读本页。
 
+> 想找终端里的 `xacpx` 命令（`start`、`update`、`plugin`、`channel`、`doctor` 等）？见 [CLI 命令](/zh/reference/cli)。
+
 ## 命令语法
 
 - `<value>` 表示必填参数。
@@ -186,6 +188,7 @@
 - `transport.sessionInitTimeoutMs`
 - `transport.permissionMode`
 - `transport.nonInteractivePermissions`
+- `transport.permissionPolicy`
 - `logging.level`
 - `logging.maxSizeBytes`
 - `logging.maxFiles`
