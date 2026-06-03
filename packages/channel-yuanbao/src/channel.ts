@@ -1,5 +1,5 @@
 import { createConversationExecutor, resolveTurnLane } from "xacpx/plugin-api";
-import { t } from "./i18n/index.js";
+import { t, setChannelLocale } from "./i18n/index.js";
 import type {
   ActiveTurnRegistry,
   ChannelStartInput,
@@ -112,6 +112,7 @@ export class YuanbaoChannel implements MessageChannelRuntime {
   }
 
   async start(input: ChannelStartInput): Promise<void> {
+    setChannelLocale(input.locale ?? "en");
     this.agent = input.agent;
     this.quota = input.quota;
     this.logger = input.logger;

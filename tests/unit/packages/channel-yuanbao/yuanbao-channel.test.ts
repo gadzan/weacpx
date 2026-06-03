@@ -3,8 +3,7 @@ import { beforeAll, beforeEach, afterEach, expect, test } from "bun:test";
 import yuanbaoPlugin, { YuanbaoChannel } from "../../../../packages/channel-yuanbao/src/index";
 import { createMessageChannel, hasChannelFactory } from "../../../../src/channels/create-channel";
 import { registerChannelPlugin } from "../../../../src/channels/plugin";
-import { setLocale } from "../../../../src/i18n";
-import { t } from "../../../../packages/channel-yuanbao/src/i18n";
+import { t, setChannelLocale } from "../../../../packages/channel-yuanbao/src/i18n";
 import { hasChannelCliProvider } from "../../../../src/channels/cli/registry";
 import { buildYuanbaoChatKey, extractYuanbaoContent, parseYuanbaoChatKey } from "../../../../packages/channel-yuanbao/src/inbound";
 import type { ChatAgent } from "../../../../src/channels/types";
@@ -23,8 +22,8 @@ beforeAll(() => {
   ensureYuanbaoPluginRegisteredForTest();
 });
 
-beforeEach(() => { setLocale("zh"); });
-afterEach(() => { setLocale("en"); });
+beforeEach(() => { setChannelLocale("zh"); });
+afterEach(() => { setChannelLocale("en"); });
 
 function createNoopQuota() {
   return {
