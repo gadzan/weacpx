@@ -412,7 +412,7 @@ Common causes: the target agent is unavailable, the underlying acpx failed to st
 [xacpx:mcp] mcp.stdio.shutdown {"reason":"parent_dead","parentPid":1234}
 ```
 
-You can use `WEACPX_MCP_PARENT_CHECK_INTERVAL_MS` to adjust the parent-process check interval (in milliseconds); set it to `0` to disable parent-process polling, mainly for debugging.
+You can use `XACPX_MCP_PARENT_CHECK_INTERVAL_MS` to adjust the parent-process check interval (in milliseconds); set it to `0` to disable parent-process polling, mainly for debugging. (The legacy `WEACPX_MCP_PARENT_CHECK_INTERVAL_MS` name is still honored as a fallback.)
 
 Manual verification (Windows PowerShell): start a parent Node process, have it create `xacpx mcp-stdio`, then force-kill the parent process, and observe that the child process should exit after one check cycle.
 

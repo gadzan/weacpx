@@ -256,7 +256,7 @@ If `xacpx` is globally installed and discoverable by the host:
 [xacpx:mcp] mcp.stdio.shutdown {"reason":"parent_dead","parentPid":1234}
 ```
 
-Set `WEACPX_MCP_PARENT_CHECK_INTERVAL_MS` to adjust the poll interval (milliseconds). Set to `0` to disable parent polling (debug use only).
+Set `XACPX_MCP_PARENT_CHECK_INTERVAL_MS` to adjust the poll interval (milliseconds). Set to `0` to disable parent polling (debug use only). The legacy `WEACPX_MCP_PARENT_CHECK_INTERVAL_MS` name still works as a fallback.
 
 ### `sourceHandle` reuse
 

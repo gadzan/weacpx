@@ -46,7 +46,7 @@ xacpx update <name>     # 更新单个目标（本体，或某个具体插件包
 - 在非交互环境下，更新本体或插件需要显式确认：用 `--all`，或用 `xacpx update <name>` 指定目标。
 - 如果想直接管理单个插件的版本，用 `xacpx plugin update <name>`（见下方[频道](#频道-xacpx-channel) / [插件](#插件-xacpx-plugin)）。
 - 更新后运行 `xacpx restart`，让正在运行的 daemon 加载新版本。
-- **跨包改名迁移：** 当项目改名后的后继包发布后，运行 `weacpx update` 会提示自动迁移到新包（由你确认切换）。在此之前该能力处于休眠状态，`update` 表现为普通的本体自更新。
+- **跨包改名迁移：** 本项目已由 `weacpx` 改名为 `xacpx`。只有仍安装着旧 `weacpx` 包的用户才需要运行 `weacpx update`，它会提示自动迁移到 `xacpx`（由你确认切换）。已经在使用 `xacpx` 的用户直接用 `xacpx update` 做普通的本体自更新即可。
 
 ## 频道 —— `xacpx channel`
 

@@ -193,7 +193,6 @@
 - `logging.maxSizeBytes`
 - `logging.maxFiles`
 - `logging.retentionDays`
-- `channel.type`
 - `channel.replyMode`
 - `language`
 
@@ -204,6 +203,8 @@
 - `workspaces.<name>.description`
 
 > **注意：** 性能调试日志设置（`logging.perf.*`）不在 `/config set` 白名单中。请直接编辑 `~/.xacpx/config.json` 并重启守护进程使其生效。
+
+> **注意：** `channel.type` 已禁用——通过 `/config set channel.type` 设置会返回错误。该字段仅作为遗留单频道配置保留以向后兼容；多频道场景请使用 `xacpx channel ...`。
 
 ```text
 /config set channel.replyMode final

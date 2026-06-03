@@ -251,6 +251,7 @@ Known common values:
 
 Currently supported paths:
 
+- `language`
 - `transport.type`
 - `transport.command`
 - `transport.sessionInitTimeoutMs`
@@ -264,7 +265,6 @@ Currently supported paths:
 
 Note: the performance debug logs `logging.perf.*` are currently not on the `/config set` whitelist; edit `~/.xacpx/config.json` directly and restart the daemon for them to take effect. See [config-reference.md](./config-reference.md#loggingperf) for details.
 
-- `channel.type`
 - `channel.replyMode`
 - `agents.<name>.driver`
 - `agents.<name>.command`

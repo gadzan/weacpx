@@ -256,7 +256,7 @@ xacpx mcp-stdio --workspace backend
 [xacpx:mcp] mcp.stdio.shutdown {"reason":"parent_dead","parentPid":1234}
 ```
 
-设置 `WEACPX_MCP_PARENT_CHECK_INTERVAL_MS` 可调整轮询间隔（毫秒）。设为 `0` 可禁用父进程轮询（仅用于调试）。
+设置 `XACPX_MCP_PARENT_CHECK_INTERVAL_MS` 可调整轮询间隔（毫秒）。设为 `0` 可禁用父进程轮询（仅用于调试）。遗留的 `WEACPX_MCP_PARENT_CHECK_INTERVAL_MS` 名称仍作为回退被识别。
 
 ### `sourceHandle` 复用
 

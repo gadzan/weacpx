@@ -46,7 +46,7 @@ xacpx update <name>     # update a single target (the core, or a specific plugin
 - In a non-interactive environment, updating the core or plugins needs explicit confirmation: use `--all`, or name the target with `xacpx update <name>`.
 - To manage a single plugin's version directly, use `xacpx plugin update <name>` (see [Channels](#channels-xacpx-channel) / [Plugins](#plugins-xacpx-plugin) below).
 - After updating, run `xacpx restart` so a running daemon loads the new version.
-- **Cross-package rename migration:** once the project's renamed successor package is published, running `weacpx update` will offer to migrate you across to it automatically (you confirm the switch). Until then this is dormant and `update` behaves as a normal self-update.
+- **Cross-package rename migration:** the project was renamed from `weacpx` to `xacpx`. Only legacy `weacpx` installs run `weacpx update`, which offers to migrate you across to `xacpx` automatically (you confirm the switch). If you are already on `xacpx`, just run `xacpx update` as a normal self-update.
 
 ## Channels — `xacpx channel`
 

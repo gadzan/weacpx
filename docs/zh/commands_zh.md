@@ -251,6 +251,7 @@ Session 是你在微信里操作的逻辑会话。每个会话绑定一个 agent
 
 当前支持的路径：
 
+- `language`
 - `transport.type`
 - `transport.command`
 - `transport.sessionInitTimeoutMs`
@@ -264,7 +265,6 @@ Session 是你在微信里操作的逻辑会话。每个会话绑定一个 agent
 
 说明：性能 debug 日志 `logging.perf.*` 目前不在 `/config set` 白名单内；请直接编辑 `~/.xacpx/config.json`，并重启 daemon 后生效。详见 [config-reference.md](./config-reference_zh.md#loggingperf)。
 
-- `channel.type`
 - `channel.replyMode`
 - `agents.<name>.driver`
 - `agents.<name>.command`

@@ -61,7 +61,7 @@
 
 | 字段 | 类型 | 是否必填 | 说明 |
 |------|------|----------|------|
-| `type` | `"acpx-cli"` \| `"acpx-bridge"` | 是 | 通信模式 |
+| `type` | `"acpx-cli"` \| `"acpx-bridge"` | 否 | 通信模式；省略时默认为 `"acpx-bridge"` |
 | `command` | `string` | 否 | `acpx` 二进制文件的显式路径；覆盖自动解析逻辑 |
 | `sessionInitTimeoutMs` | `number` | 否 | 会话初始化超时时间（毫秒，默认：`120000`） |
 | `permissionMode` | `"approve-all"` \| `"approve-reads"` \| `"deny-all"` | 否 | 权限模式；**省略时默认为 `"approve-all"`**，即非交互式提示词回合不会因权限请求停止，除非显式配置更严格的策略 |
@@ -321,6 +321,7 @@ xacpx restart
 | `orchestration.allowWorkerChainedRequests` | `false` |
 | `orchestration.allowedAgentRequestTargets` | `[]`（无限制） |
 | `orchestration.allowedAgentRequestRoles` | `[]`（无限制） |
+| `orchestration.progressHeartbeatSeconds` | `300`（非有限值时回退为 `300`） |
 | `orchestration.maxParallelTasksPerAgent` | `3` |
 
 ## 示例

@@ -193,7 +193,6 @@ Currently supported paths:
 - `logging.maxSizeBytes`
 - `logging.maxFiles`
 - `logging.retentionDays`
-- `channel.type`
 - `channel.replyMode`
 - `language`
 

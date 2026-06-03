@@ -412,7 +412,7 @@ Get-Content ~/.xacpx/runtime/app.log -Tail 200
 [xacpx:mcp] mcp.stdio.shutdown {"reason":"parent_dead","parentPid":1234}
 ```
 
-可用 `WEACPX_MCP_PARENT_CHECK_INTERVAL_MS` 调整父进程检查间隔（毫秒）；设为 `0` 可关闭父进程轮询，主要用于调试。
+可用 `XACPX_MCP_PARENT_CHECK_INTERVAL_MS` 调整父进程检查间隔（毫秒）；设为 `0` 可关闭父进程轮询，主要用于调试。（遗留名 `WEACPX_MCP_PARENT_CHECK_INTERVAL_MS` 仍作为回退兼容。）
 
 手工验证（Windows PowerShell）：启动一个父 Node 进程，让它创建 `xacpx mcp-stdio`，随后强杀父进程，观察子进程应在一个检查周期后退出。
 
