@@ -1,4 +1,5 @@
 import { createConversationExecutor, resolveTurnLane } from "xacpx/plugin-api";
+import { t } from "./i18n/index.js";
 import type {
   ActiveTurnRegistry,
   ChannelStartInput,
@@ -43,8 +44,8 @@ const REPLY_HEARTBEAT_INTERVAL_MS = 2_000;
 function formatScheduledFailureText(input: ScheduledChannelMessageInput, error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return input.taskId
-    ? `⏰ 定时任务 #${input.taskId} 执行失败：${message}`
-    : `⏰ 定时任务执行失败：${message}`;
+    ? t().scheduledFailureWithId(input.taskId, message)
+    : t().scheduledFailure(message);
 }
 
 export interface YuanbaoChannelDeps {
@@ -143,7 +144,7 @@ export class YuanbaoChannel implements MessageChannelRuntime {
     if (!task.chatKey) return;
     if (this.isAborted()) return;
     try {
-      const delivered = await this.sendRouteText(task.chatKey, task.replyContextToken, task.resultText || task.summary || "任务已完成。");
+      const delivered = await this.sendRouteText(task.chatKey, task.replyContextToken, task.resultText || task.summary || t().taskCompleted);
       if (this.markDelivered) await this.markDelivered(task.taskId, task.accountId || delivered.accountId);
     } catch (error) {
       if (this.markFailed) {
@@ -588,7 +589,7 @@ export class YuanbaoChannel implements MessageChannelRuntime {
           if (boundAlias && this.sessions && !inForeground()) {
             const message = error instanceof Error ? error.message : String(error);
             await this.sessions.setBackgroundResult(chatKey, boundAlias, {
-              text: `⚠️ 执行出错：${message}`,
+              text: t().executionError(message),
               status: "error",
               finished_at: new Date().toISOString(),
             });

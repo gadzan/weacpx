@@ -1,8 +1,13 @@
-import { expect, test } from "bun:test";
+import { beforeEach, afterEach, expect, test } from "bun:test";
 
 import { YuanbaoChannel } from "../../../../packages/channel-yuanbao/src/index";
 import type { ChatAgent } from "../../../../src/channels/types";
 import type { YuanbaoGateway, YuanbaoGatewayStartInput } from "../../../../packages/channel-yuanbao/src/types";
+import { setLocale } from "../../../../src/i18n";
+import { t } from "../../../../packages/channel-yuanbao/src/i18n";
+
+beforeEach(() => { setLocale("zh"); });
+afterEach(() => { setLocale("en"); });
 
 function createNoopQuota() {
   return {
@@ -141,8 +146,8 @@ test("a backgrounded turn stores its final text for /use replay and pings comple
   expect(sessions.setCalls[0]!.result.status).toBe("done");
   expect(sessions.setCalls[0]!.result.text).toBe("the background answer");
   // The answer must NOT leak into the now-foreground chat — only a short ping.
-  expect(sent.some((t) => t.includes("the background answer"))).toBe(false);
-  expect(sent.some((t) => t.includes("已完成") && t.includes("/use"))).toBe(true);
+  expect(sent.some((msg) => msg.includes("the background answer"))).toBe(false);
+  expect(sent.some((msg) => msg === t().bgDone("yuanbao:default:user_001:codex"))).toBe(true);
 });
 
 test("a turn still in the foreground delivers normally and records no background result", async () => {
@@ -165,8 +170,8 @@ test("a turn still in the foreground delivers normally and records no background
   await startInput!.onMessage(directText("帮我跑个任务", "m4"));
 
   expect(setCalls).toHaveLength(0);
-  expect(sent.some((t) => t.includes("foreground answer"))).toBe(true);
-  expect(sent.some((t) => t.includes("已完成"))).toBe(false);
+  expect(sent.some((msg) => msg.includes("foreground answer"))).toBe(true);
+  expect(sent.some((msg) => msg.includes("完成"))).toBe(false);
 });
 
 test("a backgrounded turn that errors records an error result and pings failure", async () => {
@@ -188,8 +193,8 @@ test("a backgrounded turn that errors records an error result and pings failure"
 
   expect(sessions.setCalls).toHaveLength(1);
   expect(sessions.setCalls[0]!.result.status).toBe("error");
-  expect(sessions.setCalls[0]!.result.text).toContain("执行出错");
-  expect(sent.some((t) => t.includes("失败"))).toBe(true);
+  expect(sessions.setCalls[0]!.result.text).toBe(t().executionError("boom"));
+  expect(sent.some((msg) => msg === t().bgError("yuanbao:default:user_001:codex"))).toBe(true);
 });
 
 test("a shutdown abort thrown mid-turn is NOT recorded as a background error", async () => {
@@ -218,5 +223,5 @@ test("a shutdown abort thrown mid-turn is NOT recorded as a background error", a
 
   // A shutdown is not a turn failure: nothing stored, no failure ping.
   expect(sessions.setCalls).toHaveLength(0);
-  expect(sent.some((t) => t.includes("失败"))).toBe(false);
+  expect(sent.some((msg) => msg.includes("fail") || msg.includes("失败"))).toBe(false);
 });
