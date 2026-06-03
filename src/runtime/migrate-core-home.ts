@@ -91,7 +91,7 @@ function supplementMissingCoreFiles(input: {
       copied.push(fileName);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      input.log(`补迁移 ${from} → ${to} 失败，已跳过：${detail}`);
+      input.log(t().migrate.supplementFailed(from, to, detail));
     }
   }
 
@@ -99,7 +99,7 @@ function supplementMissingCoreFiles(input: {
     return { migrated: false, reason: "already-current" };
   }
 
-  input.log(`已从旧目录补迁移 ${copied.join(", ")} 到 ${input.primary}（未覆盖任何现有文件）。`);
+  input.log(t().migrate.supplemented(copied.join(", "), input.primary));
   return { migrated: true, reason: "supplemented", from: input.legacy, to: input.primary };
 }
 

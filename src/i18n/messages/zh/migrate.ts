@@ -13,4 +13,12 @@ export const migrate: MigrateMessages = {
   // migrateCoreHome — copy failed
   failed: (legacy: string, primary: string, detail: string) =>
     `迁移状态目录 ${legacy} → ${primary} 失败，继续使用旧目录：${detail}`,
+
+  // supplementMissingCoreFiles — per-file supplement copy failed
+  supplementFailed: (from: string, to: string, detail: string) =>
+    `补迁移 ${from} → ${to} 失败，已跳过：${detail}`,
+
+  // supplementMissingCoreFiles — supplemented missing files from legacy dir
+  supplemented: (files: string, primary: string) =>
+    `已从旧目录补迁移 ${files} 到 ${primary}（未覆盖任何现有文件）。`,
 };

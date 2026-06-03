@@ -13,4 +13,12 @@ export const migrate: MigrateMessages = {
   // migrateCoreHome — copy failed
   failed: (legacy: string, primary: string, detail: string) =>
     `Failed to migrate state directory ${legacy} → ${primary}. Continuing with the old directory: ${detail}`,
+
+  // supplementMissingCoreFiles — per-file supplement copy failed
+  supplementFailed: (from: string, to: string, detail: string) =>
+    `Failed to supplement ${from} → ${to}; skipped: ${detail}`,
+
+  // supplementMissingCoreFiles — supplemented missing files from legacy dir
+  supplemented: (files: string, primary: string) =>
+    `Supplemented ${files} from the old directory into ${primary} (no existing files were overwritten).`,
 };
