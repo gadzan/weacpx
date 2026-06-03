@@ -29,6 +29,7 @@ import type { PendingFinalChunk } from "./quota-manager.js";
 import { handleSlashCommand } from "./slash-commands.js";
 import { normalizeMediaArray } from "../../channels/media-types.js";
 import { createNoopPerfTracer, type PerfTracer } from "../../perf/perf-tracer.js";
+import { t } from "../../i18n/index.js";
 
 // Conservative WeChat single-message text upper bound; leaves headroom for
 // `(i/N) ` prefixes and the heads-up tail. WeChat's actual limit varies by
@@ -636,7 +637,7 @@ export async function handleWeixinMessageTurn(
     perfSpan.setOutcome("error", { reason: "turn_error" });
     const errorText = err instanceof Error ? err.stack ?? err.message : JSON.stringify(err);
     deps.errLog(`handleWeixinMessageTurn: agent or send failed: ${errorText}`);
-    const errMessage = `⚠️ 执行出错：${err instanceof Error ? err.message : JSON.stringify(err)}`;
+    const errMessage = t().misc.executionError(err instanceof Error ? err.message : JSON.stringify(err));
     const errDisposition = resolveFinalDisposition(
       shouldDeliverSegment(deps.isForeground),
       Boolean(deps.boundSessionAlias && deps.onBackgroundFinal),

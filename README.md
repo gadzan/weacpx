@@ -396,6 +396,8 @@ The most common examples:
 /pm auto deny
 ```
 
+> `/config set language en` (or `zh`) switches the xacpx interface language; it otherwise follows your system locale. See [docs/config-reference.md](./docs/config-reference.md).
+
 ### Multi-agent orchestration
 
 The README keeps only the most common user-facing commands.

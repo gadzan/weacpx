@@ -34,6 +34,7 @@ For example:
 /config set logging.level debug
 /config set transport.permissionMode approve-reads
 /config set workspaces.backend.description backend repo
+/config set language en
 ```
 
 ---
@@ -52,6 +53,7 @@ Fixed fields:
 - `logging.maxFiles`
 - `logging.retentionDays`
 - `channel.replyMode`
+- `language`
 
 
 Note: the performance debug log `logging.perf.*` does not support dynamic toggling via `/config set` in chat. You need to manually edit `logging.perf` in `~/.xacpx/config.json` and then restart the daemon; this tracer is bound at startup.

@@ -8,6 +8,7 @@ import { createMcpStdioIdentityResolver, prepareMcpCoordinatorStartup, resolveLo
 import { normalizeWorkspacePath } from "../../src/commands/workspace-path";
 import { listAgentTemplates } from "../../src/config/agent-templates";
 import { createEmptyState } from "../../src/state/types";
+import { setLocale, t } from "../../src/i18n";
 
 async function withTempHome<T>(fn: (home: string) => Promise<T>): Promise<T> {
   const home = await mkdtemp(join(tmpdir(), "xacpx-cli-"));
@@ -73,6 +74,7 @@ test("dispatches login", async () => {
 });
 
 test("prints running status", async () => {
+  setLocale("zh");
   const lines: string[] = [];
 
   await expect(
@@ -102,7 +104,7 @@ test("prints running status", async () => {
   ).resolves.toBe(0);
 
   expect(lines).toEqual([
-    "xacpx 正在运行",
+    t().cli.running,
     "PID: 12345",
     "Started: 2026-03-26T00:00:00.000Z",
     "Heartbeat: 2026-03-26T00:01:00.000Z",
@@ -115,6 +117,7 @@ test("prints running status", async () => {
 });
 
 test("prints indeterminate status when daemon pid is alive but metadata is missing", async () => {
+  setLocale("zh");
   const lines: string[] = [];
 
   await expect(
@@ -131,12 +134,13 @@ test("prints indeterminate status when daemon pid is alive but metadata is missi
   ).resolves.toBe(1);
 
   expect(lines).toEqual([
-    "xacpx 进程仍在运行，但状态元数据缺失",
+    t().cli.indeterminate,
     "PID: 12345",
   ]);
 });
 
 test("prints already running on repeated start", async () => {
+  setLocale("zh");
   const lines: string[] = [];
 
   await expect(
@@ -152,10 +156,11 @@ test("prints already running on repeated start", async () => {
     }),
   ).resolves.toBe(0);
 
-  expect(lines).toEqual(["xacpx 已在后台运行", "PID: 12345"]);
+  expect(lines).toEqual([t().cli.alreadyRunning, "PID: 12345"]);
 });
 
 test("start prints friendly error and exit code 1 when controller throws", async () => {
+  setLocale("zh");
   const lines: string[] = [];
 
   await expect(
@@ -173,7 +178,7 @@ test("start prints friendly error and exit code 1 when controller throws", async
     }),
   ).resolves.toBe(1);
 
-  expect(lines.some((line) => line.startsWith("xacpx 启动失败：daemon exited before reporting ready state"))).toBe(true);
+  expect(lines.some((line) => line === t().cli.startFailed("daemon exited before reporting ready state (pid 9999)"))).toBe(true);
   expect(lines.every((line) => !line.includes("at "))).toBe(true);
 });
 
@@ -181,6 +186,7 @@ test("start surfaces stderr log hint when daemon dies before ready (missing plug
   // Simulates the case where the daemon fails to spawn because configured
   // channel `yuanbao` has no plugin installed: the foreground CLI must point
   // the user at the log file instead of printing a Node stack.
+  setLocale("zh");
   const lines: string[] = [];
 
   await expect(
@@ -198,12 +204,13 @@ test("start surfaces stderr log hint when daemon dies before ready (missing plug
     }),
   ).resolves.toBe(1);
 
-  expect(lines.some((line) => line.startsWith("xacpx 启动失败：xacpx daemon exited before reporting ready state"))).toBe(true);
-  expect(lines.some((line) => line.startsWith("请查看 App Log: ") && line.includes("app.log"))).toBe(true);
-  expect(lines.some((line) => line.startsWith("请查看 Stderr: ") && line.includes("stderr.log"))).toBe(true);
+  expect(lines.some((line) => line === t().cli.startFailed("xacpx daemon exited before reporting ready state (pid 31415)"))).toBe(true);
+  expect(lines.some((line) => line.includes("app.log"))).toBe(true);
+  expect(lines.some((line) => line.includes("stderr.log"))).toBe(true);
 });
 
 test("start/status use daemon runtime next to custom XACPX_CONFIG", async () => {
+  setLocale("zh");
   await withTempHome(async () => {
     const configRoot = await mkdtemp(join(tmpdir(), "xacpx-cli-config-"));
     const previousConfig = process.env.XACPX_CONFIG;
@@ -239,7 +246,7 @@ test("start/status use daemon runtime next to custom XACPX_CONFIG", async () => 
         }),
       ).resolves.toBe(0);
 
-      expect(lines).toContain("xacpx 正在运行");
+      expect(lines).toContain(t().cli.running);
       expect(lines).toContain(`App Log: ${join(runtimeDir, "app.log")}`);
     } finally {
       if (previousConfig === undefined) {
@@ -253,6 +260,7 @@ test("start/status use daemon runtime next to custom XACPX_CONFIG", async () => 
 });
 
 test("start surfaces app log hint next to custom XACPX_CONFIG", async () => {
+  setLocale("zh");
   const lines: string[] = [];
   await withTempHome(async () => {
     const configRoot = await mkdtemp(join(tmpdir(), "xacpx-cli-config-"));
@@ -274,7 +282,7 @@ test("start surfaces app log hint next to custom XACPX_CONFIG", async () => {
           isInteractive: () => false,
         }),
       ).resolves.toBe(1);
-      expect(lines).toContain(`请查看 App Log: ${join(configRoot, "runtime", "app.log")}`);
+      expect(lines).toContain(t().cli.checkAppLog(join(configRoot, "runtime", "app.log")));
     } finally {
       if (previousConfig === undefined) {
         delete process.env.XACPX_CONFIG;
@@ -287,6 +295,7 @@ test("start surfaces app log hint next to custom XACPX_CONFIG", async () => {
 });
 
 test("restart prints friendly error and exit code 1 when controller throws", async () => {
+  setLocale("zh");
   const lines: string[] = [];
 
   await expect(
@@ -304,11 +313,12 @@ test("restart prints friendly error and exit code 1 when controller throws", asy
     }),
   ).resolves.toBe(1);
 
-  expect(lines.some((line) => line.startsWith("xacpx 重启失败：startup polling timed out"))).toBe(true);
+  expect(lines.some((line) => line === t().cli.restartFailed("startup polling timed out"))).toBe(true);
   expect(lines.every((line) => !line.includes("at "))).toBe(true);
 });
 
 test("prints stop result", async () => {
+  setLocale("zh");
   const lines: string[] = [];
 
   await expect(
@@ -324,10 +334,11 @@ test("prints stop result", async () => {
     }),
   ).resolves.toBe(0);
 
-  expect(lines).toEqual(["xacpx 已停止"]);
+  expect(lines).toEqual([t().cli.stopped]);
 });
 
 test("prints help for unknown commands", async () => {
+  setLocale("zh");
   const lines: string[] = [];
 
   await expect(
@@ -338,25 +349,7 @@ test("prints help for unknown commands", async () => {
     }),
   ).resolves.toBe(1);
 
-  expect(lines).toEqual([
-    "用法：",
-    "xacpx login  - 微信登录",
-    "xacpx logout - 退出登录",
-    "xacpx run    - 前台运行",
-    "xacpx start  - 后台启动",
-    "xacpx status - 查看状态",
-    "xacpx stop   - 停止服务",
-    "xacpx restart - 重启后台服务",
-    "xacpx update [--all|<name>] - 更新 xacpx 和已安装插件",
-    "xacpx channel|ch list|show|add|rm|enable|disable [--account <id>] - 管理消息频道（多 bot 用 --account）",
-    "xacpx plugin list|add|update|remove|enable|disable|doctor|known - 管理插件",
-    "xacpx doctor - 运行诊断",
-    "xacpx version - 查看版本",
-    "xacpx agent|agents list|add|rm|templates - 管理本机 Agent",
-    "xacpx workspace list|add [name] [--raw]|rm <name> - 管理本机工作区（别名：ws）",
-    "xacpx later|lt list|cancel <id> - 管理本机待执行定时任务",
-    "xacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务",
-  ]);
+  expect(lines).toEqual(t().cli.helpLines);
 });
 
 test("dispatches doctor", async () => {
@@ -436,6 +429,7 @@ test("passes doctor options through unchanged", async () => {
 });
 
 test("adds a workspace from the current directory with basename as default name", async () => {
+  setLocale("zh");
   await withTempHome(async (home) => {
     const lines: string[] = [];
 
@@ -446,13 +440,14 @@ test("adds a workspace from the current directory with basename as default name"
       }),
     ).resolves.toBe(0);
 
-    expect(lines).toEqual(["工作区「backend」已保存：/repo/backend"]);
+    expect(lines).toEqual([t().cli.workspaceSaved("backend", "/repo/backend")]);
     const config = await readConfigJson(home);
     expect(config.workspaces.backend).toEqual({ cwd: "/repo/backend" });
   });
 });
 
 test("adds a workspace with an explicit name via ws alias", async () => {
+  setLocale("zh");
   await withTempHome(async (home) => {
     const lines: string[] = [];
 
@@ -463,13 +458,14 @@ test("adds a workspace with an explicit name via ws alias", async () => {
       }),
     ).resolves.toBe(0);
 
-    expect(lines).toEqual(["工作区「api」已保存：/repo/backend"]);
+    expect(lines).toEqual([t().cli.workspaceSaved("api", "/repo/backend")]);
     const config = await readConfigJson(home);
     expect(config.workspaces.api).toEqual({ cwd: "/repo/backend" });
   });
 });
 
 test("workspace add is idempotent for the same name and path", async () => {
+  setLocale("zh");
   await withTempHome(async () => {
     const lines: string[] = [];
 
@@ -481,11 +477,12 @@ test("workspace add is idempotent for the same name and path", async () => {
       }),
     ).resolves.toBe(0);
 
-    expect(lines).toEqual(["工作区「api」已存在：/repo/backend"]);
+    expect(lines).toEqual([t().cli.workspaceAlreadyExists("api", "/repo/backend")]);
   });
 });
 
 test("workspace add rejects an existing name with a different path", async () => {
+  setLocale("zh");
   await withTempHome(async () => {
     const lines: string[] = [];
 
@@ -498,13 +495,14 @@ test("workspace add rejects an existing name with a different path", async () =>
     ).resolves.toBe(1);
 
     expect(lines).toEqual([
-      "工作区「api」已存在，但路径不同：/repo/backend",
-      "请换一个名称，或先执行：xacpx workspace rm api",
+      t().cli.workspaceConflictPath("api", "/repo/backend"),
+      t().cli.workspaceConflictHint("api"),
     ]);
   });
 });
 
 test("workspace add rejects an explicit blank name", async () => {
+  setLocale("zh");
   await withTempHome(async () => {
     const lines: string[] = [];
 
@@ -515,11 +513,12 @@ test("workspace add rejects an explicit blank name", async () => {
       }),
     ).resolves.toBe(1);
 
-    expect(lines).toEqual(["工作区名称不能为空。"]);
+    expect(lines).toEqual([t().cli.workspaceNameEmpty]);
   });
 });
 
 test("workspace add sanitizes a non-ASCII basename by default", async () => {
+  setLocale("zh");
   await withTempHome(async (home) => {
     const lines: string[] = [];
 
@@ -531,8 +530,8 @@ test("workspace add sanitizes a non-ASCII basename by default", async () => {
     ).resolves.toBe(0);
 
     expect(lines).toEqual([
-      '目录名 "my repo!" 含有特殊字符，已保存为「my-repo」。如需保留原名请加 --raw。',
-      "工作区「my-repo」已保存：/tmp/my repo!",
+      t().cli.workspaceNameSanitized(t().cli.workspaceSourceLabelDir, "my repo!", "my-repo"),
+      t().cli.workspaceSaved("my-repo", "/tmp/my repo!"),
     ]);
     const config = await readConfigJson(home);
     expect(config.workspaces["my-repo"]).toEqual({ cwd: "/tmp/my repo!" });
@@ -541,6 +540,7 @@ test("workspace add sanitizes a non-ASCII basename by default", async () => {
 });
 
 test("workspace add sanitizes an explicit dirty name", async () => {
+  setLocale("zh");
   await withTempHome(async (home) => {
     const lines: string[] = [];
 
@@ -553,8 +553,8 @@ test("workspace add sanitizes an explicit dirty name", async () => {
     ).resolves.toBe(0);
 
     expect(lines).toEqual([
-      '名称 "My Repo" 含有特殊字符，已保存为「My-Repo」。如需保留原名请加 --raw。',
-      "工作区「My-Repo」已保存：/repo/b",
+      t().cli.workspaceNameSanitized(t().cli.workspaceSourceLabelName, "My Repo", "My-Repo"),
+      t().cli.workspaceSaved("My-Repo", "/repo/b"),
     ]);
     const config = await readConfigJson(home);
     expect(config.workspaces["my-repo"]).toEqual({ cwd: "/repo/a" });
@@ -563,6 +563,7 @@ test("workspace add sanitizes an explicit dirty name", async () => {
 });
 
 test("workspace add --raw keeps a literal name with spaces", async () => {
+  setLocale("zh");
   await withTempHome(async (home) => {
     const lines: string[] = [];
 
@@ -573,13 +574,14 @@ test("workspace add --raw keeps a literal name with spaces", async () => {
       }),
     ).resolves.toBe(0);
 
-    expect(lines).toEqual(["工作区「My Repo」已保存：/repo/b"]);
+    expect(lines).toEqual([t().cli.workspaceSaved("My Repo", "/repo/b")]);
     const config = await readConfigJson(home);
     expect(config.workspaces["My Repo"]).toEqual({ cwd: "/repo/b" });
   });
 });
 
 test("workspace add error suggestion quotes a name that needs quoting", async () => {
+  setLocale("zh");
   await withTempHome(async () => {
     const lines: string[] = [];
 
@@ -594,13 +596,14 @@ test("workspace add error suggestion quotes a name that needs quoting", async ()
     ).resolves.toBe(1);
 
     expect(lines).toEqual([
-      "工作区「My Repo」已存在，但路径不同：/repo/a",
-      '请换一个名称，或先执行：xacpx workspace rm "My Repo"',
+      t().cli.workspaceConflictPath("My Repo", "/repo/a"),
+      t().cli.workspaceConflictHint('"My Repo"'),
     ]);
   });
 });
 
 test("lists and removes workspaces from the CLI", async () => {
+  setLocale("zh");
   await withTempHome(async () => {
     const lines: string[] = [];
 
@@ -616,12 +619,12 @@ test("lists and removes workspaces from the CLI", async () => {
     await expect(runCli(["ws", "list"], { print: (line) => lines.push(line) })).resolves.toBe(0);
 
     expect(lines).toEqual([
-      "工作区列表：",
+      t().cli.workspaceListHeader,
       `- home: ${homeWorkspace}`,
       "- backend: /repo/backend",
       "- frontend: /repo/frontend",
-      "工作区「backend」已删除",
-      "工作区列表：",
+      t().cli.workspaceRemoved("backend"),
+      t().cli.workspaceListHeader,
       `- home: ${homeWorkspace}`,
       "- frontend: /repo/frontend",
     ]);
@@ -629,27 +632,30 @@ test("lists and removes workspaces from the CLI", async () => {
 });
 
 test("workspace rm trims the provided name", async () => {
+  setLocale("zh");
   await withTempHome(async () => {
     const lines: string[] = [];
 
     await expect(runCli(["workspace", "add", "api"], { cwd: () => "/repo/backend", print: () => {} })).resolves.toBe(0);
     await expect(runCli(["workspace", "rm", " api "], { print: (line) => lines.push(line) })).resolves.toBe(0);
 
-    expect(lines).toEqual(["工作区「api」已删除"]);
+    expect(lines).toEqual([t().cli.workspaceRemoved("api")]);
   });
 });
 
 test("workspace rm rejects a blank name", async () => {
+  setLocale("zh");
   await withTempHome(async () => {
     const lines: string[] = [];
 
     await expect(runCli(["workspace", "rm", " "], { print: (line) => lines.push(line) })).resolves.toBe(1);
 
-    expect(lines).toEqual(["工作区名称不能为空。"]);
+    expect(lines).toEqual([t().cli.workspaceNameEmpty]);
   });
 });
 
 test("workspace list handles an empty config and rm missing returns 1", async () => {
+  setLocale("zh");
   await withTempHome(async () => {
     const lines: string[] = [];
 
@@ -658,29 +664,32 @@ test("workspace list handles an empty config and rm missing returns 1", async ()
     await expect(runCli(["workspace", "list"], { print: (line) => lines.push(line) })).resolves.toBe(0);
     await expect(runCli(["workspace", "rm", "missing"], { print: (line) => lines.push(line) })).resolves.toBe(1);
 
-    expect(lines).toEqual(["还没有工作区。", "没有找到工作区「missing」。"]);
+    expect(lines).toEqual([t().cli.workspaceEmpty, t().cli.workspaceNotFound("missing")]);
   });
 });
 
 test("workspace commands reject invalid arguments", async () => {
+  setLocale("zh");
   const lines: string[] = [];
 
   await expect(runCli(["workspace", "add", "a", "b"], { print: (line) => lines.push(line) })).resolves.toBe(1);
   await expect(runCli(["workspace", "rm"], { print: (line) => lines.push(line) })).resolves.toBe(1);
   await expect(runCli(["ws", "nope"], { print: (line) => lines.push(line) })).resolves.toBe(1);
 
-  expect(lines.filter((line) => line === "xacpx workspace list|add [name] [--raw]|rm <name> - 管理本机工作区（别名：ws）")).toHaveLength(3);
+  expect(lines.filter((line) => line === t().cli.helpLines.find((l) => l.includes("workspace")))).toHaveLength(3);
 });
 
 test("agent templates lists built-in templates", async () => {
+  setLocale("zh");
   const lines: string[] = [];
 
   await expect(runCli(["agent", "templates"], { print: (line) => lines.push(line) })).resolves.toBe(0);
 
-  expect(lines).toEqual(["可用 Agent 模板：", ...listAgentTemplates().map((name) => `- ${name}`)]);
+  expect(lines).toEqual([t().cli.agentTemplatesHeader, ...listAgentTemplates().map((name) => `- ${name}`)]);
 });
 
 test("adds lists and removes agents from the CLI", async () => {
+  setLocale("zh");
   await withTempHome(async (home) => {
     const lines: string[] = [];
 
@@ -689,12 +698,12 @@ test("adds lists and removes agents from the CLI", async () => {
     await expect(runCli(["agents", "rm", "kimi"], { print: (line) => lines.push(line) })).resolves.toBe(0);
 
     expect(lines).toEqual([
-      "Agent「kimi」已保存",
-      "Agent 列表：",
+      t().cli.agentSaved("kimi"),
+      t().cli.agentListHeader,
       "- codex: driver=codex",
       "- claude: driver=claude",
       "- kimi: driver=kimi",
-      "Agent「kimi」已删除",
+      t().cli.agentRemoved("kimi"),
     ]);
     const config = await readConfigJson(home);
     expect(config.agents.kimi).toBeUndefined();
@@ -702,16 +711,18 @@ test("adds lists and removes agents from the CLI", async () => {
 });
 
 test("agent add rejects unknown templates", async () => {
+  setLocale("zh");
   await withTempHome(async () => {
     const lines: string[] = [];
 
     await expect(runCli(["agent", "add", "unknown"], { print: (line) => lines.push(line) })).resolves.toBe(1);
 
-    expect(lines).toEqual([`暂不支持这个 Agent 模板。当前可用：${listAgentTemplates().join("、")}`]);
+    expect(lines).toEqual([t().cli.agentUnsupportedTemplate(listAgentTemplates())]);
   });
 });
 
 test("agent add is idempotent and refuses to overwrite custom configs", async () => {
+  setLocale("zh");
   await withTempHome(async (home) => {
     const lines: string[] = [];
 
@@ -725,35 +736,38 @@ test("agent add is idempotent and refuses to overwrite custom configs", async ()
     await expect(runCli(["agent", "add", "qwen"], { print: (line) => lines.push(line) })).resolves.toBe(1);
 
     expect(lines).toEqual([
-      "Agent「codex」已存在",
-      "Agent「qwen」已存在且配置不同。请先执行：xacpx agent rm qwen",
+      t().cli.agentAlreadyExists("codex"),
+      t().cli.agentAlreadyExistsDifferent("qwen"),
     ]);
     expect((await readConfigJson(home)).agents.qwen).toEqual({ driver: "qwen", command: "custom-qwen" });
   });
 });
 
 test("agent rm trims names and reports missing agents", async () => {
+  setLocale("zh");
   await withTempHome(async () => {
     const lines: string[] = [];
 
     await expect(runCli(["agent", "rm", " claude "], { print: (line) => lines.push(line) })).resolves.toBe(0);
     await expect(runCli(["agent", "rm", "missing"], { print: (line) => lines.push(line) })).resolves.toBe(1);
 
-    expect(lines).toEqual(["Agent「claude」已删除", "没有找到 Agent「missing」。"]);
+    expect(lines).toEqual([t().cli.agentRemoved("claude"), t().cli.agentNotFound("missing")]);
   });
 });
 
 test("agent commands reject invalid arguments", async () => {
+  setLocale("zh");
   const lines: string[] = [];
 
   await expect(runCli(["agent", "add"], { print: (line) => lines.push(line) })).resolves.toBe(1);
   await expect(runCli(["agent", "rm"], { print: (line) => lines.push(line) })).resolves.toBe(1);
   await expect(runCli(["agents", "nope"], { print: (line) => lines.push(line) })).resolves.toBe(1);
 
-  expect(lines.filter((line) => line === "xacpx agent|agents list|add|rm|templates - 管理本机 Agent")).toHaveLength(3);
+  expect(lines.filter((line) => line === t().cli.helpLines.find((l) => l.includes("agent|agents")))).toHaveLength(3);
 });
 
 test("later list prints pending scheduled tasks from local state", async () => {
+  setLocale("zh");
   await withTempHome(async (home) => {
     const state = createEmptyState();
     state.scheduled_tasks.zzzz = {
@@ -793,30 +807,32 @@ test("later list prints pending scheduled tasks from local state", async () => {
     await expect(runCli(["later", "list"], { print: (line) => lines.push(line) })).resolves.toBe(0);
 
     const output = lines.join("\n");
-    expect(output).toContain("待执行定时任务：");
+    expect(output).toContain(t().scheduledRender.listHeader);
     // ScheduledTaskService.listPending() sorts by execute_at, so the task
     // inserted second with the earlier execution time must render first.
     expect(output.indexOf("#k8f2")).toBeLessThan(output.indexOf("#zzzz"));
-    expect(output).toContain("临时会话（backend · codex）");
+    expect(output).toContain(t().scheduledRender.tempSession("backend", "codex"));
     expect(output).toContain("检查 CI");
-    expect(output).toContain("会话：frontend-codex");
+    expect(output).toContain(t().scheduledRender.boundSession("frontend-codex"));
     expect(output).toContain("不应该先显示");
     expect(output).not.toContain("已完成任务不显示");
   });
 });
 
 test("later list reports when there are no pending scheduled tasks", async () => {
+  setLocale("zh");
   await withTempHome(async (home) => {
     await writeStateJson(home, createEmptyState());
 
     const lines: string[] = [];
     await expect(runCli(["lt", "list"], { print: (line) => lines.push(line) })).resolves.toBe(0);
 
-    expect(lines).toEqual(["当前没有待执行定时任务。"]);
+    expect(lines).toEqual([t().scheduledRender.listEmpty]);
   });
 });
 
 test("later cancel cancels a pending scheduled task by id", async () => {
+  setLocale("zh");
   await withTempHome(async (home) => {
     const state = createEmptyState();
     state.scheduled_tasks.k8f2 = {
@@ -833,7 +849,7 @@ test("later cancel cancels a pending scheduled task by id", async () => {
     const lines: string[] = [];
     await expect(runCli(["later", "cancel", "#K8F2"], { print: (line) => lines.push(line) })).resolves.toBe(0);
 
-    expect(lines).toEqual(["已取消定时任务 #k8f2"]);
+    expect(lines).toEqual([t().cli.laterCancelled("k8f2")]);
     const updated = await readStateJson(home);
     expect(updated.scheduled_tasks.k8f2.status).toBe("cancelled");
     expect(typeof updated.scheduled_tasks.k8f2.cancelled_at).toBe("string");
@@ -841,6 +857,7 @@ test("later cancel cancels a pending scheduled task by id", async () => {
 });
 
 test("later cancel returns 1 when the scheduled task is not pending", async () => {
+  setLocale("zh");
   await withTempHome(async (home) => {
     const state = createEmptyState();
     state.scheduled_tasks.k8f2 = {
@@ -858,23 +875,25 @@ test("later cancel returns 1 when the scheduled task is not pending", async () =
     const lines: string[] = [];
     await expect(runCli(["lt", "cancel", "k8f2"], { print: (line) => lines.push(line) })).resolves.toBe(1);
 
-    expect(lines).toEqual(["未找到待执行的定时任务 #k8f2。", "可以用 xacpx later list 查看当前待执行任务。"]);
+    expect(lines).toEqual([t().cli.laterNotFound("k8f2"), t().cli.laterNotFoundHint]);
     const updated = await readStateJson(home);
     expect(updated.scheduled_tasks.k8f2.status).toBe("executed");
   });
 });
 
 test("later commands reject invalid arguments", async () => {
+  setLocale("zh");
   const lines: string[] = [];
 
   await expect(runCli(["later"], { print: (line) => lines.push(line) })).resolves.toBe(1);
   await expect(runCli(["later", "cancel"], { print: (line) => lines.push(line) })).resolves.toBe(1);
   await expect(runCli(["lt", "create"], { print: (line) => lines.push(line) })).resolves.toBe(1);
 
-  expect(lines.filter((line) => line === "xacpx later|lt list|cancel <id> - 管理本机待执行定时任务")).toHaveLength(3);
+  expect(lines.filter((line) => line === t().cli.helpLines.find((l) => l.includes("later|lt")))).toHaveLength(3);
 });
 
 test("prints doctor in help output", async () => {
+  setLocale("zh");
   const lines: string[] = [];
 
   await expect(
@@ -885,7 +904,7 @@ test("prints doctor in help output", async () => {
     }),
   ).resolves.toBe(1);
 
-  expect(lines).toContain("xacpx doctor - 运行诊断");
+  expect(lines).toContain(t().cli.helpLines.find((l) => l.includes("doctor")));
 });
 
 test("prints version for 'version' command", async () => {
@@ -1565,18 +1584,20 @@ test("login channel resolver ignores feishu channel.type and returns weixin", as
 });
 
 test("dispatches channel alias to channel CLI", async () => {
+  setLocale("zh");
   await withTempHome(async (home) => {
     const lines: string[] = [];
 
     await expect(runCli(["ch", "list"], { print: (line) => lines.push(line) })).resolves.toBe(0);
 
-    expect(lines).toContain("消息频道：");
+    expect(lines.some((line) => line.includes("weixin"))).toBe(true);
     const config = await readConfigJson(home);
     expect(config.channels).toEqual([{ id: "weixin", type: "weixin", enabled: true }]);
   });
 });
 
 test("prints help for '--help' flag and exits 0", async () => {
+  setLocale("zh");
   const lines: string[] = [];
 
   await expect(
@@ -1587,20 +1608,22 @@ test("prints help for '--help' flag and exits 0", async () => {
     }),
   ).resolves.toBe(0);
 
-  expect(lines).toContain("xacpx version - 查看版本");
-  expect(lines).toContain("xacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务");
+  expect(lines).toContain(t().cli.helpLines.find((l) => l.includes("version")));
+  expect(lines).toContain(t().cli.helpLines.find((l) => l.includes("mcp-stdio")));
 });
 
 test("help includes restart and channel commands", async () => {
+  setLocale("zh");
   const lines: string[] = [];
 
   await expect(runCli(["--help"], { print: (line) => lines.push(line) })).resolves.toBe(0);
 
-  expect(lines).toContain("xacpx restart - 重启后台服务");
-  expect(lines).toContain("xacpx channel|ch list|show|add|rm|enable|disable [--account <id>] - 管理消息频道（多 bot 用 --account）");
+  expect(lines).toContain(t().cli.helpLines.find((l) => l.includes("restart")));
+  expect(lines).toContain(t().cli.helpLines.find((l) => l.includes("channel|ch")));
 });
 
 test("restart stops then starts a running daemon", async () => {
+  setLocale("zh");
   const lines: string[] = [];
   const events: string[] = [];
 
@@ -1635,10 +1658,11 @@ test("restart stops then starts a running daemon", async () => {
   ).resolves.toBe(0);
 
   expect(events).toEqual(["stop", "start"]);
-  expect(lines).toEqual(["xacpx 正在重启...", "xacpx 已停止", "xacpx 已在后台启动", "PID: 222"]);
+  expect(lines).toEqual([t().cli.restarting, t().cli.stopped, t().cli.started, "PID: 222"]);
 });
 
 test("restart starts a stopped daemon", async () => {
+  setLocale("zh");
   const lines: string[] = [];
   const events: string[] = [];
 
@@ -1660,10 +1684,11 @@ test("restart starts a stopped daemon", async () => {
   ).resolves.toBe(0);
 
   expect(events).toEqual(["start"]);
-  expect(lines).toEqual(["xacpx 未运行，正在启动...", "xacpx 已在后台启动", "PID: 333"]);
+  expect(lines).toEqual([t().cli.restartNotRunning, t().cli.started, "PID: 333"]);
 });
 
 test("restart rejects indeterminate daemon state", async () => {
+  setLocale("zh");
   const lines: string[] = [];
 
   await expect(
@@ -1678,13 +1703,14 @@ test("restart rejects indeterminate daemon state", async () => {
   ).resolves.toBe(1);
 
   expect(lines).toEqual([
-    "xacpx 进程仍在运行，但状态元数据缺失",
+    t().cli.restartIndeterminate,
     "PID: 444",
-    "请先执行 `xacpx stop`，或手动清理 stale PID/status 后再重试。",
+    t().cli.restartIndeterminateHint,
   ]);
 });
 
 test("prints help for '-h' flag and exits 0", async () => {
+  setLocale("zh");
   const lines: string[] = [];
 
   await expect(
@@ -1695,11 +1721,12 @@ test("prints help for '-h' flag and exits 0", async () => {
     }),
   ).resolves.toBe(0);
 
-  expect(lines).toContain("xacpx version - 查看版本");
-  expect(lines).toContain("xacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务");
+  expect(lines).toContain(t().cli.helpLines.find((l) => l.includes("version")));
+  expect(lines).toContain(t().cli.helpLines.find((l) => l.includes("mcp-stdio")));
 });
 
 test("runCli routes plugin command", async () => {
+  setLocale("zh");
   const lines: string[] = [];
   const code = await runCli(["plugin", "list"], {
     print: (line) => lines.push(line),

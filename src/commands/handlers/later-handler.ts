@@ -3,35 +3,40 @@ import type { ScheduledTaskRecord, ScheduledSessionMode } from "../../scheduled/
 import { parseLaterTime } from "../../scheduled/parse-later-time";
 import { renderLaterHelp, renderLaterList, renderTaskCreated } from "../../scheduled/scheduled-render";
 import { toDisplaySessionAlias } from "../../channels/channel-scope";
+import type { HelpTopicMetadata } from "../help/help-types";
+import { t } from "../../i18n";
 
-export const laterHelpMetadata = {
-  topic: "later",
-  aliases: ["lt"],
-  summary: "定时任务：到点在临时会话执行（或 --bind 发到当前会话）",
-  commands: [
-    { usage: "/lt <时间> <消息>", description: "创建定时任务" },
-    { usage: "/lt --bind <时间> <消息>", description: "改为发送到当前会话" },
-    { usage: "/lt --temp <时间> <消息>", description: "强制使用临时会话" },
-    { usage: "/lt list", description: "查看待执行定时任务" },
-    { usage: "/lt cancel <id>", description: "取消定时任务" },
-  ],
-  examples: [
-    "/lt in 2h 检查 CI",
-    "/lt 30分钟后 总结进展",
-    "/lt tomorrow 09:00 看 PR",
-    "/lt 今天 21:30 继续处理",
-    "/lt 周五 09:00 继续处理",
-  ],
-  notes: [
-    "只支持一次性任务，不支持重复执行",
-    "时间必须在 10 秒之后、7 天之内",
-    "默认在为本次任务新建的临时会话里执行，跑完即销毁",
-    "加 --bind 改为发送到创建时绑定的当前会话（默认模式可用 later.defaultMode 配置）",
-    "/lt list 显示全局待执行任务；群聊中只有群主可取消",
-    "不支持延迟执行 / 开头的 xacpx 命令",
-    "完整时间格式与说明见 docs/later-command.md",
-  ],
-};
+export function laterHelp(): HelpTopicMetadata {
+  const l = t().later;
+  return {
+    topic: "later",
+    aliases: ["lt"],
+    summary: l.helpSummary,
+    commands: [
+      { usage: l.helpCmdCreate, description: l.helpCmdCreateDesc },
+      { usage: l.helpCmdBind, description: l.helpCmdBindDesc },
+      { usage: l.helpCmdTemp, description: l.helpCmdTempDesc },
+      { usage: l.helpCmdList, description: l.helpCmdListDesc },
+      { usage: l.helpCmdCancel, description: l.helpCmdCancelDesc },
+    ],
+    examples: [
+      l.helpExample1,
+      l.helpExample2,
+      l.helpExample3,
+      l.helpExample4,
+      l.helpExample5,
+    ],
+    notes: [
+      l.helpNote1,
+      l.helpNote2,
+      l.helpNote3,
+      l.helpNote4,
+      l.helpNote5,
+      l.helpNote6,
+      l.helpNote7,
+    ],
+  };
+}
 
 export function handleLaterHelp(): RouterResponse {
   return { text: renderLaterHelp() };
@@ -46,6 +51,8 @@ export async function handleLaterCreate(
   accountId?: string,
   replyContextToken?: string,
 ): Promise<RouterResponse> {
+  const l = t().later;
+
   // Consume any leading --bind / --temp flags (mutually exclusive).
   let rest = tokens;
   const seenFlags = new Set<string>();
@@ -56,18 +63,18 @@ export async function handleLaterCreate(
     rest = rest.slice(1);
   }
   if (seenFlags.size > 1) {
-    return { text: "定时任务的 --bind 与 --temp 不能同时使用。" };
+    return { text: l.bindAndTempMutuallyExclusive };
   }
   const mode: ScheduledSessionMode = flagMode ?? defaultMode;
 
   if (!currentSession) {
     return {
       text: [
-        "当前没有会话，无法创建定时任务。",
+        l.noSession,
         "",
-        "请先创建或切换到一个会话：",
-        "- /ss codex --ws backend（新建并切换）",
-        "- /use backend-codex（切换到已有会话）",
+        l.noSessionHint,
+        l.noSessionExampleNew,
+        l.noSessionExampleUse,
       ].join("\n"),
     };
   }
@@ -81,10 +88,10 @@ export async function handleLaterCreate(
   if (message.startsWith("/")) {
     return {
       text: [
-        "不支持延迟执行 / 开头的命令。",
+        l.slashMessageRejected,
         "",
-        "如果需要让 agent 解释命令，可以用自然语言描述：",
-        "例如：/lt in 1h 请解释 /status 的作用",
+        l.slashMessageHint,
+        l.slashMessageExample,
       ].join("\n"),
     };
   }
@@ -109,34 +116,35 @@ export function handleLaterList(scheduled: ScheduledRouterOps): RouterResponse {
 
 export async function handleLaterCancel(id: string, scheduled: ScheduledRouterOps): Promise<RouterResponse> {
   const ok = await scheduled.cancelPending(id);
-  if (ok) {
-    return { text: `已取消定时任务 #${id.replace(/^#/, "").toLowerCase()}` };
-  }
   const displayId = id.replace(/^#/, "").toLowerCase();
-  return { text: [`未找到待执行的定时任务 #${displayId}。`, "可以用 /lt list 查看当前待执行任务。"].join("\n") };
+  if (ok) {
+    return { text: t().later.cancelSuccess(displayId) };
+  }
+  return { text: [t().later.cancelNotFound(displayId), t().later.cancelNotFoundHint].join("\n") };
 }
 
 function renderTimeParseError(code: string, value?: string): string {
+  const l = t().later;
   switch (code) {
     case "missing_message":
-      return "定时任务需要消息内容，请在时间后附上要发送的内容。";
+      return l.missingMessage;
     case "too_soon":
-      return "定时任务执行时间必须在 10 秒之后。";
+      return l.tooSoon;
     case "out_of_range":
-      return "定时任务执行时间不能超过 7 天。";
+      return l.outOfRange;
     case "past_today_time":
-      return `今天 ${value} 已经过了，请指定一个未来的时间，或使用「明天」。`;
+      return l.pastTodayTime(value ?? "");
     case "unrecognized_time":
     case "missing_time":
     default:
       return [
-        "无法识别时间格式。",
+        l.unrecognizedTime,
         "",
-        "支持的格式：",
-        "- /lt in 2h 消息（2小时后）",
-        "- /lt 30分钟后 消息",
-        "- /lt tomorrow 09:00 消息",
-        "- /lt 周五 09:00 消息",
+        l.unrecognizedTimeFormats,
+        l.unrecognizedTimeExample1,
+        l.unrecognizedTimeExample2,
+        l.unrecognizedTimeExample3,
+        l.unrecognizedTimeExample4,
       ].join("\n");
   }
 }

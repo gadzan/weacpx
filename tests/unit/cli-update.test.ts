@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { AppConfig } from "../../src/config/types";
 import { handleUpdateCli } from "../../src/cli-update";
+import { setLocale, t } from "../../src/i18n";
 
 function config(plugins: AppConfig["plugins"] = []): AppConfig {
   return {
@@ -16,6 +17,7 @@ function config(plugins: AppConfig["plugins"] = []): AppConfig {
 }
 
 test("update --all updates xacpx and plugins after checking latest versions", async () => {
+  setLocale("zh");
   const lines: string[] = [];
   const updated: string[] = [];
   let saved: AppConfig | null = null;
@@ -37,8 +39,8 @@ test("update --all updates xacpx and plugins after checking latest versions", as
   expect(code).toBe(0);
   expect(updated).toEqual(["xacpx", "p1"]);
   expect(saved?.plugins[0]?.version).toBe("1.2.0");
-  expect(lines).toContain("1. xacpx (0.8.0 -> 0.8.1)");
-  expect(lines).toContain("2. 插件 p1 (1.0.0 -> 1.2.0)");
+  expect(lines).toContain(`1. ${t().cliUpdate.formatSelf("xacpx", "0.8.0", "0.8.1")}`);
+  expect(lines).toContain(`2. ${t().cliUpdate.formatPlugin("p1", "1.0.0", "1.2.0")}`);
 });
 
 test("update prompts for selection when plugins are installed", async () => {
@@ -61,6 +63,7 @@ test("update prompts for selection when plugins are installed", async () => {
 });
 
 test("update unknown target does not fall back to self", async () => {
+  setLocale("zh");
   const updated: string[] = [];
   const lines: string[] = [];
   const code = await handleUpdateCli(["not-exist"], {
@@ -76,10 +79,11 @@ test("update unknown target does not fall back to self", async () => {
 
   expect(code).toBe(1);
   expect(updated).toEqual([]);
-  expect(lines).toContain("没有找到更新项：not-exist");
+  expect(lines).toContain(t().cliUpdate.targetNotFound("not-exist"));
 });
 
 test("update skips entries already at latest version", async () => {
+  setLocale("zh");
   const updated: string[] = [];
   const lines: string[] = [];
   const code = await handleUpdateCli(["--all"], {
@@ -97,7 +101,7 @@ test("update skips entries already at latest version", async () => {
 
   expect(code).toBe(0);
   expect(updated).toEqual([]);
-  expect(lines).toContain("没有需要更新的项目。");
+  expect(lines).toContain(t().cliUpdate.nothingToUpdate);
 });
 
 test("update rolls back pinned plugin and does not save config when validation fails", async () => {
@@ -120,6 +124,7 @@ test("update rolls back pinned plugin and does not save config when validation f
 });
 
 test("update --all fails when any latest version cannot be checked", async () => {
+  setLocale("zh");
   const updated: string[] = [];
   const lines: string[] = [];
   const code = await handleUpdateCli(["--all"], {
@@ -137,10 +142,11 @@ test("update --all fails when any latest version cannot be checked", async () =>
 
   expect(code).toBe(1);
   expect(updated).toEqual([]);
-  expect(lines).toContain("以下项目无法检查最新版本，已取消更新：xacpx");
+  expect(lines).toContain(t().cliUpdate.unavailableAborted("xacpx"));
 });
 
 test("self-only update requires confirmation in implicit non-interactive mode", async () => {
+  setLocale("zh");
   const updated: string[] = [];
   const lines: string[] = [];
   const code = await handleUpdateCli([], {
@@ -157,13 +163,14 @@ test("self-only update requires confirmation in implicit non-interactive mode", 
 
   expect(code).toBe(1);
   expect(updated).toEqual([]);
-  expect(lines).toContain("更新 xacpx 本体需要确认；非交互模式请使用 `xacpx update --all` 或 `xacpx update xacpx`。");
+  expect(lines).toContain(t().cliUpdate.selfUpdateNeedsConfirmNonInteractive("xacpx"));
 });
 
 
 // --- weacpx → xacpx rename migration (forward-compat baked into 0.7.x) ---
 
 test("update --all migrates to the renamed successor once it is published", async () => {
+  setLocale("zh");
   const migrations: Array<{ from: string; to: string; toVersion?: string }> = [];
   const updated: string[] = [];
   let stopped = 0;
@@ -186,8 +193,8 @@ test("update --all migrates to the renamed successor once it is published", asyn
   expect(migrations).toEqual([{ from: "weacpx", to: "xacpx", toVersion: "0.8.0" }]);
   expect(updated).toEqual([]); // in-place self-update must NOT be used for a rename
   expect(stopped).toBe(1); // daemon stopped before the package swap
-  expect(lines.some((line) => line.includes("weacpx → xacpx") && line.includes("改名"))).toBe(true);
-  expect(lines.some((line) => line.includes("已更名为 xacpx"))).toBe(true);
+  expect(lines.some((line) => line === `1. ${t().cliUpdate.formatRename("xacpx", "0.7.0", "0.8.0")}`)).toBe(true);
+  expect(lines.some((line) => line === t().cliUpdate.renameMigrated("xacpx", "0.8.0"))).toBe(true);
 });
 
 test("update does not redirect while the successor is unpublished (dormant)", async () => {
@@ -235,6 +242,7 @@ test("a successor prerelease does not trip the rename for everyone", async () =>
 });
 
 test("a failed migration is reported and does not fall back to an in-place update", async () => {
+  setLocale("zh");
   const updated: string[] = [];
   const lines: string[] = [];
   const code = await handleUpdateCli(["--all"], {
@@ -253,7 +261,7 @@ test("a failed migration is reported and does not fall back to an in-place updat
 
   expect(code).toBe(1);
   expect(updated).toEqual([]);
-  expect(lines.some((line) => line.includes("weacpx 更新失败"))).toBe(true);
+  expect(lines.some((line) => line === t().cliUpdate.updateFailed("weacpx", "npm install failed"))).toBe(true);
 });
 
 test("explicit `update xacpx` matches the self target and migrates", async () => {
@@ -277,6 +285,7 @@ test("explicit `update xacpx` matches the self target and migrates", async () =>
 });
 
 test("implicit rename migration requires confirmation in interactive mode", async () => {
+  setLocale("zh");
   const migrations: unknown[] = [];
   const lines: string[] = [];
   const code = await handleUpdateCli([], {
@@ -295,10 +304,11 @@ test("implicit rename migration requires confirmation in interactive mode", asyn
 
   expect(code).toBe(0);
   expect(migrations).toEqual([]); // user declined
-  expect(lines.some((line) => line.includes("已取消迁移到 xacpx"))).toBe(true);
+  expect(lines.some((line) => line === t().cliUpdate.renameCancelled("xacpx"))).toBe(true);
 });
 
 test("update --all refuses unpinned plugins because current version is unknown", async () => {
+  setLocale("zh");
   const updated: string[] = [];
   const lines: string[] = [];
   const code = await handleUpdateCli(["--all"], {
@@ -318,5 +328,5 @@ test("update --all refuses unpinned plugins because current version is unknown",
 
   expect(code).toBe(1);
   expect(updated).toEqual([]);
-  expect(lines).toContain("以下项目无法检查最新版本，已取消更新：p1");
+  expect(lines).toContain(t().cliUpdate.unavailableAborted("p1"));
 });

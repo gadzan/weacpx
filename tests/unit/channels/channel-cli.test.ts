@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test, beforeAll } from "bun:test";
 
 import type { AppConfig } from "../../../src/config/types";
 import { handleChannelCli } from "../../../src/channels/cli/channel-cli";
@@ -6,6 +6,9 @@ import { getChannelCliProvider, hasChannelCliProvider, listChannelCliProviders }
 import { hasChannelFactory } from "../../../src/channels/create-channel";
 import { registerChannelPlugin } from "../../../src/channels/plugin";
 import feishuPlugin from "../../../packages/channel-feishu/src/index";
+import { setLocale, t } from "../../../src/i18n";
+
+beforeAll(() => { setLocale("zh"); });
 
 function ensureFeishuPluginRegisteredForTest(): void {
   const factoryRegistered = hasChannelFactory("feishu");
@@ -208,7 +211,7 @@ test("channel show returns 1 for absent channel", async () => {
 
   await expect(handleChannelCli(["show", "feishu"], harness.deps)).resolves.toBe(1);
 
-  expect(harness.lines).toEqual(["没有找到频道：feishu"]);
+  expect(harness.lines).toEqual([t().channelCli.channelNotFound("feishu")]);
 });
 
 test("channel add weixin writes runtime channel when absent", async () => {
@@ -217,7 +220,7 @@ test("channel add weixin writes runtime channel when absent", async () => {
   await expect(handleChannelCli(["add", "weixin", "--no-restart"], harness.deps)).resolves.toBe(0);
 
   expect(harness.getConfig().channels).toEqual([{ id: "weixin", type: "weixin", enabled: true }]);
-  expect(harness.lines).toContain("频道 weixin 已添加");
+  expect(harness.lines).toContain(t().channelCli.channelAdded("weixin"));
 });
 
 test("channel add feishu writes runtime config from flags and does not rewrite legacy channel.type", async () => {
@@ -299,7 +302,7 @@ test("channel add feishu fails non-interactive when required flags are missing",
 
   await expect(handleChannelCli(["add", "feishu"], harness.deps)).resolves.toBe(1);
 
-  expect(harness.lines).toEqual(["缺少必填参数：--app-id, --app-secret"]);
+  expect(harness.lines).toEqual([t().channelCli.missingRequiredFlags("--app-id, --app-secret")]);
   expect(harness.getConfig().channels).toEqual([]);
 });
 
@@ -322,7 +325,7 @@ test("channel add returns 0 when equivalent channel already exists", async () =>
 
   await expect(handleChannelCli(["add", "feishu", "--app-id", "cli_xxx", "--app-secret", "secret_xxx"], harness.deps)).resolves.toBe(0);
 
-  expect(harness.lines).toEqual(["频道 feishu 已存在，配置相同。"]);
+  expect(harness.lines).toEqual([t().channelCli.channelAlreadyExistsSame("feishu")]);
 });
 
 test("channel add returns 1 when existing channel differs", async () => {
@@ -344,7 +347,7 @@ test("channel add returns 1 when existing channel differs", async () => {
 
   await expect(handleChannelCli(["add", "feishu", "--app-id", "cli_new", "--app-secret", "secret_new"], harness.deps)).resolves.toBe(1);
 
-  expect(harness.lines).toEqual(["频道 feishu 已存在但配置不同；请先执行：xacpx channel rm feishu，然后重新 add。"]);
+  expect(harness.lines).toEqual([t().channelCli.channelAlreadyExistsDifferent("feishu")]);
 });
 
 test("channel disable rejects disabling the last enabled channel", async () => {
@@ -352,7 +355,7 @@ test("channel disable rejects disabling the last enabled channel", async () => {
 
   await expect(handleChannelCli(["disable", "weixin", "--no-restart"], harness.deps)).resolves.toBe(1);
 
-  expect(harness.lines).toEqual(["不能禁用最后一个启用的频道。"]);
+  expect(harness.lines).toEqual([t().channelCli.cannotDisableLastEnabled]);
   expect(harness.getConfig().channels[0].enabled).toBe(true);
 });
 
@@ -361,7 +364,7 @@ test("channel rm rejects removing the last enabled channel", async () => {
 
   await expect(handleChannelCli(["rm", "weixin", "--no-restart"], harness.deps)).resolves.toBe(1);
 
-  expect(harness.lines).toEqual(["不能删除最后一个启用的频道。"]);
+  expect(harness.lines).toEqual([t().channelCli.cannotRemoveLastEnabled]);
   expect(harness.getConfig().channels).toEqual([{ id: "weixin", type: "weixin", enabled: true }]);
 });
 
@@ -414,7 +417,7 @@ test("channel enable returns 1 for absent channel", async () => {
 
   await expect(handleChannelCli(["enable", "feishu", "--no-restart"], harness.deps)).resolves.toBe(1);
 
-  expect(harness.lines).toEqual(["没有找到频道：feishu"]);
+  expect(harness.lines).toEqual([t().channelCli.channelNotFound("feishu")]);
 });
 
 test("channel mutation with --restart calls restart when daemon is running", async () => {
@@ -459,7 +462,7 @@ test("channel mutation asks interactive restart prompt when daemon is running", 
     isInteractive: () => true,
     getDaemonStatus: async () => ({ state: "running" as const, pid: 123 }),
     promptText: async (message: string) => {
-      expect(message).toBe("现在重启 xacpx 使变更生效？[y/N] ");
+      expect(message).toBe(t().channelCli.restartPrompt);
       return "y";
     },
     restartDaemon: async () => {
@@ -481,7 +484,7 @@ test("channel mutation interactive restart prompt skips when user says no", asyn
     isInteractive: () => true,
     getDaemonStatus: async () => ({ state: "running" as const, pid: 123 }),
     promptText: async (message: string) => {
-      expect(message).toBe("现在重启 xacpx 使变更生效？[y/N] ");
+      expect(message).toBe(t().channelCli.restartPrompt);
       return "n";
     },
     restartDaemon: async () => {
@@ -493,7 +496,7 @@ test("channel mutation interactive restart prompt skips when user says no", asyn
   await expect(handleChannelCli(["add", "weixin"], deps)).resolves.toBe(0);
 
   expect(events).toEqual([]);
-  expect(harness.lines).toContain("配置已保存；变更会在下次 `xacpx restart` 后生效。");
+  expect(harness.lines).toContain(t().channelCli.savedRestartPending);
 });
 
 test("channel mutation skips automatic restart for indeterminate daemon", async () => {
@@ -511,7 +514,7 @@ test("channel mutation skips automatic restart for indeterminate daemon", async 
   await expect(handleChannelCli(["add", "weixin", "--restart"], deps)).resolves.toBe(0);
 
   expect(events).toEqual([]);
-  expect(harness.lines).toContain("配置已保存；daemon 状态异常，已跳过自动重启。请先处理 stale PID/status。");
+  expect(harness.lines).toContain(t().channelCli.savedDaemonIndeterminate);
 });
 
 test("channel mutation rejects conflicting restart flags", async () => {
@@ -554,8 +557,8 @@ test("channel add rejects unknown channel type and lists supported types", async
 
   await expect(handleChannelCli(["add", "dingtalk", "--no-restart"], harness.deps)).resolves.toBe(1);
 
-  expect(harness.lines).toContain("未知频道类型：dingtalk");
-  const supportedLine = harness.lines.find((line) => line.startsWith("支持的内置频道："));
+  expect(harness.lines).toContain(t().channelCli.unknownChannelType("dingtalk"));
+  const supportedLine = harness.lines.find((line) => line.includes("weixin") && line.includes("feishu"));
   expect(supportedLine).toBeDefined();
   expect(supportedLine).toContain("weixin");
   expect(supportedLine).toContain("feishu");
@@ -568,7 +571,7 @@ test("channel rm returns 1 for absent channel", async () => {
 
   await expect(handleChannelCli(["rm", "feishu", "--no-restart"], harness.deps)).resolves.toBe(1);
 
-  expect(harness.lines).toEqual(["没有找到频道：feishu"]);
+  expect(harness.lines).toEqual([t().channelCli.channelNotFound("feishu")]);
 });
 
 test("channel add feishu rejects missing flag value", async () => {
@@ -592,7 +595,7 @@ test("channel list shows empty message when no channels", async () => {
 
   await expect(handleChannelCli(["list"], harness.deps)).resolves.toBe(0);
 
-  expect(harness.lines).toEqual(["还没有配置消息频道。"]);
+  expect(harness.lines).toEqual([t().channelCli.noChannels]);
 });
 
 import { registerChannelPlugin } from "../../../src/channels/plugin";
@@ -763,7 +766,7 @@ test("channel show yuanbao --account prints just one account's resolved summary"
   const code = await handleChannelCli(["show", "yuanbao", "--account", "main"], harness.deps);
   expect(code).toBe(0);
   const out = harness.lines.join("\n");
-  expect(out).toContain("账号 main");
+  expect(harness.lines).toContain(t().channelCli.channelAccountHeader("yuanbao", "main"));
   expect(out).toContain("appKey: yb_main");
   expect(out).toContain("appSecret: ***");
   expect(out).toContain("botId: bot_main");
@@ -790,7 +793,7 @@ test("channel add feishu --account creates a fresh multi-bot channel", async () 
       main: { appId: "cli_main", appSecret: "secret_main" },
     },
   });
-  expect(harness.lines).toContain("频道 feishu 账号 main 已添加");
+  expect(harness.lines).toContain(t().channelCli.channelAccountAdded("feishu", "main"));
 });
 
 test("channel add feishu --account migrates legacy flat config to accounts shape", async () => {
@@ -862,7 +865,7 @@ test("channel add feishu --account refuses duplicate account id", async () => {
   ], harness.deps);
 
   expect(code).toBe(1);
-  expect(harness.lines.some((line) => line.includes("已存在") && line.includes("main"))).toBe(true);
+  expect(harness.lines.some((line) => line.includes("main") && line.includes("xacpx channel rm"))).toBe(true);
 });
 
 test("channel rm feishu --account drops a single account and keeps the channel", async () => {
@@ -916,7 +919,7 @@ test("channel rm feishu --account on the default account reassigns defaultAccoun
   const feishu = harness.getConfig().channels!.find((c) => c.id === "feishu");
   const options = feishu!.options as Record<string, any>;
   expect(options.defaultAccount).toBe("ops");
-  expect(harness.lines.some((line) => line.includes("默认账号已切换到 ops"))).toBe(true);
+  expect(harness.lines.some((line) => line === t().channelCli.channelAccountDefaultSwitched("ops"))).toBe(true);
 });
 
 test("channel rm feishu --account refuses to leave channel empty when feishu is the only enabled channel", async () => {
@@ -937,7 +940,7 @@ test("channel rm feishu --account refuses to leave channel empty when feishu is 
   const code = await handleChannelCli(["rm", "feishu", "--account", "main"], harness.deps);
 
   expect(code).toBe(1);
-  expect(harness.lines.some((line) => line.includes("最后一个账号"))).toBe(true);
+  expect(harness.lines.some((line) => line.includes("main") && line.includes("feishu") && line.includes("xacpx channel rm"))).toBe(true);
 });
 
 test("channel disable feishu --account toggles a single account", async () => {
@@ -985,7 +988,7 @@ test("channel disable feishu --account refuses to disable the last enabled accou
 
   const code = await handleChannelCli(["disable", "feishu", "--account", "main"], harness.deps);
   expect(code).toBe(1);
-  expect(harness.lines.some((line) => line.includes("最后一个启用账号"))).toBe(true);
+  expect(harness.lines).toContain(t().channelCli.channelAccountCannotDisableLast("feishu"));
 });
 
 test("channel show feishu --account prints just one account's resolved summary", async () => {
@@ -1009,7 +1012,7 @@ test("channel show feishu --account prints just one account's resolved summary",
   const code = await handleChannelCli(["show", "feishu", "--account", "main"], harness.deps);
   expect(code).toBe(0);
   const out = harness.lines.join("\n");
-  expect(out).toContain("账号 main");
+  expect(harness.lines).toContain(t().channelCli.channelAccountHeader("feishu", "main"));
   expect(out).toContain("Main Bot");
   expect(out).toContain("appId: cli_main");
   expect(out).toContain("appSecret: ***");
@@ -1123,7 +1126,7 @@ test("channel add feishu --account auto-enables a previously disabled channel", 
   expect(code).toBe(0);
   const feishu = harness.getConfig().channels!.find((c) => c.id === "feishu");
   expect(feishu!.enabled).toBe(true);
-  expect(harness.lines.some((line) => line.includes("自动启用"))).toBe(true);
+  expect(harness.lines.some((line) => line === t().channelCli.channelReEnabled("feishu"))).toBe(true);
 });
 
 test("channel add feishu --account fixes a stale defaultAccount referencing a non-existent account", async () => {
@@ -1171,7 +1174,7 @@ test("channel rm feishu --account on the only remaining account deletes the whol
 
   expect(code).toBe(0);
   expect(harness.getConfig().channels!.find((c) => c.id === "feishu")).toBeUndefined();
-  expect(harness.lines.some((line) => line.includes("最后一个") && line.includes("已删除"))).toBe(true);
+  expect(harness.lines.some((line) => line === t().channelCli.channelAccountRemovedWithChannel("feishu", "main"))).toBe(true);
 });
 
 test("channel rm feishu --account also fixes stale defaultAccount referencing another removed account", async () => {
@@ -1274,7 +1277,7 @@ test("channel enable feishu --account refuses when target account lacks credenti
   const code = await handleChannelCli(["enable", "feishu", "--account", "broken"], harness.deps);
 
   expect(code).toBe(1);
-  expect(harness.lines.some((line) => line.includes("broken") && line.includes("配置不完整"))).toBe(true);
+  expect(harness.lines.some((line) => line.startsWith(t().channelCli.channelAccountIncomplete("broken", "")))).toBe(true);
   // 没改 enabled
   const options = harness.getConfig().channels!.find((c) => c.id === "feishu")!.options as Record<string, any>;
   expect(options.accounts.broken.enabled).toBe(false);
@@ -1324,7 +1327,7 @@ test("channel add weixin --account is rejected because weixin doesn't support mu
 
   const code = await handleChannelCli(["add", "weixin", "--account", "main"], harness.deps);
   expect(code).toBe(1);
-  expect(harness.lines.some((line) => line.includes("不支持") && line.includes("--account"))).toBe(true);
+  expect(harness.lines).toContain(t().channelCli.channelNoMultiAccount("weixin"));
 });
 
 test("channel add can use plugin-provided CLI provider after plugin load", async () => {

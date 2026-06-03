@@ -12,35 +12,34 @@ import {
   statusHelp,
 } from "../handlers/session-handler";
 import { workspaceHelp } from "../handlers/workspace-handler";
-import { laterHelpMetadata } from "../handlers/later-handler";
+import { laterHelp } from "../handlers/later-handler";
 
-export const HELP_TOPICS: HelpTopicMetadata[] = [
-  sessionHelp,
-  nativeSessionHelp,
-  workspaceHelp,
-  agentHelp,
-  permissionHelp,
-  configHelp,
-  orchestrationHelp,
-  modeHelp,
-  replyModeHelp,
-  statusHelp,
-  cancelHelp,
-  laterHelpMetadata,
-];
-
-const HELP_TOPIC_MAP = new Map<string, HelpTopicMetadata>();
-for (const topic of HELP_TOPICS) {
-  HELP_TOPIC_MAP.set(topic.topic, topic);
-  for (const alias of topic.aliases) {
-    HELP_TOPIC_MAP.set(alias, topic);
-  }
+function buildHelpTopics(): HelpTopicMetadata[] {
+  return [
+    sessionHelp(),
+    nativeSessionHelp(),
+    workspaceHelp(),
+    agentHelp(),
+    permissionHelp(),
+    configHelp(),
+    orchestrationHelp(),
+    modeHelp(),
+    replyModeHelp(),
+    statusHelp(),
+    cancelHelp(),
+    laterHelp(),
+  ];
 }
 
 export function getHelpTopic(topic: string): HelpTopicMetadata | null {
-  return HELP_TOPIC_MAP.get(topic) ?? null;
+  const topics = buildHelpTopics();
+  for (const entry of topics) {
+    if (entry.topic === topic) return entry;
+    if (entry.aliases.includes(topic)) return entry;
+  }
+  return null;
 }
 
 export function listHelpTopics(): HelpTopicMetadata[] {
-  return HELP_TOPICS;
+  return buildHelpTopics();
 }

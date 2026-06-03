@@ -16,6 +16,7 @@ import { toDisplaySessionAlias, getChannelIdFromChatKey, scopeDisplayAliasToInte
 import { quoteWorkspaceNameIfNeeded } from "../workspace-name";
 import type { SessionSwitchResult } from "../../sessions/session-service";
 import { decorateUnread } from "./session-list-marker";
+import { t } from "../../i18n";
 
 export interface SessionHandlerContext extends CommandRouterContext {
   lifecycle: SessionLifecycleOps;
@@ -24,115 +25,132 @@ export interface SessionHandlerContext extends CommandRouterContext {
   readonly activeTurns?: import("../../sessions/active-turn-registry.js").ActiveTurnRegistry;
 }
 
-const NO_CURRENT_SESSION_TEXT = "当前还没有选中的会话。请先执行 /session new ... 或 /use <alias>。";
 const DEFAULT_SESSION_TAIL_LINES = 50;
 const MAX_SESSION_TAIL_LINES = 500;
 
-export const sessionHelp: HelpTopicMetadata = {
-  topic: "session",
-  aliases: ["ss", "sessions"],
-  summary: "创建、复用、切换和重置 xacpx 逻辑会话。",
-  commands: [
-    { usage: "/sessions", description: "查看当前会话列表" },
-    { usage: "/session 或 /ss", description: "查看会话列表" },
-    { usage: "/ss <agent> (-d <path> | --ws <name>)", description: "快速新建或复用一个会话" },
-    { usage: "/ss new <agent> (-d <path> | --ws <name>)", description: "强制新建会话" },
-    { usage: "/ss new <alias> -a <name> --ws <name>", description: "按指定配置新建会话" },
-    { usage: "/ss attach <alias> -a <name> --ws <name> --name <transport-session>", description: "绑定已有会话" },
-    { usage: "/ssn 或 /help ssn", description: "接入本地 native 会话（Codex 等 Agent 原生会话）" },
-    { usage: "/session tail [N]", description: "补拉当前会话的历史输出（默认 50 行）" },
-    { usage: "/session rm <alias>", description: "删除逻辑会话" },
-    { usage: "/use <alias>", description: "切换当前会话" },
-    { usage: "/use <片段>", description: "按别名片段切换（精确>前缀>子串；多命中会列候选）" },
-    { usage: "/use -", description: "切回上一个会话（像 shell 的 cd -）" },
-    { usage: "/session reset 或 /clear", description: "重置当前会话上下文" },
-  ],
-  examples: [
-    "/ss codex -d /absolute/path/to/repo",
-    "/ssn",
-    "/ssn 1",
-    "/use backend-fix",
-    "/use back",
-    "/use -",
-    "/session rm old-session",
-    "/session reset",
-  ],
-};
+export function sessionHelp(): HelpTopicMetadata {
+  const s = t().session;
+  return {
+    topic: "session",
+    aliases: ["ss", "sessions"],
+    summary: s.sessionHelpSummary,
+    commands: [
+      { usage: s.sessionHelpCmdSsList, description: s.sessionHelpCmdSsListDesc },
+      { usage: s.sessionHelpCmdSsOrSlash, description: s.sessionHelpCmdSsOrSlashDesc },
+      { usage: s.sessionHelpCmdSsQuick, description: s.sessionHelpCmdSsQuickDesc },
+      { usage: s.sessionHelpCmdSsNew, description: s.sessionHelpCmdSsNewDesc },
+      { usage: s.sessionHelpCmdSsNewAlias, description: s.sessionHelpCmdSsNewAliasDesc },
+      { usage: s.sessionHelpCmdSsAttach, description: s.sessionHelpCmdSsAttachDesc },
+      { usage: s.sessionHelpCmdSsn, description: s.sessionHelpCmdSsnDesc },
+      { usage: s.sessionHelpCmdTail, description: s.sessionHelpCmdTailDesc },
+      { usage: s.sessionHelpCmdRm, description: s.sessionHelpCmdRmDesc },
+      { usage: s.sessionHelpCmdUse, description: s.sessionHelpCmdUseDesc },
+      { usage: s.sessionHelpCmdUseFuzzy, description: s.sessionHelpCmdUseFuzzyDesc },
+      { usage: s.sessionHelpCmdUsePrev, description: s.sessionHelpCmdUsePrevDesc },
+      { usage: s.sessionHelpCmdReset, description: s.sessionHelpCmdResetDesc },
+    ],
+    examples: [
+      "/ss codex -d /absolute/path/to/repo",
+      "/ssn",
+      "/ssn 1",
+      "/use backend-fix",
+      "/use back",
+      "/use -",
+      "/session rm old-session",
+      "/session reset",
+    ],
+  };
+}
 
-export const nativeSessionHelp: HelpTopicMetadata = {
-  topic: "native",
-  aliases: ["ssn", "native-session"],
-  summary: "接入 Codex 等 Agent 的本地原生会话。",
-  commands: [
-    { usage: "/ssn", description: "按当前 xacpx 会话上下文查看本地 native 会话" },
-    { usage: "/ssn <agent> --ws <workspace>", description: "查询指定工作区的本地 native 会话；只有一个候选时自动接入" },
-    { usage: "/ssn <agent> -d <path>", description: "按本机绝对路径查询；只有一个候选时自动接入" },
-    { usage: "/ssn <agent> --ws <workspace> --all", description: "跨 cwd 查看该 agent 的 native 会话" },
-    { usage: "/ssn 1", description: "接入或切换到最近一次列表里的第 1 个候选" },
-    { usage: "/ssn 1 -a <alias>", description: "接入第 1 个候选并指定 xacpx 别名（推荐，无需完整 sessionId）" },
-    { usage: "/ssn attach <sessionId> -a <alias>", description: "按原生 sessionId 接入（适合已知完整 id），并指定 xacpx 别名" },
-    { usage: "/ss attach native <sessionId> -a <alias>", description: "/ssn attach 的长写法" },
-  ],
-  examples: [
-    "/ssn codex --ws backend",
-    "/ssn codex -d /absolute/path/to/repo",
-    "/ssn",
-    "/ssn 1",
-    "/ssn 1 -a fix-ci",
-  ],
-  notes: [
-    "/ss 管 xacpx 逻辑会话；/ssn 只负责查询和接入 Agent 原生会话。",
-    "接入后继续发普通消息，会继续同一个 Agent 原生会话，不是复制一份新上下文。",
-    "如果当前 acpx 或 Agent 不支持 native 会话，请继续使用 /ss。",
-    "完整说明见 docs/native-sessions.md。",
-  ],
-};
+export function nativeSessionHelp(): HelpTopicMetadata {
+  const s = t().session;
+  return {
+    topic: "native",
+    aliases: ["ssn", "native-session"],
+    summary: s.nativeHelpSummary,
+    commands: [
+      { usage: s.nativeHelpCmdSsn, description: s.nativeHelpCmdSsnDesc },
+      { usage: s.nativeHelpCmdSsnAgentWs, description: s.nativeHelpCmdSsnAgentWsDesc },
+      { usage: s.nativeHelpCmdSsnAgentDir, description: s.nativeHelpCmdSsnAgentDirDesc },
+      { usage: s.nativeHelpCmdSsnAgentAll, description: s.nativeHelpCmdSsnAgentAllDesc },
+      { usage: s.nativeHelpCmdSsnNumber, description: s.nativeHelpCmdSsnNumberDesc },
+      { usage: s.nativeHelpCmdSsnNumberAlias, description: s.nativeHelpCmdSsnNumberAliasDesc },
+      { usage: s.nativeHelpCmdSsnAttach, description: s.nativeHelpCmdSsnAttachDesc },
+      { usage: s.nativeHelpCmdSsnAttachLong, description: s.nativeHelpCmdSsnAttachLongDesc },
+    ],
+    examples: [
+      "/ssn codex --ws backend",
+      "/ssn codex -d /absolute/path/to/repo",
+      "/ssn",
+      "/ssn 1",
+      "/ssn 1 -a fix-ci",
+    ],
+    notes: [
+      s.nativeHelpNote1,
+      s.nativeHelpNote2,
+      s.nativeHelpNote3,
+      s.nativeHelpNote4,
+    ],
+  };
+}
 
-export const modeHelp: HelpTopicMetadata = {
-  topic: "mode",
-  aliases: [],
-  summary: "查看或设置当前会话 mode。",
-  commands: [
-    { usage: "/mode", description: "查看当前会话已保存的 mode" },
-    { usage: "/mode <id>", description: "设置当前会话 mode" },
-  ],
-  examples: ["/mode", "/mode plan"],
-};
+export function modeHelp(): HelpTopicMetadata {
+  const s = t().session;
+  return {
+    topic: "mode",
+    aliases: [],
+    summary: s.modeHelpSummary,
+    commands: [
+      { usage: s.modeHelpCmdShow, description: s.modeHelpCmdShowDesc },
+      { usage: s.modeHelpCmdSet, description: s.modeHelpCmdSetDesc },
+    ],
+    examples: ["/mode", "/mode plan"],
+  };
+}
 
-export const replyModeHelp: HelpTopicMetadata = {
-  topic: "replymode",
-  aliases: [],
-  summary: "查看或设置当前逻辑会话的回复输出模式。",
-  commands: [
-    { usage: "/replymode", description: "查看全局默认、当前覆盖和实际生效值" },
-    { usage: "/replymode stream", description: "当前会话使用流式回复" },
-    { usage: "/replymode verbose", description: "当前会话流式回复并显示工具调用" },
-    { usage: "/replymode final", description: "当前会话只发送最终文本" },
-    { usage: "/replymode reset", description: "清除当前会话覆盖并回退到全局默认" },
-  ],
-  examples: ["/replymode", "/replymode final", "/replymode verbose"],
-};
+export function replyModeHelp(): HelpTopicMetadata {
+  const s = t().session;
+  return {
+    topic: "replymode",
+    aliases: [],
+    summary: s.replyModeHelpSummary,
+    commands: [
+      { usage: s.replyModeHelpCmdShow, description: s.replyModeHelpCmdShowDesc },
+      { usage: s.replyModeHelpCmdStream, description: s.replyModeHelpCmdStreamDesc },
+      { usage: s.replyModeHelpCmdVerbose, description: s.replyModeHelpCmdVerboseDesc },
+      { usage: s.replyModeHelpCmdFinal, description: s.replyModeHelpCmdFinalDesc },
+      { usage: s.replyModeHelpCmdReset, description: s.replyModeHelpCmdResetDesc },
+    ],
+    examples: ["/replymode", "/replymode final", "/replymode verbose"],
+  };
+}
 
-export const statusHelp: HelpTopicMetadata = {
-  topic: "status",
-  aliases: [],
-  summary: "查看当前选中会话的状态。",
-  commands: [{ usage: "/status", description: "查看当前会话状态" }],
-  examples: ["/status"],
-};
+export function statusHelp(): HelpTopicMetadata {
+  const s = t().session;
+  return {
+    topic: "status",
+    aliases: [],
+    summary: s.statusHelpSummary,
+    commands: [{ usage: s.statusHelpCmdShow, description: s.statusHelpCmdShowDesc }],
+    examples: ["/status"],
+  };
+}
 
-export const cancelHelp: HelpTopicMetadata = {
-  topic: "cancel",
-  aliases: ["stop"],
-  summary: "取消会话里正在执行的任务。",
-  commands: [
-    { usage: "/cancel", description: "取消当前前台会话的任务" },
-    { usage: "/cancel <alias>", description: "取消指定（含后台）会话的任务" },
-    { usage: "/stop", description: "取消当前任务（/cancel 别名）" },
-    { usage: "/stop <alias>", description: "取消指定会话的任务（/cancel <alias> 别名）" },
-  ],
-  examples: ["/cancel", "/cancel backend"],
-};
+export function cancelHelp(): HelpTopicMetadata {
+  const s = t().session;
+  return {
+    topic: "cancel",
+    aliases: ["stop"],
+    summary: s.cancelHelpSummary,
+    commands: [
+      { usage: s.cancelHelpCmdCancel, description: s.cancelHelpCmdCancelDesc },
+      { usage: s.cancelHelpCmdCancelAlias, description: s.cancelHelpCmdCancelAliasDesc },
+      { usage: s.cancelHelpCmdStop, description: s.cancelHelpCmdStopDesc },
+      { usage: s.cancelHelpCmdStopAlias, description: s.cancelHelpCmdStopAliasDesc },
+    ],
+    examples: ["/cancel", "/cancel backend"],
+  };
+}
 
 export async function handleSessions(context: SessionHandlerContext, chatKey: string): Promise<RouterResponse> {
   const sessions = await context.sessions.listSessions(chatKey);
@@ -147,21 +165,23 @@ export async function handleSessions(context: SessionHandlerContext, chatKey: st
       return prefix !== alias && prefix !== channelId;
     });
 
-    const lines = ["还没有会话。"];
+    const s = t().session;
+    const lines = [s.noSessions];
     if (hasOtherChannelSessions) {
-      lines.push("提示：检测到其他渠道已有会话记录；不同渠道的会话相互隔离，请在当前渠道重新创建或绑定。");
+      lines.push(s.crossChannelHint);
     }
-    lines.push("创建会话：/ss <agent> -d /path/to/the/project");
-    lines.push("例如：/ss claude -d /path/to/the/project");
+    lines.push(s.createSessionHint);
+    lines.push(s.createSessionExample);
     return { text: lines.join("\n") };
   }
 
+  const s = t().session;
   const unread = new Set(context.sessions.listBackgroundResultAliases(chatKey));
   return {
     text: [
-      "会话列表：",
+      s.sessionListHeader,
       ...sessions.map((session) =>
-        `- ${decorateUnread(session.alias, unread.has(session.internalAlias))} (${session.agent} @ ${session.workspace})${session.isCurrent ? " [当前]" : ""}`,
+        `${s.sessionListItem(decorateUnread(session.alias, unread.has(session.internalAlias)), session.agent, session.workspace)}${session.isCurrent ? ` ${s.currentLabel}` : ""}`,
       ),
     ].join("\n"),
   };
@@ -197,7 +217,7 @@ export async function handleSessionNew(
       agent,
       workspace,
     });
-    return { text: `会话「${alias}」已创建并切换` };
+    return { text: t().session.sessionCreated(alias) };
   } finally {
     await releaseTransportReservation();
   }
@@ -229,10 +249,7 @@ export async function handleSessionAttach(
     const exists = await context.lifecycle.checkTransportSession(attached);
     if (!exists) {
       return {
-        text: [
-          "没有找到可绑定的已有会话。",
-          `请确认会话名是否正确，然后重新执行：/session attach ${alias} --agent ${agent} --ws ${quoteWorkspaceNameIfNeeded(workspace)} --name <会话名>`,
-        ].join("\n"),
+        text: t().session.sessionAttachNotFound(alias, agent, quoteWorkspaceNameIfNeeded(workspace)),
       };
     }
     context.lifecycle.markSessionReady?.(attached);
@@ -246,7 +263,7 @@ export async function handleSessionAttach(
       workspace,
       transportSession,
     });
-    return { text: `会话「${alias}」已绑定并切换` };
+    return { text: t().session.sessionAttached(alias) };
   } finally {
     await releaseTransportReservation();
   }
@@ -268,8 +285,10 @@ async function refreshSessionTransportAgentCommandBestEffort(
 }
 
 function renderSwitched(switched: SessionSwitchResult): string {
-  const base = `已切到 ${switched.alias} · ${switched.agent} · ${switched.workspace}`;
-  return switched.previousAlias ? `${base}（上一个：${switched.previousAlias}）` : base;
+  const s = t().session;
+  return switched.previousAlias
+    ? s.switchedWithPrev(switched.alias, switched.agent, switched.workspace, switched.previousAlias)
+    : s.switched(switched.alias, switched.agent, switched.workspace);
 }
 
 async function appendSwitchBackContext(
@@ -283,7 +302,7 @@ async function appendSwitchBackContext(
     return `${baseText}\n\n${result.text}`;
   }
   if (context.activeTurns?.isActive(chatKey, internalAlias)) {
-    return `${baseText}\n\n⏳ ${toDisplaySessionAlias(internalAlias)} 仍在执行中…`;
+    return `${baseText}\n\n${t().session.stillRunning(toDisplaySessionAlias(internalAlias))}`;
   }
   return baseText;
 }
@@ -296,12 +315,12 @@ export async function handleSessionUse(
   const result = context.sessions.resolveFuzzyAlias(chatKey, input);
 
   if (result.kind === "none") {
-    return { text: `没有匹配「${input}」的会话。发 /sessions 看看有哪些。` };
+    return { text: t().session.noMatchingSession(input) };
   }
 
   if (result.kind === "ambiguous") {
     const lines = result.candidates.map((candidate) => `• ${candidate.alias} · ${candidate.agent} · ${candidate.workspace}`);
-    return { text: [`「${input}」匹配到多个会话，请指定：`, ...lines].join("\n") };
+    return { text: [t().session.ambiguousSession(input), ...lines].join("\n") };
   }
 
   const switched = await context.sessions.useSession(chatKey, result.alias);
@@ -320,7 +339,7 @@ export async function handleSessionUsePrevious(
 ): Promise<RouterResponse> {
   const switched = await context.sessions.usePreviousSession(chatKey);
   if (!switched) {
-    return { text: "还没有上一个会话，发 /sessions 看看有哪些。" };
+    return { text: t().session.noPreviousSession };
   }
   await context.logger.info("session.selected", "selected previous logical session", {
     alias: switched.alias,
@@ -334,14 +353,15 @@ export async function handleSessionUsePrevious(
 export async function handleModeShow(context: SessionHandlerContext, chatKey: string): Promise<RouterResponse> {
   const session = await context.sessions.getCurrentSession(chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().session.noCurrent };
   }
 
+  const s = t().session;
   return {
     text: [
-      "当前 mode：",
-      `- 会话：${toDisplaySessionAlias(session.alias)}`,
-      `- mode：${session.modeId ?? "未设置"}`,
+      s.modeHeader,
+      s.modeSessionLabel(toDisplaySessionAlias(session.alias)),
+      s.modeModeLabel(session.modeId ?? s.modeNotSet),
     ].join("\n"),
   };
 }
@@ -353,31 +373,32 @@ export async function handleModeSet(
 ): Promise<RouterResponse> {
   const session = await context.sessions.getCurrentSession(chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().session.noCurrent };
   }
 
   await context.interaction.setModeTransportSession(session, modeId);
   await context.sessions.setCurrentSessionMode(chatKey, modeId);
-  return { text: `已设置当前会话 mode：${modeId}` };
+  return { text: t().session.modeSet(modeId) };
 }
 
 export async function handleReplyModeShow(context: SessionHandlerContext, chatKey: string): Promise<RouterResponse> {
   const session = await context.sessions.getCurrentSession(chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().session.noCurrent };
   }
 
   const globalDefault = context.config?.channel.replyMode ?? "verbose";
   const sessionOverride = session.replyMode;
   const effective = sessionOverride ?? globalDefault;
+  const s = t().session;
 
   return {
     text: [
-      "当前 reply mode：",
-      `- 会话：${toDisplaySessionAlias(session.alias)}`,
-      `- 全局默认：${globalDefault}`,
-      `- 当前会话覆盖：${sessionOverride ?? "未设置"}`,
-      `- 当前生效：${effective}`,
+      s.replyModeHeader,
+      s.replyModeSessionLabel(toDisplaySessionAlias(session.alias)),
+      s.replyModeGlobalDefault(globalDefault),
+      s.replyModeSessionOverride(sessionOverride ?? s.modeNotSet),
+      s.replyModeEffective(effective),
     ].join("\n"),
   };
 }
@@ -389,36 +410,37 @@ export async function handleReplyModeSet(
 ): Promise<RouterResponse> {
   const session = await context.sessions.getCurrentSession(chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().session.noCurrent };
   }
 
   await context.sessions.setCurrentSessionReplyMode(chatKey, replyMode);
-  return { text: `已设置当前会话 reply mode：${replyMode}` };
+  return { text: t().session.replyModeSet(replyMode) };
 }
 
 export async function handleReplyModeReset(context: SessionHandlerContext, chatKey: string): Promise<RouterResponse> {
   const session = await context.sessions.getCurrentSession(chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().session.noCurrent };
   }
 
   await context.sessions.setCurrentSessionReplyMode(chatKey, undefined);
   const globalDefault = context.config?.channel.replyMode ?? "verbose";
-  return { text: `已重置当前会话 reply mode，当前回退到全局默认：${globalDefault}` };
+  return { text: t().session.replyModeReset(globalDefault) };
 }
 
 export async function handleStatus(context: SessionHandlerContext, chatKey: string): Promise<RouterResponse> {
   const session = await context.sessions.getCurrentSession(chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().session.noCurrent };
   }
 
+  const s = t().session;
   return {
     text: [
-      "当前会话：",
-      `- 名称：${toDisplaySessionAlias(session.alias)}`,
-      `- Agent：${session.agent}`,
-      `- 工作区：${session.workspace}`,
+      s.statusHeader,
+      s.statusNameLabel(toDisplaySessionAlias(session.alias)),
+      s.statusAgentLabel(session.agent),
+      s.statusWorkspaceLabel(session.workspace),
     ].join("\n"),
   };
 }
@@ -436,19 +458,19 @@ export async function handleCancel(
   if (alias !== undefined) {
     const result = context.sessions.resolveFuzzyAlias(chatKey, alias);
     if (result.kind === "none") {
-      return { text: `没有匹配「${alias}」的会话。发 /sessions 看看有哪些。` };
+      return { text: t().session.noMatchingSession(alias) };
     }
     if (result.kind === "ambiguous") {
       const lines = result.candidates.map(
         (candidate) => `• ${candidate.alias} · ${candidate.agent} · ${candidate.workspace}`,
       );
-      return { text: [`「${alias}」匹配到多个会话，请指定：`, ...lines].join("\n") };
+      return { text: [t().session.ambiguousSession(alias), ...lines].join("\n") };
     }
 
     const internalAlias = await context.sessions.resolveAliasForChat(chatKey, result.alias);
     const target = await context.sessions.getSession(internalAlias);
     if (!target) {
-      return { text: `没有匹配「${alias}」的会话。发 /sessions 看看有哪些。` };
+      return { text: t().session.noMatchingSession(alias) };
     }
 
     try {
@@ -466,7 +488,7 @@ export async function handleCancel(
 
   const session = await context.sessions.getCurrentSession(chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().session.noCurrent };
   }
 
   try {
@@ -493,7 +515,7 @@ export async function handleSessionTail(
 ): Promise<RouterResponse> {
   const session = await context.sessions.getCurrentSession(chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().session.noCurrent };
   }
 
   const resolvedLines = Math.min(
@@ -512,16 +534,17 @@ export async function handleSessionRemove(
   const internalAlias = await context.sessions.resolveAliasForChat(chatKey, alias);
   const session = await context.sessions.getSession(internalAlias);
   if (!session) {
-    return { text: `会话「${alias}」不存在。` };
+    return { text: t().session.sessionNotFound(alias) };
   }
 
   if (context.orchestration) {
     const blocking = await context.orchestration.listSessionBlockingTasks(session.transportSession);
     if (blocking.length > 0) {
+      const s = t().session;
       return {
         text: [
-          `会话「${alias}」下还有 ${blocking.length} 个未结束的任务，请先取消或等待完成。`,
-          `使用 /tasks 查看任务列表，或 /task cancel <id> 取消任务。`,
+          s.sessionBlockedByTasks(alias, blocking.length),
+          s.sessionBlockedByTasksHint,
         ].join("\n"),
       };
     }
@@ -566,18 +589,19 @@ export async function handleSessionRemove(
     transportClosed: shouldTeardownTransport && transportTeardownWarning === undefined,
   });
 
-  const lines = [`已删除会话「${alias}」。`];
+  const s = t().session;
+  const lines = [s.sessionRemoved(alias)];
   if (wasActive) {
-    lines.push("该会话是当前活跃会话，已自动清除相关聊天上下文。");
+    lines.push(s.sessionRemovedWasActive);
   }
   if (!shouldTeardownTransport) {
-    lines.push(`提示：后端会话「${session.transportSession}」仍被其他 ${sharedAliasCount} 个会话引用，未关闭。`);
+    lines.push(s.sessionTransportShared(session.transportSession, sharedAliasCount));
   }
   if (orchestrationPurgeWarning) {
-    lines.push(`提示：清理任务编排引用失败（${orchestrationPurgeWarning}），请稍后执行 /tasks clean 手动清理。`);
+    lines.push(s.sessionOrchestrationPurgeFailed(orchestrationPurgeWarning));
   }
   if (transportTeardownWarning) {
-    lines.push(`提示：后端会话未能自动关闭（${transportTeardownWarning}），如有残留请手动执行 acpx sessions close。`);
+    lines.push(s.sessionTransportTeardownFailed(transportTeardownWarning));
   }
   return { text: lines.join("\n") };
 }
@@ -623,11 +647,9 @@ const effectiveReplyMode = session.replyMode ?? context.config?.channel.replyMod
           error: error instanceof Error ? error.message : String(error),
         },
       );
+      const s = t().session;
       return {
-        text: [
-          "无法记录当前会话路由，已取消本次发送。",
-          "请稍后重试；如果问题持续存在，请检查 xacpx 运行日志和 state.json 写入权限。",
-        ].join("\n"),
+        text: [s.orchestrationRouteError, s.orchestrationRouteRetry].join("\n"),
       };
     }
   }
@@ -728,7 +750,7 @@ export async function handlePrompt(
     ? context.sessions.getResolvedSessionByInternalAlias(metadata.boundSessionAlias)
     : await context.sessions.getCurrentSession(chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().session.noCurrent };
   }
 
   return await handlePromptWithSession(context, session, chatKey, text, reply, replyContextToken, accountId, media, abortSignal, onToolEvent, onThought, perfSpan, metadata);

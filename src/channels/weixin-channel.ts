@@ -8,6 +8,7 @@ import type {
   ConsumerLockOptions,
   ScheduledChannelMessageInput,
 } from "./types.js";
+import { t } from "../i18n/index.js";
 import type { RuntimeMediaStore } from "./media-store.js";
 import type { OrchestrationTaskRecord } from "../orchestration/orchestration-types.js";
 import type { AppLogger } from "../logging/app-logger.js";
@@ -76,7 +77,7 @@ export class WeixinChannel implements MessageChannelRuntime {
     this.logger = input.logger;
 
     if (!this.isLoggedIn()) {
-      console.log("[xacpx] 未检测到登录凭证，正在启动扫码登录...");
+      console.log(t().misc.weixinNoCredentials);
       await this.login();
     }
 

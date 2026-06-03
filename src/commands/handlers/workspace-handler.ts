@@ -3,19 +3,23 @@ import { allocateWorkspaceName, isWorkspaceNameValid, sanitizeWorkspaceName } fr
 import { normalizeWorkspacePath, pathExists } from "../workspace-path";
 import type { HelpTopicMetadata } from "../help/help-types";
 import type { CommandRouterContext, RouterResponse } from "../router-types";
+import { t } from "../../i18n";
 
-export const workspaceHelp: HelpTopicMetadata = {
-  topic: "workspace",
-  aliases: ["ws", "workspaces"],
-  summary: "管理已注册的工作区。",
-  commands: [
-    { usage: "/workspaces", description: "查看当前已注册的工作区" },
-    { usage: "/workspace 或 /ws", description: "查看工作区列表" },
-    { usage: "/ws new <name> -d <path> [--raw]", description: "添加工作区；含特殊字符的名称会被自动规范化，--raw 保留原名" },
-    { usage: "/workspace rm <name>", description: "删除工作区" },
-  ],
-  examples: ['/ws new backend -d "/tmp/backend"', "/workspace rm backend"],
-};
+export function workspaceHelp(): HelpTopicMetadata {
+  const w = t().workspace;
+  return {
+    topic: "workspace",
+    aliases: ["ws", "workspaces"],
+    summary: w.helpSummary,
+    commands: [
+      { usage: w.helpCmdList, description: w.helpCmdListDesc },
+      { usage: w.helpCmdListOrAlias, description: w.helpCmdListOrAliasDesc },
+      { usage: w.helpCmdNew, description: w.helpCmdNewDesc },
+      { usage: w.helpCmdRm, description: w.helpCmdRmDesc },
+    ],
+    examples: ['/ws new backend -d "/tmp/backend"', "/workspace rm backend"],
+  };
+}
 
 export function handleWorkspaces(context: CommandRouterContext): RouterResponse {
   return { text: context.config ? renderWorkspaces(context.config) : "No config loaded." };
@@ -27,13 +31,14 @@ export async function handleWorkspaceCreate(
   cwd: string,
   options: { raw?: boolean } = {},
 ): Promise<RouterResponse> {
+  const w = t().workspace;
   if (!context.config || !context.configStore) {
-    return { text: "当前没有加载可写入的配置。" };
+    return { text: w.noWritableConfig };
   }
 
   const normalizedCwd = normalizeWorkspacePath(cwd);
   if (!(await pathExists(normalizedCwd))) {
-    return { text: `工作区路径不存在：${cwd}` };
+    return { text: w.pathNotFound(cwd) };
   }
 
   let name = workspaceName;
@@ -41,12 +46,12 @@ export async function handleWorkspaceCreate(
   if (!options.raw && !isWorkspaceNameValid(workspaceName)) {
     const base = sanitizeWorkspaceName(workspaceName);
     name = allocateWorkspaceName(base, context.config.workspaces);
-    notice = `名称 ${JSON.stringify(workspaceName)} 含有特殊字符，已保存为「${name}」。如需保留原名请加 --raw。`;
+    notice = w.nameSanitized(workspaceName, name);
   }
 
   const updated = await context.configStore.upsertWorkspace(name, normalizedCwd);
   context.replaceConfig(updated);
-  const savedLine = `工作区「${name}」已保存`;
+  const savedLine = w.saved(name);
   return { text: notice ? `${notice}\n${savedLine}` : savedLine };
 }
 
@@ -54,12 +59,12 @@ export async function handleWorkspaceRemove(
   context: CommandRouterContext,
   workspaceName: string,
 ): Promise<RouterResponse> {
+  const w = t().workspace;
   if (!context.config || !context.configStore) {
-    return { text: "当前没有加载可写入的配置。" };
+    return { text: w.noWritableConfig };
   }
 
   const updated = await context.configStore.removeWorkspace(workspaceName);
   context.replaceConfig(updated);
-  return { text: `工作区「${workspaceName}」已删除` };
+  return { text: w.removed(workspaceName) };
 }
-

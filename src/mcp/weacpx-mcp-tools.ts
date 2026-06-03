@@ -389,7 +389,7 @@ export function buildWeacpxMcpToolRegistry(input: {
           timeText: z
             .string()
             .min(1)
-            .describe("Time expression, e.g. 'in 2h', '30分钟后', 'tomorrow 09:00', or '周五 09:00'."),
+            .describe("Time expression, e.g. 'in 2h', '30\u5206\u949f\u540e', 'tomorrow 09:00', or '\u5468\u4e94 09:00'."),
           message: z.string().min(1).describe("Natural-language message to run at the scheduled time."),
           mode: scheduledModeSchema
             .describe(

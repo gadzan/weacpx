@@ -49,6 +49,7 @@ import { handleChannelCli, type ChannelCliDeps } from "./channels/cli/channel-cl
 import { handlePluginCli, type PluginCliDeps } from "./plugins/plugin-cli";
 import { createStartupWaitUi } from "./cli/startup-wait-ui";
 import type { DaemonStartupWait } from "./daemon/daemon-controller";
+import { setLocale, resolveLocale, getLocale, t } from "./i18n";
 
 
 export interface PrepareMcpCoordinatorStartupInput {
@@ -255,28 +256,8 @@ interface CliDeps {
   isProcessRunning?: (pid: number) => boolean;
 }
 
-const HELP_LINES = [
-  "用法：",
-  "xacpx login  - 微信登录",
-  "xacpx logout - 退出登录",
-  "xacpx run    - 前台运行",
-  "xacpx start  - 后台启动",
-  "xacpx status - 查看状态",
-  "xacpx stop   - 停止服务",
-  "xacpx restart - 重启后台服务",
-  "xacpx update [--all|<name>] - 更新 xacpx 和已安装插件",
-  "xacpx channel|ch list|show|add|rm|enable|disable [--account <id>] - 管理消息频道（多 bot 用 --account）",
-  "xacpx plugin list|add|update|remove|enable|disable|doctor|known - 管理插件",
-  "xacpx doctor - 运行诊断",
-  "xacpx version - 查看版本",
-  "xacpx agent|agents list|add|rm|templates - 管理本机 Agent",
-  "xacpx workspace list|add [name] [--raw]|rm <name> - 管理本机工作区（别名：ws）",
-  "xacpx later|lt list|cancel <id> - 管理本机待执行定时任务",
-  "xacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务",
-];
-
 export function getUsageText(): string {
-  return HELP_LINES.join("\n");
+  return t().cli.helpLines.join("\n");
 }
 
 import { bootstrapBuiltinChannels } from "./channels/bootstrap.js";
@@ -284,6 +265,18 @@ import { bootstrapBuiltinChannels } from "./channels/bootstrap.js";
 const INFO_ONLY_COMMANDS = new Set(["version", "--version", "-v", "--help", "-h"]);
 
 export async function runCli(args: string[], deps: CliDeps = {}): Promise<number> {
+  {
+    let configLanguage: string | undefined;
+    try {
+      const localePaths = (await import("./main")).resolveRuntimePaths();
+      configLanguage = (await loadConfig(localePaths.configPath)).language;
+    } catch {
+      // Best-effort locale bootstrap: never let config problems break a CLI command.
+      // Missing/invalid config falls back to the system locale here; the real config
+      // load+validation happens later during command handling and surfaces errors there.
+    }
+    setLocale(resolveLocale({ configLanguage }));
+  }
   bootstrapBuiltinChannels();
   const command = args[0];
   const print = deps.print ?? ((line: string) => console.log(line));
@@ -296,7 +289,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       return 0;
     case "--help":
     case "-h": {
-      for (const line of HELP_LINES) {
+      for (const line of t().cli.helpLines) {
         print(line);
       }
       return 0;
@@ -329,7 +322,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
         },
       })))(args.slice(1));
       if (result === null) {
-        for (const line of HELP_LINES) print(line);
+        for (const line of t().cli.helpLines) print(line);
         return 1;
       }
       return result;
@@ -337,7 +330,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
     case "doctor": {
       const parsed = parseDoctorArgs(args.slice(1));
       if (!parsed.ok) {
-        for (const line of HELP_LINES) {
+        for (const line of t().cli.helpLines) {
           print(line);
         }
         return 1;
@@ -352,7 +345,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
         cwd: deps.cwd ?? (() => process.cwd()),
       });
       if (result === null) {
-        for (const line of HELP_LINES) {
+        for (const line of t().cli.helpLines) {
           print(line);
         }
         return 1;
@@ -363,7 +356,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
     case "agents": {
       const result = await handleAgentCli(args.slice(1), { print });
       if (result === null) {
-        for (const line of HELP_LINES) {
+        for (const line of t().cli.helpLines) {
           print(line);
         }
         return 1;
@@ -374,7 +367,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
     case "lt": {
       const result = await handleLaterCli(args.slice(1), { print });
       if (result === null) {
-        for (const line of HELP_LINES) {
+        for (const line of t().cli.helpLines) {
           print(line);
         }
         return 1;
@@ -390,7 +383,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
         overrides: deps.pluginCliDeps,
       }));
       if (result === null) {
-        for (const line of HELP_LINES) {
+        for (const line of t().cli.helpLines) {
           print(line);
         }
         return 1;
@@ -410,7 +403,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
         overrides: deps.channelCliDeps,
       }));
       if (result === null) {
-        for (const line of HELP_LINES) {
+        for (const line of t().cli.helpLines) {
           print(line);
         }
         return 1;
@@ -418,6 +411,8 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       return result;
     }
     case "mcp-stdio":
+      // mcp-stdio runs as an acpx-spawned child: prefer the parent-injected XACPX_LANG over config.
+      setLocale(resolveLocale({ configLanguage: process.env.XACPX_LANG }));
       return await (deps.mcpStdio ?? ((subArgs) => defaultMcpStdio(subArgs, { stderr: deps.stderr })))(args.slice(1));
     case "start": {
       const controller = deps.controller ?? createDefaultController(deps);
@@ -425,7 +420,7 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
         const isInteractive = deps.isInteractive ?? defaultIsInteractive;
         const status = await controller.getStatus();
         if (status.state === "running") {
-          print("xacpx 已在后台运行");
+          print(t().cli.alreadyRunning);
           print(`PID: ${status.pid}`);
           return 0;
         }
@@ -451,16 +446,16 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
           startupWaitUi?.stop();
         }
         if (result.state === "already-running") {
-          print("xacpx 已在后台运行");
+          print(t().cli.alreadyRunning);
           print(`PID: ${result.pid}`);
           return 0;
         }
 
-        print("xacpx 已在后台启动");
+        print(t().cli.started);
         print(`PID: ${result.pid}`);
         return 0;
       } catch (error) {
-        print(`xacpx 启动失败：${describeFriendlyError(error)}`);
+        print(t().cli.startFailed(describeFriendlyError(error)));
         printDaemonLogHints(print);
         return 1;
       }
@@ -469,17 +464,17 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       const controller = deps.controller ?? createDefaultController(deps);
       const status = await controller.getStatus();
       if (status.state === "indeterminate") {
-        print("xacpx 进程仍在运行，但状态元数据缺失");
+        print(t().cli.indeterminate);
         print(`PID: ${status.pid}`);
         return 1;
       }
 
       if (status.state !== "running") {
-        print("xacpx 未运行");
+        print(t().cli.notRunning);
         return 0;
       }
 
-      print("xacpx 正在运行");
+      print(t().cli.running);
       print(`PID: ${status.pid}`);
       print(`Started: ${status.status.started_at}`);
       print(`Heartbeat: ${status.status.heartbeat_at}`);
@@ -494,10 +489,10 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       const controller = deps.controller ?? createDefaultController(deps);
       const result = await controller.stop();
       if (result.detail === "not-running") {
-        print("xacpx 未运行");
+        print(t().cli.notRunning);
         return 0;
       }
-      print("xacpx 已停止");
+      print(t().cli.stopped);
       return 0;
     }
     case "restart": {
@@ -505,13 +500,13 @@ export async function runCli(args: string[], deps: CliDeps = {}): Promise<number
       try {
         return await restartDaemonCli(controller, print);
       } catch (error) {
-        print(`xacpx 重启失败：${describeFriendlyError(error)}`);
+        print(t().cli.restartFailed(describeFriendlyError(error)));
         printDaemonLogHints(print);
         return 1;
       }
     }
     default:
-      for (const line of HELP_LINES) {
+      for (const line of t().cli.helpLines) {
         print(line);
       }
       return 1;
@@ -615,11 +610,11 @@ async function workspaceList(print: (line: string) => void): Promise<number> {
   const entries = Object.entries(config.workspaces);
 
   if (entries.length === 0) {
-    print("还没有工作区。");
+    print(t().cli.workspaceEmpty);
     return 0;
   }
 
-  print("工作区列表：");
+  print(t().cli.workspaceListHeader);
   for (const [name, workspace] of entries) {
     print(`- ${name}: ${workspace.cwd}`);
   }
@@ -637,7 +632,7 @@ async function workspaceAdd(
   const cwd = normalizeWorkspacePath(deps.cwd());
   const input = rawName === undefined ? basenameForWorkspacePath(cwd) : rawName.trim();
   if (input.length === 0) {
-    deps.print("工作区名称不能为空。");
+    deps.print(t().cli.workspaceNameEmpty);
     return 1;
   }
 
@@ -648,45 +643,43 @@ async function workspaceAdd(
   if (!deps.raw && !isWorkspaceNameValid(input)) {
     const base = sanitizeWorkspaceName(input);
     name = allocateWorkspaceName(base, config.workspaces);
-    const sourceLabel = rawName === undefined ? "目录名" : "名称";
-    deps.print(
-      `${sourceLabel} ${JSON.stringify(input)} 含有特殊字符，已保存为「${name}」。如需保留原名请加 --raw。`,
-    );
+    const sourceLabel = rawName === undefined ? t().cli.workspaceSourceLabelDir : t().cli.workspaceSourceLabelName;
+    deps.print(t().cli.workspaceNameSanitized(sourceLabel, input, name));
   }
 
   const existing = config.workspaces[name];
   if (existing) {
     if (sameWorkspacePath(existing.cwd, cwd)) {
-      deps.print(`工作区「${name}」已存在：${existing.cwd}`);
+      deps.print(t().cli.workspaceAlreadyExists(name, existing.cwd));
       return 0;
     }
 
-    deps.print(`工作区「${name}」已存在，但路径不同：${existing.cwd}`);
-    deps.print(`请换一个名称，或先执行：xacpx workspace rm ${quoteWorkspaceNameIfNeeded(name)}`);
+    deps.print(t().cli.workspaceConflictPath(name, existing.cwd));
+    deps.print(t().cli.workspaceConflictHint(quoteWorkspaceNameIfNeeded(name)));
     return 1;
   }
 
   await store.upsertWorkspace(name, cwd);
-  deps.print(`工作区「${name}」已保存：${cwd}`);
+  deps.print(t().cli.workspaceSaved(name, cwd));
   return 0;
 }
 
 async function workspaceRemove(rawName: string, print: (line: string) => void): Promise<number> {
   const name = rawName.trim();
   if (name.length === 0) {
-    print("工作区名称不能为空。");
+    print(t().cli.workspaceNameEmpty);
     return 1;
   }
 
   const store = await createCliConfigStore();
   const config = await store.load();
   if (!config.workspaces[name]) {
-    print(`没有找到工作区「${name}」。`);
+    print(t().cli.workspaceNotFound(name));
     return 1;
   }
 
   await store.removeWorkspace(name);
-  print(`工作区「${name}」已删除`);
+  print(t().cli.workspaceRemoved(name));
   return 0;
 }
 
@@ -721,11 +714,11 @@ async function agentList(print: (line: string) => void): Promise<number> {
   const entries = Object.entries(config.agents);
 
   if (entries.length === 0) {
-    print("还没有 Agent。");
+    print(t().cli.agentEmpty);
     return 0;
   }
 
-  print("Agent 列表：");
+  print(t().cli.agentListHeader);
   for (const [name, agent] of entries) {
     const command = agent.command ? ` command=${agent.command}` : "";
     print(`- ${name}: driver=${agent.driver}${command}`);
@@ -734,7 +727,7 @@ async function agentList(print: (line: string) => void): Promise<number> {
 }
 
 function agentTemplates(print: (line: string) => void): number {
-  print("可用 Agent 模板：");
+  print(t().cli.agentTemplatesHeader);
   for (const name of listAgentTemplates()) {
     print(`- ${name}`);
   }
@@ -744,13 +737,13 @@ function agentTemplates(print: (line: string) => void): number {
 async function agentAdd(rawName: string, print: (line: string) => void): Promise<number> {
   const name = rawName.trim();
   if (name.length === 0) {
-    print("Agent 名称不能为空。");
+    print(t().cli.agentNameEmpty);
     return 1;
   }
 
   const template = getAgentTemplate(name);
   if (!template) {
-    print(`暂不支持这个 Agent 模板。当前可用：${listAgentTemplates().join("、")}`);
+    print(t().cli.agentUnsupportedTemplate(listAgentTemplates()));
     return 1;
   }
 
@@ -759,33 +752,33 @@ async function agentAdd(rawName: string, print: (line: string) => void): Promise
   const existing = config.agents[name];
   if (existing) {
     if (sameAgentConfig(existing, template)) {
-      print(`Agent「${name}」已存在`);
+      print(t().cli.agentAlreadyExists(name));
       return 0;
     }
-    print(`Agent「${name}」已存在且配置不同。请先执行：xacpx agent rm ${name}`);
+    print(t().cli.agentAlreadyExistsDifferent(name));
     return 1;
   }
   await store.upsertAgent(name, template);
-  print(`Agent「${name}」已保存`);
+  print(t().cli.agentSaved(name));
   return 0;
 }
 
 async function agentRemove(rawName: string, print: (line: string) => void): Promise<number> {
   const name = rawName.trim();
   if (name.length === 0) {
-    print("Agent 名称不能为空。");
+    print(t().cli.agentNameEmpty);
     return 1;
   }
 
   const store = await createCliConfigStore();
   const config = await store.load();
   if (!config.agents[name]) {
-    print(`没有找到 Agent「${name}」。`);
+    print(t().cli.agentNotFound(name));
     return 1;
   }
 
   await store.removeAgent(name);
-  print(`Agent「${name}」已删除`);
+  print(t().cli.agentRemoved(name));
   return 0;
 }
 
@@ -817,18 +810,18 @@ async function laterList(print: (line: string) => void): Promise<number> {
 async function laterCancel(rawId: string, print: (line: string) => void): Promise<number> {
   const id = normalizeId(rawId);
   if (id.length === 0) {
-    print("定时任务 ID 不能为空。");
+    print(t().cli.laterIdEmpty);
     return 1;
   }
 
   const scheduled = await createCliScheduledTaskService();
   const ok = await scheduled.cancelPending(id);
   if (!ok) {
-    print(`未找到待执行的定时任务 #${id}。`);
-    print("可以用 xacpx later list 查看当前待执行任务。");
+    print(t().cli.laterNotFound(id));
+    print(t().cli.laterNotFoundHint);
     return 1;
   }
-  print(`已取消定时任务 #${id}`);
+  print(t().cli.laterCancelled(id));
   return 0;
 }
 
@@ -1060,28 +1053,28 @@ export async function restartDaemonCli(
 ): Promise<number> {
   const status = await controller.getStatus();
   if (status.state === "indeterminate") {
-    print("xacpx 进程仍在运行，但状态元数据缺失");
+    print(t().cli.restartIndeterminate);
     print(`PID: ${status.pid}`);
-    print("请先执行 `xacpx stop`，或手动清理 stale PID/status 后再重试。");
+    print(t().cli.restartIndeterminateHint);
     return 1;
   }
 
   if (status.state === "running") {
-    print("xacpx 正在重启...");
+    print(t().cli.restarting);
     await controller.stop();
-    print("xacpx 已停止");
+    print(t().cli.stopped);
   } else {
-    print("xacpx 未运行，正在启动...");
+    print(t().cli.restartNotRunning);
   }
 
   const started = await controller.start();
   if (started.state === "already-running") {
-    print("xacpx 已在后台运行");
+    print(t().cli.alreadyRunning);
     print(`PID: ${started.pid}`);
     return 0;
   }
 
-  print("xacpx 已在后台启动");
+  print(t().cli.started);
   print(`PID: ${started.pid}`);
   return 0;
 }
@@ -1210,7 +1203,7 @@ function createDefaultController(deps: Pick<CliDeps, "isProcessRunning"> = {}): 
     processExecPath: process.execPath,
     cliEntryPath: resolveCliEntryPath(),
     cwd: process.cwd(),
-    env: process.env,
+    env: { ...process.env, XACPX_LANG: getLocale() },
     ...(deps.isProcessRunning ? { isProcessRunning: deps.isProcessRunning } : {}),
   });
   return {
@@ -1268,8 +1261,8 @@ function describeFriendlyError(error: unknown): string {
 function printDaemonLogHints(print: (line: string) => void): void {
   const paths = safeDaemonLogPaths();
   if (!paths) return;
-  print(`请查看 App Log: ${paths.appLog}`);
-  print(`请查看 Stderr: ${paths.stderrLog}`);
+  print(t().cli.checkAppLog(paths.appLog));
+  print(t().cli.checkStderrLog(paths.stderrLog));
 }
 
 function safeDaemonLogPaths(): { appLog: string; stderrLog: string } | null {

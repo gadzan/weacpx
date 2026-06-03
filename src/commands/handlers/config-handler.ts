@@ -5,11 +5,14 @@ import type {
   PermissionMode,
   ReplyMode,
 } from "../../config/types";
+import { isLocale } from "../../i18n/resolve-locale";
 import type { HelpTopicMetadata } from "../help/help-types";
 import type { CommandRouterContext, RouterResponse } from "../router-types";
 import { cloneAppConfig } from "../config-clone";
+import { t } from "../../i18n";
 
 const SUPPORTED_CONFIG_PATHS = [
+  "language",
   "transport.type",
   "transport.command",
   "transport.sessionInitTimeoutMs",
@@ -27,30 +30,33 @@ const SUPPORTED_CONFIG_PATHS = [
   "workspaces.<name>.description",
 ] as const;
 
-const LEGACY_CONFIG_PATHS = [
-  "wechat.replyMode（已弃用，请使用 channel.replyMode）",
-  "channel.type（已禁用写入；请使用 xacpx channel ... 管理 channels[]）",
-  "channels[]（多频道运行配置，请编辑 JSON）",
-] as const;
+function getLegacyConfigPaths(): string[] {
+  const c = t().config;
+  return [c.legacyWechatReplyMode, c.legacyChannelType, c.legacyChannels];
+}
 
-export const configHelp: HelpTopicMetadata = {
-  topic: "config",
-  aliases: [],
-  summary: "查看和修改受支持的配置字段。",
-  commands: [
-    { usage: "/config", description: "查看当前支持修改的配置路径" },
-    { usage: "/config set <path> <value>", description: "修改一个受支持的配置值" },
-  ],
-  examples: ["/config set channel.replyMode final", "/config set logging.level debug"],
-};
+export function configHelp(): HelpTopicMetadata {
+  const c = t().config;
+  return {
+    topic: "config",
+    aliases: [],
+    summary: c.helpSummary,
+    commands: [
+      { usage: c.helpCmdShow, description: c.helpCmdShowDesc },
+      { usage: c.helpCmdSet, description: c.helpCmdSetDesc },
+    ],
+    examples: ["/config set channel.replyMode final", "/config set logging.level debug"],
+  };
+}
 
 export function handleConfigShow(context: CommandRouterContext): RouterResponse {
-  const lines = ["支持修改的配置字段：", ...SUPPORTED_CONFIG_PATHS.map((path) => `- ${path}`)];
+  const c = t().config;
+  const lines = [c.showSupportedHeader, ...SUPPORTED_CONFIG_PATHS.map((path) => `- ${path}`)];
 
-  lines.push("", "兼容旧配置：", ...LEGACY_CONFIG_PATHS.map((path) => `- ${path}`));
+  lines.push("", c.showLegacyHeader, ...getLegacyConfigPaths().map((path) => `- ${path}`));
 
   if (context.config) {
-    lines.push("", "示例：", "- /config set channel.replyMode final", "- /config set logging.level debug");
+    lines.push("", c.showExamplesHeader, "- /config set channel.replyMode final", "- /config set logging.level debug");
   }
 
   return { text: lines.join("\n") };
@@ -61,8 +67,9 @@ export async function handleConfigSet(
   path: string,
   rawValue: string,
 ): Promise<RouterResponse> {
+  const c = t().config;
   if (!context.config || !context.configStore) {
-    return { text: "当前没有加载可写入的配置。" };
+    return { text: c.noWritableConfig };
   }
 
   const previous = cloneAppConfig(context.config);
@@ -83,7 +90,7 @@ export async function handleConfigSet(
     }
   }
   context.replaceConfig(updated);
-  return { text: `配置已更新：${path} = ${result.renderedValue}` };
+  return { text: c.updated(path, result.renderedValue) };
 }
 
 function applySupportedConfigUpdate(
@@ -91,15 +98,21 @@ function applySupportedConfigUpdate(
   path: string,
   rawValue: string,
 ): { renderedValue: string } | { error: string } {
+  const c = t().config;
   switch (path) {
+    case "language": {
+      if (!isLocale(rawValue)) return { error: c.languageInvalid };
+      config.language = rawValue;
+      return { renderedValue: rawValue };
+    }
     case "transport.type": {
       const parsed = parseEnum(rawValue, ["acpx-cli", "acpx-bridge"]);
-      if (!parsed) return { error: "transport.type 只支持：acpx-cli、acpx-bridge" };
+      if (!parsed) return { error: c.transportTypeInvalid };
       config.transport.type = parsed;
       return { renderedValue: parsed };
     }
     case "transport.command":
-      if (!rawValue.trim()) return { error: "transport.command 不能为空。" };
+      if (!rawValue.trim()) return { error: c.transportCommandEmpty };
       config.transport.command = rawValue;
       return { renderedValue: rawValue };
     case "transport.sessionInitTimeoutMs": {
@@ -110,23 +123,23 @@ function applySupportedConfigUpdate(
     }
     case "transport.permissionMode": {
       const parsed = parseEnum<PermissionMode>(rawValue, ["approve-all", "approve-reads", "deny-all"]);
-      if (!parsed) return { error: "transport.permissionMode 只支持：approve-all、approve-reads、deny-all" };
+      if (!parsed) return { error: c.transportPermissionModeInvalid };
       config.transport.permissionMode = parsed;
       return { renderedValue: parsed };
     }
     case "transport.nonInteractivePermissions": {
       const parsed = parseEnum<NonInteractivePermissions>(rawValue, ["deny", "fail"]);
-      if (!parsed) return { error: "transport.nonInteractivePermissions 只支持：deny、fail" };
+      if (!parsed) return { error: c.transportNonInteractiveInvalid };
       config.transport.nonInteractivePermissions = parsed;
       return { renderedValue: parsed };
     }
     case "transport.permissionPolicy":
-      if (!rawValue.trim()) return { error: "transport.permissionPolicy 不能为空。" };
+      if (!rawValue.trim()) return { error: c.transportPermissionPolicyEmpty };
       config.transport.permissionPolicy = rawValue;
       return { renderedValue: rawValue };
     case "logging.level": {
       const parsed = parseEnum<LoggingLevel>(rawValue, ["error", "info", "debug"]);
-      if (!parsed) return { error: "logging.level 只支持：error、info、debug" };
+      if (!parsed) return { error: c.loggingLevelInvalid };
       config.logging.level = parsed;
       return { renderedValue: parsed };
     }
@@ -149,21 +162,19 @@ function applySupportedConfigUpdate(
       return { renderedValue: String(parsed.value) };
     }
     case "channel.type":
-      return {
-        error: "channel.type 是旧单频道字段，/config set 已禁用写入；请使用 `xacpx channel ...` 管理 channels[]，然后重启 xacpx。",
-      };
+      return { error: c.channelTypeDisabled };
     case "channel.replyMode": {
       const parsed = parseEnum<ReplyMode>(rawValue, ["stream", "final", "verbose"]);
-      if (!parsed) return { error: "channel.replyMode 只支持：stream、final、verbose" };
+      if (!parsed) return { error: c.channelReplyModeInvalid };
       config.channel.replyMode = parsed;
       return { renderedValue: parsed };
     }
     case "wechat.replyMode": {
       const parsed = parseEnum<ReplyMode>(rawValue, ["stream", "final", "verbose"]);
-      if (!parsed) return { error: "wechat.replyMode 只支持：stream、final、verbose" };
+      if (!parsed) return { error: c.wechatReplyModeInvalid };
       config.channel.replyMode = parsed;
       return {
-        renderedValue: `${parsed}（已映射到 channel.replyMode）`,
+        renderedValue: c.wechatReplyModeMapped(parsed),
       };
     }
   }
@@ -172,14 +183,14 @@ function applySupportedConfigUpdate(
   if (agentMatch) {
     const [, name, field] = agentMatch;
     if (!name || !field) {
-      return { error: `不支持修改这个配置路径：${path}` };
+      return { error: c.pathNotSupported(path) };
     }
     const agent = config.agents[name];
     if (!agent) {
-      return { error: `Agent「${name}」不存在，请先创建。` };
+      return { error: c.agentNotFound(name) };
     }
     if (!rawValue.trim()) {
-      return { error: `${path} 不能为空。` };
+      return { error: c.fieldEmpty(path) };
     }
     if (field === "driver") {
       agent.driver = rawValue;
@@ -193,14 +204,14 @@ function applySupportedConfigUpdate(
   if (workspaceMatch) {
     const [, name, field] = workspaceMatch;
     if (!name || !field) {
-      return { error: `不支持修改这个配置路径：${path}` };
+      return { error: c.pathNotSupported(path) };
     }
     const workspace = config.workspaces[name];
     if (!workspace) {
-      return { error: `工作区「${name}」不存在，请先创建。` };
+      return { error: c.workspaceNotFound(name) };
     }
     if (!rawValue.trim()) {
-      return { error: `${path} 不能为空。` };
+      return { error: c.fieldEmpty(path) };
     }
     if (field === "cwd") {
       workspace.cwd = rawValue;
@@ -210,7 +221,7 @@ function applySupportedConfigUpdate(
     return { renderedValue: rawValue };
   }
 
-  return { error: `不支持修改这个配置路径：${path}` };
+  return { error: c.pathNotSupported(path) };
 }
 
 function parseEnum<T extends string>(value: string, allowed: readonly T[]): T | null {
@@ -223,7 +234,7 @@ function parsePositiveNumber(
 ): { value: number } | { error: string } {
   const value = Number(rawValue);
   if (!Number.isFinite(value) || value <= 0) {
-    return { error: `${path} 必须是正数。` };
+    return { error: t().config.mustBePositiveNumber(path) };
   }
   return { value };
 }

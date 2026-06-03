@@ -1,10 +1,11 @@
-import { expect, test } from "bun:test";
+import { expect, test, beforeEach } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { CommandRouter } from "../../../src/commands/command-router";
 import { listAgentTemplates } from "../../../src/config/agent-templates";
 import { normalizeWorkspacePath } from "../../../src/commands/workspace-path";
+import { setLocale, t } from "../../../src/i18n";
 import {
   MemoryConfigStore,
   MemoryStateStore,
@@ -14,6 +15,10 @@ import {
   createTransport,
   getUpdatePermissionPolicyMock,
 } from "./command-router-test-support";
+
+beforeEach(() => {
+  setLocale("zh");
+});
 
 test("returns help text", async () => {
   const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
@@ -117,7 +122,7 @@ test("renders the current permission mode", async () => {
 
   const reply = await router.handle("wx:user", "/pm");
 
-  expect(reply.text).toBe(["当前权限模式：", "- mode: approve-reads", "- auto: deny"].join("\n"));
+  expect(reply.text).toBe([t().permission.statusTitleCurrent, "- mode: approve-reads", "- auto: deny"].join("\n"));
 });
 
 test("renders the current non-interactive policy", async () => {
@@ -129,7 +134,7 @@ test("renders the current non-interactive policy", async () => {
 
   const reply = await router.handle("wx:user", "/pm auto");
 
-  expect(reply.text).toBe(["当前非交互策略：", "- mode: approve-all", "- auto: deny"].join("\n"));
+  expect(reply.text).toBe([t().permission.statusTitleAutoStatus, "- mode: approve-all", "- auto: deny"].join("\n"));
 });
 
 test("updates the permission mode", async () => {
@@ -140,7 +145,7 @@ test("updates the permission mode", async () => {
 
   const reply = await router.handle("wx:user", "/pm set read");
 
-  expect(reply.text).toBe(["权限模式已更新：", "- mode: approve-reads", "- auto: deny"].join("\n"));
+  expect(reply.text).toBe([t().permission.statusTitleModeUpdated, "- mode: approve-reads", "- auto: deny"].join("\n"));
   expect(config.transport.permissionMode).toBe("approve-reads");
 });
 
@@ -152,7 +157,7 @@ test("updates the non-interactive permission policy", async () => {
 
   const reply = await router.handle("wx:user", "/pm auto deny");
 
-  expect(reply.text).toBe(["非交互策略已更新：", "- mode: approve-all", "- auto: deny"].join("\n"));
+  expect(reply.text).toBe([t().permission.statusTitleAutoUpdated, "- mode: approve-all", "- auto: deny"].join("\n"));
   expect(config.transport.nonInteractivePermissions).toBe("deny");
 });
 
@@ -165,8 +170,8 @@ test("refuses permission writes when writable config is unavailable", async () =
   const modeReply = await router.handle("wx:user", "/pm set deny");
   const autoReply = await router.handle("wx:user", "/pm auto deny");
 
-  expect(modeReply.text).toBe("当前没有加载可写入的配置。");
-  expect(autoReply.text).toBe("当前没有加载可写入的配置。");
+  expect(modeReply.text).toBe(t().permission.noWritableConfig);
+  expect(autoReply.text).toBe(t().permission.noWritableConfig);
 });
 
 test("shows supported config paths", async () => {
@@ -177,7 +182,7 @@ test("shows supported config paths", async () => {
 
   const reply = await router.handle("wx:user", "/config");
 
-  expect(reply.text).toContain("支持修改的配置字段：");
+  expect(reply.text).toContain(t().config.showSupportedHeader);
   expect(reply.text).toContain("- transport.permissionMode");
   expect(reply.text).toContain("- transport.permissionPolicy");
   expect(reply.text).toContain("- agents.<name>.driver");
@@ -192,7 +197,7 @@ test("updates a fixed config path through /config set", async () => {
 
   const reply = await router.handle("wx:user", "/config set logging.level debug");
 
-  expect(reply.text).toBe("配置已更新：logging.level = debug");
+  expect(reply.text).toBe(t().config.updated("logging.level", "debug"));
   expect(config.logging.level).toBe("debug");
 });
 
@@ -205,7 +210,7 @@ test("updates an existing dynamic config path through /config set", async () => 
 
   const reply = await router.handle("wx:user", '/config set workspaces.backend.description "backend repo"');
 
-  expect(reply.text).toBe("配置已更新：workspaces.backend.description = backend repo");
+  expect(reply.text).toBe(t().config.updated("workspaces.backend.description", "backend repo"));
   expect(config.workspaces.backend.description).toBe("backend repo");
 });
 
@@ -217,7 +222,7 @@ test("rejects unsupported config paths", async () => {
 
   const reply = await router.handle("wx:user", "/config set transport.missing value");
 
-  expect(reply.text).toBe("不支持修改这个配置路径：transport.missing");
+  expect(reply.text).toBe(t().config.pathNotSupported("transport.missing"));
 });
 
 test("rejects config set when the target dynamic entry does not exist", async () => {
@@ -229,8 +234,8 @@ test("rejects config set when the target dynamic entry does not exist", async ()
   const agentReply = await router.handle("wx:user", "/config set agents.claude.driver claude");
   const workspaceReply = await router.handle("wx:user", "/config set workspaces.frontend.cwd /tmp/frontend");
 
-  expect(agentReply.text).toBe("Agent「claude」不存在，请先创建。");
-  expect(workspaceReply.text).toBe("工作区「frontend」不存在，请先创建。");
+  expect(agentReply.text).toBe(t().config.agentNotFound("claude"));
+  expect(workspaceReply.text).toBe(t().config.workspaceNotFound("frontend"));
 });
 
 test("rejects config set with invalid typed values", async () => {
@@ -242,8 +247,8 @@ test("rejects config set with invalid typed values", async () => {
   const modeReply = await router.handle("wx:user", "/config set wechat.replyMode maybe");
   const numberReply = await router.handle("wx:user", "/config set logging.maxFiles 0");
 
-  expect(modeReply.text).toBe("wechat.replyMode 只支持：stream、final、verbose");
-  expect(numberReply.text).toBe("logging.maxFiles 必须是正数。");
+  expect(modeReply.text).toBe(t().config.wechatReplyModeInvalid);
+  expect(numberReply.text).toBe(t().config.mustBePositiveNumber("logging.maxFiles"));
 });
 
 test("updates channel reply mode through /config set", async () => {
@@ -254,7 +259,7 @@ test("updates channel reply mode through /config set", async () => {
 
   const response = await router.handle("wx:user", "/config set channel.replyMode final");
 
-  expect(response.text).toBe("配置已更新：channel.replyMode = final");
+  expect(response.text).toBe(t().config.updated("channel.replyMode", "final"));
   expect(config.channel.replyMode).toBe("final");
 });
 
@@ -266,7 +271,7 @@ test("rejects channel type updates through /config set", async () => {
 
   const response = await router.handle("wx:user", "/config set channel.type weixin");
 
-  expect(response.text).toBe("channel.type 是旧单频道字段，/config set 已禁用写入；请使用 `xacpx channel ...` 管理 channels[]，然后重启 xacpx。");
+  expect(response.text).toBe(t().config.channelTypeDisabled);
   expect(config.channel.type).toBe("weixin");
 });
 
@@ -278,7 +283,7 @@ test("does not report success for ineffective channel type changes", async () =>
 
   const response = await router.handle("wx:user", "/config set channel.type feishu");
 
-  expect(response.text).toBe("channel.type 是旧单频道字段，/config set 已禁用写入；请使用 `xacpx channel ...` 管理 channels[]，然后重启 xacpx。");
+  expect(response.text).toBe(t().config.channelTypeDisabled);
   expect(config.channel.type).toBe("weixin");
   expect(config.channels).toEqual([{ id: "weixin", type: "weixin", enabled: true }]);
 });
@@ -291,7 +296,7 @@ test("maps legacy wechat reply mode config command to channel reply mode", async
 
   const response = await router.handle("wx:user", "/config set wechat.replyMode stream");
 
-  expect(response.text).toBe("配置已更新：wechat.replyMode = stream（已映射到 channel.replyMode）");
+  expect(response.text).toBe(t().config.updated("wechat.replyMode", t().config.wechatReplyModeMapped("stream")));
   expect(config.channel.replyMode).toBe("stream");
 });
 
@@ -304,10 +309,10 @@ test("shows channel config paths and legacy compatibility paths", async () => {
   const response = await router.handle("wx:user", "/config");
 
   expect(response.text).toContain("- channel.replyMode");
-  expect(response.text).toContain("兼容旧配置：");
-  expect(response.text).toContain("- wechat.replyMode（已弃用，请使用 channel.replyMode）");
-  expect(response.text).toContain("- channel.type（已禁用写入；请使用 xacpx channel ... 管理 channels[]）");
-  expect(response.text).toContain("- channels[]（多频道运行配置，请编辑 JSON）");
+  expect(response.text).toContain(t().config.showLegacyHeader);
+  expect(response.text).toContain(`- ${t().config.legacyWechatReplyMode}`);
+  expect(response.text).toContain(`- ${t().config.legacyChannelType}`);
+  expect(response.text).toContain(`- ${t().config.legacyChannels}`);
 });
 
 test("refuses config writes when writable config is unavailable", async () => {
@@ -318,7 +323,7 @@ test("refuses config writes when writable config is unavailable", async () => {
 
   const reply = await router.handle("wx:user", "/config set logging.level debug");
 
-  expect(reply.text).toBe("当前没有加载可写入的配置。");
+  expect(reply.text).toBe(t().config.noWritableConfig);
 });
 
 test("renders agents in Chinese", async () => {
@@ -340,7 +345,7 @@ test("adds a claude agent from the built-in template and reflects it in /agents"
   const addReply = await router.handle("wx:user", "/agent add claude");
   const listReply = await router.handle("wx:user", "/agents");
 
-  expect(addReply.text).toBe('Agent「claude」已保存');
+  expect(addReply.text).toBe(t().agent.saved("claude"));
   expect(config.agents.claude).toEqual({ driver: "claude" });
   expect(listReply.text).toBe(["已注册的 Agent：", "- codex", "- claude"].join("\n"));
 });
@@ -354,7 +359,7 @@ test("adds a codex agent from the built-in template", async () => {
 
   const reply = await router.handle("wx:user", "/agent add codex");
 
-  expect(reply.text).toBe('Agent「codex」已保存');
+  expect(reply.text).toBe(t().agent.saved("codex"));
   expect(config.agents.codex).toEqual({
     driver: "codex",
   });
@@ -368,7 +373,7 @@ test("adds an acpx built-in agent from the built-in template", async () => {
 
   const reply = await router.handle("wx:user", "/agent add kimi");
 
-  expect(reply.text).toBe('Agent「kimi」已保存');
+  expect(reply.text).toBe(t().agent.saved("kimi"));
   expect(config.agents.kimi).toEqual({
     driver: "kimi",
   });
@@ -384,12 +389,12 @@ test("/agent add is idempotent and refuses to overwrite a different existing con
   const existingReply = await router.handle("wx:user", "/agent add codex");
   const customReply = await router.handle("wx:user", "/agent add qwen");
 
-  expect(existingReply.text).toBe("Agent「codex」已存在");
-  expect(customReply.text).toBe("Agent「qwen」已存在且配置不同。请先执行 /agent rm qwen");
+  expect(existingReply.text).toBe(t().agent.alreadyExists("codex"));
+  expect(customReply.text).toBe(t().agent.alreadyExistsDifferent("qwen"));
   expect(config.agents.qwen).toEqual({ driver: "qwen", command: "custom-qwen" });
 });
 
-test("returns a chinese hint for unknown agent templates", async () => {
+test("returns a hint for unknown agent templates", async () => {
   const config = createConfig();
   const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
   const transport = createTransport();
@@ -397,7 +402,7 @@ test("returns a chinese hint for unknown agent templates", async () => {
 
   const reply = await router.handle("wx:user", "/agent add unknown");
 
-  expect(reply.text).toBe(`暂不支持这个 Agent 模板。当前可用：${listAgentTemplates().join("、")}`);
+  expect(reply.text).toBe(t().agent.unsupportedTemplate(listAgentTemplates().join("、")));
 });
 
 test("removes an agent and reflects it in /agents", async () => {
@@ -410,14 +415,14 @@ test("removes an agent and reflects it in /agents", async () => {
   const removeReply = await router.handle("wx:user", "/agent rm claude");
   const listReply = await router.handle("wx:user", "/agents");
 
-  expect(removeReply.text).toBe('Agent「claude」已删除');
+  expect(removeReply.text).toBe(t().agent.removed("claude"));
   expect(config.agents).toEqual({
     codex: { driver: "codex" },
   });
   expect(listReply.text).toBe(["已注册的 Agent：", "- codex"].join("\n"));
 });
 
-test("returns a chinese hint when removing an unknown agent", async () => {
+test("returns a hint when removing an unknown agent", async () => {
   const config = createConfig();
   const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
   const transport = createTransport();
@@ -425,7 +430,7 @@ test("returns a chinese hint when removing an unknown agent", async () => {
 
   const reply = await router.handle("wx:user", "/agent rm missing");
 
-  expect(reply.text).toBe("没有找到这个 Agent。");
+  expect(reply.text).toBe(t().agent.notFound);
 });
 
 test("renders workspaces in Chinese", async () => {
@@ -460,7 +465,7 @@ test("creates a workspace via command and lists it immediately", async () => {
   const createReply = await router.handle("wx:user", `/workspace new frontend --cwd "${dir}"`);
   const listReply = await router.handle("wx:user", "/workspaces");
 
-  expect(createReply.text).toBe('工作区「frontend」已保存');
+  expect(createReply.text).toBe(t().workspace.saved("frontend"));
   expect(listReply.text).toBe(
     ["已注册的工作区：", "- backend: /tmp/backend", `- frontend: ${normalizeWorkspacePath(dir)}`].join("\n"),
   );
@@ -477,7 +482,7 @@ test("creates a workspace via the short alias and cwd flag", async () => {
 
   const reply = await router.handle("wx:user", `/ws new frontend -d "${dir}"`);
 
-  expect(reply.text).toBe('工作区「frontend」已保存');
+  expect(reply.text).toBe(t().workspace.saved("frontend"));
   expect(config.workspaces.frontend).toEqual({ cwd: normalizeWorkspacePath(dir) });
 
   await rm(dir, { recursive: true, force: true });
@@ -494,8 +499,7 @@ test("/ws new sanitizes a name with spaces and reports the rewrite", async () =>
     const reply = await router.handle("wx:user", `/ws new "My Repo" -d "${dir}"`);
 
     expect(reply.text).toBe(
-      '名称 "My Repo" 含有特殊字符，已保存为「My-Repo」。如需保留原名请加 --raw。\n' +
-        "工作区「My-Repo」已保存",
+      t().workspace.nameSanitized("My Repo", "My-Repo") + "\n" + t().workspace.saved("My-Repo"),
     );
     expect(config.workspaces["My-Repo"]).toEqual({ cwd: normalizeWorkspacePath(dir) });
     expect(config.workspaces["My Repo"]).toBeUndefined();
@@ -514,7 +518,7 @@ test("/ws new --raw keeps a name with spaces", async () => {
 
     const reply = await router.handle("wx:user", `/ws new "My Repo" -d "${dir}" --raw`);
 
-    expect(reply.text).toBe("工作区「My Repo」已保存");
+    expect(reply.text).toBe(t().workspace.saved("My Repo"));
     expect(config.workspaces["My Repo"]).toEqual({ cwd: normalizeWorkspacePath(dir) });
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -529,7 +533,7 @@ test("rejects creating a workspace when cwd does not exist", async () => {
 
   const reply = await router.handle("wx:user", '/ws new missing -d "E:\\definitely-missing\\repo"');
 
-  expect(reply.text).toContain("工作区路径不存在");
+  expect(reply.text).toBe(t().workspace.pathNotFound("E:\\definitely-missing\\repo"));
   expect(config.workspaces.missing).toBeUndefined();
 });
 
@@ -542,7 +546,7 @@ test("removes a workspace via command", async () => {
 
   const reply = await router.handle("wx:user", "/workspace rm frontend");
 
-  expect(reply.text).toBe('工作区「frontend」已删除');
+  expect(reply.text).toBe(t().workspace.removed("frontend"));
   expect(config.workspaces).toEqual({
     backend: { cwd: "/tmp/backend" },
   });
@@ -695,4 +699,28 @@ test("rolls back /config set transport.permissionMode when live transport update
     permissionMode: "approve-all",
     nonInteractivePermissions: "deny",
   });
+});
+
+test("sets language to a valid locale via /config set language", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle("wx:user", "/config set language zh");
+
+  expect(reply.text).toBe(t().config.updated("language", "zh"));
+  expect(config.language).toBe("zh");
+});
+
+test("rejects an unsupported locale via /config set language", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle("wx:user", "/config set language fr");
+
+  expect(reply.text).toBe(t().config.languageInvalid);
+  expect(config.language).toBeUndefined();
 });

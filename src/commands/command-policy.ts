@@ -1,5 +1,6 @@
 import type { ChatRequestMetadata } from "../weixin/agent/interface";
 import type { ParsedCommand } from "./parse-command";
+import { t } from "../i18n/index.js";
 
 export type CommandAccessDecision = { allowed: true } | { allowed: false; reason: string };
 
@@ -80,15 +81,15 @@ const COMMAND_KIND_TO_LABEL: Record<string, string> = {
 
 export function renderCommandAccessDenied(command: ParsedCommand): string {
   return [
-    `⚠️ ${renderCommandLabel(command)} 仅限群创建者/频道 owner 使用。`,
-    "如果需要执行控制类操作，请由 owner 在群内发送，或改用私聊。",
+    `⚠️ ${renderCommandLabel(command)}${t().misc.commandAccessDeniedSuffix}`,
+    t().misc.commandAccessDeniedHint,
   ].join("\n");
 }
 
 function renderCommandLabel(command: ParsedCommand): string {
   switch (command.kind) {
     case "prompt":
-      return "该消息";
+      return t().misc.commandLabelThisMessage;
     case "invalid":
       return command.recognizedCommand;
     default:

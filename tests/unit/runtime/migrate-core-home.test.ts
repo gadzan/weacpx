@@ -4,15 +4,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { migrateCoreHome } from "../../../src/runtime/migrate-core-home";
+import { setLocale } from "../../../src/i18n";
 
 let home: string;
 
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), "xacpx-migrate-"));
+  setLocale("zh");
 });
 
 afterEach(() => {
   rmSync(home, { recursive: true, force: true });
+  setLocale("en");
 });
 
 const logs: string[] = [];

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { t } from "../../i18n/index.js";
 
 import type { ChannelMediaKind } from "../../channels/media-types.js";
 import { logger } from "../util/logger.js";
@@ -277,7 +278,7 @@ export function bodyFromItemList(itemList?: MessageItem[]): string {
         if (refBody) parts.push(refBody);
       }
       if (!parts.length) return text;
-      return `[引用: ${parts.join(" | ")}]\n${text}`;
+      return `${t().misc.quotedMessagePrefix(parts.join(" | "))}\n${text}`;
     }
     // 语音转文字：如果语音消息有 text 字段，直接使用文字内容
     if (item.type === MessageItemType.VOICE && item.voice_item?.text) {

@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test, beforeEach } from "bun:test";
 import {
   renderSessionCreationVerificationError,
   renderTransportError,
@@ -6,6 +6,11 @@ import {
 } from "../../../../src/commands/handlers/session-recovery-handler";
 import type { SessionRecoveryOps } from "../../../../src/commands/router-types";
 import type { ResolvedSession } from "../../../../src/transport/types";
+import { setLocale, t } from "../../../../src/i18n";
+
+beforeEach(() => {
+  setLocale("zh");
+});
 
 function session(overrides: Partial<ResolvedSession> = {}): ResolvedSession {
   return {
@@ -26,7 +31,7 @@ test("renderTransportError quotes a workspace name with spaces in the attach hin
   );
 
   expect(reply.text).toContain(
-    '/session attach review --agent codex --ws "My Repo" --name <会话名>',
+    t().recovery.sessionUnavailableAttachHint("review", "codex", '"My Repo"'),
   );
 });
 
@@ -37,7 +42,7 @@ test("renderTransportError leaves a clean workspace name unquoted in the attach 
   );
 
   expect(reply.text).toContain(
-    "/session attach review --agent codex --ws backend --name <会话名>",
+    t().recovery.sessionUnavailableAttachHint("review", "codex", "backend"),
   );
 });
 
@@ -48,7 +53,7 @@ test("renderTransportError quotes a workspace name with spaces in the /session n
   );
 
   expect(reply.text).toContain(
-    '/session new review --agent codex --ws "My Repo"',
+    t().recovery.sessionUnavailableRenewHint("review", "codex", '"My Repo"'),
   );
 });
 
@@ -58,8 +63,8 @@ test("renderTransportError gives a scheduled-appropriate message for a transient
     new Error("No acpx session found"),
   );
 
-  expect(reply.text).toContain("临时会话");
-  expect(reply.text).toContain("/lt");
+  expect(reply.text).toContain(t().recovery.transientSessionFailed);
+  expect(reply.text).toContain(t().recovery.transientSessionHint);
   expect(reply.text).not.toContain("/session new");
   expect(reply.text).not.toContain("/session attach");
 });
@@ -88,7 +93,7 @@ test("renderSessionCreationVerificationError quotes a workspace name with spaces
   const reply = renderSessionCreationVerificationError(session({ workspace: "My Repo", cwd: "/tmp/My Repo" }));
 
   expect(reply.text).toContain(
-    '/session attach review --agent codex --ws "My Repo" --name <会话名>',
+    t().recovery.sessionCreationAttachHint("review", "codex", '"My Repo"'),
   );
 });
 
@@ -96,6 +101,6 @@ test("renderSessionCreationVerificationError leaves a clean workspace name unquo
   const reply = renderSessionCreationVerificationError(session({ workspace: "backend" }));
 
   expect(reply.text).toContain(
-    "/session attach review --agent codex --ws backend --name <会话名>",
+    t().recovery.sessionCreationAttachHint("review", "codex", "backend"),
   );
 });

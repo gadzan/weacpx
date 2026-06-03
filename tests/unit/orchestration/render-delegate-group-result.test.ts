@@ -1,6 +1,11 @@
-import { expect, test } from "bun:test";
+import { expect, test, beforeEach } from "bun:test";
 
 import { renderDelegateGroupResult } from "../../../src/orchestration/render-delegate-group-result";
+import { setLocale, t } from "../../../src/i18n";
+
+beforeEach(() => {
+  setLocale("zh");
+});
 
 test("renders a bucketed aggregate block with counters, successes, failures, and next_action", () => {
   const text = renderDelegateGroupResult(
@@ -114,7 +119,7 @@ test("renders a well-formed block with an honest next_action when the group has 
   expect(text).toContain("completed: 0");
   expect(text).toContain("failed: 0");
   expect(text).toContain("cancelled: 0");
-  expect(text).toContain("next_action: 本组没有任何成员");
+  expect(text).toContain(`next_action: ${t().orchestration.nextActionNoMembers}`);
   expect(text).not.toMatch(/\n\n\n/);
   expect(text).not.toContain("successes:");
   expect(text).not.toContain("failures:");

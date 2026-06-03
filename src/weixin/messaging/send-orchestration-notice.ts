@@ -1,6 +1,7 @@
 import type { OrchestrationTaskRecord } from "../../orchestration/orchestration-types";
 import { normalizeWeixinUserIdFromChatKey } from "./inbound.js";
 import { sendMessageWeixin } from "./send.js";
+import { t } from "../../i18n/index.js";
 
 interface NoticeDeps {
   baseUrl: string;
@@ -22,18 +23,11 @@ export async function sendOrchestrationTaskNotice(
   }
 
   const sendMessage = deps.sendMessage ?? sendMessageWeixin;
+  const workerDisplay = task.workerSession ?? t().misc.workerUnassigned;
   const text =
     task.status === "completed"
-      ? [
-          `委派任务「${task.taskId}」已完成`,
-          `- worker：${task.workerSession ?? "未分配"}`,
-          `- 结果：${truncate(task.resultText)}`,
-        ].join("\n")
-      : [
-          `委派任务「${task.taskId}」执行失败`,
-          `- worker：${task.workerSession ?? "未分配"}`,
-          `- 原因：${truncate(task.summary || task.resultText || "unknown error")}`,
-        ].join("\n");
+      ? t().misc.orchestrationTaskCompleted(task.taskId, workerDisplay, truncate(task.resultText))
+      : t().misc.orchestrationTaskFailed(task.taskId, workerDisplay, truncate(task.summary || task.resultText || "unknown error"));
 
   await sendMessage({
     to: normalizeWeixinUserIdFromChatKey(task.chatKey),

@@ -1,4 +1,5 @@
-import { HELP_TOPICS } from "./help/help-registry";
+import { listHelpTopics } from "./help/help-registry";
+import { t } from "../i18n";
 
 export interface CommandHint {
   /** 输入框命令名，含前导斜杠，如 "/session"。 */
@@ -31,11 +32,11 @@ const PRIMARY_COMMAND_BY_TOPIC: Record<string, string> = {
  * 额外置顶 /help。
  */
 export function listWeacpxCommandHints(): CommandHint[] {
-  const hints: CommandHint[] = [{ name: "/help", description: "查看命令帮助。" }];
-  for (const topic of HELP_TOPICS) {
+  const hints: CommandHint[] = [{ name: "/help", description: t().hints.helpDescription }];
+  for (const topic of listHelpTopics()) {
     const name = PRIMARY_COMMAND_BY_TOPIC[topic.topic];
     if (!name) {
-      throw new Error(`command-hints: 未登记 help topic 的主命令: ${topic.topic}`);
+      throw new Error(`command-hints: no primary command registered for help topic: ${topic.topic}`);
     }
     hints.push({ name, description: topic.summary });
   }

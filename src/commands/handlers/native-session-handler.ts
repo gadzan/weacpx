@@ -4,6 +4,7 @@ import type { AgentSession, AgentSessionListQuery, AgentSessionListResult, Resol
 import { allocateWorkspaceName, sanitizeWorkspaceName } from "../workspace-name";
 import { basenameForWorkspacePath, normalizeWorkspacePath, pathExists, sameWorkspacePath } from "../workspace-path";
 import type { CommandRouterContext, RouterResponse, SessionLifecycleOps } from "../router-types";
+import { t } from "../../i18n";
 
 export interface NativeSessionListCommand {
   agent?: string;
@@ -54,7 +55,7 @@ export async function handleNativeSessionList(
 
   const listAgentSessions = context.transport.listAgentSessions?.bind(context.transport);
   if (!listAgentSessions) {
-    return { text: "当前 transport 不支持列出本地会话，请继续使用 /ss。\n说明：/help ssn" };
+    return { text: t().nativeSession.transportNotSupported };
   }
 
   const query: AgentSessionListQuery = {
@@ -72,7 +73,7 @@ export async function handleNativeSessionList(
     return { text: renderNativeListError(target, error) };
   }
   if (!result) {
-    return { text: "当前 transport 不支持列出本地会话，请继续使用 /ss。\n说明：/help ssn" };
+    return { text: t().nativeSession.transportNotSupported };
   }
 
   await context.sessions.cacheNativeSessionList(chatKey, {
@@ -86,8 +87,8 @@ export async function handleNativeSessionList(
   if (result.sessions.length === 0) {
     return {
       text: [
-        `没有找到本地 ${target.agentDisplayName} 会话（${target.workspaceLabel}）。`,
-        `你可以稍后再试，或先通过 /ss 保持当前逻辑会话。`,
+        t().nativeSession.noSessionsFound(target.agentDisplayName, target.workspaceLabel),
+        t().nativeSession.noSessionsFoundHint,
       ].join("\n"),
     };
   }
@@ -115,19 +116,19 @@ export async function handleNativeSessionSelect(
 ): Promise<RouterResponse> {
   const trimmed = identifier.trim();
   if (!trimmed) {
-    return { text: "请选择要切换的 native 会话编号或 sessionId。\n说明：/help ssn" };
+    return { text: t().nativeSession.selectPrompt };
   }
 
   if (/^[0-9]+$/.test(trimmed)) {
     const cached = await context.sessions.getNativeSessionList(chatKey, NATIVE_SESSION_CACHE_TTL_MS);
     if (!cached || cached.sessions.length === 0) {
-      return { text: "当前没有可用的 native 会话列表，请先执行 /ssn 再选择。\n说明：/help ssn" };
+      return { text: t().nativeSession.noCachedList };
     }
 
     const index = Number(trimmed) - 1;
     const session = cached.sessions[index];
     if (!session) {
-      return { text: "编号超出范围，请先执行 /ssn 重新获取列表。" };
+      return { text: t().nativeSession.indexOutOfRange };
     }
 
     const target = await resolveTargetFromCachedSession(context, chatKey, cached, session);
@@ -153,7 +154,7 @@ async function attachNativeSession(
   alias?: string,
 ): Promise<RouterResponse> {
   if (!context.transport.resumeAgentSession) {
-    return { text: "当前 transport 不支持接入本地会话，请继续使用 /ss。" };
+    return { text: t().nativeSession.attachNotSupported };
   }
 
   const nativeTarget = target as NativeTarget;
@@ -162,7 +163,7 @@ async function attachNativeSession(
     await context.sessions.useSession(chatKey, existing.alias);
     const displayAlias = toDisplaySessionAlias(existing.alias);
     return {
-      text: `已切换到已接入的本地会话：${nativeTarget.agentDisplayName} · ${displayAlias}`,
+      text: t().nativeSession.alreadySwitched(nativeTarget.agentDisplayName, displayAlias),
     };
   }
 
@@ -181,7 +182,7 @@ async function attachNativeSession(
     }
     const verified = await context.lifecycle.checkTransportSession(resolvedSession);
     if (!verified) {
-      return { text: `本地 ${target.agentDisplayName} 会话接入失败：未检测到已恢复的后端会话。` };
+      return { text: t().nativeSession.attachVerificationFailed(target.agentDisplayName) };
     }
 
     await context.sessions.attachNativeSession({
@@ -198,7 +199,7 @@ async function attachNativeSession(
     await refreshAgentCommandBestEffort(context, internalAlias);
 
     return {
-      text: `已接入本地 ${target.agentDisplayName} 会话并切换：${toDisplaySessionAlias(internalAlias)}`,
+      text: t().nativeSession.attachedAndSwitched(target.agentDisplayName, toDisplaySessionAlias(internalAlias)),
     };
   } finally {
     await releaseReservation();
@@ -213,14 +214,12 @@ async function resolveNativeTarget(
   const currentSession = await context.sessions.getCurrentSession(chatKey);
   const agent = input.agent?.trim() || currentSession?.agent || "";
   if (!agent) {
-    return {
-      text: "请先选择上下文，例如：\n/ssn codex --ws project\n/ssn codex -d /Users/me/project\n说明：/help ssn",
-    };
+    return { text: t().nativeSession.noContextHint };
   }
 
   const agentConfig = context.config?.agents[agent];
   if (!agentConfig) {
-    return { text: `Agent「${agent}」未注册。` };
+    return { text: t().nativeSession.agentNotRegistered(agent) };
   }
 
   const workspaceResolution = await resolveNativeWorkspace(context, input, currentSession);
@@ -266,7 +265,7 @@ async function resolveNativeWorkspace(
   if (input.workspace) {
     const workspaceConfig = context.config?.workspaces[input.workspace];
     if (!workspaceConfig) {
-      return { text: `工作区「${input.workspace}」未注册。` };
+      return { text: t().nativeSession.workspaceNotRegistered(input.workspace) };
     }
     return {
       workspace: input.workspace,
@@ -289,11 +288,11 @@ async function resolveNativeWorkspace(
     }
 
     if (!(await pathExists(cwd))) {
-      return { text: `工作区路径不存在：${input.cwd}` };
+      return { text: t().nativeSession.workspacePathNotFound(input.cwd) };
     }
 
     if (!context.configStore || !context.config) {
-      return { text: "当前没有加载可写入的配置，无法根据路径创建工作区。" };
+      return { text: t().nativeSession.noWritableConfig };
     }
 
     const workspaceName = allocateWorkspaceName(sanitizeWorkspaceName(basenameForWorkspacePath(cwd)), context.config.workspaces);
@@ -316,9 +315,7 @@ async function resolveNativeWorkspace(
     };
   }
 
-  return {
-    text: "请先选择上下文，例如：\n/ssn codex --ws project\n/ssn codex -d /Users/me/project\n说明：/help ssn",
-  };
+  return { text: t().nativeSession.noContextHint };
 }
 
 async function buildAttachedEntries(
@@ -365,26 +362,27 @@ function renderNativeSessionTableList(
   entries: NativeCandidateEntry[],
   includeAll: boolean,
 ): string {
-  const lines = [`本地 ${target.agentDisplayName} 会话（${target.workspaceLabel}）：`];
-  lines.push("| # | 标题 | 更新时间 | ID |");
+  const ns = t().nativeSession;
+  const lines = [ns.tableHeader(target.agentDisplayName, target.workspaceLabel)];
+  lines.push(`| ${ns.tableColNum} | ${ns.tableColTitle} | ${ns.tableColUpdatedAt} | ${ns.tableColId} |`);
   lines.push("|---|---|---|---|");
   entries.forEach((entry, index) => {
     const title = escapeMarkdownTableCell(renderNativeSessionTitle(entry.session.title, entry.session.sessionId));
     const updatedAt = entry.session.updatedAt ? formatNativeSessionTime(entry.session.updatedAt) : "-";
     const idParts: string[] = [entry.session.sessionId];
     if (entry.attached) {
-      idParts.push(`已接入：${entry.attached.displayAlias}${entry.attached.isCurrent ? " [当前]" : ""}`);
+      idParts.push(`${ns.tableAttachedLabel(entry.attached.displayAlias)}${entry.attached.isCurrent ? ns.tableAttachedCurrent : ""}`);
     }
     lines.push(`| ${index + 1} | ${title} | ${escapeMarkdownTableCell(updatedAt)} | ${escapeMarkdownTableCell(idParts.join(" · "))} |`);
   });
 
   lines.push("");
-  lines.push("操作：");
-  lines.push("接入：/ssn 1");
-  lines.push("指定别名：/ssn 1 -a fix-ci");
-  lines.push("说明：/help ssn");
+  lines.push(ns.tableActions);
+  lines.push(ns.tableActionAttach);
+  lines.push(ns.tableActionAlias);
+  lines.push(ns.tableActionHelp);
   if (result.nextCursor) {
-    lines.push(`更多：${renderNextPageCommand(target, result.nextCursor, includeAll)}`);
+    lines.push(ns.tableMore(renderNextPageCommand(target, result.nextCursor, includeAll)));
   }
   return lines.join("\n");
 }
@@ -395,9 +393,10 @@ function renderNativeSessionCardList(
   entries: NativeCandidateEntry[],
   includeAll: boolean,
 ): string {
+  const ns = t().nativeSession;
   const lines = [
-    `本地 ${target.agentDisplayName} 会话（${target.workspaceLabel}）：`,
-    "回复编号接入，ID 尾号用于区分。",
+    ns.cardHeader(target.agentDisplayName, target.workspaceLabel),
+    ns.cardReplyHint,
   ];
 
   entries.forEach((entry, index) => {
@@ -405,20 +404,20 @@ function renderNativeSessionCardList(
     const updatedAt = entry.session.updatedAt ? formatNativeSessionTime(entry.session.updatedAt) : "-";
     lines.push("");
     lines.push(`【${index + 1}】 ${title}`);
-    lines.push(`时间：${updatedAt}`);
-    lines.push(`ID：${formatSessionIdTail(entry.session.sessionId)}`);
+    lines.push(ns.cardTimeLabel(updatedAt));
+    lines.push(ns.cardIdLabel(formatSessionIdTail(entry.session.sessionId)));
     if (entry.attached) {
-      lines.push(`已接入：${entry.attached.displayAlias}${entry.attached.isCurrent ? " [当前]" : ""}`);
+      lines.push(`${ns.cardAttachedLabel(entry.attached.displayAlias)}${entry.attached.isCurrent ? ns.cardAttachedCurrent : ""}`);
     }
   });
 
   lines.push("");
-  lines.push("操作：");
-  lines.push("接入：/ssn 1");
-  lines.push("指定别名：/ssn 1 -a fix-ci");
-  lines.push("说明：/help ssn");
+  lines.push(ns.cardActions);
+  lines.push(ns.cardActionAttach);
+  lines.push(ns.cardActionAlias);
+  lines.push(ns.cardActionHelp);
   if (result.nextCursor) {
-    lines.push(`更多：${renderNextPageCommand(target, result.nextCursor, includeAll)}`);
+    lines.push(ns.cardMore(renderNextPageCommand(target, result.nextCursor, includeAll)));
   }
   return lines.join("\n");
 }
@@ -507,18 +506,20 @@ async function refreshAgentCommandBestEffort(
 }
 
 function renderNativeListError(target: NativeTarget, error: unknown): string {
+  const ns = t().nativeSession;
   return [
-    `本地 ${target.agentDisplayName} 会话查询失败：${formatErrorMessage(error)}`,
-    "请确认 acpx/Agent 支持 native 会话查询，或继续使用 /ss。",
-    "说明：/help ssn",
+    ns.listError(target.agentDisplayName, formatErrorMessage(error)),
+    ns.listErrorHint,
+    ns.listErrorHelp,
   ].join("\n");
 }
 
 function renderNativeResumeError(target: NativeTarget, error: unknown): string {
+  const ns = t().nativeSession;
   return [
-    `本地 ${target.agentDisplayName} 会话接入失败：${formatErrorMessage(error)}`,
-    "请确认 acpx/Agent 支持 native 会话恢复，或继续使用 /ss。",
-    "说明：/help ssn",
+    ns.resumeError(target.agentDisplayName, formatErrorMessage(error)),
+    ns.resumeErrorHint,
+    ns.resumeErrorHelp,
   ].join("\n");
 }
 

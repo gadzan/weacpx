@@ -3,6 +3,7 @@ import { expect, mock, test } from "bun:test";
 import type { Agent, ChatResponse } from "../../../src/weixin/agent/interface";
 import type { WeixinMessage } from "../../../src/weixin/api/types";
 import { MessageItemType, TypingStatus } from "../../../src/weixin/api/types";
+import { setLocale, t } from "../../../src/i18n";
 
 function makeMessage(text: string): WeixinMessage {
   return {
@@ -56,6 +57,7 @@ async function loadHandleWithTypingSpy(statuses: number[], sentTexts: string[] =
 }
 
 test("/clear sends typing while reset is in progress and cancels after completion", async () => {
+  setLocale("zh");
   const statuses: number[] = [];
   const sentTexts: string[] = [];
   const clearDeferred = createDeferred();
@@ -87,12 +89,15 @@ test("/clear sends typing while reset is in progress and cancels after completio
   clearDeferred.resolve();
   await turn;
 
+  setLocale("zh");
   expect(statuses).toEqual([TypingStatus.TYPING, TypingStatus.CANCEL]);
-  expect(sentTexts).toEqual(["✅ 会话已清除，重新开始对话"]);
+  expect(sentTexts).toEqual([t().weixin.sessionCleared]);
   mock.restore();
+  setLocale("en");
 });
 
 test("quick local slash commands do not send typing", async () => {
+  setLocale("zh");
   const statuses: number[] = [];
   const sentTexts: string[] = [];
   const { handleWeixinMessageTurn } = await loadHandleWithTypingSpy(statuses, sentTexts);
@@ -109,8 +114,9 @@ test("quick local slash commands do not send typing", async () => {
   });
 
   expect(statuses).toEqual([]);
-  expect(sentTexts).toEqual(["hi", expect.stringContaining("⏱ 通道耗时")]);
+  expect(sentTexts).toEqual(["hi", expect.stringContaining(t().weixin.echoTimingHeader)]);
   mock.restore();
+  setLocale("en");
 });
 
 test("normal agent turns send typing before work and cancel in finally", async () => {

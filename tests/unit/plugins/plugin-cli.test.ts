@@ -1,10 +1,13 @@
-import { expect, test } from "bun:test";
+import { expect, test, beforeAll } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { AppConfig } from "../../../src/config/types";
 import { handlePluginCli, looksLikePath } from "../../../src/plugins/plugin-cli";
+import { setLocale, t } from "../../../src/i18n";
+
+beforeAll(() => { setLocale("zh"); });
 
 function baseConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
@@ -86,7 +89,7 @@ test("plugin list prints configured plugins", async () => {
   const code = await handlePluginCli(["list"], harness.deps);
 
   expect(code).toBe(0);
-  expect(harness.lines).toEqual(["插件：", "- xacpx-channel-demo@1.0.0 (enabled)"]);
+  expect(harness.lines).toEqual([t().pluginCli.pluginListHeader, "- xacpx-channel-demo@1.0.0 (enabled)"]);
 });
 
 test("plugin add installs, validates, saves config, and does not enable channel", async () => {
@@ -98,8 +101,8 @@ test("plugin add installs, validates, saves config, and does not enable channel"
   expect(harness.calls).toEqual(["install:xacpx-channel-demo:^1.2.0"]);
   expect(harness.getConfig().plugins).toEqual([{ name: "xacpx-channel-demo", version: "^1.2.0", enabled: true }]);
   expect(harness.getConfig().channels).toEqual([{ id: "weixin", type: "weixin", enabled: true }]);
-  expect(harness.lines).toContain("插件 xacpx-channel-demo 已安装");
-  expect(harness.lines).toContain("提供频道：demo");
+  expect(harness.lines).toContain(t().pluginCli.pluginInstalled("xacpx-channel-demo"));
+  expect(harness.lines).toContain(t().pluginCli.providesChannels("demo"));
 });
 
 test("plugin add replaces legacy weacpx package config with canonical xacpx package", async () => {
@@ -257,7 +260,7 @@ test("plugin rm refuses when validation fails and non-weixin channels are config
   expect(code).toBe(1);
   expect(harness.calls).toEqual([]);
   expect(harness.getConfig().plugins).toEqual([{ name: "@ganglion/xacpx-channel-yuanbao", enabled: true }]);
-  expect(harness.lines.some((line) => line.includes("无法确定"))).toBe(true);
+  expect(harness.lines.some((line) => line.includes("@ganglion/xacpx-channel-yuanbao") && line.includes("xacpx channel rm"))).toBe(true);
 });
 
 test("plugin rm proceeds when validation fails but only built-in channels are configured", async () => {
@@ -301,7 +304,7 @@ test("plugin remove is the canonical alias for plugin rm", async () => {
   expect(code).toBe(0);
   expect(harness.calls).toEqual(["remove:xacpx-channel-demo"]);
   expect(harness.getConfig().plugins).toEqual([]);
-  expect(harness.lines).toContain("插件 xacpx-channel-demo 已移除");
+  expect(harness.lines).toContain(t().pluginCli.pluginRemoved("xacpx-channel-demo"));
 });
 
 test("plugin update updates one configured plugin and preserves enabled state", async () => {
@@ -312,8 +315,8 @@ test("plugin update updates one configured plugin and preserves enabled state", 
   expect(code).toBe(0);
   expect(harness.calls).toEqual(["update:xacpx-channel-demo:^2.0.0"]);
   expect(harness.getConfig().plugins).toEqual([{ name: "xacpx-channel-demo", version: "^2.0.0", enabled: false }]);
-  expect(harness.lines).toContain("插件 xacpx-channel-demo 已更新");
-  expect(harness.lines).toContain("提供频道：demo");
+  expect(harness.lines).toContain(t().pluginCli.pluginUpdated("xacpx-channel-demo"));
+  expect(harness.lines).toContain(t().pluginCli.providesChannels("demo"));
 });
 
 test("plugin update refuses unknown plugin", async () => {
@@ -323,7 +326,7 @@ test("plugin update refuses unknown plugin", async () => {
 
   expect(code).toBe(1);
   expect(harness.calls).toEqual([]);
-  expect(harness.lines).toContain("没有找到插件：missing-plugin");
+  expect(harness.lines).toContain(t().pluginCli.pluginNotFound("missing-plugin"));
 });
 
 test("plugin update rolls back to previous pinned version when validation fails", async () => {
@@ -338,8 +341,8 @@ test("plugin update rolls back to previous pinned version when validation fails"
     "update:xacpx-channel-demo:^1.0.0",
   ]);
   expect(harness.getConfig().plugins).toEqual([{ name: "xacpx-channel-demo", version: "^1.0.0", enabled: true }]);
-  expect(harness.lines).toContain("插件 xacpx-channel-demo 更新后校验失败：broken plugin export");
-  expect(harness.lines).toContain("已回滚到 ^1.0.0");
+  expect(harness.lines).toContain(t().pluginCli.pluginUpdateValidateFailed("xacpx-channel-demo", "broken plugin export"));
+  expect(harness.lines).toContain(t().pluginCli.pluginRolledBack("^1.0.0"));
 });
 
 test("plugin update without prior pinned version surfaces no-rollback hint", async () => {
@@ -350,7 +353,7 @@ test("plugin update without prior pinned version surfaces no-rollback hint", asy
 
   expect(code).toBe(1);
   expect(harness.calls).toEqual(["update:xacpx-channel-demo:^2.0.0"]);
-  expect(harness.lines).toContain("无法自动回滚（xacpx-channel-demo 未锁定先前版本）；请手动 xacpx plugin add xacpx-channel-demo 重装。");
+  expect(harness.lines).toContain(t().pluginCli.pluginRollbackUnavailable("xacpx-channel-demo"));
 });
 
 test("plugin update --all updates configured plugins in order", async () => {
@@ -371,8 +374,8 @@ test("plugin update --all updates configured plugins in order", async () => {
     { name: "plugin-a", enabled: true },
     { name: "plugin-b", version: "^1.0.0", enabled: false },
   ]);
-  expect(harness.lines).toContain("插件 plugin-a 已更新");
-  expect(harness.lines).toContain("插件 plugin-b 已更新");
+  expect(harness.lines).toContain(t().pluginCli.pluginUpdated("plugin-a"));
+  expect(harness.lines).toContain(t().pluginCli.pluginUpdated("plugin-b"));
 });
 
 test("plugin update --all rejects shared version flag", async () => {
@@ -395,7 +398,7 @@ test("plugin add surfaces friendly error and exits 1 when package install fails"
 
   expect(code).toBe(1);
   expect(harness.getConfig().plugins).toEqual([]);
-  expect(harness.lines.some((line) => line.startsWith("插件 xacpx-channel-demo 安装失败："))).toBe(true);
+  expect(harness.lines.some((line) => line === t().pluginCli.pluginInstallFailed("xacpx-channel-demo", "npm install xacpx-channel-demo exited with code 1"))).toBe(true);
   expect(harness.lines.every((line) => !line.includes("at "))).toBe(true);
 });
 
@@ -407,7 +410,7 @@ test("plugin add surfaces friendly error when validation fails", async () => {
 
   expect(code).toBe(1);
   expect(harness.getConfig().plugins).toEqual([]);
-  expect(harness.lines.some((line) => line.startsWith("插件 xacpx-channel-demo 校验失败："))).toBe(true);
+  expect(harness.lines.some((line) => line === t().pluginCli.pluginValidateFailed("xacpx-channel-demo", "plugin module missing default export"))).toBe(true);
 });
 
 test("plugin add surfaces upgrade-xacpx hint when plugin requires newer core", async () => {
@@ -426,16 +429,16 @@ test("plugin add surfaces upgrade-xacpx hint when plugin requires newer core", a
 
 test("plugin add surfaces unsupported-apiVersion hint", async () => {
   const harness = createHarness(baseConfig());
-  harness.validateErrors.set(
-    "xacpx-channel-demo",
-    new Error("插件 xacpx-channel-demo 使用不支持的 apiVersion 2; supported: 1; 请安装与当前 xacpx 兼容的插件版本 (install a compatible plugin)"),
-  );
+  const compatError = t().pluginCli.compatUnsupportedApiVersion("xacpx-channel-demo", 2, "1");
+  harness.validateErrors.set("xacpx-channel-demo", new Error(compatError));
 
   const code = await handlePluginCli(["add", "xacpx-channel-demo"], harness.deps);
 
   expect(code).toBe(1);
   expect(harness.getConfig().plugins).toEqual([]);
-  expect(harness.lines.some((line) => /apiVersion 2/.test(line) && /install a compatible plugin/i.test(line))).toBe(true);
+  expect(
+    harness.lines.some((line) => line === t().pluginCli.pluginValidateFailed("xacpx-channel-demo", compatError)),
+  ).toBe(true);
 });
 
 test("plugin rm surfaces friendly error and keeps config when uninstall fails", async () => {
@@ -448,7 +451,7 @@ test("plugin rm surfaces friendly error and keeps config when uninstall fails", 
 
   expect(code).toBe(1);
   expect(harness.getConfig().plugins).toEqual([{ name: "xacpx-channel-demo", enabled: true }]);
-  expect(harness.lines.some((line) => line.startsWith("插件 xacpx-channel-demo 卸载失败："))).toBe(true);
+  expect(harness.lines.some((line) => line === t().pluginCli.pluginUninstallFailed("xacpx-channel-demo", "npm uninstall xacpx-channel-demo exited with code 1"))).toBe(true);
 });
 
 test("plugin restart-after-mutation surfaces friendly error when daemon restart throws", async () => {
@@ -465,9 +468,9 @@ test("plugin restart-after-mutation surfaces friendly error when daemon restart 
   expect(code).toBe(1);
   // config still mutated and saved before restart attempt
   expect(harness.getConfig().plugins).toEqual([{ name: "xacpx-channel-demo", enabled: true }]);
-  expect(harness.lines.some((line) => line.startsWith("配置已保存，但重启失败："))).toBe(true);
-  expect(harness.lines).toContain("请查看日志：~/.xacpx/runtime/stderr.log");
-  expect(harness.lines).toContain("也可以稍后执行：xacpx start");
+  expect(harness.lines.some((line) => line.startsWith(t().pluginCli.savedRestartFailed("").replace(/: $/, ": ")))).toBe(true);
+  expect(harness.lines).toContain(t().pluginCli.checkLog("~/.xacpx/runtime/stderr.log"));
+  expect(harness.lines).toContain(t().pluginCli.orRunLater);
 });
 
 test("plugin doctor prints structured diagnostics and returns zero without errors", async () => {
@@ -507,7 +510,7 @@ test("plugin doctor prints healthy empty state", async () => {
   const code = await handlePluginCli(["doctor"], harness.deps);
 
   expect(code).toBe(0);
-  expect(harness.lines).toEqual(["插件检查通过。"]);
+  expect(harness.lines).toEqual([t().pluginCli.pluginDoctorOk]);
 });
 
 test("plugin known lists official Feishu and Yuanbao plugin packages", async () => {

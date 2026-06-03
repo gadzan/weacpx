@@ -1,11 +1,16 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, beforeEach } from "bun:test";
 
 import {
   buildOverflowSummary,
   createQuotaGatedReplySink,
-  DEFAULT_HEADS_UP_TEXT,
+  getDefaultHeadsUpText,
 } from "../../../src/transport/quota-gated-reply-sink";
 import { QuotaManager } from "../../../src/weixin/messaging/quota-manager";
+import { setLocale } from "../../../src/i18n";
+
+beforeEach(() => {
+  setLocale("zh");
+});
 
 function makeClock(start = 0): { now: () => number; advance: (ms: number) => void } {
   let t = start;
@@ -146,8 +151,8 @@ describe("streaming-prompt quota integration", () => {
     const fileMessages = flushed.filter((m) => m.includes("📖 file-"));
     expect(fileMessages.length).toBe(6);
 
-    expect(fileMessages[5]!.endsWith(DEFAULT_HEADS_UP_TEXT)).toBe(true);
-    expect(flushed.filter((m) => m.includes(DEFAULT_HEADS_UP_TEXT)).length).toBe(1);
+    expect(fileMessages[5]!.endsWith(getDefaultHeadsUpText())).toBe(true);
+    expect(flushed.filter((m) => m.includes(getDefaultHeadsUpText())).length).toBe(1);
 
     const snap = quota.snapshot(chatKey);
     expect(snap.midUsed).toBe(6);

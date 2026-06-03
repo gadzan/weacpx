@@ -1,4 +1,4 @@
-import { expect, mock, test } from "bun:test";
+import { expect, mock, test, beforeAll } from "bun:test";
 import { CommandRouter } from "../../../src/commands/command-router";
 import {
   MemoryConfigStore,
@@ -13,6 +13,11 @@ import type { ScheduledDeliveryCapabilityOps, ScheduledRouterOps } from "../../.
 import type { CreateScheduledTaskInput } from "../../../src/scheduled/scheduled-service";
 import type { AppState } from "../../../src/state/types";
 import type { ResolvedSession } from "../../../src/transport/types";
+import { setLocale, t } from "../../../src/i18n";
+
+beforeAll(() => {
+  setLocale("zh");
+});
 
 function createMockScheduled(overrides?: Partial<ScheduledRouterOps>): ScheduledRouterOps {
   const tasks: ScheduledTaskRecord[] = [];
@@ -81,13 +86,13 @@ test("/lt shows help", async () => {
 test("/later shows help", async () => {
   const { router } = buildRouter({ scheduled: createMockScheduled() });
   const reply = await router.handle("wx:user", "/later");
-  expect(reply.text).toContain("定时任务");
+  expect(reply.text).toContain(t().scheduledRender.helpUsage);
 });
 
 test("shows not-enabled message when scheduled service missing", async () => {
   const { router } = buildRouter();
   const reply = await router.handle("wx:user", "/lt");
-  expect(reply.text).toContain("定时任务服务未启用");
+  expect(reply.text).toContain(t().later.serviceNotEnabled);
 });
 
 test("/lt in 2h 检查 CI creates a task recording the current session as origin", async () => {
@@ -105,7 +110,7 @@ test("/lt in 2h 检查 CI creates a task recording the current session as origin
   const { router } = buildRouter({ scheduled, state });
   const reply = await router.handle("wx:user", "/lt in 2h 检查 CI", undefined, "ctx-token", "acct-1");
   expect(reply.text).toContain("#k8f2");
-  expect(reply.text).toContain("已创建定时任务");
+  expect(reply.text).toContain(t().scheduledRender.taskCreated("k8f2"));
   expect(scheduled.createTask).toHaveBeenCalledTimes(1);
   const call = (scheduled.createTask as ReturnType<typeof mock>).mock.calls[0][0] as CreateScheduledTaskInput;
   expect(call.chatKey).toBe("wx:user");
@@ -134,8 +139,7 @@ test("/lt rejects creation when channel lacks scheduled-message support", async 
   const { router } = buildRouter({ scheduled, scheduledDelivery, state });
   const reply = await router.handle("feishu:default:oc_chat123", "/lt in 2h 检查 CI", undefined, "om_message_1", "default");
 
-  expect(reply.text).toContain("当前频道暂不支持定时任务");
-  expect(reply.text).toContain("未创建任务");
+  expect(reply.text).toContain(t().scheduledRender.unsupportedChannel);
   expect(scheduledDelivery.supportsScheduledMessages).toHaveBeenCalledWith("feishu:default:oc_chat123");
   expect(scheduled.createTask).toHaveBeenCalledTimes(0);
 });
@@ -154,8 +158,8 @@ test("/lt in 2h /status rejects command-looking message", async () => {
   state.chat_contexts["wx:user"] = { current_session: "backend:codex" };
   const { router } = buildRouter({ scheduled, state });
   const reply = await router.handle("wx:user", "/lt in 2h /status");
-  expect(reply.text).toContain("不支持延迟执行");
-  expect(reply.text).toContain("/lt in 1h 请解释 /status 的作用");
+  expect(reply.text).toContain(t().later.slashMessageRejected);
+  expect(reply.text).toContain(t().later.slashMessageExample);
   expect(scheduled.createTask).toHaveBeenCalledTimes(0);
 });
 
@@ -174,7 +178,7 @@ test("/lt rejects unknown slash-looking messages", async () => {
   state.chat_contexts["wx:user"] = { current_session: "backend:codex" };
   const { router } = buildRouter({ scheduled, state });
   const reply = await router.handle("wx:user", "/lt in 2h /unknown arg");
-  expect(reply.text).toContain("不支持延迟执行 / 开头的命令");
+  expect(reply.text).toContain(t().later.slashMessageRejected);
   expect(scheduled.createTask).toHaveBeenCalledTimes(0);
 });
 
@@ -194,10 +198,10 @@ test("/lt list renders pending tasks", async () => {
   });
   const { router } = buildRouter({ scheduled });
   const reply = await router.handle("wx:user", "/lt list");
-  expect(reply.text).toContain("待执行定时任务");
+  expect(reply.text).toContain(t().scheduledRender.listHeader);
   expect(reply.text).toContain("#k8f2");
   expect(reply.text).toContain("检查 CI");
-  expect(reply.text).toContain("会话：backend-codex");
+  expect(reply.text).toContain(t().scheduledRender.boundSession("backend-codex"));
   expect(reply.text).not.toContain("weixin:backend-codex");
 });
 
@@ -205,7 +209,7 @@ test("/lt list renders empty when no tasks", async () => {
   const scheduled = createMockScheduled();
   const { router } = buildRouter({ scheduled });
   const reply = await router.handle("wx:user", "/lt list");
-  expect(reply.text).toContain("当前没有待执行定时任务");
+  expect(reply.text).toContain(t().scheduledRender.listEmpty);
 });
 
 test("/lt cancel #K8F2 cancels and renders success", async () => {
@@ -214,8 +218,7 @@ test("/lt cancel #K8F2 cancels and renders success", async () => {
   });
   const { router } = buildRouter({ scheduled });
   const reply = await router.handle("wx:user", "/lt cancel #K8F2");
-  expect(reply.text).toContain("已取消");
-  expect(reply.text).toContain("#k8f2");
+  expect(reply.text).toContain(t().later.cancelSuccess("k8f2"));
   expect(scheduled.cancelPending).toHaveBeenCalledWith("#K8F2");
 });
 
@@ -225,23 +228,23 @@ test("/lt cancel with not found renders not found", async () => {
   });
   const { router } = buildRouter({ scheduled });
   const reply = await router.handle("wx:user", "/lt cancel #NOPE");
-  expect(reply.text).toContain("未找到");
+  expect(reply.text).toContain(t().later.cancelNotFound("nope"));
 });
 
 test("no current session create returns no-session guidance", async () => {
   const scheduled = createMockScheduled();
   const { router } = buildRouter({ scheduled });
   const reply = await router.handle("wx:user", "/lt in 2h 检查 CI");
-  expect(reply.text).toContain("当前没有会话");
-  expect(reply.text).toContain("/ss codex");
-  expect(reply.text).toContain("/use");
+  expect(reply.text).toContain(t().later.noSession);
+  expect(reply.text).toContain(t().later.noSessionExampleNew);
+  expect(reply.text).toContain(t().later.noSessionExampleUse);
   expect(scheduled.createTask).toHaveBeenCalledTimes(0);
 });
 
 test("/help later returns later help topic", async () => {
   const { router } = buildRouter({ scheduled: createMockScheduled() });
   const reply = await router.handle("wx:user", "/help later");
-  expect(reply.text).toContain("定时任务");
+  expect(reply.text).toContain(t().later.helpSummary);
   expect(reply.text).toContain("/lt");
 });
 
@@ -301,7 +304,7 @@ test("/lt defaults to a temp task snapshotting current agent/workspace", async (
   seedCurrentSession(state);
   const { router } = buildRouter({ scheduled, state });
   const reply = await router.handle("wx:user", "/lt in 2h 检查 CI");
-  expect(reply.text).toContain("临时会话（backend · codex）");
+  expect(reply.text).toContain(t().scheduledRender.tempSession("backend", "codex"));
   const call = (scheduled.createTask as ReturnType<typeof mock>).mock.calls[0][0] as CreateScheduledTaskInput;
   expect(call.sessionMode).toBe("temp");
   expect(call.agent).toBe("codex");
@@ -315,7 +318,7 @@ test("/lt --bind creates a bound task without agent/workspace snapshot", async (
   seedCurrentSession(state);
   const { router } = buildRouter({ scheduled, state });
   const reply = await router.handle("wx:user", "/lt --bind in 2h 检查 CI");
-  expect(reply.text).toContain("会话：");
+  expect(reply.text).toContain(t().scheduledRender.boundSession("backend:codex"));
   const call = (scheduled.createTask as ReturnType<typeof mock>).mock.calls[0][0] as CreateScheduledTaskInput;
   expect(call.sessionMode).toBe("bound");
   expect(call.agent).toBeUndefined();
@@ -329,7 +332,7 @@ test("/lt --bind --temp is rejected as mutually exclusive", async () => {
   seedCurrentSession(state);
   const { router } = buildRouter({ scheduled, state });
   const reply = await router.handle("wx:user", "/lt --bind --temp in 2h 检查 CI");
-  expect(reply.text).toContain("不能同时使用");
+  expect(reply.text).toContain(t().later.bindAndTempMutuallyExclusive);
   expect(scheduled.createTask).toHaveBeenCalledTimes(0);
 });
 
@@ -342,7 +345,7 @@ test("/lt honors later.defaultMode = bind from config", async () => {
   const reply = await router.handle("wx:user", "/lt in 2h 检查 CI");
   const call = (scheduled.createTask as ReturnType<typeof mock>).mock.calls[0][0] as CreateScheduledTaskInput;
   expect(call.sessionMode).toBe("bound");
-  expect(reply.text).toContain("会话：");
+  expect(reply.text).toContain(t().scheduledRender.boundSession("backend:codex"));
 });
 
 test("/lt --temp overrides config defaultMode = bind", async () => {

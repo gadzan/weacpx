@@ -1,4 +1,4 @@
-import { expect, mock, test } from "bun:test";
+import { expect, mock, test, beforeEach } from "bun:test";
 import { CommandRouter } from "../../../src/commands/command-router";
 import { PromptCommandError } from "../../../src/transport/prompt-output";
 import {
@@ -11,6 +11,11 @@ import {
   createTransport,
   getPromptMock,
 } from "./command-router-test-support";
+import { setLocale, t } from "../../../src/i18n";
+
+beforeEach(() => {
+  setLocale("zh");
+});
 
 test("renders a recovery hint when the current acpx session is missing", async () => {
   const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
@@ -25,8 +30,8 @@ test("renders a recovery hint when the current acpx session is missing", async (
   await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
   const reply = await router.handle("wx:user", "hello");
 
-  expect(reply.text).toContain('当前会话「api-fix」暂时不可用');
-  expect(reply.text).toContain("/session new api-fix --agent codex --ws backend");
+  expect(reply.text).toContain(t().recovery.sessionUnavailable("api-fix"));
+  expect(reply.text).toContain(t().recovery.sessionUnavailableRenewHint("api-fix", "codex", "backend"));
   expect(reply.text).not.toContain("No acpx session found");
   expect(reply.text).not.toContain("/tmp/backend");
   expect(reply.text).not.toContain("backend:api-fix");
@@ -72,8 +77,8 @@ test("renders a generic failure hint when prompt stops after partial output", as
   await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
   const reply = await router.handle("wx:user", "hello");
 
-  expect(reply.text).toContain('当前会话「api-fix」执行中断');
-  expect(reply.text).toContain("/cancel");
+  expect(reply.text).toContain(t().recovery.sessionInterrupted("api-fix"));
+  expect(reply.text).toContain(t().recovery.sessionInterruptedHint);
   expect(reply.text).toContain("未收到最终回复");
 });
 
@@ -100,9 +105,9 @@ test("renders an attach-first hint when session creation times out", async () =>
 
   const reply = await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
 
-  expect(reply.text).toContain("会话创建失败");
-  expect(reply.text).toContain("错误信息：acpx command timed out after 120000ms");
-  expect(reply.text).toContain("/session attach api-fix --agent codex --ws backend --name <会话名>");
+  expect(reply.text).toContain(t().recovery.sessionCreationFailed);
+  expect(reply.text).toContain("acpx command timed out after 120000ms");
+  expect(reply.text).toContain(t().recovery.sessionCreationAttachHint("api-fix", "codex", "backend"));
 });
 
 test("renders verification failure with explicit reason before the attach hint", async () => {
@@ -113,9 +118,9 @@ test("renders verification failure with explicit reason before the attach hint",
 
   const reply = await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
 
-  expect(reply.text).toContain("会话创建失败");
-  expect(reply.text).toContain("错误信息：未检测到可用的后端会话。");
-  expect(reply.text).toContain("/session attach api-fix --agent codex --ws backend --name <会话名>");
+  expect(reply.text).toContain(t().recovery.sessionCreationFailed);
+  expect(reply.text).toContain(t().recovery.sessionCreationError(t().recovery.sessionCreationVerificationDetail));
+  expect(reply.text).toContain(t().recovery.sessionCreationAttachHint("api-fix", "codex", "backend"));
 });
 
 test("logs parsed commands and transport timing summaries", async () => {

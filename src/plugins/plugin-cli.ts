@@ -10,6 +10,7 @@ import { validateWeacpxPlugin } from "./validate-plugin.js";
 import { inspectPlugins, type PluginDoctorIssue } from "./plugin-doctor.js";
 import { listKnownPlugins } from "./known-plugins.js";
 import { normalizePluginPackageName } from "./plugin-renames.js";
+import { t } from "../i18n";
 
 export function looksLikePath(spec: string): boolean {
   return (
@@ -60,7 +61,7 @@ async function resolveLocalPluginName(installSpec: string, pluginHome: string, n
   } catch {
     // not a directory or no package.json — fall through
   }
-  throw new Error(`无法识别本地插件包名：${installSpec}`);
+  throw new Error(t().pluginCli.cannotResolveLocalPluginName(installSpec));
 }
 
 type RestartChoice = "restart" | "no-restart" | "ask";
@@ -192,7 +193,7 @@ async function dependencyGuard(
     const ids = blocking.map((channel) => channel.id).join(", ");
     return {
       allow: false,
-      reason: `存在依赖该插件的频道：${ids}。请先执行 xacpx channel rm <id>（或 channel disable）后再操作。`,
+      reason: t().pluginCli.dependencyGuardBlocked(ids),
     };
   }
 
@@ -203,7 +204,7 @@ async function dependencyGuard(
   const ids = unknownDependents.map((channel) => `${channel.id}(${channel.type})`).join(", ");
   return {
     allow: false,
-    reason: `无法确定插件 ${pluginName} 提供的频道类型，且当前仍配置了非内置频道：${ids}。请先 xacpx channel rm 它们或修复插件后再试。`,
+    reason: t().pluginCli.dependencyGuardBlockedUnknown(pluginName, ids),
   };
 }
 
@@ -211,10 +212,10 @@ async function listPlugins(deps: PluginCliDeps): Promise<number> {
   const config = await deps.loadConfig();
   ensurePluginsArray(config);
   if (config.plugins.length === 0) {
-    deps.print("还没有安装插件。");
+    deps.print(t().pluginCli.noPlugins);
     return 0;
   }
-  deps.print("插件：");
+  deps.print(t().pluginCli.pluginListHeader);
   for (const plugin of config.plugins) {
     const versionLabel = plugin.version ? `@${plugin.version}` : "";
     const enabledLabel = plugin.enabled ? "enabled" : "disabled";
@@ -230,7 +231,7 @@ async function addPlugin(packageSpec: string, rawArgs: string[], deps: PluginCli
     return 1;
   }
   if (flags.rest.length > 0) {
-    deps.print(`未识别的参数：${flags.rest.join(" ")}`);
+    deps.print(t().pluginCli.unrecognizedArgs(flags.rest.join(" ")));
     return 1;
   }
 
@@ -252,7 +253,7 @@ async function addPlugin(packageSpec: string, rawArgs: string[], deps: PluginCli
     // importing the just-installed plugin for validation.
     await ensurePluginHome(pluginHome);
   } catch (error) {
-    deps.print(`插件 ${packageSpec} 安装失败：${describeError(error)}`);
+    deps.print(t().pluginCli.pluginInstallFailed(packageSpec, describeError(error)));
     return 1;
   }
 
@@ -265,7 +266,7 @@ async function addPlugin(packageSpec: string, rawArgs: string[], deps: PluginCli
   try {
     summary = await validate(recordedName);
   } catch (error) {
-    deps.print(`插件 ${recordedName} 校验失败：${describeError(error)}`);
+    deps.print(t().pluginCli.pluginValidateFailed(recordedName, describeError(error)));
     return 1;
   }
 
@@ -286,9 +287,9 @@ async function addPlugin(packageSpec: string, rawArgs: string[], deps: PluginCli
   }
   await deps.saveConfig(config);
 
-  deps.print(`插件 ${recordedName} 已安装`);
+  deps.print(t().pluginCli.pluginInstalled(recordedName));
   if (summary.channels.length > 0) {
-    deps.print(`提供频道：${summary.channels.join(", ")}`);
+    deps.print(t().pluginCli.providesChannels(summary.channels.join(", ")));
   }
   return await maybeRestartAfterMutation(flags.restart, deps);
 }
@@ -300,7 +301,7 @@ async function removePlugin(packageName: string, rawArgs: string[], deps: Plugin
     return 1;
   }
   if (flags.rest.length > 0) {
-    deps.print(`未识别的参数：${flags.rest.join(" ")}`);
+    deps.print(t().pluginCli.unrecognizedArgs(flags.rest.join(" ")));
     return 1;
   }
 
@@ -308,7 +309,7 @@ async function removePlugin(packageName: string, rawArgs: string[], deps: Plugin
   ensurePluginsArray(config);
   const existing = findPlugin(config.plugins, packageName);
   if (!existing) {
-    deps.print(`没有找到插件：${packageName}`);
+    deps.print(t().pluginCli.pluginNotFound(packageName));
     return 1;
   }
 
@@ -326,13 +327,13 @@ async function removePlugin(packageName: string, rawArgs: string[], deps: Plugin
   try {
     await remove(packageName);
   } catch (error) {
-    deps.print(`插件 ${packageName} 卸载失败：${describeError(error)}`);
+    deps.print(t().pluginCli.pluginUninstallFailed(packageName, describeError(error)));
     return 1;
   }
 
   config.plugins = config.plugins.filter((entry) => entry.name !== packageName);
   await deps.saveConfig(config);
-  deps.print(`插件 ${packageName} 已移除`);
+  deps.print(t().pluginCli.pluginRemoved(packageName));
   return await maybeRestartAfterMutation(flags.restart, deps);
 }
 
@@ -345,7 +346,7 @@ async function updatePlugins(args: string[], deps: PluginCliDeps): Promise<numbe
     return 1;
   }
   if (flags.rest.length > 0) {
-    deps.print(`未识别的参数：${flags.rest.join(" ")}`);
+    deps.print(t().pluginCli.unrecognizedArgs(flags.rest.join(" ")));
     return 1;
   }
   if (target === "--all" && flags.version) {
@@ -370,7 +371,7 @@ async function updatePlugins(args: string[], deps: PluginCliDeps): Promise<numbe
       })();
 
   if (targets.length === 0) {
-    deps.print(`没有找到插件：${target}`);
+    deps.print(t().pluginCli.pluginNotFound(target));
     return 1;
   }
 
@@ -382,7 +383,7 @@ async function updatePlugins(args: string[], deps: PluginCliDeps): Promise<numbe
       // Package managers can prune the plugin-api shim during update too.
       await ensurePluginHome(pluginHome);
     } catch (error) {
-      deps.print(`插件 ${existing.name} 更新失败：${describeError(error)}`);
+      deps.print(t().pluginCli.pluginUpdateFailed(existing.name, describeError(error)));
       return 1;
     }
     let summary: { name: string; channels: string[] };
@@ -390,20 +391,20 @@ async function updatePlugins(args: string[], deps: PluginCliDeps): Promise<numbe
       summary = await validate(existing.name);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      deps.print(`插件 ${existing.name} 更新后校验失败：${message}`);
+      deps.print(t().pluginCli.pluginUpdateValidateFailed(existing.name, message));
       // Roll back the npm install to the version recorded in config so that
       // the on-disk package matches plugins[].version. If we never had a
       // pinned version, there is no clean rollback target.
       if (existing.version && existing.version !== nextVersion) {
         try {
           await update({ packageName: existing.name, version: existing.version });
-          deps.print(`已回滚到 ${existing.version}`);
+          deps.print(t().pluginCli.pluginRolledBack(existing.version));
         } catch (rollbackError) {
           const rollbackMessage = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
-          deps.print(`回滚 ${existing.name} 到 ${existing.version} 失败：${rollbackMessage}`);
+          deps.print(t().pluginCli.pluginRollbackFailed(existing.name, existing.version, rollbackMessage));
         }
       } else if (!existing.version) {
-        deps.print(`无法自动回滚（${existing.name} 未锁定先前版本）；请手动 xacpx plugin add ${existing.name} 重装。`);
+        deps.print(t().pluginCli.pluginRollbackUnavailable(existing.name));
       }
       return 1;
     }
@@ -413,9 +414,9 @@ async function updatePlugins(args: string[], deps: PluginCliDeps): Promise<numbe
       enabled: existing.enabled,
     };
     config.plugins = config.plugins.map((entry) => (entry.name === existing.name ? next : entry));
-    deps.print(`插件 ${existing.name} 已更新`);
+    deps.print(t().pluginCli.pluginUpdated(existing.name));
     if (summary.channels.length > 0) {
-      deps.print(`提供频道：${summary.channels.join(", ")}`);
+      deps.print(t().pluginCli.providesChannels(summary.channels.join(", ")));
     }
   }
 
@@ -430,14 +431,14 @@ async function setPluginEnabled(packageName: string, enabled: boolean, rawArgs: 
     return 1;
   }
   if (flags.rest.length > 0) {
-    deps.print(`未识别的参数：${flags.rest.join(" ")}`);
+    deps.print(t().pluginCli.unrecognizedArgs(flags.rest.join(" ")));
     return 1;
   }
   const config = await deps.loadConfig();
   ensurePluginsArray(config);
   const existing = findPlugin(config.plugins, packageName);
   if (!existing) {
-    deps.print(`没有找到插件：${packageName}`);
+    deps.print(t().pluginCli.pluginNotFound(packageName));
     return 1;
   }
 
@@ -453,7 +454,7 @@ async function setPluginEnabled(packageName: string, enabled: boolean, rawArgs: 
 
   existing.enabled = enabled;
   await deps.saveConfig(config);
-  deps.print(`插件 ${packageName} 已${enabled ? "启用" : "禁用"}`);
+  deps.print(t().pluginCli.pluginEnabledToggled(packageName, enabled));
   return await maybeRestartAfterMutation(flags.restart, deps);
 }
 
@@ -469,7 +470,7 @@ async function doctorPlugins(pluginName: string | undefined, deps: PluginCliDeps
   const inspect = deps.inspectPlugins ?? inspectPlugins;
   const issues = await inspect({ config, pluginHome, ...(pluginName ? { pluginName } : {}) });
   if (issues.length === 0) {
-    deps.print("插件检查通过。");
+    deps.print(t().pluginCli.pluginDoctorOk);
     return 0;
   }
   for (const issue of issues) deps.print(formatDoctorIssue(issue));
@@ -483,7 +484,7 @@ async function knownPlugins(rawArgs: string[], deps: PluginCliDeps): Promise<num
       json = true;
       continue;
     }
-    deps.print(`未识别的参数：${arg}`);
+    deps.print(t().pluginCli.unrecognizedArgs(arg));
     return 1;
   }
 
@@ -499,52 +500,52 @@ async function knownPlugins(rawArgs: string[], deps: PluginCliDeps): Promise<num
   }
 
   if (plugins.length === 0) {
-    deps.print("当前版本没有官方插件。");
+    deps.print(t().pluginCli.noKnownPlugins);
     return 0;
   }
 
   const channelWidth = Math.max(...plugins.map((plugin) => plugin.channels.join(",").length));
   const packageWidth = Math.max(...plugins.map((plugin) => plugin.packageName.length));
-  deps.print("官方插件：");
+  deps.print(t().pluginCli.knownPluginsHeader);
   for (const plugin of plugins) {
     const channelLabel = plugin.channels.join(",").padEnd(channelWidth, " ");
     const packageLabel = plugin.packageName.padEnd(packageWidth, " ");
     deps.print(`- ${channelLabel}  ${packageLabel}  ${plugin.description}`);
   }
   deps.print("");
-  deps.print("安装：");
-  deps.print("  xacpx plugin add <package>");
+  deps.print(t().pluginCli.knownPluginsInstallLabel);
+  deps.print(t().pluginCli.knownPluginsInstallCmd);
   return 0;
 }
 
 async function maybeRestartAfterMutation(choice: RestartChoice, deps: PluginCliDeps): Promise<number> {
   if (choice === "no-restart") {
-    deps.print("配置已保存；变更会在下次 `xacpx restart` 后生效。");
+    deps.print(t().pluginCli.savedNoRestart);
     return 0;
   }
   const status = await deps.getDaemonStatus();
   if (choice === "restart") {
     if (status.state === "indeterminate") {
-      deps.print("配置已保存；daemon 状态异常，已跳过自动重启。请先处理 stale PID/status。");
+      deps.print(t().pluginCli.savedDaemonIndeterminate);
       return 0;
     }
     return await runRestart(deps);
   }
   if (status.state === "running") {
     if (!deps.isInteractive()) {
-      deps.print("配置已保存；daemon 正在运行，请执行 `xacpx restart` 使变更生效。");
+      deps.print(t().pluginCli.savedDaemonRunning);
       return 0;
     }
-    const answer = (await deps.promptText("现在重启 xacpx 使变更生效？[y/N] ")).trim().toLowerCase();
+    const answer = (await deps.promptText(t().pluginCli.restartPrompt)).trim().toLowerCase();
     if (answer === "y" || answer === "yes") return await runRestart(deps);
-    deps.print("配置已保存；变更会在下次 `xacpx restart` 后生效。");
+    deps.print(t().pluginCli.savedRestartPending);
     return 0;
   }
   if (status.state === "indeterminate") {
-    deps.print("配置已保存；daemon 状态异常，已跳过自动重启。请先处理 stale PID/status。");
+    deps.print(t().pluginCli.savedDaemonIndeterminate);
     return 0;
   }
-  deps.print("配置已保存；daemon 未运行，变更会在下次 `xacpx start` 后生效。");
+  deps.print(t().pluginCli.savedDaemonStopped);
   return 0;
 }
 
@@ -552,9 +553,9 @@ async function runRestart(deps: PluginCliDeps): Promise<number> {
   try {
     return await deps.restartDaemon();
   } catch (error) {
-    deps.print(`配置已保存，但重启失败：${describeError(error)}`);
-    deps.print(`请查看日志：${coreHomeDisplayPath("runtime", "stderr.log")}`);
-    deps.print("也可以稍后执行：xacpx start");
+    deps.print(t().pluginCli.savedRestartFailed(describeError(error)));
+    deps.print(t().pluginCli.checkLog(coreHomeDisplayPath("runtime", "stderr.log")));
+    deps.print(t().pluginCli.orRunLater);
     return 1;
   }
 }

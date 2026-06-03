@@ -1,9 +1,7 @@
 import type { ResolvedSession } from "../../transport/types";
 import type { CommandRouterContext, RouterResponse, SessionResetOps } from "../router-types";
 import { renderTransportError } from "./session-recovery-handler";
-
-
-const NO_CURRENT_SESSION_TEXT = "当前还没有选中的会话。请先执行 /session new ... 或 /use <alias>。";
+import { t } from "../../i18n/index.js";
 
 export async function handleSessionResetCommand(
   context: CommandRouterContext,
@@ -12,7 +10,7 @@ export async function handleSessionResetCommand(
 ): Promise<RouterResponse> {
   const session = await context.sessions.getCurrentSession(chatKey);
   if (!session) {
-    return { text: NO_CURRENT_SESSION_TEXT };
+    return { text: t().misc.sessionResetNoCurrentSession };
   }
 
   const resetSession = ops.resolveSession(
@@ -28,12 +26,7 @@ export async function handleSessionResetCommand(
       await ops.ensureTransportSession(resetSession);
       const exists = await ops.checkTransportSession(resetSession);
       if (!exists) {
-        return {
-          text: [
-            `会话「${session.alias}」重置失败。`,
-            "新的后端会话未创建成功，请稍后重试。",
-          ].join("\n"),
-        };
+        return { text: t().misc.sessionResetFailed(session.alias) };
       }
     } catch (error) {
       return renderTransportError(resetSession, error);
@@ -58,7 +51,7 @@ export async function handleSessionResetCommand(
     await releaseTransportReservation();
   }
 
-  return { text: `会话「${resetSession.alias}」已重置` };
+  return { text: t().misc.sessionResetSuccess(resetSession.alias) };
 }
 
 function buildResetTransportSessionName(session: ResolvedSession, now: number): string {

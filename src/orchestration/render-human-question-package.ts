@@ -1,3 +1,5 @@
+import { t } from "../i18n/index.js";
+
 export interface RenderHumanQuestionPackageMessageInput {
   promptText: string;
   queuedCount: number;
@@ -14,22 +16,22 @@ export function renderHumanQuestionPackageMessage(input: RenderHumanQuestionPack
     return input.promptText;
   }
 
-  return `${input.promptText}\n\n（另外还有 ${input.queuedCount} 个新问题已排队，等这一轮处理完再继续。）`;
+  return `${input.promptText}${t().misc.humanQuestionQueued(input.queuedCount)}`;
 }
 
 export function renderHumanQuestionPackageReceipt(input: RenderHumanQuestionPackageReceiptInput): string {
   const lines: string[] = [];
 
   for (const item of input.resumed) {
-    lines.push(`${item.taskId}：已恢复（${item.summary}）`);
+    lines.push(t().misc.humanQuestionResumed(item.taskId, item.summary));
   }
 
   for (const item of input.unresolved) {
-    lines.push(`${item.taskId}：仍待补充（${item.summary}）`);
+    lines.push(t().misc.humanQuestionUnresolved(item.taskId, item.summary));
   }
 
   if (input.queuedCount > 0) {
-    lines.push(`还有 ${input.queuedCount} 个新问题已排队，等这一轮处理完再继续。`);
+    lines.push(t().misc.humanQuestionQueuedLine(input.queuedCount));
   }
 
   return lines.join("\n");

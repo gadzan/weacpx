@@ -9,6 +9,8 @@
 // evolve independently — the mid heads-up describes "task still running",
 // while the final heads-up describes "more pages waiting".
 
+import { t } from "../../i18n/index.js";
+
 export interface FinalHeadsUpInput {
   total: number;
   sentSoFar: number;
@@ -17,5 +19,5 @@ export interface FinalHeadsUpInput {
 export function buildFinalHeadsUp(input: FinalHeadsUpInput): string {
   const { total, sentSoFar } = input;
   const remaining = Math.max(total - sentSoFar, 0);
-  return `—\n📄 结果共 ${total} 段，已发 ${sentSoFar} 段。回复 /jx 续看后 ${remaining} 段。`;
+  return t().misc.finalHeadsUp(total, sentSoFar, remaining);
 }

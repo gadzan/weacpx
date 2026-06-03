@@ -11,10 +11,12 @@ import {
   startWeixinLoginWithQr,
   waitForWeixinLogin,
 } from "./weixin/auth/login-qr.js";
+import { t } from "./i18n/index.js";
+
 export async function loginWithQrRendering(): Promise<void> {
   const apiBaseUrl = DEFAULT_BASE_URL;
 
-  console.log("正在启动微信扫码登录...");
+  console.log(t().login.startingLogin);
   const startResult = await startWeixinLoginWithQr({
     apiBaseUrl,
     botType: DEFAULT_ILINK_BOT_TYPE,
@@ -24,7 +26,7 @@ export async function loginWithQrRendering(): Promise<void> {
     throw new Error(startResult.message);
   }
 
-  console.log("\n使用微信扫描以下二维码，以完成连接：\n");
+  console.log(t().login.scanInstruction);
   await new Promise<void>((resolve) => {
     qrcodeTerminal.generate(startResult.qrcodeUrl!, { small: true }, (qr) => {
       console.log(qr);
@@ -32,7 +34,7 @@ export async function loginWithQrRendering(): Promise<void> {
     });
   });
 
-  console.log("\n等待扫码...\n");
+  console.log(t().login.waitingForScan);
 
   const waitResult = await waitForWeixinLogin({
     sessionKey: startResult.sessionKey,
@@ -53,7 +55,7 @@ export async function loginWithQrRendering(): Promise<void> {
   });
   registerWeixinAccountId(normalizedId);
 
-  console.log("\n✅ 与微信连接成功！");
+  console.log(t().login.loginSuccessLine);
 }
 
 export async function main(): Promise<void> {

@@ -6,9 +6,13 @@
 // isFirstUse treats a config whose only workspace is this default as still
 // "first use", so the interactive onboarding prompt (add current dir + initial
 // session) keeps firing even though the seed is present.
+//
+// The description is intentionally a static English string here (it seeds
+// config.json at first boot, before the locale is set). The localized form is
+// in the misc catalog (t().misc.defaultHomeWorkspaceDescription) for display.
 export const DEFAULT_HOME_WORKSPACE_NAME = "home";
 
 export const DEFAULT_HOME_WORKSPACE = {
   cwd: "~",
-  description: "用户主目录",
+  description: "home directory",
 } as const;

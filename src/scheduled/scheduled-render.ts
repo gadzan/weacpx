@@ -1,63 +1,68 @@
 import { truncateText } from "../util/text.js";
 import type { ScheduledTaskRecord } from "./scheduled-types";
 import { LATER_MESSAGE_PREVIEW_CHARS } from "./scheduled-types";
+import { t } from "../i18n";
 
 function sessionLabel(task: ScheduledTaskRecord, displaySession: string): string {
   if (task.session_mode === "temp") {
-    return `临时会话（${task.workspace ?? "?"} · ${task.agent ?? "?"}）`;
+    return t().scheduledRender.tempSession(task.workspace ?? "?", task.agent ?? "?");
   }
-  return `会话：${displaySession}`;
+  return t().scheduledRender.boundSession(displaySession);
 }
 
 export function renderLaterHelp(): string {
+  const sr = t().scheduledRender;
   return [
-    "定时任务用法：",
+    sr.helpUsage,
     "",
-    "创建：",
-    "/lt in 2h 检查 CI",
-    "/lt 30分钟后 总结进展",
-    "/lt tomorrow 09:00 看 PR",
-    "/lt 周五 09:00 继续处理",
+    sr.helpCreate,
+    sr.helpCreateEx1,
+    sr.helpCreateEx2,
+    sr.helpCreateEx3,
+    sr.helpCreateEx4,
     "",
-    "查看：",
-    "/lt list",
+    sr.helpView,
+    sr.helpViewCmd,
     "",
-    "取消：",
-    "/lt cancel <id>",
+    sr.helpCancel,
+    sr.helpCancelCmd,
     "",
-    "说明：",
-    "- 只支持一次性任务",
-    "- 时间必须在 10 秒之后、7 天之内",
-    "- 默认在为本次任务新建的临时会话里执行（跑完即销毁）",
-    "- 加 --bind 改为发送到创建时绑定的当前会话",
-    "- 触发通知和 agent 回复复用现有频道路由；微信回复额度由现有路由控制",
-    "- 不支持延迟执行 / 开头的 xacpx 命令",
-    "- 完整时间格式与说明见 docs/later-command.md",
+    sr.helpNotes,
+    sr.helpNote1,
+    sr.helpNote2,
+    sr.helpNote3,
+    sr.helpNote4,
+    sr.helpNote5,
+    sr.helpNote6,
+    sr.helpNote7,
   ].join("\n");
 }
 
 export function renderLaterUnsupportedChannel(): string {
+  const sr = t().scheduledRender;
   return [
-    "当前频道暂不支持定时任务，未创建任务。",
+    sr.unsupportedChannel,
     "",
-    "原因：这个频道还没有实现定时消息投递能力，任务到点后无法把结果发回原聊天。",
-    "请切换到支持定时任务的频道后再使用 /lt。",
+    sr.unsupportedChannelReason,
+    sr.unsupportedChannelHint,
   ].join("\n");
 }
 
 export function renderTaskCreated(task: ScheduledTaskRecord, displaySession: string): string {
+  const sr = t().scheduledRender;
   return [
-    `已创建定时任务 #${task.id}`,
-    `执行时间：${formatLocalDateTime(new Date(task.execute_at))}`,
+    sr.taskCreated(task.id),
+    sr.taskExecuteAt(formatLocalDateTime(new Date(task.execute_at))),
     sessionLabel(task, displaySession),
-    `内容：${preview(task.message)}`,
+    sr.taskContent(preview(task.message)),
   ].join("\n");
 }
 
 export function renderLaterList(tasks: ScheduledTaskRecord[], displaySession: (internalAlias: string) => string): string {
-  if (tasks.length === 0) return "当前没有待执行定时任务。";
+  const sr = t().scheduledRender;
+  if (tasks.length === 0) return sr.listEmpty;
   return [
-    "待执行定时任务：",
+    sr.listHeader,
     "",
     ...tasks.flatMap((task) => [
       `#${task.id}  ${formatLocalDateTime(new Date(task.execute_at))}  ${sessionLabel(task, displaySession(task.session_alias))}`,
@@ -72,7 +77,16 @@ export function preview(text: string): string {
 }
 
 export function formatLocalDateTime(date: Date): string {
-  const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+  const sr = t().scheduledRender;
+  const weekdays = [
+    sr.weekdaySun,
+    sr.weekdayMon,
+    sr.weekdayTue,
+    sr.weekdayWed,
+    sr.weekdayThu,
+    sr.weekdayFri,
+    sr.weekdaySat,
+  ];
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${weekdays[date.getDay()]} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }

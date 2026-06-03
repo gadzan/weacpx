@@ -1,4 +1,4 @@
-import { expect, mock, test } from "bun:test";
+import { expect, mock, test, beforeEach, afterAll } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { join, normalize } from "node:path";
 import { homedir, tmpdir } from "node:os";
@@ -6,6 +6,10 @@ import { homedir, tmpdir } from "node:os";
 import { buildApp as buildAppRaw, resolveRuntimePaths } from "../../src/main";
 import { coreHomeDir } from "../../src/runtime/core-home";
 import { sameWorkspacePath } from "../../src/commands/workspace-path";
+import { setLocale } from "../../src/i18n";
+
+beforeEach(() => { setLocale("zh"); });
+afterAll(() => { setLocale("en"); });
 
 type BuildAppArgs = Parameters<typeof buildAppRaw>;
 const buildApp = (paths: BuildAppArgs[0], deps: BuildAppArgs[1] = {}): ReturnType<typeof buildAppRaw> =>
@@ -352,6 +356,7 @@ test("buildApp reserves logical session transport before session creation side e
   await writeFile(
     configPath,
     JSON.stringify({
+      language: "zh",
       transport: { type: "acpx-cli", command: "acpx" },
       agents: { codex: { driver: "codex" } },
       workspaces: {
@@ -421,6 +426,7 @@ test("buildApp reserves attached logical session transport before attach side ef
   await writeFile(
     configPath,
     JSON.stringify({
+      language: "zh",
       transport: { type: "acpx-cli", command: "acpx" },
       agents: { codex: { driver: "codex" } },
       workspaces: {
@@ -490,6 +496,7 @@ test("buildApp reserves reset logical session transport before reset side effect
   await writeFile(
     configPath,
     JSON.stringify({
+      language: "zh",
       transport: { type: "acpx-cli", command: "acpx" },
       agents: { codex: { driver: "codex" } },
       workspaces: {
@@ -564,6 +571,7 @@ test("wires orchestration into the runtime router so /delegate creates and persi
   await writeFile(
     configPath,
     JSON.stringify({
+      language: "zh",
       transport: { type: "acpx-cli", command: "acpx" },
       agents: {
         codex: { driver: "codex" },
@@ -701,6 +709,7 @@ test("dispatches worker tasks asynchronously, records completion, and notifies t
   await writeFile(
     configPath,
     JSON.stringify({
+      language: "zh",
       transport: { type: "acpx-cli", command: "acpx" },
       agents: {
         codex: { driver: "codex" },
@@ -1108,6 +1117,7 @@ test("does not notify delegated task completion when the originating reply conte
   await writeFile(
     configPath,
     JSON.stringify({
+      language: "zh",
       transport: { type: "acpx-cli", command: "acpx" },
       agents: {
         codex: { driver: "codex" },
@@ -1298,6 +1308,7 @@ test("persists delegated task completion even when sending the completion notice
   await writeFile(
     configPath,
     JSON.stringify({
+      language: "zh",
       transport: { type: "acpx-cli", command: "acpx" },
       agents: {
         codex: { driver: "codex" },
@@ -1459,6 +1470,7 @@ test("propagates running task cancellation to the worker transport and completes
   await writeFile(
     configPath,
     JSON.stringify({
+      language: "zh",
       transport: { type: "acpx-cli", command: "acpx" },
       agents: { codex: { driver: "codex" }, claude: { driver: "claude" } },
       workspaces: { backend: { cwd: "/tmp/backend", allowed_agents: ["codex", "claude"] } },
@@ -1571,6 +1583,7 @@ test("records cancellation errors when worker transport cancel is not acknowledg
   await writeFile(
     configPath,
     JSON.stringify({
+      language: "zh",
       transport: { type: "acpx-cli", command: "acpx" },
       agents: { codex: { driver: "codex" }, claude: { driver: "claude" } },
       workspaces: { backend: { cwd: "/tmp/backend", allowed_agents: ["codex", "claude"] } },
@@ -1715,7 +1728,7 @@ test("creates a default config on first run when the config file is missing", as
     },
   });
   // First run seeds a single portable home workspace (`~` is expanded on load).
-  expect(saved.workspaces).toEqual({ home: { cwd: "~", description: "用户主目录" } });
+  expect(saved.workspaces).toEqual({ home: { cwd: "~", description: "home directory" } });
 
   await runtime.dispose();
   await rm(dir, { recursive: true, force: true });

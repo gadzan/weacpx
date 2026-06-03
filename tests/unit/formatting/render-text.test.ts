@@ -1,8 +1,13 @@
-import { expect, test } from "bun:test";
+import { expect, test, beforeEach } from "bun:test";
 
 import type { AppConfig } from "../../../src/config/types";
 import type { OrchestrationTaskRecord } from "../../../src/orchestration/orchestration-types";
 import { renderAgents, renderTaskHeartbeat, renderTaskProgress, renderTaskSummary, renderTasksCleanResult, renderWorkspaces } from "../../../src/formatting/render-text";
+import { setLocale, t } from "../../../src/i18n";
+
+beforeEach(() => {
+  setLocale("zh");
+});
 
 function createConfig(): AppConfig {
   return {
@@ -38,12 +43,14 @@ function createConfig(): AppConfig {
   };
 }
 
-test("renders agents in Chinese", () => {
-  expect(renderAgents(createConfig())).toBe(["已注册的 Agent：", "- codex"].join("\n"));
+test("renders agents", () => {
+  const a = t().agent;
+  expect(renderAgents(createConfig())).toBe([a.agentsHeader, "- codex"].join("\n"));
 });
 
-test("renders workspaces in Chinese", () => {
-  expect(renderWorkspaces(createConfig())).toBe(["已注册的工作区：", "- backend: /tmp/backend"].join("\n"));
+test("renders workspaces", () => {
+  const w = t().workspace;
+  expect(renderWorkspaces(createConfig())).toBe([w.workspacesHeader, "- backend: /tmp/backend"].join("\n"));
 });
 
 test("renders cancellation and reliability metadata as timeline events", () => {
@@ -72,7 +79,7 @@ test("renders cancellation and reliability metadata as timeline events", () => {
     lastInjectionError: "prompt failed once",
   });
 
-  expect(text).toContain("时间线：");
+  expect(text).toContain(t().orchestration.taskSummaryTimelineHeader);
   expect(text).toContain("cancel_requested");
   expect(text).toContain("cancel_completed");
   expect(text).toContain("cancel_failed");
@@ -109,8 +116,8 @@ test("renderTaskSummary outputs a chronological timeline of lifecycle events", (
 
   const rendered = renderTaskSummary(task);
 
-  expect(rendered).toContain("时间线：");
-  const timelineIndex = rendered.indexOf("时间线：");
+  expect(rendered).toContain(t().orchestration.taskSummaryTimelineHeader);
+  const timelineIndex = rendered.indexOf(t().orchestration.taskSummaryTimelineHeader);
   const timeline = rendered.slice(timelineIndex);
   expect(timeline.indexOf("10:00:00")).toBeLessThan(timeline.indexOf("10:05:00"));
   expect(timeline.indexOf("10:05:00")).toBeLessThan(timeline.indexOf("10:10:00"));
@@ -150,21 +157,22 @@ test("renderTaskSummary includes error events inline", () => {
 });
 
 test("renders tasks clean result with counts", () => {
-  expect(renderTasksCleanResult(3, 1)).toBe("已清理 3 个已结束的任务。\n已释放 1 个无效的 worker 绑定。");
-  expect(renderTasksCleanResult(2, 0)).toBe("已清理 2 个已结束的任务。");
-  expect(renderTasksCleanResult(0, 0)).toBe("当前协调会话下没有可清理的任务。");
+  const o = t().orchestration;
+  expect(renderTasksCleanResult(3, 1)).toBe(`${o.tasksCleanRemovedTasks(3)}\n${o.tasksCleanRemovedBindings(1)}`);
+  expect(renderTasksCleanResult(2, 0)).toBe(o.tasksCleanRemovedTasks(2));
+  expect(renderTasksCleanResult(0, 0)).toBe(o.tasksCleanEmpty);
 });
 
 test("renders task progress message", () => {
   const task = { taskId: "task-1", targetAgent: "claude" } as OrchestrationTaskRecord;
   expect(renderTaskProgress(task, "正在分析类型定义")).toBe(
-    "⏳ 任务「task-1」（claude）：正在分析类型定义",
+    t().render.taskProgress("task-1", "claude", "正在分析类型定义"),
   );
 });
 
 test("renders task heartbeat message", () => {
   const task = { taskId: "task-1" } as OrchestrationTaskRecord;
   expect(renderTaskHeartbeat(task, 300)).toBe(
-    "⏳ 任务「task-1」已运行 5 分钟，等待中...",
+    t().render.taskHeartbeat("task-1", 5),
   );
 });

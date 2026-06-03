@@ -1,8 +1,12 @@
-import { expect, test } from "bun:test";
+import { expect, test, beforeEach, afterAll } from "bun:test";
 
 import { createMessageChannel, createMessageChannelFromRuntimeConfig } from "../../../src/channels/create-channel";
 import { handleChannelCli } from "../../../src/channels/cli/channel-cli";
 import type { AppConfig } from "../../../src/config/types";
+import { setLocale } from "../../../src/i18n";
+
+beforeEach(() => { setLocale("zh"); });
+afterAll(() => { setLocale("en"); });
 
 function baseConfig(): AppConfig {
   return {

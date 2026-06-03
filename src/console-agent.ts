@@ -6,6 +6,7 @@ import { normalizeMediaArray } from "./channels/media-types.js";
 import { isKnownWeacpxCommandText } from "./commands/command-list";
 import type { ToolUseEvent } from "./channels/types.js";
 import type { PerfSpan } from "./perf/perf-tracer";
+import { t } from "./i18n/index.js";
 
 interface RouterLike {
   handle(
@@ -35,7 +36,7 @@ export class ConsoleAgent implements WechatAgent {
     const media = normalizeMediaArray(request.media);
     const hasText = request.text.trim().length > 0;
     if (!hasText && media.length === 0) {
-      return { text: "消息内容为空。" };
+      return { text: t().misc.emptyMessage };
     }
 
     await this.logger.info("chat.received", "received inbound chat message", {

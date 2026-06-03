@@ -4,6 +4,7 @@ import { coreHomeDisplayPath } from "../../runtime/core-home";
 import { getChannelCliProvider, listChannelCliProviders } from "./registry";
 import type { ChannelCliIo, ChannelCliProvider, ChannelCliValidationIssue } from "./provider";
 import { getMovedChannelInstallHint } from "../create-channel";
+import { t } from "../../i18n";
 
 type RestartChoice = "restart" | "no-restart" | "ask";
 
@@ -124,10 +125,10 @@ async function listChannels(deps: ChannelCliDeps): Promise<number> {
   const config = await deps.loadConfig();
   ensureChannelsArray(config);
   if (config.channels.length === 0) {
-    deps.print("还没有配置消息频道。");
+    deps.print(t().channelCli.noChannels);
     return 0;
   }
-  deps.print("消息频道：");
+  deps.print(t().channelCli.channelListHeader);
   for (const channel of config.channels) {
     deps.print(`- ${channel.id} (${channel.enabled ? "enabled" : "disabled"})`);
   }
@@ -139,11 +140,11 @@ async function showChannel(type: string, deps: ChannelCliDeps): Promise<number> 
   ensureChannelsArray(config);
   const channel = findChannel(config.channels, type);
   if (!channel) {
-    deps.print(`没有找到频道：${type}`);
+    deps.print(t().channelCli.channelNotFound(type));
     return 1;
   }
   const provider = getChannelCliProvider(channel.type);
-  deps.print(`频道 ${channel.id}:`);
+  deps.print(t().channelCli.channelHeader(channel.id));
   const lines = provider?.renderSummary(channel) ?? renderGenericSummary(channel);
   for (const line of lines) deps.print(line);
   return 0;
@@ -154,20 +155,20 @@ async function showChannelAccount(type: string, accountId: string, deps: Channel
   ensureChannelsArray(config);
   const channel = findChannel(config.channels, type);
   if (!channel) {
-    deps.print(`没有找到频道：${type}`);
+    deps.print(t().channelCli.channelNotFound(type));
     return 1;
   }
   const provider = getChannelCliProvider(channel.type);
   if (!provider?.supportsMultipleAccounts || !provider.renderAccountSummary) {
-    deps.print(`频道 ${type} 不支持 --account（多账号 CLI）。`);
+    deps.print(t().channelCli.channelNoMultiAccount(type));
     return 1;
   }
   const lines = provider.renderAccountSummary(channel, accountId);
   if (!lines) {
-    deps.print(`频道 ${type} 的账号 ${accountId} 不存在。`);
+    deps.print(t().channelCli.channelAccountNotFound(type, accountId));
     return 1;
   }
-  deps.print(`频道 ${channel.id} / 账号 ${accountId}:`);
+  deps.print(t().channelCli.channelAccountHeader(channel.id, accountId));
   for (const line of lines) deps.print(line);
   return 0;
 }
@@ -202,7 +203,7 @@ async function addChannel(type: string, rawArgs: string[], deps: ChannelCliDeps)
   const missing = missingRequiredFlags(issues);
   if (missing.length > 0) {
     if (!deps.isInteractive()) {
-      deps.print(`缺少必填参数：${missing.join(", ")}`);
+      deps.print(t().channelCli.missingRequiredFlags(missing.join(", ")));
       return 1;
     }
     input = await provider.promptForMissingFields(input, deps);
@@ -212,7 +213,7 @@ async function addChannel(type: string, rawArgs: string[], deps: ChannelCliDeps)
 
   const remainingMissing = missingRequiredFlags(issues);
   if (remainingMissing.length > 0) {
-    deps.print(`缺少必填参数：${remainingMissing.join(", ")}`);
+    deps.print(t().channelCli.missingRequiredFlags(remainingMissing.join(", ")));
     return 1;
   }
 
@@ -226,16 +227,16 @@ async function addChannel(type: string, rawArgs: string[], deps: ChannelCliDeps)
   const existing = findChannel(config.channels, type);
   if (existing) {
     if (equivalentChannelConfig(existing, candidate)) {
-      deps.print(`频道 ${type} 已存在，配置相同。`);
+      deps.print(t().channelCli.channelAlreadyExistsSame(type));
       return 0;
     }
-    deps.print(`频道 ${type} 已存在但配置不同；请先执行：xacpx channel rm ${type}，然后重新 add。`);
+    deps.print(t().channelCli.channelAlreadyExistsDifferent(type));
     return 1;
   }
 
   config.channels = [...(config.channels ?? []), candidate];
   await deps.saveConfig(config);
-  deps.print(`频道 ${type} 已添加`);
+  deps.print(t().channelCli.channelAdded(type));
   for (const line of provider.renderSummary(candidate)) deps.print(line);
   return await maybeRestartAfterMutation(restartFlags.restart, deps);
 }
@@ -269,39 +270,39 @@ function unknownChannelType(type: string, deps: ChannelCliDeps): number {
     deps.print(movedHint);
     return 1;
   }
-  deps.print(`未知频道类型：${type}`);
-  deps.print(`支持的内置频道：${listChannelCliProviders().map((provider) => provider.type).join(", ")}`);
+  deps.print(t().channelCli.unknownChannelType(type));
+  deps.print(t().channelCli.supportedBuiltinChannels(listChannelCliProviders().map((provider) => provider.type).join(", ")));
   return 1;
 }
 
 async function maybeRestartAfterMutation(choice: RestartChoice, deps: ChannelCliDeps): Promise<number> {
   if (choice === "no-restart") {
-    deps.print("配置已保存；变更会在下次 `xacpx restart` 后生效。");
+    deps.print(t().channelCli.savedNoRestart);
     return 0;
   }
   const status = await deps.getDaemonStatus();
   if (choice === "restart") {
     if (status.state === "indeterminate") {
-      deps.print("配置已保存；daemon 状态异常，已跳过自动重启。请先处理 stale PID/status。");
+      deps.print(t().channelCli.savedDaemonIndeterminate);
       return 0;
     }
     return await runRestart(deps);
   }
   if (status.state === "running") {
     if (!deps.isInteractive()) {
-      deps.print("配置已保存；daemon 正在运行，请执行 `xacpx restart` 使变更生效。");
+      deps.print(t().channelCli.savedDaemonRunning);
       return 0;
     }
-    const answer = (await deps.promptText("现在重启 xacpx 使变更生效？[y/N] ")).trim().toLowerCase();
+    const answer = (await deps.promptText(t().channelCli.restartPrompt)).trim().toLowerCase();
     if (answer === "y" || answer === "yes") return await runRestart(deps);
-    deps.print("配置已保存；变更会在下次 `xacpx restart` 后生效。");
+    deps.print(t().channelCli.savedRestartPending);
     return 0;
   }
   if (status.state === "indeterminate") {
-    deps.print("配置已保存；daemon 状态异常，已跳过自动重启。请先处理 stale PID/status。");
+    deps.print(t().channelCli.savedDaemonIndeterminate);
     return 0;
   }
-  deps.print("配置已保存；daemon 未运行，变更会在下次 `xacpx start` 后生效。");
+  deps.print(t().channelCli.savedDaemonStopped);
   return 0;
 }
 
@@ -310,9 +311,9 @@ async function runRestart(deps: ChannelCliDeps): Promise<number> {
     return await deps.restartDaemon();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    deps.print(`配置已保存，但重启失败：${message}`);
-    deps.print(`请查看日志：${coreHomeDisplayPath("runtime", "stderr.log")}`);
-    deps.print("也可以稍后执行：xacpx start");
+    deps.print(t().channelCli.savedRestartFailed(message));
+    deps.print(t().channelCli.checkLog(coreHomeDisplayPath("runtime", "stderr.log")));
+    deps.print(t().channelCli.orRunLater);
     return 1;
   }
 }
@@ -331,16 +332,16 @@ async function removeChannel(type: string, rawArgs: string[], deps: ChannelCliDe
   ensureChannelsArray(config);
   const channel = findChannel(config.channels, type);
   if (!channel) {
-    deps.print(`没有找到频道：${type}`);
+    deps.print(t().channelCli.channelNotFound(type));
     return 1;
   }
   if (channel.enabled && enabledCount(config.channels) <= 1) {
-    deps.print("不能删除最后一个启用的频道。");
+    deps.print(t().channelCli.cannotRemoveLastEnabled);
     return 1;
   }
   config.channels = config.channels.filter((entry) => entry.id !== channel.id);
   await deps.saveConfig(config);
-  deps.print(`频道 ${channel.id} 已删除`);
+  deps.print(t().channelCli.channelRemoved(channel.id));
   return await maybeRestartAfterMutation(restartFlags.restart, deps);
 }
 
@@ -354,16 +355,16 @@ async function setChannelEnabled(type: string, enabled: boolean, rawArgs: string
   ensureChannelsArray(config);
   const channel = findChannel(config.channels, type);
   if (!channel) {
-    deps.print(`没有找到频道：${type}`);
+    deps.print(t().channelCli.channelNotFound(type));
     return 1;
   }
   if (!enabled && channel.enabled && enabledCount(config.channels) <= 1) {
-    deps.print("不能禁用最后一个启用的频道。");
+    deps.print(t().channelCli.cannotDisableLastEnabled);
     return 1;
   }
   channel.enabled = enabled;
   await deps.saveConfig(config);
-  deps.print(`频道 ${channel.id} 已${enabled ? "启用" : "禁用"}`);
+  deps.print(t().channelCli.channelEnabledToggled(channel.id, enabled));
   return await maybeRestartAfterMutation(restartFlags.restart, deps);
 }
 
@@ -374,7 +375,7 @@ function requireMultiAccountProvider(type: string, deps: ChannelCliDeps): Channe
     return null;
   }
   if (!provider.supportsMultipleAccounts || !provider.buildAccountOverride) {
-    deps.print(`频道 ${type} 不支持 --account（多账号 CLI）。`);
+    deps.print(t().channelCli.channelNoMultiAccount(type));
     return null;
   }
   return provider;
@@ -452,7 +453,7 @@ async function addChannelAccount(type: string, accountId: string, rawArgs: strin
   const missing = missingRequiredFlags(issues);
   if (missing.length > 0) {
     if (!deps.isInteractive()) {
-      deps.print(`缺少必填参数：${missing.join(", ")}`);
+      deps.print(t().channelCli.missingRequiredFlags(missing.join(", ")));
       return 1;
     }
     input = await provider.promptForMissingFields(input, deps);
@@ -461,7 +462,7 @@ async function addChannelAccount(type: string, accountId: string, rawArgs: strin
   }
   const remainingMissing = missingRequiredFlags(issues);
   if (remainingMissing.length > 0) {
-    deps.print(`缺少必填参数：${remainingMissing.join(", ")}`);
+    deps.print(t().channelCli.missingRequiredFlags(remainingMissing.join(", ")));
     return 1;
   }
   if (issues.length > 0) {
@@ -501,7 +502,7 @@ async function addChannelAccount(type: string, accountId: string, rawArgs: strin
       accounts = { ...accounts };
     }
     if (accountId in accounts) {
-      deps.print(`频道 ${type} 的账号 ${accountId} 已存在；先 xacpx channel rm ${type} --account ${accountId}`);
+      deps.print(t().channelCli.channelAccountAlreadyExists(type, accountId));
       return 1;
     }
     accounts[accountId] = override;
@@ -524,8 +525,8 @@ async function addChannelAccount(type: string, accountId: string, rawArgs: strin
   }
 
   await deps.saveConfig(config);
-  deps.print(`频道 ${type} 账号 ${accountId} 已添加`);
-  if (reEnabledChannel) deps.print(`频道 ${type} 此前是 disabled 状态，已自动启用。`);
+  deps.print(t().channelCli.channelAccountAdded(type, accountId));
+  if (reEnabledChannel) deps.print(t().channelCli.channelReEnabled(type));
   const summary = provider.renderAccountSummary?.(result, accountId);
   if (summary) for (const line of summary) deps.print(line);
   return await maybeRestartAfterMutation(restartFlags.restart, deps);
@@ -544,13 +545,13 @@ async function removeChannelAccount(type: string, accountId: string, rawArgs: st
   ensureChannelsArray(config);
   const existing = findChannel(config.channels, type);
   if (!existing) {
-    deps.print(`没有找到频道：${type}`);
+    deps.print(t().channelCli.channelNotFound(type));
     return 1;
   }
   const options = { ...readOptions(existing) };
   const accounts = readAccounts(options);
   if (!accounts || !(accountId in accounts)) {
-    deps.print(`频道 ${type} 的账号 ${accountId} 不存在。`);
+    deps.print(t().channelCli.channelAccountNotFound(type, accountId));
     return 1;
   }
   const remaining = { ...accounts };
@@ -558,12 +559,12 @@ async function removeChannelAccount(type: string, accountId: string, rawArgs: st
 
   if (Object.keys(remaining).length === 0) {
     if (existing.enabled && enabledCount(config.channels) <= 1) {
-      deps.print(`账号 ${accountId} 是频道 ${type} 的最后一个账号；删除会导致频道空配置。请改用 xacpx channel rm ${type}（先确认还有别的启用频道）。`);
+      deps.print(t().channelCli.channelAccountRemoveBlockedLast(accountId, type));
       return 1;
     }
     config.channels = config.channels.filter((channel) => channel.id !== existing.id);
     await deps.saveConfig(config);
-    deps.print(`频道 ${type} 的账号 ${accountId} 已移除；该账号是最后一个，频道 ${type} 也已删除。`);
+    deps.print(t().channelCli.channelAccountRemovedWithChannel(type, accountId));
     return await maybeRestartAfterMutation(restartFlags.restart, deps);
   }
 
@@ -571,7 +572,7 @@ async function removeChannelAccount(type: string, accountId: string, rawArgs: st
   // schema 拒绝（至少要一个 enabled+configured 账号）。在这里就拦下。
   if (existing.enabled && countEnabledAccounts(remaining) === 0) {
     const remainingIds = Object.keys(remaining).join(", ");
-    deps.print(`不能移除 ${type} 的 ${accountId}：剩余账号 (${remainingIds}) 都已 disabled。先 xacpx channel enable ${type} --account <id> 一个，或 xacpx channel disable ${type} 整个频道。`);
+    deps.print(t().channelCli.channelAccountRemoveBlockedAllDisabled(type, accountId, remainingIds));
     return 1;
   }
 
@@ -580,11 +581,11 @@ async function removeChannelAccount(type: string, accountId: string, rawArgs: st
   const currentDefault = typeof options.defaultAccount === "string" ? options.defaultAccount : null;
   if (currentDefault === accountId || (currentDefault !== null && !(currentDefault in remaining))) {
     options.defaultAccount = remainingIds[0]!;
-    deps.print(`默认账号已切换到 ${options.defaultAccount}`);
+    deps.print(t().channelCli.channelAccountDefaultSwitched(options.defaultAccount as string));
   }
   existing.options = options;
   await deps.saveConfig(config);
-  deps.print(`频道 ${type} 账号 ${accountId} 已移除`);
+  deps.print(t().channelCli.channelAccountRemoved(type, accountId));
   return await maybeRestartAfterMutation(restartFlags.restart, deps);
 }
 
@@ -601,13 +602,13 @@ async function setChannelAccountEnabled(type: string, accountId: string, enabled
   ensureChannelsArray(config);
   const existing = findChannel(config.channels, type);
   if (!existing) {
-    deps.print(`没有找到频道：${type}`);
+    deps.print(t().channelCli.channelNotFound(type));
     return 1;
   }
   const options = { ...readOptions(existing) };
   const accounts = readAccounts(options);
   if (!accounts || !(accountId in accounts)) {
-    deps.print(`频道 ${type} 的账号 ${accountId} 不存在。`);
+    deps.print(t().channelCli.channelAccountNotFound(type, accountId));
     return 1;
   }
   const account = { ...accounts[accountId] };
@@ -616,7 +617,7 @@ async function setChannelAccountEnabled(type: string, accountId: string, enabled
   // Treat missing `enabled` as true (matches FeishuResolvedAccountConfig defaults).
   const enabledRemaining = Object.values(nextAccounts).filter((acc) => acc.enabled !== false);
   if (!enabled && enabledRemaining.length === 0) {
-    deps.print(`不能禁用 ${type} 的最后一个启用账号。`);
+    deps.print(t().channelCli.channelAccountCannotDisableLast(type));
     return 1;
   }
   options.accounts = nextAccounts;
@@ -630,7 +631,7 @@ async function setChannelAccountEnabled(type: string, accountId: string, enabled
     if (accountProbe) {
       const accountIssues = provider.validateConfig(accountProbe);
       if (accountIssues.length > 0) {
-        deps.print(`账号 ${accountId} 配置不完整：${accountIssues.map((issue) => issue.message).join("；")}`);
+        deps.print(t().channelCli.channelAccountIncomplete(accountId, accountIssues.map((issue) => issue.message).join("；")));
         return 1;
       }
     }
@@ -645,6 +646,6 @@ async function setChannelAccountEnabled(type: string, accountId: string, enabled
   }
   existing.options = options;
   await deps.saveConfig(config);
-  deps.print(`频道 ${type} 账号 ${accountId} 已${enabled ? "启用" : "禁用"}`);
+  deps.print(t().channelCli.channelAccountEnabledToggled(type, accountId, enabled));
   return await maybeRestartAfterMutation(restartFlags.restart, deps);
 }

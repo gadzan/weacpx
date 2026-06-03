@@ -1,32 +1,37 @@
-import { expect, test } from "bun:test";
+import { beforeEach, expect, test } from "bun:test";
 
 import { translateAcpxNote } from "../../../src/commands/translate-acpx-note";
+import { setLocale, t } from "../../../src/i18n";
+
+beforeEach(() => {
+  setLocale("zh");
+});
 
 test("translates built-in agent spawn line", () => {
   expect(
     translateAcpxNote("[acpx] spawning installed built-in agent opencode@0.1.2 via npx opencode"),
-  ).toBe("🔩 正在启动内置 agent `opencode`");
+  ).toBe(t().acpxNote.spawnBuiltIn("opencode"));
 });
 
 test("translates generic agent spawn line", () => {
   expect(translateAcpxNote("[acpx] spawning agent: npx codex-acp")).toBe(
-    "🔩 正在启动 agent 进程",
+    t().acpxNote.spawnAgent,
   );
 });
 
 test("translates npm download lines", () => {
   expect(translateAcpxNote("npm http fetch GET 200 https://registry.npmjs.org/opencode")).toBe(
-    "📥 正在下载 agent 依赖…",
+    t().acpxNote.downloading,
   );
 });
 
 test("translates extraction lines", () => {
-  expect(translateAcpxNote("extracting opencode-0.1.2.tgz")).toBe("🧩 正在安装 agent 依赖…");
+  expect(translateAcpxNote("extracting opencode-0.1.2.tgz")).toBe(t().acpxNote.installing);
 });
 
 test("falls back to truncated raw line for unknown patterns", () => {
   const out = translateAcpxNote("something the user probably cares about");
-  expect(out).toBe("ℹ️ something the user probably cares about");
+  expect(out).toBe(t().acpxNote.fallback("something the user probably cares about"));
 });
 
 test("truncates overly long fallback lines", () => {
@@ -49,7 +54,7 @@ test("drops low-value npm timing/notice/info lines", () => {
 });
 
 test("translates pnpm/yarn/bun install as download", () => {
-  expect(translateAcpxNote("pnpm add opencode")).toBe("📥 正在下载 agent 依赖…");
-  expect(translateAcpxNote("yarn install")).toBe("📥 正在下载 agent 依赖…");
-  expect(translateAcpxNote("bun install --production")).toBe("📥 正在下载 agent 依赖…");
+  expect(translateAcpxNote("pnpm add opencode")).toBe(t().acpxNote.downloading);
+  expect(translateAcpxNote("yarn install")).toBe(t().acpxNote.downloading);
+  expect(translateAcpxNote("bun install --production")).toBe(t().acpxNote.downloading);
 });

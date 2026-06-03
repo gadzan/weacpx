@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { normalizeWorkspacePath } from "../commands/workspace-path";
 import { isLegacyPluginPackageName, normalizePluginPackageName } from "../plugins/plugin-renames";
 import { resolveAgentCommand } from "./resolve-agent-command";
+import { isLocale, type Locale } from "../i18n/resolve-locale";
 import type {
   AgentConfig,
   AppConfig,
@@ -307,6 +308,7 @@ export function parseConfig(
   const orchestrationConfig = parseOrchestrationConfig(orchestration);
   const laterConfig = parseLaterConfig(raw.later);
   const plugins = parsePlugins(raw.plugins);
+  const language = isLocale(raw.language) ? raw.language : undefined;
 
   return {
     transport: {
@@ -356,6 +358,7 @@ export function parseConfig(
     workspaces,
     orchestration: orchestrationConfig,
     later: laterConfig,
+    ...(language ? { language } : {}),
   };
 }
 

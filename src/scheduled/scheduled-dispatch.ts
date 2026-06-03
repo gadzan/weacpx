@@ -4,6 +4,7 @@ import type { ResolvedSession } from "../transport/types";
 import { toDisplaySessionAlias } from "../channels/channel-scope";
 import { preview } from "./scheduled-render";
 import type { ScheduledTaskRecord } from "./scheduled-types";
+import { t } from "../i18n/index.js";
 
 export interface ScheduledDispatchDeps {
   getSession: (alias: string) => Promise<ResolvedSession | null>;
@@ -37,7 +38,7 @@ async function dispatchBound(
   if (!session) {
     throw new Error(`session "${task.session_alias}" not found for scheduled task`);
   }
-  const noticeText = `执行定时任务 #${task.id}\n会话：${toDisplaySessionAlias(task.session_alias)}\n内容：${preview(task.message)}`;
+  const noticeText = t().misc.scheduledDispatchNoticeBound(task.id, toDisplaySessionAlias(task.session_alias), preview(task.message));
   await deps.sendScheduledMessage({
     chatKey: task.chat_key,
     taskId: task.id,
@@ -61,7 +62,7 @@ async function dispatchTemp(
   const alias = `later-${task.id}`;
   const transportSession = `${task.workspace}:${alias}`;
   const session = deps.resolveSession(alias, task.agent, task.workspace, transportSession);
-  const noticeText = `执行定时任务 #${task.id}\n会话：临时会话（${task.workspace} · ${task.agent}）\n内容：${preview(task.message)}`;
+  const noticeText = t().misc.scheduledDispatchNoticeTemp(task.id, task.workspace, task.agent, preview(task.message));
 
   try {
     await deps.sendScheduledMessage({

@@ -1,3 +1,5 @@
+import { t } from "../i18n/index.js";
+
 export interface KnownPlugin {
   packageName: string;
   channels: string[];
@@ -5,31 +7,49 @@ export interface KnownPlugin {
   official: true;
 }
 
-const KNOWN_PLUGINS: ReadonlyArray<KnownPlugin> = [
+type KnownPluginTemplate = Omit<KnownPlugin, "description"> & { descriptionKey: keyof ReturnType<typeof t>["misc"] };
+
+const KNOWN_PLUGIN_TEMPLATES: ReadonlyArray<KnownPluginTemplate> = [
   {
     packageName: "@ganglion/xacpx-channel-feishu",
     channels: ["feishu"],
-    description: "飞书频道",
+    descriptionKey: "pluginChannelFeishu",
     official: true,
   },
   {
     packageName: "@ganglion/xacpx-channel-yuanbao",
     channels: ["yuanbao"],
-    description: "腾讯元宝频道",
+    descriptionKey: "pluginChannelYuanbao",
     official: true,
   },
 ];
 
+function resolveDescription(key: keyof ReturnType<typeof t>["misc"]): string {
+  const val = t().misc[key];
+  return typeof val === "string" ? val : key;
+}
+
 export function listKnownPlugins(): KnownPlugin[] {
-  return KNOWN_PLUGINS.map((plugin) => ({ ...plugin, channels: [...plugin.channels] }));
+  return KNOWN_PLUGIN_TEMPLATES.map((plugin) => ({
+    packageName: plugin.packageName,
+    channels: [...plugin.channels],
+    description: resolveDescription(plugin.descriptionKey),
+    official: plugin.official,
+  }));
 }
 
 export function findKnownPluginByChannel(channelType: string): KnownPlugin | null {
-  const match = KNOWN_PLUGINS.find((plugin) => plugin.channels.includes(channelType));
-  return match ? { ...match, channels: [...match.channels] } : null;
+  const match = KNOWN_PLUGIN_TEMPLATES.find((plugin) => plugin.channels.includes(channelType));
+  if (!match) return null;
+  return {
+    packageName: match.packageName,
+    channels: [...match.channels],
+    description: resolveDescription(match.descriptionKey),
+    official: match.official,
+  };
 }
 
 export function getMovedChannelInstallHint(channelType: string): string | null {
   const plugin = findKnownPluginByChannel(channelType);
-  return plugin ? `频道 ${channelType} 需要安装插件：xacpx plugin add ${plugin.packageName}` : null;
+  return plugin ? t().misc.pluginChannelInstallHint(channelType, plugin.packageName) : null;
 }

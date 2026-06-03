@@ -1,5 +1,10 @@
-import { expect, test } from "bun:test";
+import { expect, test, beforeEach } from "bun:test";
 import { handleCancel, handlePrompt, handleSessionUse, handleSessions } from "../../../../src/commands/handlers/session-handler";
+import { setLocale, t } from "../../../../src/i18n";
+
+beforeEach(() => {
+  setLocale("zh");
+});
 
 /**
  * Minimal fake SessionHandlerContext.
@@ -115,7 +120,7 @@ test("switching to a still-running session appends a running hint", async () => 
     logger: { info: async () => {} },
   } as any;
   const res = await handleSessionUse(context, "weixin:a:u", "backend");
-  expect(res.text).toContain("仍在执行中");
+  expect(res.text).toContain(t().session.stillRunning("backend"));
 });
 
 test("handleCancel without an alias cancels the foreground session", async () => {
@@ -241,8 +246,7 @@ test("handleCancel returns the same none message as /use and does not cancel whe
   const res = await handleCancel(context, "weixin:a:u", "ghost");
   // Same user-facing none message as /use, and nothing was cancelled.
   expect(res.text).toBe(useNoneText);
-  expect(res.text).toContain("没有匹配");
-  expect(res.text).toContain("ghost");
+  expect(res.text).toContain(t().session.noMatchingSession("ghost"));
   expect(cancelled).toEqual([]);
 });
 
@@ -281,7 +285,7 @@ test("handleCancel returns the ambiguous message and does not cancel when the al
   } as any;
 
   const res = await handleCancel(context, "weixin:a:u", "api");
-  expect(res.text).toContain("匹配到多个会话");
+  expect(res.text).toContain(t().session.ambiguousSession("api"));
   // Candidate aliases are surfaced so the user can disambiguate.
   expect(res.text).toContain("api-a");
   expect(res.text).toContain("api-b");

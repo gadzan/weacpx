@@ -1,0 +1,81 @@
+import type { CliMessages } from "../../types";
+
+export const cli: CliMessages = {
+  // HELP_LINES — usage text printed by --help and on unknown commands
+  helpLines: [
+    "用法：",
+    "xacpx login  - 微信登录",
+    "xacpx logout - 退出登录",
+    "xacpx run    - 前台运行",
+    "xacpx start  - 后台启动",
+    "xacpx status - 查看状态",
+    "xacpx stop   - 停止服务",
+    "xacpx restart - 重启后台服务",
+    "xacpx update [--all|<name>] - 更新 xacpx 和已安装插件",
+    "xacpx channel|ch list|show|add|rm|enable|disable [--account <id>] - 管理消息频道（多 bot 用 --account）",
+    "xacpx plugin list|add|update|remove|enable|disable|doctor|known - 管理插件",
+    "xacpx doctor - 运行诊断",
+    "xacpx version - 查看版本",
+    "xacpx agent|agents list|add|rm|templates - 管理本机 Agent",
+    "xacpx workspace list|add [name] [--raw]|rm <name> - 管理本机工作区（别名：ws）",
+    "xacpx later|lt list|cancel <id> - 管理本机待执行定时任务",
+    "xacpx mcp-stdio [--coordinator-session <session>] [--source-handle <handle>] [--workspace <name>] - 启动 MCP stdio 服务",
+  ],
+
+  // start command
+  alreadyRunning: "xacpx 已在后台运行",
+  started: "xacpx 已在后台启动",
+  startFailed: (detail) => `xacpx 启动失败：${detail}`,
+
+  // status command
+  running: "xacpx 正在运行",
+  notRunning: "xacpx 未运行",
+  indeterminate: "xacpx 进程仍在运行，但状态元数据缺失",
+
+  // stop command
+  stopped: "xacpx 已停止",
+
+  // restart command
+  restarting: "xacpx 正在重启...",
+  restartNotRunning: "xacpx 未运行，正在启动...",
+  restartFailed: (detail) => `xacpx 重启失败：${detail}`,
+  restartIndeterminate: "xacpx 进程仍在运行，但状态元数据缺失",
+  restartIndeterminateHint: "请先执行 `xacpx stop`，或手动清理 stale PID/status 后再重试。",
+
+  // daemon log hints
+  checkAppLog: (path) => `请查看 App Log: ${path}`,
+  checkStderrLog: (path) => `请查看 Stderr: ${path}`,
+
+  // workspace commands
+  workspaceEmpty: "还没有工作区。",
+  workspaceListHeader: "工作区列表：",
+  workspaceNameEmpty: "工作区名称不能为空。",
+  workspaceNameSanitized: (sourceLabel, original, saved) =>
+    `${sourceLabel} ${JSON.stringify(original)} 含有特殊字符，已保存为「${saved}」。如需保留原名请加 --raw。`,
+  workspaceSourceLabelDir: "目录名",
+  workspaceSourceLabelName: "名称",
+  workspaceAlreadyExists: (name, cwd) => `工作区「${name}」已存在：${cwd}`,
+  workspaceConflictPath: (name, cwd) => `工作区「${name}」已存在，但路径不同：${cwd}`,
+  workspaceConflictHint: (name) => `请换一个名称，或先执行：xacpx workspace rm ${name}`,
+  workspaceSaved: (name, cwd) => `工作区「${name}」已保存：${cwd}`,
+  workspaceNotFound: (name) => `没有找到工作区「${name}」。`,
+  workspaceRemoved: (name) => `工作区「${name}」已删除`,
+
+  // agent commands
+  agentEmpty: "还没有 Agent。",
+  agentListHeader: "Agent 列表：",
+  agentTemplatesHeader: "可用 Agent 模板：",
+  agentNameEmpty: "Agent 名称不能为空。",
+  agentUnsupportedTemplate: (templates) => `暂不支持这个 Agent 模板。当前可用：${templates.join("、")}`,
+  agentAlreadyExists: (name) => `Agent「${name}」已存在`,
+  agentAlreadyExistsDifferent: (name) => `Agent「${name}」已存在且配置不同。请先执行：xacpx agent rm ${name}`,
+  agentSaved: (name) => `Agent「${name}」已保存`,
+  agentNotFound: (name) => `没有找到 Agent「${name}」。`,
+  agentRemoved: (name) => `Agent「${name}」已删除`,
+
+  // later commands
+  laterIdEmpty: "定时任务 ID 不能为空。",
+  laterNotFound: (id) => `未找到待执行的定时任务 #${id}。`,
+  laterNotFoundHint: "可以用 xacpx later list 查看当前待执行任务。",
+  laterCancelled: (id) => `已取消定时任务 #${id}`,
+};

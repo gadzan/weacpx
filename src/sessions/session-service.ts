@@ -1,5 +1,6 @@
 import { resolveAgentCommand } from "../config/resolve-agent-command";
 import type { AppConfig, WechatReplyMode } from "../config/types";
+import { t } from "../i18n/index.js";
 import { AsyncMutex } from "../orchestration/async-mutex";
 import type { StateStore } from "../state/state-store";
 import type { AppState, BackgroundResult, LogicalSession } from "../state/types";
@@ -671,11 +672,11 @@ export class SessionService {
     }
 
     if (!this.config.workspaces[workspace]) {
-      throw new Error(`工作区「${workspace}」未注册`);
+      throw new Error(t().misc.workspaceNotRegistered(workspace));
     }
 
     if (!this.config.agents[agent]) {
-      throw new Error(`Agent「${agent}」未注册`);
+      throw new Error(t().misc.agentNotRegistered(agent));
     }
   }
 }

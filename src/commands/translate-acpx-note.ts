@@ -1,5 +1,7 @@
+import { t } from "../i18n";
+
 /**
- * Translate an acpx verbose/stderr line into a user-facing Chinese hint.
+ * Translate an acpx verbose/stderr line into a user-facing hint.
  * Returns null if the line is noise not worth surfacing (empty, pure npm
  * timing/HTTP noise, etc.).
  */
@@ -13,24 +15,24 @@ export function translateAcpxNote(raw: string): string | null {
 
   const builtIn = line.match(/^spawning installed built-in agent\s+(\S+?)(?:@\S+)?\s+via\s+/i);
   if (builtIn) {
-    return `🔩 正在启动内置 agent \`${builtIn[1]}\``;
+    return t().acpxNote.spawnBuiltIn(builtIn[1] ?? "");
   }
   if (/^spawning agent:/i.test(line)) {
-    return `🔩 正在启动 agent 进程`;
+    return t().acpxNote.spawnAgent;
   }
   if (
     /\b(npm|pnpm|yarn|bun)\s+(install|add|download|fetch|http)\b/i.test(line) ||
     /\b(downloading|fetching)\b.*\b(tarball|package|deps|dependencies)\b/i.test(line)
   ) {
-    return `📥 正在下载 agent 依赖…`;
+    return t().acpxNote.downloading;
   }
   if (/\b(extracting|unpacking|installing|linking|building|compiling)\b/i.test(line)) {
-    return `🧩 正在安装 agent 依赖…`;
+    return t().acpxNote.installing;
   }
   if (/\b(initializ\w*|starting up|bootstrap\w*|connecting|handshak\w*)\b/i.test(line)) {
-    return `🔧 agent 初始化中…`;
+    return t().acpxNote.initializing;
   }
   // Fallback: surface a truncated raw line so the user sees *something* real.
   const truncated = line.length > 80 ? `${line.slice(0, 77)}…` : line;
-  return `ℹ️ ${truncated}`;
+  return t().acpxNote.fallback(truncated);
 }

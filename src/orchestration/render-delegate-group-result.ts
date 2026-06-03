@@ -1,4 +1,5 @@
 import type { OrchestrationGroupRecord, OrchestrationTaskRecord } from "./orchestration-types";
+import { t } from "../i18n";
 
 const MAX_RESULT_CHARS = 600;
 
@@ -13,7 +14,7 @@ function truncate(body: string, taskId: string): string {
   if (body.length <= MAX_RESULT_CHARS) {
     return body;
   }
-  return `${body.slice(0, MAX_RESULT_CHARS)}\n... (结果已截断，完整内容请执行 /task ${taskId})`;
+  return `${body.slice(0, MAX_RESULT_CHARS)}${t().orchestration.truncatedResult(taskId)}`;
 }
 
 function formatRow(task: OrchestrationTaskRecord): string {
@@ -23,22 +24,23 @@ function formatRow(task: OrchestrationTaskRecord): string {
 }
 
 function pickNextAction(successes: number, failures: number, other: number): string {
+  const o = t().orchestration;
   if (successes === 0 && failures === 0 && other === 0) {
-    return "本组没有任何成员，可忽略此聚合结果。";
+    return o.nextActionNoMembers;
   }
   if (failures > 0 && successes > 0) {
-    return "优先分析 failures 段的失败原因，并决定是否基于 successes 结果继续推进。";
+    return o.nextActionMixed;
   }
   if (failures > 0) {
-    return "本组全部失败，请先诊断 failures 段后再决定下一步。";
+    return o.nextActionAllFailed;
   }
   if (other > 0 && successes === 0) {
-    return "本组尚未产出结果，其余成员仍在进行或已取消。";
+    return o.nextActionOtherOnly;
   }
   if (other > 0) {
-    return "可基于 successes 段继续推进，其余成员仍在进行或已取消。";
+    return o.nextActionMostlySuccess;
   }
-  return "可基于 successes 段继续推进。";
+  return o.nextActionAllSuccess;
 }
 
 export function renderDelegateGroupResult(

@@ -3,7 +3,11 @@ import { homedir, tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
-import { expect, test } from "bun:test";
+import { expect, test, beforeEach, afterAll } from "bun:test";
+import { setLocale } from "../../../src/i18n";
+
+beforeEach(() => { setLocale("zh"); });
+afterAll(() => { setLocale("en"); });
 
 import { ensureConfigExists, normalizeDefaultConfigTemplate } from "../../../src/config/ensure-config";
 import { loadConfig } from "../../../src/config/load-config";
@@ -42,7 +46,7 @@ test("normalizes the default config template through the shared config parser", 
     agents: {
       codex: { driver: "codex" },
     },
-    workspaces: { home: { cwd: "~", description: "用户主目录" } },
+    workspaces: { home: { cwd: "~", description: "home directory" } },
   });
   expect(config.logging).toEqual({
     level: "info",
@@ -94,7 +98,7 @@ test("ensureConfigExists falls back to the built-in default template when bundle
         codex: { driver: "codex" },
         claude: { driver: "claude" },
       },
-      workspaces: { home: { cwd: "~", description: "用户主目录" } },
+      workspaces: { home: { cwd: "~", description: "home directory" } },
     });
 
     const parsed = await loadConfig(configPath);
@@ -126,7 +130,7 @@ test("ensureConfigExists normalizes injected default config templates", async ()
     });
     // The seed always injects only `home`, ignoring the template's own workspaces;
     // `~` is expanded to the real home dir on load.
-    expect(parsed.workspaces).toEqual({ home: { cwd: homedir(), description: "用户主目录" } });
+    expect(parsed.workspaces).toEqual({ home: { cwd: homedir(), description: "home directory" } });
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
