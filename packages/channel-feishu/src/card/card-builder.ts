@@ -1,3 +1,6 @@
+import { t } from "../i18n/index.js";
+import { en } from "../i18n/en.js";
+import { zh } from "../i18n/zh.js";
 import type { ToolUseStep } from "./tool-use-types.js";
 
 export const STREAMING_ELEMENT_ID = "streaming_content";
@@ -56,7 +59,7 @@ export function buildCard(input: BuildCardInput): Record<string, unknown> {
       input.reasoningElapsedMs !== undefined && input.reasoningElapsedMs > 0
         ? formatElapsedMs(input.reasoningElapsedMs)
         : "";
-    const reasoningHeaderTitle = elapsedLabel ? `🧠 已思考 ${elapsedLabel}` : "🧠 思考过程";
+    const reasoningHeaderTitle = elapsedLabel ? t().reasoningHeaderElapsed(elapsedLabel) : t().reasoningHeader;
     elements.push({
       tag: "collapsible_panel",
       expanded: false,
@@ -111,13 +114,13 @@ function summaryForState(state: CardState): Record<string, unknown> {
   switch (state) {
     case "thinking":
     case "streaming":
-      return { content: "Processing...", i18n_content: { zh_cn: "处理中...", en_us: "Processing..." } };
+      return { content: t().summaryProcessing, i18n_content: { zh_cn: zh.summaryProcessing, en_us: en.summaryProcessing } };
     case "complete":
-      return { content: "Done", i18n_content: { zh_cn: "已完成", en_us: "Done" } };
+      return { content: t().summaryComplete, i18n_content: { zh_cn: zh.summaryComplete, en_us: en.summaryComplete } };
     case "aborted":
-      return { content: "Stopped", i18n_content: { zh_cn: "已停止", en_us: "Stopped" } };
+      return { content: t().summaryStopped, i18n_content: { zh_cn: zh.summaryStopped, en_us: en.summaryStopped } };
     case "error":
-      return { content: "Error", i18n_content: { zh_cn: "出错", en_us: "Error" } };
+      return { content: t().summaryError, i18n_content: { zh_cn: zh.summaryError, en_us: en.summaryError } };
   }
 }
 
@@ -134,21 +137,21 @@ function footerForState(state: CardState, elapsedMs?: number): Record<string, un
     case "thinking":
       return {
         tag: "markdown",
-        content: elapsedLabel ? `_处理中... ${elapsedLabel}_` : "_处理中..._",
+        content: elapsedLabel ? t().footerThinkingElapsed(elapsedLabel) : t().footerThinking,
         text_size: "notation",
         text_align: "left",
       };
     case "aborted":
       return {
         tag: "markdown",
-        content: `🛑 _已停止_${elapsedSuffix}`,
+        content: t().footerAborted(elapsedSuffix),
         text_size: "notation",
         text_align: "left",
       };
     case "error":
       return {
         tag: "markdown",
-        content: `❌ _出错_${elapsedSuffix}`,
+        content: t().footerError(elapsedSuffix),
         text_size: "notation",
         text_align: "left",
       };
@@ -156,7 +159,7 @@ function footerForState(state: CardState, elapsedMs?: number): Record<string, un
       if (!elapsedLabel) return null;
       return {
         tag: "markdown",
-        content: `_已完成 · ${elapsedLabel}_`,
+        content: t().footerComplete(elapsedLabel),
         text_size: "notation",
         text_align: "left",
       };
@@ -164,7 +167,7 @@ function footerForState(state: CardState, elapsedMs?: number): Record<string, un
       if (!elapsedLabel) return null;
       return {
         tag: "markdown",
-        content: `⏳ _处理中... ${elapsedLabel}_`,
+        content: t().footerStreaming(elapsedLabel),
         text_size: "notation",
         text_align: "left",
       };
@@ -195,7 +198,7 @@ function buildToolUsePanel(steps: ToolUseStep[] | undefined): Record<string, unk
   });
   const omitted = steps.length - visibleSteps.length;
   if (omitted > 0) {
-    lines.push(`… 还有 ${omitted} 个工具调用未显示`);
+    lines.push(t().toolPanelOmitted(omitted));
   }
   return {
     tag: "collapsible_panel",
@@ -203,7 +206,7 @@ function buildToolUsePanel(steps: ToolUseStep[] | undefined): Record<string, unk
     header: {
       title: {
         tag: "markdown",
-        content: `🔧 工具调用 (${steps.length})`,
+        content: t().toolPanelHeader(steps.length),
       },
     },
     elements: [

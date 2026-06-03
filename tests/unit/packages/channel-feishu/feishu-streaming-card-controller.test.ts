@@ -1,4 +1,5 @@
-import { beforeEach, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
+import { setChannelLocale, t as feishuT } from "../../../../packages/channel-feishu/src/i18n/index";
 
 import {
   StreamingCardController,
@@ -13,6 +14,14 @@ import {
   __resetShutdownHooksForTests,
   fireShutdownHooksForTests,
 } from "../../../../packages/channel-feishu/src/card/shutdown-hooks";
+
+beforeAll(() => {
+  setChannelLocale("zh");
+});
+
+afterAll(() => {
+  setChannelLocale("en");
+});
 
 beforeEach(() => {
   resetMessageUnavailableCacheForTests();
@@ -223,7 +232,7 @@ test("appendStream joins each segment with a paragraph break and complete force-
   expect(calls.cardUpdate.length).toBeGreaterThanOrEqual(1);
   const last = calls.cardUpdate[calls.cardUpdate.length - 1];
   expect((last.cardJson.config as { streaming_mode: boolean }).streaming_mode).toBe(false);
-  expect((last.cardJson.config as { summary: { content: string } }).summary.content).toBe("Done");
+  expect((last.cardJson.config as { summary: { content: string } }).summary.content).toBe(feishuT().summaryComplete);
   const elements = (last.cardJson.body as { elements: Array<{ content: string }> }).elements;
   expect(elements[0].content).toBe("hel\n\nlo \n\nworld");
 });
@@ -281,10 +290,10 @@ test("abort emits an 'aborted' final-state card", async () => {
   await controller.abort();
 
   const last = calls.cardUpdate[calls.cardUpdate.length - 1];
-  expect((last.cardJson.config as { summary: { content: string } }).summary.content).toBe("Stopped");
+  expect((last.cardJson.config as { summary: { content: string } }).summary.content).toBe(feishuT().summaryStopped);
   const elements = (last.cardJson.body as { elements: Array<{ content: string }> }).elements;
   expect(elements[0].content).toBe("partial");
-  expect(elements[1].content).toContain("已停止");
+  expect(elements[1].content).toContain(feishuT().summaryStopped);
 });
 
 test("once terminated, subsequent appends are no-ops", async () => {
@@ -419,7 +428,7 @@ test("complete final card includes elapsed footer", async () => {
 
   const last = calls.cardUpdate[calls.cardUpdate.length - 1];
   const body = last.cardJson.body as { elements: Array<{ content: string }> };
-  expect(body.elements[1].content).toContain("已完成");
+  expect(body.elements[1].content).toContain(feishuT().summaryComplete);
   expect(body.elements[1].content).toContain("2.5s");
 });
 
@@ -433,7 +442,7 @@ test("aborted card includes elapsed footer", async () => {
 
   const last = calls.cardUpdate[calls.cardUpdate.length - 1];
   const body = last.cardJson.body as { elements: Array<{ content: string }> };
-  expect(body.elements[1].content).toContain("已停止");
+  expect(body.elements[1].content).toContain(feishuT().summaryStopped);
   expect(body.elements[1].content).toContain("750ms");
 });
 
@@ -475,7 +484,7 @@ test("complete() with empty text still renders complete-state card", async () =>
 
   const final = calls.cardUpdate[calls.cardUpdate.length - 1];
   expect((final.cardJson.config as { streaming_mode: boolean }).streaming_mode).toBe(false);
-  expect((final.cardJson.config as { summary: { content: string } }).summary.content).toBe("Done");
+  expect((final.cardJson.config as { summary: { content: string } }).summary.content).toBe(feishuT().summaryComplete);
 });
 
 test("fail() preserves partial streamed buffer", async () => {
@@ -650,7 +659,7 @@ test("a shutdown signal aborts a still-streaming card", async () => {
 
   expect(controller.isTerminated()).toBe(true);
   const last = calls.cardUpdate[calls.cardUpdate.length - 1];
-  expect((last.cardJson.config as { summary: { content: string } }).summary.content).toBe("Stopped");
+  expect((last.cardJson.config as { summary: { content: string } }).summary.content).toBe(feishuT().summaryStopped);
   const elements = (last.cardJson.body as { elements: Array<{ content: string; element_id?: string }> }).elements;
   const streaming = elements.find((el) => el.element_id === "streaming_content");
   expect(streaming?.content).toBe("mid-flight progress");
@@ -819,7 +828,7 @@ test("shutdown while streaming flush is blocked still aborts card", async () => 
   await idlePromise;
 
   const summaries = calls.cardUpdate.map((u) => (u.cardJson.config as { summary: { content: string } }).summary.content);
-  expect(summaries).toContain("Stopped");
+  expect(summaries).toContain(feishuT().summaryStopped);
 });
 
 test("shutdown during pending complete does not overwrite state to aborted", async () => {
@@ -856,8 +865,8 @@ test("shutdown during pending complete does not overwrite state to aborted", asy
 
   const summaries = calls.cardUpdate.map((u) => (u.cardJson.config as { summary: { content: string } }).summary.content);
   // The card was actually completed successfully; the user must see "Done", not "Stopped".
-  expect(summaries).toContain("Done");
-  expect(summaries).not.toContain("Stopped");
+  expect(summaries).toContain(feishuT().summaryComplete);
+  expect(summaries).not.toContain(feishuT().summaryStopped);
 });
 
 test("shutdown during pending fail does not overwrite state to aborted", async () => {
@@ -892,8 +901,8 @@ test("shutdown during pending fail does not overwrite state to aborted", async (
 
   const summaries = calls.cardUpdate.map((u) => (u.cardJson.config as { summary: { content: string } }).summary.content);
   // The actual result was an error; the user must see "Error", not "Stopped".
-  expect(summaries).toContain("Error");
-  expect(summaries).not.toContain("Stopped");
+  expect(summaries).toContain(feishuT().summaryError);
+  expect(summaries).not.toContain(feishuT().summaryStopped);
 });
 
 test("shutdown without prior terminal transition aborts a streaming card (regression)", async () => {
@@ -910,7 +919,7 @@ test("shutdown without prior terminal transition aborts a streaming card (regres
 
   expect(controller.isTerminated()).toBe(true);
   const last = calls.cardUpdate[calls.cardUpdate.length - 1];
-  expect((last.cardJson.config as { summary: { content: string } }).summary.content).toBe("Stopped");
+  expect((last.cardJson.config as { summary: { content: string } }).summary.content).toBe(feishuT().summaryStopped);
 });
 
 test("appendReasoning accumulates thought chunks into the reasoning panel", async () => {
@@ -986,7 +995,7 @@ test("appendReasoning header reports elapsed from first to last thought chunk", 
   const last = calls.cardUpdate[calls.cardUpdate.length - 1];
   const elements = (last.cardJson.body as { elements: Array<Record<string, unknown>> }).elements;
   const panel = elements.find((el) => el.tag === "collapsible_panel")!;
-  expect(JSON.stringify(panel.header)).toContain("已思考");
+  expect(JSON.stringify(panel.header)).toContain(feishuT().reasoningHeaderElapsed("8.4s"));
   expect(JSON.stringify(panel.header)).toContain("8.4s");
 });
 

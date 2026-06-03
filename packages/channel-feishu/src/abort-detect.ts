@@ -1,3 +1,4 @@
+import { ZH_ABORT_TRIGGER_WORDS } from "./i18n/zh.js";
 import type { FeishuMessageEvent } from "./types.js";
 
 // Conservative trigger list. We intentionally exclude common-English words
@@ -5,16 +6,10 @@ import type { FeishuMessageEvent } from "./types.js";
 // them mid-conversation for unrelated reasons. The unambiguous slash-command
 // forms (`/stop`, `/abort`, `/cancel`) cover power users, and the bare words
 // here are the few that almost-always signal "stop the bot."
-const ABORT_TRIGGERS = new Set([
+const BASE_ABORT_TRIGGERS = new Set([
   "stop",
   "abort",
   "interrupt",
-  "停止",
-  "停下",
-  "中断",
-  "取消",
-  "暂停",
-  "停一下",
   "stop weacpx",
   "weacpx stop",
   "stop action",
@@ -41,7 +36,11 @@ function normalizeAbortTriggerText(text: string): string {
 
 export function isAbortTrigger(text: string): boolean {
   if (!text) return false;
-  return ABORT_TRIGGERS.has(normalizeAbortTriggerText(text));
+  const normalized = normalizeAbortTriggerText(text);
+  if (BASE_ABORT_TRIGGERS.has(normalized)) return true;
+  // Chinese stop words are always active regardless of locale — a zh-speaking
+  // user can stop the bot even when the configured display language is English.
+  return ZH_ABORT_TRIGGER_WORDS.has(normalized);
 }
 
 export function isLikelyAbortText(text: string): boolean {

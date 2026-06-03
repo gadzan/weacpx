@@ -1,5 +1,5 @@
 import { FeishuErrorCode, extractFeishuApiCode, extractFeishuMessage } from "./errors.js";
-import { permissionPromptToGrant, permissionScopeMissing } from "./strings.js";
+import { t } from "./i18n/index.js";
 
 const APP_SCOPE_MISSING_CODE = FeishuErrorCode.AppScopeMissing;
 
@@ -127,5 +127,6 @@ export class PermissionNotifier {
 
 export function formatPermissionNotice(err: PermissionError): string {
   const scopes = extractPermissionScopes(err.message);
-  return `${permissionScopeMissing(scopes)}\n${permissionPromptToGrant()}\n${err.grantUrl}`;
+  const scopeMsg = scopes ? t().permissionScopeMissing(scopes) : t().permissionGenericScopeHint;
+  return `${scopeMsg}\n${t().permissionPromptToGrant}\n${err.grantUrl}`;
 }

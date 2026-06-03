@@ -1,6 +1,15 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
+import { setChannelLocale, t } from "../../../../packages/channel-feishu/src/i18n/index";
 
 import { FeishuChannel } from "../../../../packages/channel-feishu/src/channel";
+
+beforeAll(() => {
+  setChannelLocale("zh");
+});
+
+afterAll(() => {
+  setChannelLocale("en");
+});
 
 function makeChannel(): FeishuChannel {
   return new FeishuChannel({ appId: "cli_test", appSecret: "secret_test" });
@@ -93,7 +102,9 @@ test("a turn that finished while backgrounded records a completion signal and pi
   expect(setCalls[0]!.r.status).toBe("done");
   expect(setCalls[0]!.r.text).toBe("");
   expect(inactiveCalls).toEqual([{ ck: "feishu:acct:c", alias: "feishu:acct:c:codex" }]);
-  expect(sent.some((t) => t.includes("已完成"))).toBe(true);
+  // Completion notice should contain the "done" marker.
+  // toDisplaySessionAlias keeps the full alias (feishu not in KNOWN_CHANNEL_IDS in dist).
+  expect(sent.some((s) => s.includes(t().completionDone("feishu:acct:c:codex")))).toBe(true);
 });
 
 test("a turn that finished while STILL foreground records nothing and does not ping", async () => {
@@ -115,7 +126,9 @@ test("a turn that finished while STILL foreground records nothing and does not p
   await (channel as any).runTurn(runTurnArgs(active, abortController));
 
   expect(setCalls).toHaveLength(0);
-  expect(sent.some((t) => t.includes("已完成"))).toBe(false);
+  // No completion notice should be sent.
+  const doneMarker = t().completionDone("");
+  expect(sent.some((s) => s.includes(doneMarker))).toBe(false);
 });
 
 test("a backgrounded turn that errored records an error signal and pings failure", async () => {
@@ -138,7 +151,7 @@ test("a backgrounded turn that errored records an error signal and pings failure
 
   expect(setCalls).toHaveLength(1);
   expect(setCalls[0]!.r.status).toBe("error");
-  expect(sent.some((t) => t.includes("失败"))).toBe(true);
+  expect(sent.some((s) => s.includes(t().completionError("feishu:acct:c:codex")))).toBe(true);
 });
 
 test("a turn that never ran (agent unavailable) records NOTHING and does not falsely ping done", async () => {
@@ -160,9 +173,9 @@ test("a turn that never ran (agent unavailable) records NOTHING and does not fal
   await (channel as any).runTurn(runTurnArgs(active, abortController));
 
   // The turn never executed — it must NOT be recorded as a successful (or any)
-  // completion, and must not ping "已完成".
+  // completion, and must not send a done notice.
   expect(setCalls).toHaveLength(0);
-  expect(sent.some((t) => t.includes("已完成"))).toBe(false);
+  expect(sent.some((s) => s.includes(t().completionDone("")))).toBe(false);
 });
 
 test("a turn suppressed (cancelled) before running records NOTHING and does not ping done", async () => {
@@ -185,5 +198,5 @@ test("a turn suppressed (cancelled) before running records NOTHING and does not 
   await (channel as any).runTurn(runTurnArgs(active, abortController));
 
   expect(setCalls).toHaveLength(0);
-  expect(sent.some((t) => t.includes("已完成"))).toBe(false);
+  expect(sent.some((s) => s.includes(t().completionDone("")))).toBe(false);
 });

@@ -1,4 +1,4 @@
-import { beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -7,6 +7,7 @@ import { createFeishuLarkClient } from "../../../../packages/channel-feishu/src/
 import { createMessageChannel, createMessageChannels, createMessageChannelFromRuntimeConfig, hasChannelFactory } from "../../../../src/channels/create-channel";
 import { hasChannelCliProvider } from "../../../../src/channels/cli/registry";
 import { registerChannelPlugin } from "../../../../src/channels/plugin";
+import { setChannelLocale, t } from "../../../../packages/channel-feishu/src/i18n/index";
 import { FeishuChannel } from "../../../../packages/channel-feishu/src/channel";
 import type { ChatAgent } from "../../../../src/channels/types";
 import type { FeishuMessageEvent } from "../../../../packages/channel-feishu/src/types";
@@ -23,6 +24,11 @@ function ensureFeishuPluginRegisteredForTest(): void {
 
 beforeAll(() => {
   ensureFeishuPluginRegisteredForTest();
+  setChannelLocale("zh");
+});
+
+afterAll(() => {
+  setChannelLocale("en");
 });
 
 function createNoopQuota() {
@@ -367,7 +373,7 @@ test("FeishuChannel sends scheduled failure notice after agent failure and rethr
 
   expect(sent).toEqual([
     { path: { message_id: "om_schedule" }, data: { msg_type: "text", content: JSON.stringify({ text: "notice text" }) } },
-    { path: { message_id: "om_schedule" }, data: { msg_type: "text", content: JSON.stringify({ text: "⏰ 定时任务 #task-42 执行失败：agent exploded" }) } },
+    { path: { message_id: "om_schedule" }, data: { msg_type: "text", content: JSON.stringify({ text: t().scheduledFailureWithId("task-42", "agent exploded") }) } },
   ]);
 });
 

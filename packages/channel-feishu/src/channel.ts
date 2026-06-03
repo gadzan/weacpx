@@ -25,7 +25,7 @@ import { addTypingIndicator, removeTypingIndicator, type FeishuReactionClient, t
 import { extractRawTextFromFeishuEvent, isLikelyAbortText } from "./abort-detect.js";
 import { clearMessageUnavailableForAccount, isMessageUnavailable, markIfUnavailableError } from "./message-unavailable.js";
 import { PermissionNotifier, extractPermissionError, formatPermissionNotice } from "./permission-error.js";
-import { abortAck } from "./strings.js";
+import { t as getMessages, setChannelLocale } from "./i18n/index.js";
 import { StreamingCardController, type StreamingCardClient } from "./card/streaming-card-controller.js";
 import { RuntimeMediaStore, DEFAULT_ATTACHMENT_MAX_BYTES, DEFAULT_IMAGE_MAX_BYTES, DEFAULT_MAX_ATTACHMENTS_PER_MESSAGE } from "./media-store.js";
 import { resolveSafeOutboundMediaPath } from "./outbound-media-safety.js";
@@ -121,6 +121,10 @@ export class FeishuChannel implements MessageChannelRuntime {
   }
 
   async start(input: ChannelStartInput): Promise<void> {
+    // Pin the channel's locale from the daemon-provided value before producing
+    // any output. The plugin bundle's getLocale() can't see the daemon's
+    // setLocale(), so input.locale is the only instance-independent source.
+    setChannelLocale(input.locale ?? "en");
     this.agent = input.agent;
     this.quota = input.quota;
     this.logger = input.logger;
@@ -162,7 +166,7 @@ export class FeishuChannel implements MessageChannelRuntime {
   async notifyTaskCompletion(task: OrchestrationTaskRecord): Promise<void> {
     if (!task.chatKey) return;
     try {
-      await this.sendRouteText(task.chatKey, task.replyContextToken, task.resultText || task.summary || "任务已完成。");
+      await this.sendRouteText(task.chatKey, task.replyContextToken, task.resultText || task.summary || getMessages().taskCompleted);
       if (this.markDelivered) await this.markDelivered(task.taskId, task.accountId || this.config.defaultAccount);
     } catch (error) {
       if (this.markFailed) {
@@ -252,7 +256,7 @@ export class FeishuChannel implements MessageChannelRuntime {
 
       if (input.abortSignal?.aborted) {
         if (cardController && !cardController.isTerminated()) {
-          await cardController.abort(abortAck()).catch(() => {});
+          await cardController.abort(getMessages().abortAck).catch(() => {});
         }
         return;
       }
@@ -593,7 +597,7 @@ export class FeishuChannel implements MessageChannelRuntime {
       if (active.suppressed) {
         if (active.cardController && !active.cardController.isTerminated()) {
           try {
-            await active.cardController.abort(abortAck());
+            await active.cardController.abort(getMessages().abortAck);
           } catch (error) {
             await this.logger!.error("feishu.abort.card_update_failed", "failed to render aborted card after seed-race", {
               accountId,
@@ -867,7 +871,7 @@ export class FeishuChannel implements MessageChannelRuntime {
     let cardAcked = false;
     for (const t of cardTasks) {
       try {
-        await t.cardController!.abort(abortAck());
+        await t.cardController!.abort(getMessages().abortAck);
         cardAcked = true;
       } catch (error) {
         await this.logger!.error("feishu.abort.card_update_failed", "failed to render aborted card", {
@@ -884,7 +888,7 @@ export class FeishuChannel implements MessageChannelRuntime {
         runtime,
         chatId,
         replyToMessageId: abortRequestMessageId,
-        text: abortAck(),
+        text: getMessages().abortAck,
       });
     } catch (error) {
       await this.logger!.error("feishu.abort.ack_failed", "failed to send abort acknowledgement", {
@@ -967,8 +971,8 @@ export class FeishuChannel implements MessageChannelRuntime {
 function formatScheduledFailureText(input: ScheduledChannelMessageInput, error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return input.taskId
-    ? `⏰ 定时任务 #${input.taskId} 执行失败：${message}`
-    : `⏰ 定时任务执行失败：${message}`;
+    ? getMessages().scheduledFailureWithId(String(input.taskId), message)
+    : getMessages().scheduledFailure(message);
 }
 
 function defaultMimeForKind(kind: "image" | "file" | "audio" | "video"): string {
