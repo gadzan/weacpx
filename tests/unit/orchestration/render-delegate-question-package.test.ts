@@ -1,6 +1,10 @@
-import { expect, test } from "bun:test";
+import { expect, test, beforeAll, afterAll } from "bun:test";
 
 import { renderDelegateQuestionPackage } from "../../../src/orchestration/render-delegate-question-package";
+import { setLocale } from "../../../src/i18n";
+
+beforeAll(() => { setLocale("zh"); });
+afterAll(() => { setLocale("en"); });
 
 test("renders a blocker package for delegate questions with review context and anti-forwarding instructions", () => {
   const text = renderDelegateQuestionPackage({

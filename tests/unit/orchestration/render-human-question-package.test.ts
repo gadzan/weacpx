@@ -1,4 +1,9 @@
-import { expect, test } from "bun:test";
+import { expect, test, beforeAll, afterAll } from "bun:test";
+
+import { setLocale } from "../../../src/i18n";
+
+beforeAll(() => { setLocale("zh"); });
+afterAll(() => { setLocale("en"); });
 
 import {
   renderHumanQuestionPackageMessage,
