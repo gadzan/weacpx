@@ -43,3 +43,10 @@ export { toDisplaySessionAlias } from "./channels/channel-scope.js";
 export type { SessionService } from "./sessions/session-service.js";
 export type { BackgroundResult } from "./state/types.js";
 export type { ChatRequestMetadata } from "./weixin/agent/interface.js";
+
+// Localization: the resolved runtime locale and its type, so channel plugins can
+// select language for their own per-package string catalogs. Plugins keep their
+// OWN catalog (core's typed Messages contract is core-only); they read the active
+// locale here, or take it from `ChannelStartInput.locale` for explicit threading.
+export { getLocale } from "./i18n/index.js";
+export type { Locale } from "./i18n/index.js";
