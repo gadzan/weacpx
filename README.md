@@ -1,144 +1,144 @@
 # xacpx
 
-> 用微信、飞书或元宝远程驱动 Codex、Claude Code 等 acpx 会话。
+> Remotely drive Codex, Claude Code, and other acpx sessions from WeChat, Feishu, or Yuanbao.
 
 [![npm](https://img.shields.io/npm/v/@ganglion/xacpx?style=flat-square)](https://www.npmjs.com/package/@ganglion/xacpx)
 [![Node.js Version](https://img.shields.io/node/v/@ganglion/xacpx?style=flat-square)](https://nodejs.org)
 [![zread](https://img.shields.io/badge/Ask_Zread-_.svg?style=flat-square&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS42MDE1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff)](https://zread.ai/gadzan/weacpx)
 [![License](https://img.shields.io/npm/l/@ganglion/xacpx?style=flat-square)](./LICENSE)
 
-![weacpx logo](assets/weacpx.jpg)
+English · **[中文](./docs/zh/README_zh.md)**
 
-## 这是什么
+## What is this
 
-`xacpx` 是一个可以通过微信、飞书或元宝直接控制 Codex / Claude Code / Gemini / OpenCode 等 ACP Agent 的工具。它把聊天消息通过 `acpx` 连接到 Agent CLI 会话上，让你直接在手机里：
+`xacpx` is a tool that lets you control ACP agents such as Codex / Claude Code / Gemini / OpenCode directly from WeChat, Feishu, or Yuanbao. It connects chat messages to your agent CLI sessions through `acpx`, so you can, right from your phone:
 
-- 新建和切换会话
-- 让 Agent 继续在指定项目目录里工作
-- 查看流式回复、最终结果和工具调用摘要
-- 调整权限策略
-- 在需要时做多 Agent 编排
+- Create and switch between sessions
+- Have the agent keep working in a specific project directory
+- View streaming replies, final results, and tool-call summaries
+- Adjust permission policies
+- Orchestrate multiple agents when needed
 
-如果你需要临时远程编码或办公，`xacpx` 提供的是一个方便快捷的**远程入口**，让你在微信或飞书里就能随时随地干活。
+If you need to code or work remotely on a temporary basis, `xacpx` gives you a fast, convenient **remote entry point** so you can get things done from WeChat or Feishu anytime, anywhere.
 
-## 适合谁
+## Who it's for
 
-`xacpx` 适合轻量临时使用多 Agent 办公的用户。你可以用微信、飞书或元宝盯任务、发指令、看结果，并在同一个聊天里管理多个会话。
+`xacpx` suits users who want lightweight, on-demand multi-agent work. You can watch tasks, send commands, and view results from WeChat, Feishu, or Yuanbao, and manage multiple sessions within the same chat.
 
-> 日常使用优先记 `/ss`：它负责创建或复用 xacpx 逻辑会话。如果你想接入本地 Codex 等 Agent 已有的原生会话，再用 `/ssn`；进阶说明见 [docs/native-sessions.md](./docs/native-sessions.md)。
+> For everyday use, remember `/ss` first: it creates or reuses an xacpx logical session. If you want to attach to an existing native session of a local agent such as Codex, use `/ssn`; see [docs/native-sessions.md](./docs/native-sessions.md) for advanced details.
 
-## 5 分钟快速开始
+## 5-minute quick start
 
-### 前置条件
+### Prerequisites
 
-开始前，你至少需要：
+Before you start, you need at least:
 
-- Node.js 22+ 或 Bun
-- 已可用的 Codex / Claude Code / Gemini / OpenCode 等你要使用的 Agent CLI
-- 一台装了微信、飞书或元宝的手机
+- Node.js 22+ or Bun
+- A working agent CLI you intend to use, such as Codex / Claude Code / Gemini / OpenCode
+- A phone with WeChat, Feishu, or Yuanbao installed
 
-> 微信频道基于 `weixin-agent-sdk` 工作，飞书频道使用飞书自建应用凭据，元宝频道使用 `appKey` / `appSecret`；底层 Agent 会话由 `acpx` 驱动。正常情况下，你不需要额外全局安装 `acpx`。
+> The WeChat channel works on top of `weixin-agent-sdk`, the Feishu channel uses Feishu custom-app credentials, and the Yuanbao channel uses `appKey` / `appSecret`; the underlying agent sessions are driven by `acpx`. Normally you don't need to install `acpx` globally.
 
-### 安装
+### Install
 
 ```bash
 npm install -g @ganglion/xacpx --registry=https://registry.npmjs.org
-# 或
+# or
 bun add -g @ganglion/xacpx
 ```
 
-### 登录微信
+### Log in to WeChat
 
 ```bash
 xacpx login
 ```
 
-终端会显示二维码，请继续用微信扫码登录。
+The terminal will show a QR code; scan it with WeChat to log in.
 
-如果你想使用飞书或元宝而不是微信，请先看下面的“切换/添加其它频道”。
+If you want to use Feishu or Yuanbao instead of WeChat, see "Switch / add other channels" below first.
 
-### 启动服务
+### Start the service
 
 ```bash
 xacpx start
 ```
 
-### 在微信里创建第一个会话
+### Create your first session in WeChat
 
-把下面两条消息发到微信：
+Send these two messages in WeChat:
 
 ```text
 /ss codex -d /absolute/path/to/your/repo
 /help
 ```
 
-然后直接发普通文本，例如：
+Then just send plain text, for example:
 
 ```text
 hello
 ```
 
-如果一切正常，普通文本会进入当前会话，Agent 的回复会回到微信。
+If everything works, plain text goes into the current session and the agent's reply comes back to WeChat.
 
-### 切换/添加其它频道
+### Switch / add other channels
 
-微信是内置默认频道。飞书和元宝以官方插件包分发，第三方频道也走同样的插件流程。如果记不住包名，先看一眼官方插件清单：
+WeChat is the built-in default channel. Feishu and Yuanbao are distributed as official plugin packages, and third-party channels follow the same plugin flow. If you can't remember the package names, check the official plugin list first:
 
 ```bash
 xacpx plugin known
-# 安装：xacpx plugin add <package>
+# Install: xacpx plugin add <package>
 ```
 
 ```bash
-# 飞书
+# Feishu
 xacpx plugin add @ganglion/xacpx-channel-feishu
-xacpx channel add feishu     # 按提示输入 appId/appSecret
+xacpx channel add feishu     # enter appId/appSecret when prompted
 xacpx restart
 
-# 元宝
+# Yuanbao
 xacpx plugin add @ganglion/xacpx-channel-yuanbao
-xacpx channel add yuanbao    # 按提示输入 appKey/appSecret
+xacpx channel add yuanbao    # enter appKey/appSecret when prompted
 xacpx restart
 ```
 
-完整的密钥配置、参数、`enable/disable/rm` 等管理命令见 [docs/channel-management.md](./docs/channel-management.md)。如果你想自己写一个频道插件，见 [docs/plugin-development.md](./docs/plugin-development.md)。
+For full credential configuration, parameters, and management commands such as `enable/disable/rm`, see [docs/channel-management.md](./docs/channel-management.md). If you want to write your own channel plugin, see [docs/plugin-development.md](./docs/plugin-development.md).
 
-## 你的日常使用流程
+## Your everyday workflow
 
-最常见的使用顺序只有四步：
+The most common sequence is just four steps:
 
-1. **启动后台服务**：`xacpx start`
-2. **创建或切换会话**：`/ss ...`、`/use ...`
-3. **直接发普通文本**：让当前会话继续工作
-4. **必要时查看状态或取消当前任务**：`/status`、`/cancel`
+1. **Start the background service**: `xacpx start`
+2. **Create or switch sessions**: `/ss ...`, `/use ...`
+3. **Send plain text directly**: let the current session keep working
+4. **Check status or cancel the current task when needed**: `/status`, `/cancel`
 
-### 1) 创建会话
+### 1) Create a session
 
-最常用命令：
+The most common command:
 
 ```text
 /ss codex -d /absolute/path/to/your/repo
 ```
 
-它会使用 `codex`，绑定这个工作目录，并自动切换到新会话。
+It uses `codex`, binds this working directory, and automatically switches to the new session.
 
-### 2) 发普通消息
+### 2) Send plain messages
 
-非 `/` 开头的文本，都会发送到当前会话。
+Any text not starting with `/` is sent to the current session.
 
 ```text
-修一下最近这个接口超时问题
+Fix this recent API timeout issue
 ```
 
-### 3) 看回复
+### 3) View replies
 
-`xacpx` 支持三种常用回复模式：
+`xacpx` supports three common reply modes:
 
-- `stream`：流式返回中间文本
-- `final`：只返回最终结果
-- `verbose`：默认，在流式文本之外，额外显示工具调用摘要
+- `stream`: stream back intermediate text
+- `final`: return only the final result
+- `verbose`: the default; in addition to streaming text, also shows tool-call summaries
 
-例如 `verbose` 模式下，你会看到：
+For example, in `verbose` mode you'll see:
 
 ```text
 📖 sed -n '1,220p' README.md
@@ -147,47 +147,47 @@ xacpx restart
 ✏️ Edit parse-command.ts
 ```
 
-### 4) 切换会话
+### 4) Switch sessions
 
 ```text
 /ss
 /use backend:codex
 ```
 
-这样你可以在同一个微信聊天里切换不同项目、不同 agent 的会话。
+This lets you switch between sessions for different projects and different agents within the same WeChat chat.
 
-## 常用 CLI 命令
+## Common CLI commands
 
-这些命令在电脑终端里运行。
+These commands run in a terminal on your computer.
 
-| 命令 | 说明 |
+| Command | Description |
 |------|------|
-| `xacpx login` | 登录微信 |
-| `xacpx logout` | 清除本机保存的微信登录凭证 |
-| `xacpx run` | 前台运行，适合调试 |
-| `xacpx start` | 后台启动服务 |
-| `xacpx status` | 查看后台状态、PID、配置路径、日志路径 |
-| `xacpx stop` | 停止后台实例 |
-| `xacpx restart` | 重启后台实例，让频道配置变更生效 |
-| `xacpx update [--all\|<name>]` | 检查并更新 xacpx 与已安装插件；安装了插件时会交互式选择更新项 |
-| `xacpx channel list` | 查看已配置的消息频道 |
-| `xacpx plugin known` | 查看官方插件清单（飞书/元宝包名） |
-| `xacpx plugin add @ganglion/xacpx-channel-feishu && xacpx channel add feishu` | 安装并添加飞书频道，会提示输入飞书应用凭据 |
-| `xacpx plugin add @ganglion/xacpx-channel-yuanbao && xacpx channel add yuanbao` | 安装并添加元宝频道，会提示输入元宝 appKey/appSecret |
-| `xacpx doctor` | 运行环境诊断 |
-| `xacpx version` | 查看当前版本 |
-| `xacpx agent list` | 查看本机已注册的 agent |
-| `xacpx agent add <name>` | 从内置模板添加 agent；已存在且配置不同的同名 agent 不会被覆盖 |
-| `xacpx agent rm <name>` | 删除 agent |
-| `xacpx workspace list` | 查看本机已注册的 workspace |
-| `xacpx workspace add [name] [--raw]` | 把当前目录注册成 workspace；不传 `name` 时使用当前目录名，含特殊字符的名称会被自动规范化 |
-| `xacpx workspace rm <name>` | 删除 workspace |
-| `xacpx later list` / `xacpx lt list` | 在终端查看本机待执行定时任务 |
-| `xacpx later cancel <id>` / `xacpx lt cancel <id>` | 在终端取消本机待执行定时任务 |
+| `xacpx login` | Log in to WeChat |
+| `xacpx logout` | Clear the WeChat login credentials saved on this machine |
+| `xacpx run` | Run in the foreground, useful for debugging |
+| `xacpx start` | Start the service in the background |
+| `xacpx status` | Show background status, PID, config path, and log path |
+| `xacpx stop` | Stop the background instance |
+| `xacpx restart` | Restart the background instance so channel config changes take effect |
+| `xacpx update [--all\|<name>]` | Check and update xacpx and installed plugins; when plugins are installed, it interactively lets you choose what to update |
+| `xacpx channel list\|show\|add\|rm\|enable\|disable [--account <id>]` | Manage message channels; `--account <id>` targets one bot when several share a channel (multi-bot) |
+| `xacpx plugin list\|add\|update\|remove\|enable\|disable\|doctor\|known` | Manage plugins: list/install/update/remove, toggle, run `doctor`, or list official packages with `known` |
+| `xacpx plugin add @ganglion/xacpx-channel-feishu && xacpx channel add feishu` | Install and add the Feishu channel; prompts for Feishu app credentials |
+| `xacpx plugin add @ganglion/xacpx-channel-yuanbao && xacpx channel add yuanbao` | Install and add the Yuanbao channel; prompts for Yuanbao appKey/appSecret |
+| `xacpx doctor` | Run environment diagnostics |
+| `xacpx version` | Show the current version |
+| `xacpx agent list` | List agents registered on this machine |
+| `xacpx agent add <name>` | Add an agent from a built-in template; an existing agent of the same name with a different config is not overwritten |
+| `xacpx agent rm <name>` | Remove an agent |
+| `xacpx workspace list` | List workspaces registered on this machine |
+| `xacpx workspace add [name] [--raw]` | Register the current directory as a workspace; without `name`, uses the current directory name, and names with special characters are normalized automatically |
+| `xacpx workspace rm <name>` | Remove a workspace |
+| `xacpx later list` / `xacpx lt list` | List this machine's pending scheduled tasks in the terminal |
+| `xacpx later cancel <id>` / `xacpx lt cancel <id>` | Cancel a pending scheduled task in the terminal |
 
-首次运行 `xacpx start` 或 `xacpx run` 时，如果没有会话、workspace 和插件，CLI 会询问是否把当前目录创建为 workspace，并选择一个内置 agent 模板；服务启动后会通过正常会话创建流程创建初始 acpx 会话。
+The first time you run `xacpx start` or `xacpx run`, if there are no sessions, workspaces, or plugins, the CLI asks whether to register the current directory as a workspace and lets you choose a built-in agent template; after the service starts, it creates the initial acpx session through the normal session-creation flow.
 
-`workspace` 也可以简写为 `ws`：
+`workspace` can also be abbreviated as `ws`:
 
 ```bash
 xacpx ws add
@@ -195,19 +195,19 @@ xacpx ws list
 xacpx ws rm backend
 ```
 
-### `workspace` CLI 怎么用
+### How to use the `workspace` CLI
 
-`xacpx workspace` 用来在电脑本机维护 `~/.xacpx/config.json` 里的 `workspaces` 配置。它适合先在终端里注册常用项目目录，然后在微信里用 `--ws <name>` 直接引用。
+`xacpx workspace` maintains the `workspaces` config in `~/.xacpx/config.json` on your local machine. It's good for registering frequently used project directories in the terminal first, then referencing them directly in WeChat with `--ws <name>`.
 
-| 命令 | 说明 |
+| Command | Description |
 |------|------|
-| `xacpx workspace list` | 列出已注册的 workspace 及其路径 |
-| `xacpx workspace add` | 把当前目录注册为 workspace，名称默认取当前目录名（自动规范化） |
-| `xacpx workspace add <name>` | 把当前目录注册为指定名称（含特殊字符时自动规范化） |
-| `xacpx workspace add [name] --raw` | 保留原始名称（含空格等），后续命令需要用引号引用 |
-| `xacpx workspace rm <name>` | 删除指定 workspace |
+| `xacpx workspace list` | List registered workspaces and their paths |
+| `xacpx workspace add` | Register the current directory as a workspace, defaulting the name to the current directory name (normalized automatically) |
+| `xacpx workspace add <name>` | Register the current directory under a specific name (normalized if it contains special characters) |
+| `xacpx workspace add [name] --raw` | Keep the original name (including spaces, etc.); later commands must quote it |
+| `xacpx workspace rm <name>` | Remove a specific workspace |
 
-常见用法：
+Common usage:
 
 ```bash
 cd /absolute/path/to/backend
@@ -220,27 +220,27 @@ xacpx ws list
 xacpx ws rm frontend
 ```
 
-注册后，你可以在微信里直接使用：
+Once registered, you can use it directly in WeChat:
 
 ```text
 /ss codex --ws backend
 /ss new claude --ws frontend
 ```
 
-注意：`workspace add` 总是注册**当前终端所在目录**。如果不传名称，会用当前目录名作为 workspace 名称。含空格、中文等字符的名称会被自动规范化为 `[a-zA-Z0-9._-]+`（例如目录 `My Project` 会保存为 `My-Project`），重名时追加 `-2`、`-3`。如需保留原始名称，加 `--raw`；之后 `xacpx workspace rm`、`/ws rm`、`--ws <name>` 都需要用引号引用，例如 `xacpx workspace rm "My Project"`。
+Note: `workspace add` always registers the **directory the terminal is currently in**. Without a name, it uses the current directory name as the workspace name. Names containing spaces, Chinese characters, etc. are normalized automatically to `[a-zA-Z0-9._-]+` (for example, the directory `My Project` is saved as `My-Project`), with `-2`, `-3` appended on collisions. To keep the original name, add `--raw`; afterwards `xacpx workspace rm`, `/ws rm`, and `--ws <name>` all need quoting, for example `xacpx workspace rm "My Project"`.
 
-### `agent` CLI 怎么用
+### How to use the `agent` CLI
 
-`xacpx agent` 用来在电脑本机维护 `~/.xacpx/config.json` 里的 `agents` 配置；`agents` 是同等别名。
+`xacpx agent` maintains the `agents` config in `~/.xacpx/config.json` on your local machine; `agents` is an equivalent alias.
 
-| 命令 | 说明 |
+| Command | Description |
 |------|------|
-| `xacpx agent list` | 列出已注册的 agent |
-| `xacpx agent templates` | 列出可添加的内置模板 |
-| `xacpx agent add <name>` | 从内置模板添加 agent，例如 `kimi`、`opencode` |
-| `xacpx agent rm <name>` | 删除指定 agent |
+| `xacpx agent list` | List registered agents |
+| `xacpx agent templates` | List the built-in templates you can add |
+| `xacpx agent add <name>` | Add an agent from a built-in template, e.g. `kimi`, `opencode` |
+| `xacpx agent rm <name>` | Remove a specific agent |
 
-常见用法：
+Common usage:
 
 ```bash
 xacpx agent templates
@@ -249,7 +249,7 @@ xacpx agents list
 xacpx agent rm kimi
 ```
 
-### `doctor` 怎么用
+### How to use `doctor`
 
 ```bash
 xacpx doctor
@@ -258,29 +258,47 @@ xacpx doctor --smoke
 xacpx doctor --smoke --agent codex --workspace backend
 ```
 
-说明：
+Notes:
 
-- `--verbose` 会展开每项检查的细节
-- `--smoke` 会额外执行一次真实 transport 级别的最小 prompt 检查
-- `--agent` / `--workspace` 只影响 `--smoke`
-- 如果不传 `--smoke`，相关检查会显示为 `SKIP`
+- `--verbose` expands the details of each check
+- `--smoke` additionally runs a minimal real transport-level prompt check
+- `--agent` / `--workspace` only affect `--smoke`
+- Without `--smoke`, the related checks show as `SKIP`
 
-## 常用聊天命令
+### How to use `update`
 
-这些命令在微信或飞书聊天里发送。完整命令参考见：[docs/commands.md](./docs/commands.md)。
+`xacpx update` checks for and installs new versions of xacpx itself and your installed channel plugins.
 
-### Agent 管理
+```bash
+xacpx update            # interactive: pick what to update
+xacpx update --all      # update everything (core + all plugins) non-interactively
+xacpx update <name>     # update a single target (the core, or a specific plugin package)
+```
 
-默认配置通常已包含 `codex` 与 `claude`。如果你要使用其它 acpx 支持的 agent，可以先用 `/agent add <name>` 从内置模板添加。
+Notes:
 
-| 命令 | 说明 |
+- When plugins are installed, the bare `xacpx update` is interactive and lets you choose which targets to update.
+- In a non-interactive environment, updating the core or plugins needs explicit confirmation: use `xacpx update --all`, or name the target with `xacpx update <name>`.
+- `update` covers the core package and channel plugins; to manage a single plugin's version directly, see `xacpx plugin update <name>` ([docs/plugin-development.md](./docs/plugin-development.md)).
+- After updating, run `xacpx restart` so a running daemon loads the new version.
+- Cross-package rename migration: once the project's renamed successor package is published, running `weacpx update` will offer to migrate you across to it automatically (you confirm the switch). Until then this is dormant and `update` behaves as a normal self-update.
+
+## Common chat commands
+
+These commands are sent in a WeChat or Feishu chat. For the full command reference, see [docs/commands.md](./docs/commands.md).
+
+### Agent management
+
+The default config usually already includes `codex` and `claude`. If you want to use another acpx-supported agent, you can add it from a built-in template with `/agent add <name>`.
+
+| Command | Description |
 |------|------|
-| `/agents` | 查看 agent 列表 |
-| `/agent add gemini` | 添加 `Gemini` Agent |
-| `/agent add opencode` | 添加 `OpenCode` Agent |
-| `/agent rm <name>` | 删除 agent |
+| `/agents` | List agents |
+| `/agent add gemini` | Add the `Gemini` agent |
+| `/agent add opencode` | Add the `OpenCode` agent |
+| `/agent rm <name>` | Remove an agent |
 
-当前内置模板与 acpx 的 built-in agents 对齐：
+The current built-in templates align with acpx's built-in agents:
 
 ```text
 codex, claude, pi, openclaw, gemini, cursor, copilot, droid,
@@ -288,37 +306,37 @@ factory-droid, factorydroid, iflow, kilocode, kimi, kiro,
 opencode, qoder, qwen, trae
 ```
 
-这些模板只写入 `driver`，实际启动命令交给 acpx 解析；例如 `/agent add kimi` 会保存 `{ "driver": "kimi" }`。完整命令说明见 [docs/commands.md](./docs/commands.md)，配置字段见 [docs/config-reference.md](./docs/config-reference.md)。
+These templates only write `driver`; the actual launch command is resolved by acpx. For example, `/agent add kimi` saves `{ "driver": "kimi" }`. For full command docs see [docs/commands.md](./docs/commands.md), and for config fields see [docs/config-reference.md](./docs/config-reference.md).
 
-### Workspace 管理
+### Workspace management
 
-| 命令 | 说明 |
+| Command | Description |
 |------|------|
-| `/workspaces` / `/workspace` / `/ws` | 查看 workspace 列表 |
-| `/ws new <name> -d <path> [--raw]` | 添加 workspace，`path` 是电脑上的绝对路径，Windows 不用区分正反斜杠；含空格/中文等特殊字符的名称会被自动规范化，--raw 保留原名 |
-| `/workspace rm <name>` | 删除 workspace |
+| `/workspaces` / `/workspace` / `/ws` | List workspaces |
+| `/ws new <name> -d <path> [--raw]` | Add a workspace; `path` is an absolute path on your computer, and Windows does not distinguish forward/back slashes; names with special characters such as spaces/Chinese are normalized automatically, and --raw keeps the original name |
+| `/workspace rm <name>` | Remove a workspace |
 
-### Session 会话
+### Sessions
 
-| 命令 | 说明 |
+| Command | Description |
 |------|------|
-| `/sessions` / `/session` / `/ss` | 查看会话列表 |
-| `/ss <agent> (-d <path> \| --ws <name>)` | 创建或复用当前最常用的会话 |
-| `/ss new <agent> (-d <path> \| --ws <name>)` | 强制新建会话 |
-| `/ssn <agent> (-d <path> \| --ws <name>)` | 接入本地已有的 Agent 原生会话，详见 [native sessions](./docs/native-sessions.md) |
-| `/use <alias>` | 切换当前会话 |
-| `/status` | 查看当前会话状态 |
-| `/mode` / `/mode <id>` | 查看或设置底层 `acpx` mode |
-| `/replymode` | 查看当前回复模式 |
-| `/replymode stream` | 流式回复 |
-| `/replymode verbose` | 流式 + 工具调用摘要 |
-| `/replymode final` | 只返回最终结果 |
-| `/replymode reset` | 回退到全局默认 reply mode |
-| `/session reset` | 重置当前会话上下文 |
-| `/clear` | `/session reset` 的快捷别名 |
-| `/cancel` / `/stop` | 停止当前任务 |
+| `/sessions` / `/session` / `/ss` | List sessions |
+| `/ss <agent> (-d <path> \| --ws <name>)` | Create or reuse your current most-used session |
+| `/ss new <agent> (-d <path> \| --ws <name>)` | Force-create a new session |
+| `/ssn <agent> (-d <path> \| --ws <name>)` | Attach to an existing native session of a local agent; see [native sessions](./docs/native-sessions.md) |
+| `/use <alias>` | Switch the current session |
+| `/status` | Show the current session status |
+| `/mode` / `/mode <id>` | View or set the underlying `acpx` mode |
+| `/replymode` | Show the current reply mode |
+| `/replymode stream` | Streaming replies |
+| `/replymode verbose` | Streaming + tool-call summaries |
+| `/replymode final` | Return only the final result |
+| `/replymode reset` | Fall back to the global default reply mode |
+| `/session reset` | Reset the current session context |
+| `/clear` | Shortcut alias for `/session reset` |
+| `/cancel` / `/stop` | Stop the current task |
 
-建议你优先记住这三个：
+We suggest remembering these three first:
 
 ```text
 /ss codex -d /absolute/path/to/repo
@@ -326,51 +344,51 @@ opencode, qoder, qwen, trae
 /cancel
 ```
 
-如果要接入本地 Codex 等 Agent 已有的原生会话，用 `/ssn codex -d /absolute/path/to/repo`；完整语义见 [docs/native-sessions.md](./docs/native-sessions.md)。
+To attach to an existing native session of a local agent such as Codex, use `/ssn codex -d /absolute/path/to/repo`; for full semantics see [docs/native-sessions.md](./docs/native-sessions.md).
 
-### 定时任务（/later）
+### Scheduled tasks (/later)
 
-让 agent 在未来某个时间自动收到一条消息。**默认在一个为该任务新建的临时会话里执行**（沿用创建时当前会话的 agent 与工作区，对话历史全新，跑完即销毁）；加 `--bind` 则发送到创建时绑定的当前会话。到点后把消息作为普通 prompt 投递，结果推回原聊天。
+Have the agent automatically receive a message at some point in the future. **By default it runs in a temporary session created just for that task** (inheriting the agent and workspace of the current session at creation time, with a fresh conversation history, destroyed once finished); adding `--bind` sends it to the current session bound at creation time. When the time comes, the message is delivered as a normal prompt and the result is pushed back to the original chat.
 
-| 命令 | 说明 |
+| Command | Description |
 |------|------|
-| `/lt <时间> <消息>` | 创建定时任务（默认临时会话执行；`/later` 同义） |
-| `/lt --bind <时间> <消息>` | 改为发送到当前会话 |
-| `/lt list` | 查看全局待执行任务 |
-| `/lt cancel <id>` | 取消待执行任务 |
+| `/lt <time> <message>` | Create a scheduled task (runs in a temporary session by default; `/later` is a synonym) |
+| `/lt --bind <time> <message>` | Send to the current session instead |
+| `/lt list` | List globally pending tasks |
+| `/lt cancel <id>` | Cancel a pending task |
 
-最常见例子：
+The most common examples:
 
 ```text
-/lt in 2h 检查 CI 是否通过        # 临时会话（默认）
-/lt --bind 明天 09:00 看 PR        # 绑定当前会话
+/lt in 2h check whether CI passes        # temporary session (default)
+/lt --bind tomorrow 09:00 review the PR    # bound to the current session
 /lt list
 ```
 
-说明：
+Notes:
 
-- 默认临时会话执行，`--bind` 绑定当前会话；默认模式可用配置 `later.defaultMode`（`temp` / `bind`，默认 `temp`）修改
-- 只支持一次性任务，时间必须在 10 秒之后、7 天之内
-- 时间格式是固定白名单（相对时间 / 今天·明天·后天 / 星期几 + 时刻），不支持自然语言
-- 普通对话中 agent 也可以通过当前会话内部工具创建、查看与取消定时任务（`scheduled_create` / `scheduled_list` / `scheduled_cancel`）；路由和权限由 daemon 从当前聊天会话解析，外部 `mcp-stdio` 不暴露这些工具
-- 终端里也可以用 `xacpx later list` / `xacpx later cancel <id>` 管理待执行任务；CLI 只做查看和取消，不创建定时任务
-- 完整时间格式、临时/绑定模式、任务状态与限制见 [docs/later-command.md](./docs/later-command.md)
+- Runs in a temporary session by default; `--bind` binds to the current session. The default mode can be changed via the config `later.defaultMode` (`temp` / `bind`, default `temp`)
+- Only one-time tasks are supported; the time must be more than 10 seconds and within 7 days from now
+- The time format is a fixed whitelist (relative time / today·tomorrow·day-after-tomorrow / weekday + time); natural language is not supported
+- In normal conversation, the agent can also create, list, and cancel scheduled tasks via the current session's internal tools (`scheduled_create` / `scheduled_list` / `scheduled_cancel`); routing and permissions are resolved by the daemon from the current chat session, and the external `mcp-stdio` does not expose these tools
+- You can also manage pending tasks from the terminal with `xacpx later list` / `xacpx later cancel <id>`; the CLI only lists and cancels, it does not create scheduled tasks
+- For full time formats, temporary/bound modes, task status, and limits, see [docs/later-command.md](./docs/later-command.md)
 
-### 配置与权限
+### Config and permissions
 
-| 命令 | 说明 |
+| Command | Description |
 |------|------|
-| `/config` | 查看支持通过聊天命令修改的配置路径 |
-| `/config set <path> <value>` | 修改一个白名单配置项 |
-| `/pm` / `/permission` | 查看当前权限模式 |
-| `/pm set allow` | 切到 `approve-all` |
-| `/pm set read` | 切到 `approve-reads` |
-| `/pm set deny` | 切到 `deny-all` |
-| `/pm auto` | 查看当前非交互权限策略 |
-| `/pm auto deny` | 切到 `deny` |
-| `/pm auto fail` | 切到 `fail` |
+| `/config` | Show the config paths that can be changed via chat commands |
+| `/config set <path> <value>` | Change a whitelisted config item |
+| `/pm` / `/permission` | Show the current permission mode |
+| `/pm set allow` | Switch to `approve-all` |
+| `/pm set read` | Switch to `approve-reads` |
+| `/pm set deny` | Switch to `deny-all` |
+| `/pm auto` | Show the current non-interactive permission policy |
+| `/pm auto deny` | Switch to `deny` |
+| `/pm auto fail` | Switch to `fail` |
 
-最常见例子：
+The most common examples:
 
 ```text
 /config set wechat.replyMode final
@@ -378,55 +396,55 @@ opencode, qoder, qwen, trae
 /pm auto deny
 ```
 
-> `/config set language en`（或 `zh`）可切换 xacpx 的界面语言；缺省按系统 locale 自动推断。详见 [docs/config-reference.md](./docs/config-reference.md)。
+> `/config set language en` (or `zh`) switches the xacpx interface language; it otherwise follows your system locale. See [docs/config-reference.md](./docs/config-reference.md).
 
-### 多 Agent 编排
+### Multi-agent orchestration
 
-README 里只保留用户视角的最常用命令。
+The README keeps only the most common user-facing commands.
 
-| 命令 | 说明 |
+| Command | Description |
 |------|------|
-| `/dg <agent> <task>` | 快速委派一个子任务 |
-| `/tasks` | 查看当前主线下的任务 |
-| `/task <id>` | 查看单个任务详情 |
-| `/task approve <id>` | 批准 `needs_confirmation` 任务 |
-| `/task cancel <id>` | 取消任务；取消一个尚未批准的任务等同于拒绝 |
+| `/dg <agent> <task>` | Quickly delegate a subtask |
+| `/tasks` | List tasks under the current main line |
+| `/task <id>` | Show details of a single task |
+| `/task approve <id>` | Approve a `needs_confirmation` task |
+| `/task cancel <id>` | Cancel a task; cancelling a not-yet-approved task is equivalent to rejecting it |
 
-最常见例子：
+The most common examples:
 
 ```text
-/dg claude 审查当前方案的 3 个高风险点
+/dg claude review the 3 high-risk points of the current plan
 /tasks
 /task approve task_123
 ```
 
-说明：
+Notes:
 
-- 当前会话就是主控会话
-- 被委派出去的是独立子任务会话
-- agent 发起的委派请求默认需要人工确认
-- 如果你在用外部 MCP host（Codex / Claude Code），用 `delegate_batch` 一次派发多个并行子任务：传一个 `tasks` 数组，底层自动建组，全部结果一次性回注，无需手动维护 groupId
+- The current session is the coordinator session
+- What gets delegated out are independent subtask sessions
+- Delegation requests initiated by the agent require human confirmation by default
+- If you're using an external MCP host (Codex / Claude Code), use `delegate_batch` to dispatch multiple parallel subtasks at once: pass a `tasks` array, a group is created automatically under the hood, and all results are injected back at once with no need to maintain a groupId manually
 
-如果你想先理解什么时候该用 delegate、什么时候应该并行派出多个子任务，请看：
+If you want to first understand when to delegate and when to dispatch multiple subtasks in parallel, see:
 
 - [docs/weacpx-group-usage-guide.md](./docs/weacpx-group-usage-guide.md)
 
 
-### MCP 集成：外部 coordinator
+### MCP integration: external coordinator
 
-如果你想让 Codex、Claude Code 等外部 MCP host 直接使用 xacpx 的多 Agent 编排能力，可以把 `xacpx mcp-stdio` 配成一个 stdio MCP server。
+If you want external MCP hosts such as Codex or Claude Code to use xacpx's multi-agent orchestration directly, you can configure `xacpx mcp-stdio` as a stdio MCP server.
 
-`delegate_request` 支持 MCP Tasks：支持该能力的 host 可以让委派请求立即返回原生 task handle，之后通过 `tasks/get` / `tasks/result` / `tasks/cancel` 获取状态、结果或取消任务；worker 输出的 `[PROGRESS] ...` 会显示在 `tasks/get` / `tasks/list` 的 `statusMessage` 里；`input_required` 状态下的 `tasks/result` 会返回下一步操作提示并结束本次 result stream，而不是长时间阻塞；client 按提示调用 `task_get` / `task_approve` / `coordinator_answer_question` 等工具后，再继续 `tasks/get` / `tasks/result` 轮询。不支持 MCP Tasks 的 host 仍可使用兼容工具 `task_get` / `task_list` / `task_watch` / `task_cancel`。
+`delegate_request` supports MCP Tasks: a host that supports this capability can make the delegation request return a native task handle immediately, then get status, results, or cancel the task via `tasks/get` / `tasks/result` / `tasks/cancel`; the worker's `[PROGRESS] ...` output shows up in the `statusMessage` of `tasks/get` / `tasks/list`; in the `input_required` state, `tasks/result` returns a next-step hint and ends this result stream rather than blocking for a long time; after the client calls tools such as `task_get` / `task_approve` / `coordinator_answer_question` per the hint, it continues polling `tasks/get` / `tasks/result`. A host that does not support MCP Tasks can still use the compatibility tools `task_get` / `task_list` / `task_watch` / `task_cancel`.
 
-定时任务的自然语言创建工具是 xacpx 当前会话内部能力，不会出现在外部 `xacpx mcp-stdio` 的工具列表里。
+The natural-language creation tool for scheduled tasks is an internal capability of the xacpx current session and does not appear in the external `xacpx mcp-stdio` tool list.
 
-先启动 daemon：
+Start the daemon first:
 
 ```bash
 xacpx start
 ```
 
-MCP 配置推荐保持简单，不要在启动参数里绑定 workspace：
+We recommend keeping the MCP config simple and not binding a workspace in the launch arguments:
 
 ```json
 {
@@ -439,17 +457,17 @@ MCP 配置推荐保持简单，不要在启动参数里绑定 workspace：
 }
 ```
 
-外部 host 调用 `delegate_request` 时传 `workingDirectory`，xacpx 会让被委派的 worker 在这个目录工作：
+When an external host calls `delegate_request`, pass `workingDirectory`, and xacpx will make the delegated worker work in that directory:
 
 ```json
 {
   "targetAgent": "claude",
-  "task": "审查这个改动的风险点",
+  "task": "review the risks of this change",
   "workingDirectory": "/absolute/path/to/your/repo"
 }
 ```
 
-Windows 上如果 MCP host 不会帮你解析带参数的 `command`，把 `node.exe` 放在 `command`，把 xacpx 脚本和参数放在 `args`：
+On Windows, if the MCP host won't resolve a `command` with arguments for you, put `node.exe` in `command` and the xacpx script and arguments in `args`:
 
 ```json
 {
@@ -462,18 +480,18 @@ Windows 上如果 MCP host 不会帮你解析带参数的 `command`，把 `node.
 }
 ```
 
-更多身份规则、`workingDirectory` 语义、工具列表、流程图和故障排查见：[docs/external-mcp.md](./docs/external-mcp.md)。
+For more identity rules, `workingDirectory` semantics, the tool list, flow diagrams, and troubleshooting, see [docs/external-mcp.md](./docs/external-mcp.md).
 
-## 常见场景
+## Common scenarios
 
-### 在手机上继续盯一个本地项目
+### Keep watching a local project from your phone
 
 ```text
 /ss codex -d /absolute/path/to/backend
-看一下今天这个接口超时问题
+take a look at today's API timeout issue
 ```
 
-### 同一个聊天里切换两个项目
+### Switch between two projects in the same chat
 
 ```text
 /ss codex -d /absolute/path/to/backend
@@ -483,62 +501,62 @@ Windows 上如果 MCP host 不会帮你解析带参数的 `command`，把 `node.
 /use frontend:codex
 ```
 
-### 接入本地已有 Codex 原生会话
+### Attach to an existing local Codex native session
 
 ```text
 /ssn codex -d /absolute/path/to/backend
 /ssn 1
 ```
 
-更多筛选、别名和故障排查见 [docs/native-sessions.md](./docs/native-sessions.md)。
+For more filtering, aliases, and troubleshooting, see [docs/native-sessions.md](./docs/native-sessions.md).
 
-## 配置与运行文件
+## Config and runtime files
 
-默认文件位置：
+Default file locations:
 
-- 配置文件：`~/.xacpx/config.json`
-- 状态文件：`~/.xacpx/state.json`
-- 运行日志：`~/.xacpx/runtime/app.log`
+- Config file: `~/.xacpx/config.json`
+- State file: `~/.xacpx/state.json`
+- Runtime log: `~/.xacpx/runtime/app.log`
 
-更多运行时文件会放在 `~/.xacpx/runtime/` 下。
+More runtime files are placed under `~/.xacpx/runtime/`.
 
-## 常见问题
+## FAQ
 
-### `/ss new` 失败怎么办？
+### What if `/ss new` fails?
 
-如果你在微信里创建会话失败，最常见的情况不是 `xacpx` 命令格式错了，而是底层会话没有成功创建。
+If session creation fails in WeChat, the most common cause is not a wrong `xacpx` command format, but that the underlying session was not created successfully.
 
-你可以先试这两步：
+You can try these two steps first:
 
-1. 在终端里确认当前项目目录和 agent 本身可用
-2. 如果你熟悉 `acpx`，先手动创建一个会话，再在微信里挂回去
+1. Confirm in the terminal that the current project directory and the agent itself work
+2. If you're familiar with `acpx`, manually create a session first, then attach to it from WeChat
 
-例如，你可以先在本地创建一个会话：
+For example, you can create a session locally first:
 
 ```bash
 ./node_modules/.bin/acpx --verbose --cwd /absolute/workspace/path codex sessions new --name existing-demo
 ```
 
-然后在微信里把它挂回来：
+Then attach to it from WeChat:
 
 ```text
 /ss attach demo -a codex --ws backend --name existing-demo
 ```
 
-### `/mode <id>` 里的 `<id>` 是什么？
+### What is the `<id>` in `/mode <id>`?
 
-`/mode` 的可用值取决于你当前使用的 agent，`xacpx` 不会替你统一转换这些值。
+The valid values for `/mode` depend on the agent you're currently using; `xacpx` does not normalize these values for you.
 
-当前比较明确的已知值：
+Currently the more clearly known values are:
 
 - `codex`: `plan`
-- `cursor`: `agent`、`plan`、`ask`
+- `cursor`: `agent`, `plan`, `ask`
 
-如果你不确定某个值能不能用，优先查对应 agent 的文档；如果填错，通常会直接收到无效参数之类的报错。
+If you're unsure whether a value works, check the corresponding agent's docs first; if you get it wrong, you'll usually get an error such as an invalid argument.
 
-## 从源码运行
+## Running from source
 
-如果你是从仓库源码直接使用：
+If you're using the repo source directly:
 
 ```bash
 bun install
@@ -546,27 +564,27 @@ bun run login
 bun run dev
 ```
 
-## 更多文档
+## More docs
 
-如果你现在要做的是下面这些事，可以直接从这里继续：
+If what you're about to do is one of the following, you can continue from here:
 
-### 安装与配置
+### Installation and configuration
 
-- 想配置微信、飞书、元宝、或第三方插件频道：[docs/channel-management.md](./docs/channel-management.md)
-- 想自己写一个频道插件：[docs/plugin-development.md](./docs/plugin-development.md)
-- 想看完整配置字段：[docs/config-reference.md](./docs/config-reference.md)
-- 想在微信里改配置：[docs/config-command.md](./docs/config-command.md)
+- Want to configure WeChat, Feishu, Yuanbao, or a third-party plugin channel: [docs/channel-management.md](./docs/channel-management.md)
+- Want to write your own channel plugin: [docs/plugin-development.md](./docs/plugin-development.md)
+- Want the full config field reference: [docs/config-reference.md](./docs/config-reference.md)
+- Want to change config from WeChat: [docs/config-command.md](./docs/config-command.md)
 
-### 日常使用
+### Everyday use
 
-- 想查看完整聊天命令参考：[docs/commands.md](./docs/commands.md)
-- 想用定时任务（`/later`）安排一次性的未来消息：[docs/later-command.md](./docs/later-command.md)
-- 想理解什么时候该用 delegate、什么时候该开 group：[docs/weacpx-group-usage-guide.md](./docs/weacpx-group-usage-guide.md)
+- Want the full chat-command reference: [docs/commands.md](./docs/commands.md)
+- Want to schedule a one-time future message with scheduled tasks (`/later`): [docs/later-command.md](./docs/later-command.md)
+- Want to understand when to delegate and when to open a group: [docs/weacpx-group-usage-guide.md](./docs/weacpx-group-usage-guide.md)
 
-### 排错与验证
+### Troubleshooting and verification
 
-- 想跑测试或了解测试分层：[docs/testing.md](./docs/testing.md)
+- Want to run tests or understand the test layout: [docs/testing.md](./docs/testing.md)
 
-### 开发与贡献
+### Development and contribution
 
-- 想从源码开发、调试或参与贡献：[docs/developments.md](./docs/developments.md)
+- Want to develop, debug, or contribute from source: [docs/developments.md](./docs/developments.md)

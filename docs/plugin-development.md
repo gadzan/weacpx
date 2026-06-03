@@ -1,52 +1,52 @@
-# xacpx 频道插件开发参考
+# xacpx Channel Plugin Development Reference
 
-> 面向开发者的插件 API 参考手册。所有可用类型、方法、字段、错误码都列在这里。
-> 用户向导请看 [docs/channel-management.md](./channel-management.md)。
+> Developer-facing plugin API reference. Every available type, method, field, and error code is listed here.
+> For the user guide, see [docs/channel-management.md](./channel-management.md).
 
-`xacpx` 把消息频道做成了 npm 插件。一个频道插件就是一个 npm 包，默认导出一个 `XacpxPlugin`（旧名 `WeacpxPlugin` 仍可用），里面声明若干个 `ChannelPluginDefinition`。daemon 在启动时会读 `~/.xacpx/config.json` 里的 `plugins[]`，从 `~/.xacpx/plugins/node_modules/<plugin-name>` 动态 import 插件包，注册其频道工厂和 CLI provider。
+`xacpx` exposes message channels as npm plugins. A channel plugin is an npm package whose default export is a `XacpxPlugin` (the old name `WeacpxPlugin` still works), declaring one or more `ChannelPluginDefinition`s. On startup the daemon reads `plugins[]` from `~/.xacpx/config.json`, dynamically imports the plugin package from `~/.xacpx/plugins/node_modules/<plugin-name>`, and registers its channel factories and CLI providers.
 
-> **改名说明（0.8.0）：** 项目已从 `weacpx` 改名为 `xacpx`。请从 `xacpx/plugin-api` 导入，peer 依赖用 `xacpx`，并优先使用新名 `XacpxPlugin` / `minXacpxVersion` / `compatibleXacpxVersions`。为向后兼容，旧名 `WeacpxPlugin` / `minWeacpxVersion` / `compatibleWeacpxVersions` 仍被核心读取（两者同时声明时新名优先），已发布的老插件无需改动即可继续工作。本文档下方示例仍沿用旧名以减少改动，等价替换为新名即可。
-
----
-
-## 目录
-
-- [谁应该看这份文档](#谁应该看这份文档)
-- [快速开始：最小可运行插件](#快速开始最小可运行插件)
-- [工程结构](#工程结构)
-- [1. 插件入口：`WeacpxPlugin`](#1-插件入口weacpxplugin)
-- [2. 频道注册：`ChannelPluginDefinition`](#2-频道注册channelplugindefinition)
-- [3. 频道工厂：`ChannelFactory`](#3-频道工厂channelfactory)
-- [4. 频道运行时：`MessageChannelRuntime`](#4-频道运行时messagechannelruntime)
-- [5. 启动上下文：`ChannelStartInput`](#5-启动上下文channelstartinput)
-- [6. 出站配额：`OutboundQuota`](#6-出站配额outboundquota)
-- [7. 应用日志：`AppLogger`](#7-应用日志applogger)
-- [8. 编排回调：`OrchestrationDeliveryCallbacks`](#8-编排回调orchestrationdeliverycallbacks)
-- [9. 消费者锁：`ConsumerLock`](#9-消费者锁consumerlock)
-- [10. CLI provider：`ChannelCliProvider`](#10-cli-providerchannelcliprovider)
-- [11. CLI provider 辅助类型](#11-cli-provider-辅助类型)
-- [12. 配置形态：`ChannelRuntimeConfig`](#12-配置形态channelruntimeconfig)
-- [13. ChatKey 与 channelId 约定](#13-chatkey-与-channelid-约定)
-- [14. 校验规则](#14-校验规则)
-- [15. plugin doctor 诊断](#15-plugin-doctor-诊断)
-- [16. 端到端生命周期](#16-端到端生命周期)
-- [17. 发布契约](#17-发布契约)
-- [18. 测试建议](#18-测试建议)
-- [19. 参考实现](#19-参考实现)
+> **Renaming note (0.8.0):** The project has been renamed from `weacpx` to `xacpx`. Import from `xacpx/plugin-api`, use `xacpx` as the peer dependency, and prefer the new names `XacpxPlugin` / `minXacpxVersion` / `compatibleXacpxVersions`. For backward compatibility, the old names `WeacpxPlugin` / `minWeacpxVersion` / `compatibleWeacpxVersions` are still read by the core (the new name wins when both are declared), and already-published old plugins continue to work unchanged. The examples below still use the old names to minimize churn; replace them with the new names as equivalent.
 
 ---
 
-## 谁应该看这份文档
+## Table of Contents
 
-- 想为 xacpx 增加一个新频道（飞书、Discord、Slack、微信公众号 …）的开发者
-- 想把现有 IM 系统接入 xacpx 编排能力的工程
-- 想在自己的私有部署里 fork / 扩展频道行为的人
-
-如果你只是消费方（安装并使用别人写好的频道），看 [docs/channel-management.md](./channel-management.md) 就够了。
+- [Who should read this document](#who-should-read-this-document)
+- [Quick start: minimal runnable plugin](#quick-start-minimal-runnable-plugin)
+- [Project structure](#project-structure)
+- [1. Plugin entry: `WeacpxPlugin`](#1-plugin-entry-weacpxplugin)
+- [2. Channel registration: `ChannelPluginDefinition`](#2-channel-registration-channelplugindefinition)
+- [3. Channel factory: `ChannelFactory`](#3-channel-factory-channelfactory)
+- [4. Channel runtime: `MessageChannelRuntime`](#4-channel-runtime-messagechannelruntime)
+- [5. Start context: `ChannelStartInput`](#5-start-context-channelstartinput)
+- [6. Outbound quota: `OutboundQuota`](#6-outbound-quota-outboundquota)
+- [7. Application logging: `AppLogger`](#7-application-logging-applogger)
+- [8. Orchestration callbacks: `OrchestrationDeliveryCallbacks`](#8-orchestration-callbacks-orchestrationdeliverycallbacks)
+- [9. Consumer lock: `ConsumerLock`](#9-consumer-lock-consumerlock)
+- [10. CLI provider: `ChannelCliProvider`](#10-cli-provider-channelcliprovider)
+- [11. CLI provider helper types](#11-cli-provider-helper-types)
+- [12. Config shape: `ChannelRuntimeConfig`](#12-config-shape-channelruntimeconfig)
+- [13. ChatKey and channelId conventions](#13-chatkey-and-channelid-conventions)
+- [14. Validation rules](#14-validation-rules)
+- [15. plugin doctor diagnostics](#15-plugin-doctor-diagnostics)
+- [16. End-to-end lifecycle](#16-end-to-end-lifecycle)
+- [17. Publishing contract](#17-publishing-contract)
+- [18. Testing recommendations](#18-testing-recommendations)
+- [19. Reference implementations](#19-reference-implementations)
 
 ---
 
-## 快速开始：最小可运行插件
+## Who should read this document
+
+- Developers who want to add a new channel to xacpx (Feishu, Discord, Slack, WeChat Official Account, ...)
+- Teams who want to connect an existing IM system to xacpx's orchestration capabilities
+- People who want to fork / extend channel behavior in their own private deployment
+
+If you are only a consumer (installing and using a channel someone else wrote), [docs/channel-management.md](./channel-management.md) is enough.
+
+---
+
+## Quick start: minimal runnable plugin
 
 ```ts
 // src/index.ts
@@ -65,8 +65,8 @@ class HelloChannel implements MessageChannelRuntime {
   logout(): void {}
 
   async start(_: ChannelStartInput): Promise<void> {
-    // 接收消息：调用 input.agent.handle(chatKey, text)
-    // 发送消息：保留 input.agent 的引用，由你的网关回调驱动
+    // Receiving messages: call input.agent.handle(chatKey, text)
+    // Sending messages: keep a reference to input.agent, driven by your gateway callbacks
   }
 
   async notifyTaskCompletion(): Promise<void> {}
@@ -89,7 +89,7 @@ const plugin: WeacpxPlugin = {
 export default plugin;
 ```
 
-最小包结构：
+Minimal package structure:
 
 ```
 xacpx-channel-hello/
@@ -99,40 +99,40 @@ xacpx-channel-hello/
     └── index.ts
 ```
 
-在装有 xacpx 的环境里：
+In an environment with xacpx installed:
 
 ```bash
-xacpx plugin add ./path/to/xacpx-channel-hello   # 或者 npm 包名
+xacpx plugin add ./path/to/xacpx-channel-hello   # or the npm package name
 xacpx plugin doctor
 xacpx channel add hello
 xacpx restart
 ```
 
-跑通这条链路后，再开始往 `MessageChannelRuntime` 里填业务逻辑。
+Once this chain works end to end, start filling in business logic in `MessageChannelRuntime`.
 
 ---
 
-## 工程结构
+## Project structure
 
-推荐的目录与文件：
+Recommended directory and file layout:
 
 ```
 my-channel/
 ├── package.json           # name, peerDependencies: { xacpx: ">=0.3.x" }
-├── tsconfig.json          # extends xacpx 顶层 tsconfig（一方包）或独立配置
+├── tsconfig.json          # extends the xacpx top-level tsconfig (first-party package) or a standalone config
 ├── README.md
 ├── src/
 │   ├── index.ts           # default export WeacpxPlugin
 │   ├── channel.ts         # implements MessageChannelRuntime
-│   ├── cli-provider.ts    # implements ChannelCliProvider（可选但强推）
-│   ├── config.ts          # 解析 / 校验 options
-│   └── ...                # 网关、签名、消息编解码等
-└── dist/                  # 发布产物（src 不发布）
+│   ├── cli-provider.ts    # implements ChannelCliProvider (optional but strongly recommended)
+│   ├── config.ts          # parse / validate options
+│   └── ...                # gateway, signing, message codec, etc.
+└── dist/                  # published artifacts (src is not published)
     ├── index.js
     └── index.d.ts
 ```
 
-`package.json` 关键字段：
+Key `package.json` fields:
 
 ```jsonc
 {
@@ -149,11 +149,11 @@ my-channel/
 }
 ```
 
-`xacpx` 声明为 peer，且 `optional`：开发时本地装一份，用户运行时由 xacpx 主体提供。所有 import 必须从 `xacpx/plugin-api` 走，**禁止**从 `xacpx/dist/*` 或 `src/*` 取符号——那些是内部实现，不属于稳定 API 表面。
+`xacpx` is declared as a peer and `optional`: install a local copy during development, and at runtime xacpx itself provides it. All imports must go through `xacpx/plugin-api`. It is **forbidden** to pull symbols from `xacpx/dist/*` or `src/*` — those are internal implementation, not part of the stable API surface.
 
 ---
 
-## 1. 插件入口：`WeacpxPlugin`
+## 1. Plugin entry: `WeacpxPlugin`
 
 ```ts
 import type { WeacpxPlugin } from "xacpx/plugin-api";
@@ -171,42 +171,42 @@ export interface WeacpxPlugin {
 }
 
 const plugin: WeacpxPlugin = {
-  apiVersion: WEACPX_PLUGIN_API_VERSION,        // 当前固定为 1
-  minWeacpxVersion: WEACPX_PLUGIN_MIN_CORE_VERSION, // 例如 "0.3.3"
+  apiVersion: WEACPX_PLUGIN_API_VERSION,        // currently fixed at 1
+  minWeacpxVersion: WEACPX_PLUGIN_MIN_CORE_VERSION, // e.g. "0.3.3"
   channels: [/* ... */],
 };
 
 export default plugin;
 ```
 
-| 字段 | 必填 | 说明 |
+| Field | Required | Description |
 | --- | --- | --- |
-| `apiVersion` | 是 | 当前必须是字面量 `1`。xacpx 后续 breaking change 会升 API 版本。从 `WEACPX_PLUGIN_API_SUPPORTED_VERSIONS` 可读到当前 xacpx 接受的版本集合。 |
-| `name` | 否 | 显式声明插件名。如果填了，必须等于安装时的 npm 包名（含 scope），否则启动校验会拒绝。 |
-| `minWeacpxVersion` | 推荐 | 该插件能正常工作的 **xacpx 核心最小版本**（如 `"0.3.3"`）。当前 xacpx 低于这个版本时，插件加载会失败并提示 `upgrade xacpx`。第一方插件必须声明；第三方插件强烈建议声明。 |
-| `compatibleWeacpxVersions` | 否 | 显式 xacpx 兼容范围；支持 `x.y.z` / `>=x.y.z` / `^x.y.z`。和 `minWeacpxVersion` 同时声明则两者都需满足。 |
-| `channels` | 否 | 频道定义列表。允许为空（保留给未来非频道扩展点）。 |
+| `apiVersion` | Yes | Currently must be the literal `1`. A future breaking change in xacpx will bump the API version. The set of versions the current xacpx accepts can be read from `WEACPX_PLUGIN_API_SUPPORTED_VERSIONS`. |
+| `name` | No | Explicitly declares the plugin name. If set, it must equal the npm package name used at install time (including scope), otherwise startup validation rejects it. |
+| `minWeacpxVersion` | Recommended | The **minimum xacpx core version** this plugin works with (e.g. `"0.3.3"`). When the current xacpx is below this version, plugin loading fails with a prompt to `upgrade xacpx`. First-party plugins must declare it; third-party plugins are strongly encouraged to. |
+| `compatibleWeacpxVersions` | No | Explicit xacpx compatibility range; supports `x.y.z` / `>=x.y.z` / `^x.y.z`. If declared together with `minWeacpxVersion`, both must be satisfied. |
+| `channels` | No | List of channel definitions. May be empty (reserved for future non-channel extension points). |
 
-约束：
+Constraints:
 
-- 必须用**默认导出**（`export default plugin`）。命名导出无效。
-- 模块在 daemon 进程里只 import 一次；不要在顶层有副作用（计时器、全局监听器等）。
+- Must use a **default export** (`export default plugin`). Named exports do not work.
+- The module is imported only once in the daemon process; do not have side effects at the top level (timers, global listeners, etc.).
 
-### 兼容性错误与对应处理
+### Compatibility errors and how to handle them
 
-加载/校验时可能产生的兼容性错误及修复方向：
+Compatibility errors that may occur during loading/validation and how to fix them:
 
-| 错误关键词 | 含义 | 用户应做的事 |
+| Error keyword | Meaning | What the user should do |
 | --- | --- | --- |
-| `requires xacpx >=X.Y.Z; ... upgrade xacpx` | 插件比当前 xacpx 新 | 升级 `xacpx` 到 ≥ 该版本，或换装与当前 xacpx 兼容的旧插件版本 |
-| `apiVersion N; supported: ...; install a compatible plugin` | 插件用的是 xacpx 不识别的 API 版本 | 升级或降级**插件**到与本地 `xacpx` 兼容的版本 |
-| `invalid plugin metadata` | `minWeacpxVersion` / `compatibleWeacpxVersions` 字段非法 | 联系插件作者或检查发布元数据 |
+| `requires xacpx >=X.Y.Z; ... upgrade xacpx` | The plugin is newer than the current xacpx | Upgrade `xacpx` to ≥ that version, or install an older plugin version compatible with the current xacpx |
+| `apiVersion N; supported: ...; install a compatible plugin` | The plugin uses an API version that xacpx does not recognize | Upgrade or downgrade the **plugin** to a version compatible with the local `xacpx` |
+| `invalid plugin metadata` | The `minWeacpxVersion` / `compatibleWeacpxVersions` field is malformed | Contact the plugin author or check the published metadata |
 
-`xacpx plugin doctor` 也会把这些错误以 `ERROR <plugin>: ...` 的形式打印出来，可以放在 CI 或发布流程里作为前置检查。
+`xacpx plugin doctor` also prints these errors as `ERROR <plugin>: ...`, which can be placed in CI or a release pipeline as a pre-flight check.
 
 ---
 
-## 2. 频道注册：`ChannelPluginDefinition`
+## 2. Channel registration: `ChannelPluginDefinition`
 
 ```ts
 export interface ChannelPluginDefinition {
@@ -216,21 +216,21 @@ export interface ChannelPluginDefinition {
 }
 ```
 
-| 字段 | 必填 | 说明 |
+| Field | Required | Description |
 | --- | --- | --- |
-| `type` | 是 | 频道类型字符串，例如 `"feishu"`、`"yuanbao"`。同一进程内全局唯一。 |
-| `factory` | 是 | 工厂函数，daemon 启动时调用，用于实例化 `MessageChannelRuntime`。 |
-| `cliProvider` | 否 | `xacpx channel add <type>` 的解析与提示逻辑。不提供时用户必须手改 `~/.xacpx/config.json`。强烈建议提供。 |
+| `type` | Yes | Channel type string, e.g. `"feishu"`, `"yuanbao"`. Globally unique within a process. |
+| `factory` | Yes | Factory function, called at daemon startup to instantiate the `MessageChannelRuntime`. |
+| `cliProvider` | No | Parsing and prompting logic for `xacpx channel add <type>`. Without it, the user must hand-edit `~/.xacpx/config.json`. Strongly recommended to provide. |
 
-`type` 约束：
+`type` constraints:
 
-- 非空，且不能含 `:`（chatKey 用 `:` 分隔）。
-- 不能与已注册类型重复（`weixin` 始终被内置占用）。
-- 不能与 `cliProvider.type` 不一致（如果声明了 cliProvider）。
+- Non-empty, and must not contain `:` (chatKey uses `:` as a separator).
+- Must not duplicate an already-registered type (`weixin` is always reserved by the built-in channel).
+- Must not be inconsistent with `cliProvider.type` (if a cliProvider is declared).
 
 ---
 
-## 3. 频道工厂：`ChannelFactory`
+## 3. Channel factory: `ChannelFactory`
 
 ```ts
 export type ChannelFactory = (
@@ -244,17 +244,17 @@ export interface CreateChannelDeps {
 }
 ```
 
-参数：
+Parameters:
 
-| 参数 | 含义 |
+| Parameter | Meaning |
 | --- | --- |
-| `options` | `channels[].options`，由用户配置或 `cliProvider.buildDefaultConfig` 写入。**未经类型校验**，工厂内部要自己 parse。 |
-| `deps.mediaStore` | xacpx 提供的临时媒体落盘工具。处理图片/文件附件时用。 |
-| `deps.allowedMediaRoots` | 已注册 workspace 的 cwd 集合。决定哪些目录允许把 agent 输出的本地文件作为出站附件。 |
+| `options` | `channels[].options`, written by user config or `cliProvider.buildDefaultConfig`. **Not type-validated** — the factory must parse it itself. |
+| `deps.mediaStore` | Temporary media-persistence tool provided by xacpx. Used when handling image/file attachments. |
+| `deps.allowedMediaRoots` | The set of cwds of registered workspaces. Determines which directories are allowed to use local files emitted by the agent as outbound attachments. |
 
-工厂应当在这一步**只做参数解析与状态初始化**：不要打开网络连接、读外部 token。所有副作用留到 `start()`。这样可以让 doctor / dry-run 安全 import。
+The factory should **only do argument parsing and state initialization** at this step: do not open network connections or read external tokens. Leave all side effects to `start()`. This lets doctor / dry-run import the plugin safely.
 
-例：
+Example:
 
 ```ts
 factory: (options) => new MyChannel(options)
@@ -262,7 +262,7 @@ factory: (options) => new MyChannel(options)
 class MyChannel implements MessageChannelRuntime {
   private readonly config: MyConfig;
   constructor(options: Record<string, unknown> | undefined) {
-    this.config = parseMyConfig(options); // throw 不合法配置
+    this.config = parseMyConfig(options); // throw on invalid config
   }
   // ...
 }
@@ -270,7 +270,7 @@ class MyChannel implements MessageChannelRuntime {
 
 ---
 
-## 4. 频道运行时：`MessageChannelRuntime`
+## 4. Channel runtime: `MessageChannelRuntime`
 
 ```ts
 export interface MessageChannelRuntime {
@@ -293,15 +293,15 @@ export interface MessageChannelRuntime {
 
 ### `id: string`
 
-频道实例的唯一 id。xacpx 当前要求 `id === type`，因此一般写成 `readonly id = "<type>"`。日志里会用它来标记上下文。
+The unique id of the channel instance. xacpx currently requires `id === type`, so it is generally written as `readonly id = "<type>"`. It is used in logs to mark context.
 
 ### `isLoggedIn(): boolean`
 
-同步、纯函数。返回当前是否拥有可用凭据。daemon 启动前会调用一次决定是否需要走 `login()`。
+Synchronous, pure function. Returns whether usable credentials are currently held. The daemon calls it once before startup to decide whether `login()` is needed.
 
 ### `login(): Promise<string>`
 
-非交互式频道（OAuth、appKey/appSecret）通常返回一段提示信息：
+Non-interactive channels (OAuth, appKey/appSecret) usually return a hint message:
 
 ```ts
 async login(): Promise<string> {
@@ -310,46 +310,46 @@ async login(): Promise<string> {
 }
 ```
 
-交互式频道（微信扫码）才需要在这里执行二维码流程并阻塞到登录成功。如果你的频道**永远不需要交互式登录**，把 `cliProvider.supportsLogin` 设为 `false`。
+Only interactive channels (WeChat QR-code login) need to run the QR code flow here and block until login succeeds. If your channel **never needs interactive login**, set `cliProvider.supportsLogin` to `false`.
 
 ### `logout(): void`
 
-释放凭据、断开持久连接、清空内存里的会话。**必须可重入**——daemon shutdown / 重新登录都会调到。
+Release credentials, disconnect persistent connections, and clear in-memory sessions. **Must be reentrant** — both daemon shutdown and re-login will call it.
 
 ### `start(input: ChannelStartInput): Promise<void>`
 
-频道开始接收消息的入口。详情见 [§5](#5-启动上下文channelstartinput)。
+The entry point where the channel starts receiving messages. See [§5](#5-start-context-channelstartinput) for details.
 
-要求：
+Requirements:
 
-- 把消息推送给 `input.agent.handle(chatKey, text)`。
-- 监听 `input.abortSignal`，收到 abort 后干净地停掉网关、关闭长连接、清队列。
-- 调发送类操作前先用 `input.quota` 预留配额（详见 [§6](#6-出站配额outboundquota)）。
-- 任何外发都通过 `input.logger` 记录关键事件，方便用户用 `xacpx doctor --verbose` / `app.log` 排查。
+- Push messages to `input.agent.handle(chatKey, text)`.
+- Listen on `input.abortSignal`, and on abort cleanly stop the gateway, close long-lived connections, and clear queues.
+- Before any send operation, reserve quota with `input.quota` (see [§6](#6-outbound-quota-outboundquota)).
+- Record key events for any outbound send via `input.logger`, so the user can troubleshoot with `xacpx doctor --verbose` / `app.log`.
 
-`start()` 通常是个长运行 promise——返回时意味着你已经 wire 好回调，但消息循环可以是后台异步。
+`start()` is usually a long-running promise — returning means you have wired up the callbacks, but the message loop can be asynchronous in the background.
 
 ### `createConsumerLock?(options?): ConsumerLock`
 
-可选。如果你的频道需要**整机互斥**（同一个微信号不能被两个 xacpx 进程同时连），实现这个方法。详见 [§9](#9-消费者锁consumerlock)。
+Optional. Implement this method if your channel needs **machine-wide mutual exclusion** (the same WeChat account cannot be connected by two xacpx processes at once). See [§9](#9-consumer-lock-consumerlock).
 
 ### `configureOrchestration?(callbacks)`
 
-可选。daemon 在 wire 编排服务时调用，给你两个回调：`markTaskNoticeDelivered` 和 `markTaskNoticeFailed`。如果你的频道支持任务完成通知（`notifyTaskCompletion`），需要保存这两个回调，在送达成功 / 失败时调用以更新 orchestration 状态。详见 [§8](#8-编排回调orchestrationdeliverycallbacks)。
+Optional. The daemon calls this when wiring up the orchestration service, giving you two callbacks: `markTaskNoticeDelivered` and `markTaskNoticeFailed`. If your channel supports task-completion notifications (`notifyTaskCompletion`), save these two callbacks and call them on successful / failed delivery to update orchestration state. See [§8](#8-orchestration-callbacks-orchestrationdeliverycallbacks).
 
 ### `notifyTaskCompletion(task): Promise<void>`
 
-被编排服务调用，通知用户某个 worker 任务已完成。`task.chatKey` 是路由目标。如果送达成功，调用 `markTaskNoticeDelivered(task.taskId, accountId)`；失败调用 `markTaskNoticeFailed(task.taskId, errorText)`。
+Called by the orchestration service to notify the user that a worker task has completed. `task.chatKey` is the routing target. On successful delivery, call `markTaskNoticeDelivered(task.taskId, accountId)`; on failure, call `markTaskNoticeFailed(task.taskId, errorText)`.
 
-实现要点：
+Implementation notes:
 
-- 如果 `task.chatKey` 不属于你的频道（看 prefix 判断），**直接返回**，不要报错。daemon 会广播给所有频道。
-- 内容生成可借用 xacpx 的 `renderTaskCompletion`（如果暴露了）或自己拼。
-- 注意配额：`notifyTaskCompletion` 算 final 出站，建议先 `quota.reserveFinal(chatKey)`。
+- If `task.chatKey` does not belong to your channel (judge by prefix), **return immediately** without raising an error. The daemon broadcasts to all channels.
+- For content generation you can borrow xacpx's `renderTaskCompletion` (if exposed) or assemble it yourself.
+- Mind the quota: `notifyTaskCompletion` counts as a final outbound, so it is recommended to call `quota.reserveFinal(chatKey)` first.
 
 ### `notifyTaskProgress(task, text): Promise<void>`
 
-任务心跳通知（默认 60s 一次）。语义同上，但受 `progressHeartbeatSeconds` 控制，且通常不预留 final 配额。如果你的频道不支持中间心跳，写空实现即可。
+Task heartbeat notification (every 60s by default). Same semantics as above, but controlled by `progressHeartbeatSeconds`, and usually does not reserve final quota. If your channel does not support intermediate heartbeats, just write an empty implementation.
 
 ### `sendCoordinatorMessage(input: CoordinatorMessageInput): Promise<void>`
 
@@ -363,11 +363,11 @@ export interface CoordinatorMessageInput {
 }
 ```
 
-编排服务向 coordinator 会话所在频道发文本时调用。语义类似 `notifyTaskCompletion` 的简化版。`replyContextToken` 是回复上下文（飞书/yuanbao 用来 quote 父消息），可忽略。
+Called when the orchestration service sends text to the channel hosting the coordinator session. Semantically a simplified version of `notifyTaskCompletion`. `replyContextToken` is the reply context (Feishu/yuanbao use it to quote the parent message) and may be ignored.
 
 ---
 
-## 5. 启动上下文：`ChannelStartInput`
+## 5. Start context: `ChannelStartInput`
 
 ```ts
 export interface ChannelStartInput {
@@ -375,36 +375,36 @@ export interface ChannelStartInput {
   abortSignal: AbortSignal;
   quota: OutboundQuota;
   logger: AppLogger;
-  // 可选字段（核心按需注入）：
-  commandHints?: CommandHint[];   // xacpx 内置命令目录，供输入框命令提示用
-  coreVersion?: string;           // xacpx 核心版本字符串
-  locale?: Locale;                // 当前运行时语言（"en" | "zh"），见 §5.1 国际化
+  // Optional fields the core injects when relevant:
+  commandHints?: CommandHint[];   // built-in command catalog for input-box hints
+  coreVersion?: string;           // xacpx core version string
+  locale?: Locale;                // active runtime language ("en" | "zh") — see §5.1
 }
 ```
 
-| 字段 | 用途 |
+| Field | Purpose |
 | --- | --- |
-| `agent` | xacpx 路由器入口。你收到一条文本消息后，调 `agent.handle(chatKey, text)` 把它喂给命令路由。 |
-| `abortSignal` | daemon shutdown 信号。监听 `aborted` 事件，停掉所有长连接和定时器。 |
-| `quota` | 出站速率/总量配额，详见下节。 |
-| `logger` | 结构化日志器，详见 [§7](#7-应用日志applogger)。 |
-| `commandHints?` | xacpx 内置命令目录，供支持输入框命令提示的频道使用。 |
-| `coreVersion?` | xacpx 核心版本字符串，供需要它的频道（如命令同步元数据）使用。 |
-| `locale?` | 当前运行时语言（`"en"` \| `"zh"`，类型 `Locale`），由 `config.language` 解析得来。用它本地化你的频道输出，见 [§5.1](#51-国际化i18n)。 |
+| `agent` | The xacpx router entry point. After you receive a text message, call `agent.handle(chatKey, text)` to feed it into the command router. |
+| `abortSignal` | The daemon shutdown signal. Listen for the `aborted` event and stop all long-lived connections and timers. |
+| `quota` | Outbound rate/total quota; see the next section. |
+| `logger` | Structured logger; see [§7](#7-application-logging-applogger). |
+| `commandHints?` | Built-in command catalog, for channels that support input-box command hints. |
+| `coreVersion?` | xacpx core version string, for channels that need it (e.g. command-sync metadata). |
+| `locale?` | Active runtime language (`"en"` \| `"zh"`, type `Locale`), resolved from `config.language`. Use it to localize your channel's output. See [§5.1](#51-internationalization-i18n). |
 
-`ChatAgent` 接口本身在内部，但通过 `MessageChannelRuntime` 的契约只要求你把入站文本 `await agent.handle(chatKey, text)` 即可。返回不带数据；agent 会在自己的回调链里调你的发送方法。
+The `ChatAgent` interface itself is internal, but the `MessageChannelRuntime` contract only requires you to `await agent.handle(chatKey, text)` for inbound text. It returns no data; the agent calls your send methods within its own callback chain.
 
-> **重要**：你的频道要持有一份 `agent` / `quota` / `logger` 引用直到 `logout()` 或 `abortSignal` 触发。`start()` 返回后这些不会再传一次。
+> **Important**: Your channel must hold a reference to `agent` / `quota` / `logger` until `logout()` or `abortSignal` fires. They are not passed again after `start()` returns.
 
-### 5.1 国际化（i18n）
+### 5.1 Internationalization (i18n)
 
-xacpx 的界面语言由 `config.language`（`en` | `zh`）控制，缺省按系统 locale 推断。频道插件可以让自己的用户可见文本跟随同一个语言。
+xacpx's interface language is controlled by `config.language` (`en` | `zh`), defaulting to the system locale. A channel plugin can make its own user-facing text follow the same language.
 
-**获取语言**：在 `start(input)` 里读 `input.locale`（类型 `Locale`，从 `xacpx/plugin-api` 导出）。这是**推荐**的来源——它是核心按值传进来的，与模块实例无关。
+**Read the language from `ChannelStartInput.locale`** inside `start(input)` (type `Locale`, exported from `xacpx/plugin-api`). This is the **recommended** source — the core passes it by value, so it is independent of module instances.
 
-`xacpx/plugin-api` 也导出了 `getLocale()`，但**不要把它当作主来源**：插件包通常与 daemon 各自打包了一份独立的 i18n 状态，`getLocale()` 读到的是插件这一份，未必反映 daemon 的 `config.language`。它只适合作兜底。
+`xacpx/plugin-api` also exports `getLocale()`, but **don't rely on it as the primary source**: a plugin package and the daemon are typically bundled with separate copies of the i18n state, so `getLocale()` reads the *plugin's* copy, which may not reflect the daemon's `config.language`. Use it only as a fallback.
 
-**推荐做法**——插件自带一份小型双语目录（不要 import 核心内部的 `src/i18n`）：
+**Recommended pattern** — keep a small per-package catalog (do **not** import the core's internal `src/i18n`):
 
 ```ts
 // my-channel/src/i18n.ts
@@ -421,18 +421,18 @@ export function t() { return (active ?? getLocale()) === "zh" ? zh : en; }
 ```ts
 // my-channel/src/channel.ts
 async start(input: ChannelStartInput): Promise<void> {
-  setChannelLocale(input.locale ?? "en");   // 先定语言，再产出任何文本
-  // ... 之后用 t().greeting / t().failed(id) 产出用户可见文本
+  setChannelLocale(input.locale ?? "en");   // pin the language before emitting any text
+  // ... then use t().greeting / t().failed(id) for user-facing output
 }
 ```
 
-> 在函数体内调用 `t()`（不要在模块顶层把目录值固定下来），这样语言切换才生效。
+> Call `t()` inside function bodies (never capture a catalog value at module load), so language switching takes effect.
 
-**不要本地化“用来匹配”的字符串**：凡是拿来匹配用户输入或外部工具输出的词（例如中文中断词「停止」「取消」、或匹配 acpx 输出的标记），必须是与界面语言无关的固定常量，**不**随 `locale` 切换——中文用户不论界面是什么语言都会打「停止」。
+**Do not localize strings you match against.** Tokens you compare against user input or external tool output — e.g. Chinese abort words like `停止` / `取消`, or markers matched against acpx output — must be locale-independent constants, **not** gated on `locale`: a Chinese user types `停止` regardless of the UI language.
 
 ---
 
-## 6. 出站配额：`OutboundQuota`
+## 6. Outbound quota: `OutboundQuota`
 
 ```ts
 export interface OutboundQuota {
@@ -448,14 +448,14 @@ export interface OutboundQuota {
 }
 ```
 
-来源：微信公众号 24 小时主动消息上限的抽象。其它频道（飞书、yuanbao）配额无限，但 xacpx 对所有频道用同一套门面，便于 orchestration 调度。
+Origin: an abstraction of the WeChat Official Account 24-hour active-message limit. Other channels (Feishu, yuanbao) have unlimited quota, but xacpx uses the same facade for all channels to make orchestration scheduling easier.
 
-最常用的两个：
+The two most commonly used:
 
-- **`onInbound(chatKey)`**：用户发了一条消息进来时调用。重置该 chatKey 的 24h 窗口。
-- **`reserveFinal(chatKey)`**：发"最终回复"前调用，返回 `true` 才能发；返回 `false` 表示配额耗尽，应该 enqueue 等下一个 inbound 触发后再发。
+- **`onInbound(chatKey)`**: called when a user sends a message in. Resets the 24h window for that chatKey.
+- **`reserveFinal(chatKey)`**: called before sending a "final reply"; returns `true` to send. Returning `false` means the quota is exhausted, so you should enqueue and wait for the next inbound to trigger sending.
 
-非微信频道一般可以直接：
+Non-WeChat channels can usually just:
 
 ```ts
 async sendFinalText(chatKey: string, text: string) {
@@ -467,29 +467,29 @@ async sendFinalText(chatKey: string, text: string) {
 }
 ```
 
-详细语义见 `src/weixin/messaging/quota-manager.ts` 的注释。
+See the comments in `src/weixin/messaging/quota-manager.ts` for detailed semantics.
 
 ---
 
-## 7. 应用日志：`AppLogger`
+## 7. Application logging: `AppLogger`
 
-`AppLogger.info / .warn / .error` 都是异步的，签名形如：
+`AppLogger.info / .warn / .error` are all asynchronous, with a signature like:
 
 ```ts
 await logger.info(eventCode: string, message: string, fields?: Record<string, unknown>): Promise<void>
 ```
 
-约定：
+Conventions:
 
-- `eventCode` 用 `<channel>.<area>.<verb>` 风格，如 `"feishu.inbound.message"`、`"yuanbao.gateway.connected"`。便于聚合查询。
-- `fields` 不要塞密钥/PII。`appSecret`、用户 token 必须显式过滤。
-- daemon 已经帮你打时间戳和 pid，不要重复。
+- Use a `<channel>.<area>.<verb>` style for `eventCode`, e.g. `"feishu.inbound.message"`, `"yuanbao.gateway.connected"`. This makes aggregate queries easier.
+- Do not stuff secrets/PII into `fields`. `appSecret` and user tokens must be explicitly filtered out.
+- The daemon already stamps the timestamp and pid for you; do not duplicate them.
 
-日志最终落到 `~/.xacpx/runtime/app.log`，并由 `xacpx doctor --verbose` 抓取。
+Logs ultimately land in `~/.xacpx/runtime/app.log` and are captured by `xacpx doctor --verbose`.
 
 ---
 
-## 8. 编排回调：`OrchestrationDeliveryCallbacks`
+## 8. Orchestration callbacks: `OrchestrationDeliveryCallbacks`
 
 ```ts
 export interface OrchestrationDeliveryCallbacks {
@@ -498,16 +498,16 @@ export interface OrchestrationDeliveryCallbacks {
 }
 ```
 
-daemon 在 buildApp 阶段调用 `configureOrchestration(callbacks)` 把这两个函数交给你。意义：
+During the buildApp phase, the daemon calls `configureOrchestration(callbacks)` to hand you these two functions. Their meaning:
 
-- 当你成功把"任务完成通知"投递到 IM 平台后，调 `markTaskNoticeDelivered(taskId, accountId)`。orchestration 服务会把 task 的 `noticeSentAt` 落盘，避免重启后重复投递。
-- 投递失败（接口报错、配额超限），调 `markTaskNoticeFailed(taskId, errorMessage)`。orchestration 会在下一次 inbound / 重启后 replay。
+- After you successfully deliver a "task-completion notification" to the IM platform, call `markTaskNoticeDelivered(taskId, accountId)`. The orchestration service persists the task's `noticeSentAt`, avoiding duplicate delivery after a restart.
+- On delivery failure (API error, quota exceeded), call `markTaskNoticeFailed(taskId, errorMessage)`. Orchestration will replay on the next inbound / restart.
 
-未实现 `configureOrchestration` 的频道，所有 task 通知都会被认为"未送达"，可能导致重复投递。如果你的频道支持 `notifyTaskCompletion`，**强烈建议同时实现 `configureOrchestration`**。
+For channels that do not implement `configureOrchestration`, all task notifications are treated as "not delivered", which may lead to duplicate delivery. If your channel supports `notifyTaskCompletion`, it is **strongly recommended to also implement `configureOrchestration`**.
 
 ---
 
-## 9. 消费者锁：`ConsumerLock`
+## 9. Consumer lock: `ConsumerLock`
 
 ```ts
 export interface ConsumerLockMetadata {
@@ -530,21 +530,21 @@ export interface ConsumerLockOptions {
 }
 ```
 
-什么时候要实现：你的频道**用单点凭据连接到一个长会话网关**，多个 xacpx 进程同时连会被对端踢下线（典型：微信 web 协议）。
+When you need to implement it: your channel **connects to a long-lived session gateway with single-point credentials**, and multiple xacpx processes connecting at once would get kicked offline by the peer (typical: the WeChat web protocol).
 
-不需要实现的情况：纯 HTTP webhook、有独立 bot id 的应用（飞书自建应用、yuanbao 多 bot）。
+When you do not need it: pure HTTP webhooks, or applications with independent bot ids (Feishu custom apps, yuanbao multi-bot).
 
-实现要点：
+Implementation notes:
 
-- 用文件锁（`proper-lockfile` / 自家 fcntl）做物理互斥。
-- `acquire` 失败时抛带元信息的错（参考 `ActiveWeixinConsumerLockError`），让 daemon 能在日志里告诉用户"另一个进程持有锁，pid=xxx"。
-- `release` 必须幂等。
+- Use a file lock (`proper-lockfile` / your own fcntl) for physical mutual exclusion.
+- On `acquire` failure, throw an error with metadata (refer to `ActiveWeixinConsumerLockError`), so the daemon can tell the user in the log that "another process holds the lock, pid=xxx".
+- `release` must be idempotent.
 
-参考实现：`src/weixin/monitor/consumer-lock.ts`。
+Reference implementation: `src/weixin/monitor/consumer-lock.ts`.
 
 ---
 
-## 10. CLI provider：`ChannelCliProvider`
+## 10. CLI provider: `ChannelCliProvider`
 
 ```ts
 export interface ChannelCliProvider {
@@ -559,36 +559,36 @@ export interface ChannelCliProvider {
 }
 ```
 
-`xacpx channel add <type>` 的全部行为由 cliProvider 决定。每个方法的契约：
+All behavior of `xacpx channel add <type>` is determined by the cliProvider. The contract for each method:
 
 ### `type / displayName`
 
-- `type` 必须等于 `ChannelPluginDefinition.type`。
-- `displayName` 用于交互式提示，例如 `"Feishu"`。
+- `type` must equal `ChannelPluginDefinition.type`.
+- `displayName` is used for interactive prompts, e.g. `"Feishu"`.
 
 ### `supportsLogin: boolean`
 
-- `true`：需要 `xacpx login` 走交互式凭据获取（目前仅微信）。
-- `false`：所有凭据通过 `channels[].options` 配置。
+- `true`: requires `xacpx login` for interactive credential acquisition (currently WeChat only).
+- `false`: all credentials are configured via `channels[].options`.
 
 ### `parseAddArgs(args): ChannelCliParseResult`
 
-把 `xacpx channel add feishu --app-id x --app-secret y` 中 `--app-id x --app-secret y` 这一串解析成 `ChannelCliInput`（key/value 字典）。返回：
+Parses the `--app-id x --app-secret y` part of `xacpx channel add feishu --app-id x --app-secret y` into a `ChannelCliInput` (key/value dictionary). Returns:
 
 ```ts
 | { ok: true; input: ChannelCliInput }
-| { ok: false; message: string }   // 用于直接打到 stderr
+| { ok: false; message: string }   // printed directly to stderr
 ```
 
-要求：
+Requirements:
 
-- 未识别的 flag 立刻 `{ok: false}`。
-- 布尔类 flag 用 `parseBooleanFlag(value, flagName)`（参考 yuanbao-provider 写法）。
-- 不要在这里 throw —— 错误必须用 `ok:false` 报。
+- Return `{ok: false}` immediately for an unrecognized flag.
+- For boolean flags, use `parseBooleanFlag(value, flagName)` (refer to how yuanbao-provider does it).
+- Do not throw here — errors must be reported via `ok:false`.
 
 ### `buildDefaultConfig(input): ChannelRuntimeConfig`
 
-把 `ChannelCliInput`（已含交互补全的字段）转成 `~/.xacpx/config.json` 写入用的 `ChannelRuntimeConfig`：
+Converts `ChannelCliInput` (with interactively completed fields) into the `ChannelRuntimeConfig` written to `~/.xacpx/config.json`:
 
 ```ts
 {
@@ -599,40 +599,40 @@ export interface ChannelCliProvider {
 }
 ```
 
-注意：`id` 必须等于 `type`（多实例当前未支持）。
+Note: `id` must equal `type` (multi-instance is not currently supported).
 
 ### `validateConfig(config): ChannelCliValidationIssue[]`
 
-不抛错，返回 issues 数组。两类：
+Does not throw; returns an array of issues. Two kinds:
 
 ```ts
 | { kind: "missing-required-field"; flag: string; message: string }
 | { kind: "invalid-config"; message: string }
 ```
 
-`missing-required-field.flag` 是缺哪个 CLI flag（如 `"--app-id"`），CLI 会用它提示用户该补什么。
+`missing-required-field.flag` is which CLI flag is missing (e.g. `"--app-id"`); the CLI uses it to tell the user what to fill in.
 
 ### `renderSummary(config): string[]`
 
-返回展示用的多行字符串，比如：
+Returns multi-line strings for display, for example:
 
 ```
 type: feishu
 appId: cli_xxx
-appSecret: ***            ← 必须脱敏
+appSecret: ***            ← must be masked
 domain: feishu
 requireMention: true
 ```
 
-`xacpx channel show <type>` 会调用它。**密钥字段必须显示成 `***` 或省略后缀**，不要原样输出。
+`xacpx channel show <type>` calls it. **Secret fields must be shown as `***` or with the suffix omitted** — do not output them verbatim.
 
 ### `promptForMissingFields(input, io): Promise<ChannelCliInput>`
 
-只在 `io.isInteractive()` 为真时被调到。利用 `io.promptText` / `io.promptSecret` 把缺失字段补全。`promptSecret` 不会回显，用于密钥。
+Only called when `io.isInteractive()` is true. Use `io.promptText` / `io.promptSecret` to complete missing fields. `promptSecret` does not echo and is used for secrets.
 
 ---
 
-## 11. CLI provider 辅助类型
+## 11. CLI provider helper types
 
 ```ts
 export type ChannelCliInput = Record<string, string | boolean | undefined>;
@@ -646,11 +646,11 @@ export interface ChannelCliIo {
 }
 ```
 
-`parseBooleanFlag(value, flagName)` 和 `takeFlagValue(args, index, flagName)` 这两个常用解析工具暂时**没有**在 `xacpx/plugin-api` 里以运行时形式导出。一方包 `@ganglion/xacpx-channel-yuanbao` / `@ganglion/xacpx-channel-feishu` 都各自复制了一份私有实现——参考 `packages/channel-yuanbao/src/yuanbao-provider.ts` 顶部 10 行直接抄。
+The two common parsing helpers `parseBooleanFlag(value, flagName)` and `takeFlagValue(args, index, flagName)` are not yet exported in runtime form from `xacpx/plugin-api`. The first-party packages `@ganglion/xacpx-channel-yuanbao` / `@ganglion/xacpx-channel-feishu` each copy a private implementation — refer to the top 10 lines of `packages/channel-yuanbao/src/yuanbao-provider.ts` and copy them directly.
 
 ---
 
-## 12. 配置形态：`ChannelRuntimeConfig`
+## 12. Config shape: `ChannelRuntimeConfig`
 
 ```ts
 export interface ChannelRuntimeConfig {
@@ -661,13 +661,13 @@ export interface ChannelRuntimeConfig {
 }
 ```
 
-约束：
+Constraints:
 
-- `id === type`（多实例未来才支持）。
-- `enabled: false` 的频道不会被 daemon 实例化，但仍出现在 `xacpx channel list`。
-- `options` 任意 JSON 对象，由你的 `factory` 解析。建议在频道包里专门写一个 `parseMyConfig(options): MyConfig` 函数，先 throw 给出可读错误，再让构造函数信任结果。
+- `id === type` (multi-instance is only supported in the future).
+- A channel with `enabled: false` is not instantiated by the daemon, but still appears in `xacpx channel list`.
+- `options` is an arbitrary JSON object, parsed by your `factory`. It is recommended to write a dedicated `parseMyConfig(options): MyConfig` function in the channel package that first throws with readable errors, so the constructor can trust the result.
 
-`~/.xacpx/config.json` 顶层结构：
+Top-level structure of `~/.xacpx/config.json`:
 
 ```jsonc
 {
@@ -688,190 +688,190 @@ export interface ChannelRuntimeConfig {
 
 ---
 
-## 13. ChatKey 与 channelId 约定
+## 13. ChatKey and channelId conventions
 
-`chatKey` 是 xacpx 路由里的会话标识，跨频道全局唯一。约定：
+`chatKey` is the session identifier in xacpx routing, globally unique across channels. Convention:
 
 ```
 <channelId>:<channel-internal-id>
 ```
 
-例：
+Examples:
 
-- 微信：`weixin:wxid_abc123`（注意微信兼容旧格式 `wxid_abc123`，等价于 `weixin:wxid_abc123`）
-- 飞书：`feishu:oc_xxxx`
-- 元宝：`yuanbao:<account>:<conv>`
+- WeChat: `weixin:wxid_abc123` (note WeChat is compatible with the old format `wxid_abc123`, equivalent to `weixin:wxid_abc123`)
+- Feishu: `feishu:oc_xxxx`
+- Yuanbao: `yuanbao:<account>:<conv>`
 
-你的频道**必须**：
+Your channel **must**:
 
-1. 入站消息时构造 `<type>:<...>` 形式的 chatKey 并传给 `agent.handle(chatKey, text)`。
-2. 出站消息时从 chatKey 反向解析回内部 id，注意 strip 掉 `<type>:` 前缀。
-3. `notifyTaskCompletion` 等回调里检查 `task.chatKey` 是否以 `<type>:` 开头，不是就直接返回。
+1. Construct a chatKey of the form `<type>:<...>` for inbound messages and pass it to `agent.handle(chatKey, text)`.
+2. For outbound messages, parse the chatKey back into the internal id, taking care to strip the `<type>:` prefix.
+3. In callbacks like `notifyTaskCompletion`, check whether `task.chatKey` starts with `<type>:`, and if not, return immediately.
 
-`channelId` 不能含 `:`。`registerChannelFactory` 会强制校验，未通过的会在 daemon 启动时报错。
+`channelId` must not contain `:`. `registerChannelFactory` enforces this check, and a failure is reported at daemon startup.
 
 ---
 
-## 14. 校验规则
+## 14. Validation rules
 
-daemon 在 import 插件后做以下检查（`src/plugins/validate-plugin.ts`）。任意一条失败会拒绝注册并打印 actionable 错误：
+After importing a plugin, the daemon performs the following checks (`src/plugins/validate-plugin.ts`). Any failure rejects registration and prints an actionable error:
 
-| 检查项 | 失败动作 |
+| Check | Failure action |
 | --- | --- |
-| `apiVersion === 1` | 报 `unsupported plugin apiVersion` |
-| `name`（如有）必须等于 npm 包名 | 报 `plugin name does not match package name` |
-| 每个 channel 的 `type` 非空、不含 `:` | 报 `channel type must be non-empty / must not contain ":"` |
-| 单个插件内 `type` 不重复 | 报 `plugin registers duplicate channel type` |
-| 同一进程里 `type` 不被多个插件同时注册 | 报 `channel type ... is already provided by ...` |
-| 不允许覆盖内置类型 (`weixin`) | 报 `channel type is already registered: weixin` |
+| `apiVersion === 1` | Reports `unsupported plugin apiVersion` |
+| `name` (if present) must equal the npm package name | Reports `plugin name does not match package name` |
+| Each channel's `type` is non-empty and does not contain `:` | Reports `channel type must be non-empty / must not contain ":"` |
+| No duplicate `type` within a single plugin | Reports `plugin registers duplicate channel type` |
+| No `type` registered by multiple plugins in the same process | Reports `channel type ... is already provided by ...` |
+| Overriding a built-in type (`weixin`) is not allowed | Reports `channel type is already registered: weixin` |
 
-CLI 不会自动 disable 出错的插件——需要用户手工 `xacpx plugin disable <name>` 或修复后 `xacpx plugin doctor`。
-
----
-
-## 15. plugin doctor 诊断
-
-`xacpx plugin doctor` 的输出由 `src/plugins/plugin-doctor.ts` 产出。常见 issue 及含义：
-
-| `level` | `message` 模式 | 含义 / 用户该做什么 |
-| --- | --- | --- |
-| `error` | `package not installed in plugin home; run xacpx plugin add <name>` | 配置里写了 plugin，但 `~/.xacpx/plugins/node_modules` 里没装。重装。 |
-| `error` | `failed to import plugin: ...` | npm 包能装上但 import 报错。看错误里堆栈，多半是依赖版本冲突或缺 `dist`。 |
-| `error` | `unsupported plugin apiVersion` 等 | 校验失败。看 §14。 |
-| `error` | `channel type X is already provided by ...` | 两个 plugin 同时声明同一 type。卸载其中一个。 |
-| `error` | `channel X is configured but no enabled plugin provides it` | `channels[]` 有 X 但没有相应插件 enabled。`xacpx plugin add` 或 `xacpx plugin enable`。 |
-| `warn` | `plugin is installed and valid but disabled; run xacpx plugin enable` | 装好了但 `enabled: false`。 |
-| `error` | `channel X is configured but provider plugin is disabled` | 频道已配但提供方插件被禁用——daemon 启动会失败。`plugin enable` 或 `channel disable`。 |
-| `ok` | `plugin is installed and valid; channels: ...` | 健康。 |
-
-写插件时可以借这个表反推：保证你的插件能稳定走到 `ok`，再进入 `xacpx restart`。
+The CLI does not automatically disable a faulty plugin — the user must manually `xacpx plugin disable <name>`, or fix it and run `xacpx plugin doctor`.
 
 ---
 
-## 16. 端到端生命周期
+## 15. plugin doctor diagnostics
 
-### 16.1 用户的 CLI 路径
+The output of `xacpx plugin doctor` is produced by `src/plugins/plugin-doctor.ts`. Common issues and their meaning:
 
-| 阶段 | 命令 | 副作用 |
+| `level` | `message` pattern | Meaning / what the user should do |
 | --- | --- | --- |
-| 安装 | `xacpx plugin add <pkg> [--version <v>]` | `bun add` / `npm install` 到 `~/.xacpx/plugins`，import + validate，写 `plugins[]` |
-| 升级 | `xacpx plugin update <pkg> [--version <v>]` `xacpx plugin update --all` | 重新 install 同名包，再 import + validate；`--version` 时同步写回 `plugins[].version` |
-| 校验 | `xacpx plugin doctor [<pkg>]` | 不修改任何状态，只汇报每个插件 / 每个频道的健康状态 |
-| 停用 | `xacpx plugin disable <pkg>` | 仅把 `plugins[].enabled = false`，不卸包 |
-| 重启 | `xacpx plugin enable <pkg>` | `enabled = true` |
-| 卸载 | `xacpx plugin remove <pkg>` (`rm` 别名) | 卸 npm 包 + 从 `plugins[]` 移除（**不会**自动 `channel rm`） |
-| 频道 | `xacpx channel add/rm/enable/disable/show/list <type>` | 改 `channels[]`；走插件提供的 `cliProvider`（如有） |
-| 生效 | `xacpx restart` | daemon 重新 import 所有 enabled 插件 |
+| `error` | `package not installed in plugin home; run xacpx plugin add <name>` | The config declares a plugin, but it is not installed in `~/.xacpx/plugins/node_modules`. Reinstall. |
+| `error` | `failed to import plugin: ...` | The npm package installs but errors on import. Look at the stack trace in the error — usually a dependency version conflict or a missing `dist`. |
+| `error` | `unsupported plugin apiVersion`, etc. | Validation failed. See §14. |
+| `error` | `channel type X is already provided by ...` | Two plugins declare the same type. Uninstall one of them. |
+| `error` | `channel X is configured but no enabled plugin provides it` | `channels[]` has X but no corresponding plugin is enabled. `xacpx plugin add` or `xacpx plugin enable`. |
+| `warn` | `plugin is installed and valid but disabled; run xacpx plugin enable` | Installed but `enabled: false`. |
+| `error` | `channel X is configured but provider plugin is disabled` | The channel is configured but its provider plugin is disabled — daemon startup will fail. `plugin enable` or `channel disable`. |
+| `ok` | `plugin is installed and valid; channels: ...` | Healthy. |
 
-每条插件命令都接受 `--restart` / `--no-restart`，默认在交互式终端里询问。详见 [docs/channel-management.md#插件管理](./channel-management.md#插件管理)。
+When writing a plugin, you can work backward from this table: ensure your plugin reliably reaches `ok`, then proceed to `xacpx restart`.
 
-### 16.2 daemon 启动顺序
+---
+
+## 16. End-to-end lifecycle
+
+### 16.1 The user's CLI path
+
+| Stage | Command | Side effects |
+| --- | --- | --- |
+| Install | `xacpx plugin add <pkg> [--version <v>]` | `bun add` / `npm install` into `~/.xacpx/plugins`, import + validate, write `plugins[]` |
+| Upgrade | `xacpx plugin update <pkg> [--version <v>]` `xacpx plugin update --all` | Reinstall the same-named package, then import + validate; with `--version` it also writes back `plugins[].version` |
+| Validate | `xacpx plugin doctor [<pkg>]` | Modifies no state, only reports the health of each plugin / each channel |
+| Disable | `xacpx plugin disable <pkg>` | Only sets `plugins[].enabled = false`, does not uninstall the package |
+| Re-enable | `xacpx plugin enable <pkg>` | `enabled = true` |
+| Uninstall | `xacpx plugin remove <pkg>` (`rm` alias) | Uninstalls the npm package + removes it from `plugins[]` (does **not** automatically `channel rm`) |
+| Channel | `xacpx channel add/rm/enable/disable/show/list <type>` | Edits `channels[]`; goes through the plugin-provided `cliProvider` (if any) |
+| Apply | `xacpx restart` | The daemon re-imports all enabled plugins |
+
+Every plugin command accepts `--restart` / `--no-restart`, and by default asks in an interactive terminal. See [docs/channel-management.md#plugin-management](./channel-management.md#plugin-management).
+
+### 16.2 daemon startup order
 
 ```
-1. main() 启动
-2. 读 ~/.xacpx/config.json
-3. plugin-loader 遍历 plugins[].enabled === true：
+1. main() starts
+2. Read ~/.xacpx/config.json
+3. plugin-loader iterates plugins[].enabled === true:
    3.1 import("<plugin-home>/node_modules/<name>")
    3.2 validateWeacpxPlugin
-   3.3 registerChannelPlugin —— 注入 factory + cliProvider
-4. createMessageChannels 遍历 channels[].enabled === true：
+   3.3 registerChannelPlugin — inject factory + cliProvider
+4. createMessageChannels iterates channels[].enabled === true:
    4.1 channelFactories.get(type)
    4.2 factory(options, deps) → MessageChannelRuntime
-5. runConsole(...)：
+5. runConsole(...):
    5.1 channel.configureOrchestration?.(callbacks)
-   5.2 consumer lock acquire（可选）
+   5.2 consumer lock acquire (optional)
    5.3 channel.start({ agent, abortSignal, quota, logger })
-6. 收消息：channel → agent.handle(chatKey, text) → router
-7. 出消息：orchestration → channel.notifyTaskCompletion / sendCoordinatorMessage
-8. SIGTERM / SIGINT：abortSignal aborted → channel 自己 cleanup → channel.stopAll? → daemon exit
+6. Receive messages: channel → agent.handle(chatKey, text) → router
+7. Send messages: orchestration → channel.notifyTaskCompletion / sendCoordinatorMessage
+8. SIGTERM / SIGINT: abortSignal aborted → channel cleans up itself → channel.stopAll? → daemon exit
 ```
 
-`logout()` 只在 `xacpx logout` 显式调用时被触发；正常退出走 `abortSignal`。
+`logout()` is triggered only when `xacpx logout` is explicitly invoked; normal exit goes through `abortSignal`.
 
-### 16.3 模块缓存语义（开发者必读）
+### 16.3 Module cache semantics (developer must-read)
 
-- daemon 在 §16.2 第 3 步把每个插件 `import()` 一次，**模块对象在 daemon 进程生命周期内被缓存**。`xacpx plugin update` 只改磁盘，**不会**让运行中的 daemon 看到新代码。
-- 因此 update 后必须 `xacpx restart`。CLI 默认会问；写脚本时建议显式 `--restart`。
-- 反过来，`xacpx plugin add/update/remove` 这些 CLI 命令**自己**走的是一个独立短生命周期 Node 进程，校验时跑的 `import()` 用的是磁盘新版本。所以"装好但没重启"的窗口期里：CLI 校验通过 ≠ daemon 也加载了新版本。这是 `xacpx plugin doctor` 始终报"装好了"但 daemon 表现不变的根因。
+- At step 3 of §16.2, the daemon `import()`s each plugin once, and **the module object is cached for the daemon process's lifetime**. `xacpx plugin update` only changes the disk; it does **not** make the running daemon see the new code.
+- Therefore you must `xacpx restart` after an update. The CLI asks by default; for scripts, explicitly pass `--restart`.
+- Conversely, the `xacpx plugin add/update/remove` CLI commands run in their **own** short-lived Node process, and the `import()` during validation uses the new disk version. So during the "installed but not restarted" window: passing CLI validation ≠ the daemon having loaded the new version. This is the root cause of `xacpx plugin doctor` consistently reporting "installed" while the daemon's behavior does not change.
 
-### 16.4 失败回滚
+### 16.4 Failure rollback
 
-| 失败点 | 表现 | 行动 |
+| Failure point | Symptom | Action |
 | --- | --- | --- |
-| `plugin add` 时 import 失败 | CLI 立即报错，**不写 config** | 修包，或换版本 `--version` 重试 |
-| `plugin add` 时 validate 失败（apiVersion 不匹配、name 与包名不一致、单插件内 type 重复、factory 缺失等） | CLI 立即报错，**不写 config** | 看错误，修包元信息 |
-| `plugin add` 时跨插件 type 冲突 | 不会在 add 阶段发现，只能在 `plugin doctor` 或 daemon 启动时发现 | 装完跑 `xacpx plugin doctor` 复核 |
-| `plugin update` 时 import / validate 失败 | CLI 报错；如果原来 `plugins[].version` 有值，会自动 `npm install` 回滚到该版本；否则提示用户手动重装 | 看错误，必要时手动 `xacpx plugin add <pkg>` 回到 latest |
-| daemon 启动时插件 import 失败 | daemon 进程退出，错误进 `~/.xacpx/runtime/app.log` | `xacpx plugin doctor` 看 ERROR 行；常见手段是 `plugin disable <name>` 暂时绕开 |
-| `channel add` 时 cliProvider validate 失败 | CLI 报缺哪个字段 | 按提示补全 |
+| import fails during `plugin add` | The CLI errors immediately and **does not write config** | Fix the package, or retry with a different `--version` |
+| validate fails during `plugin add` (apiVersion mismatch, name not matching the package name, duplicate type within a single plugin, missing factory, etc.) | The CLI errors immediately and **does not write config** | Read the error, fix the package metadata |
+| cross-plugin type conflict during `plugin add` | Not detected at the add stage, only discovered during `plugin doctor` or daemon startup | Run `xacpx plugin doctor` to recheck after installing |
+| import / validate fails during `plugin update` | The CLI errors; if `plugins[].version` previously had a value, it automatically `npm install`s back to that version; otherwise it prompts the user to reinstall manually | Read the error, and if needed manually `xacpx plugin add <pkg>` to return to latest |
+| plugin import fails at daemon startup | The daemon process exits, and the error goes into `~/.xacpx/runtime/app.log` | Run `xacpx plugin doctor` to see the ERROR line; a common workaround is `plugin disable <name>` to bypass it temporarily |
+| cliProvider validate fails during `channel add` | The CLI reports which field is missing | Fill it in per the prompt |
 
 ---
 
-## 17. 发布契约
+## 17. Publishing contract
 
-一方包路径：`packages/channel-<type>/`，发布名 `@ganglion/xacpx-channel-<type>`。第三方可任意命名，但若设了 `WeacpxPlugin.name`，**必须**等于 npm 包名。
+First-party package path: `packages/channel-<type>/`, published as `@ganglion/xacpx-channel-<type>`. Third parties may name it anything, but if `WeacpxPlugin.name` is set, it **must** equal the npm package name.
 
-### 17.1 官方 vs 第三方插件发现
+### 17.1 Official vs third-party plugin discovery
 
-`xacpx plugin known` 只列举随当前 xacpx 版本一起发布的**官方**频道插件（`src/plugins/known-plugins.ts`）：
+`xacpx plugin known` only lists the **official** channel plugins published alongside the current xacpx version (`src/plugins/known-plugins.ts`):
 
 ```text
-官方插件：
-- feishu  @ganglion/xacpx-channel-feishu   飞书频道
-- yuanbao @ganglion/xacpx-channel-yuanbao  腾讯元宝频道
+Official plugins:
+- feishu  @ganglion/xacpx-channel-feishu   Feishu channel
+- yuanbao @ganglion/xacpx-channel-yuanbao  Tencent Yuanbao channel
 
-安装：
+Install:
   xacpx plugin add <package>
 ```
 
-第三方插件的发现走 npm 自身（`npm search` / GitHub / README），**不会**出现在 `plugin known` 里。`xacpx` 不做 marketplace、不做 npm 索引、不做自动安装；用户只需要：
+Discovery of third-party plugins goes through npm itself (`npm search` / GitHub / README) and does **not** appear in `plugin known`. `xacpx` does not run a marketplace, an npm index, or auto-install; the user only needs:
 
 ```bash
-xacpx plugin add <你的-npm-包名>
+xacpx plugin add <your-npm-package-name>
 ```
 
-如果你写了一个第三方频道插件，建议在自己仓库 README 里直接给出这个 `plugin add` 命令，而不是依赖 xacpx 去做发现。
+If you write a third-party channel plugin, it is recommended to put this `plugin add` command directly in your repository README rather than rely on xacpx for discovery.
 
-发布前检查：
+Pre-publish checklist:
 
-- `dist/` 含 `.js` 和 `.d.ts`。
-- `package.json` 的 `peerDependencies.xacpx` 用 `>=x.y` 而非 `^x.y`，避免锁死小版本。
-- `peerDependenciesMeta.xacpx.optional = true`，否则用户安装时 npm 可能在 `~/.xacpx/plugins` 里要求装一份 xacpx，浪费空间。
-- 发布产物里**只**导入 `xacpx/plugin-api`。可以用 `bunx publint` 验证。
-- 全 ESM，`"type": "module"`。
+- `dist/` contains both `.js` and `.d.ts`.
+- `package.json`'s `peerDependencies.xacpx` uses `>=x.y` rather than `^x.y`, to avoid locking to a minor version.
+- `peerDependenciesMeta.xacpx.optional = true`, otherwise npm may require installing a copy of xacpx in `~/.xacpx/plugins` at install time, wasting space.
+- The published artifact imports **only** `xacpx/plugin-api`. You can verify with `bunx publint`.
+- All ESM, `"type": "module"`.
 
-发布命令、preflight、dry-run、版本号选取（patch / minor / major）见 [docs/release.md](./release.md)。
-
----
-
-## 18. 测试建议
-
-最少应有：
-
-1. **单元层**（不依赖 xacpx）：parse / validate config 函数、消息编解码、签名算法、chatKey 构造与解析。
-2. **CLI provider 单元测试**：用 `parseAddArgs` 喂各种参数组合，断言 `ChannelCliInput`；用 `validateConfig` 喂故意缺字段的 config，断言 issues。
-3. **频道契约测试**：实例化 `MyChannel(options)`，注入 fake `ChannelStartInput`（自己写一个 `OutboundQuota` / `AppLogger` mock），断言一次入站消息会走到 fake `agent.handle`。
-4. **集成层**（可选）：在测试里跑 `runCli(["channel", "add", "<type>", ...])`，断言 `~/.xacpx/config.json` 被正确写入。
-
-参考 `packages/channel-yuanbao/src/access/__tests__`（如有）和 `tests/unit/channels/*`。
+For publish commands, preflight, dry-run, and version-number selection (patch / minor / major), see [docs/release.md](./release.md).
 
 ---
 
-## 19. 参考实现
+## 18. Testing recommendations
 
-| 包 | 路径 | 看什么 |
+At a minimum you should have:
+
+1. **Unit layer** (no xacpx dependency): parse / validate config functions, message codec, signing algorithm, chatKey construction and parsing.
+2. **CLI provider unit tests**: feed various argument combinations to `parseAddArgs` and assert the `ChannelCliInput`; feed deliberately field-missing configs to `validateConfig` and assert the issues.
+3. **Channel contract tests**: instantiate `MyChannel(options)`, inject a fake `ChannelStartInput` (write your own `OutboundQuota` / `AppLogger` mock), and assert that one inbound message reaches the fake `agent.handle`.
+4. **Integration layer** (optional): run `runCli(["channel", "add", "<type>", ...])` in a test and assert that `~/.xacpx/config.json` is written correctly.
+
+Refer to `packages/channel-yuanbao/src/access/__tests__` (if present) and `tests/unit/channels/*`.
+
+---
+
+## 19. Reference implementations
+
+| Package | Path | What to look at |
 | --- | --- | --- |
-| `@ganglion/xacpx-channel-feishu` | `packages/channel-feishu/` | 标准 OAuth2 / 自建应用、HTTP webhook、@ 提及、群单聊路由 |
-| `@ganglion/xacpx-channel-yuanbao` | `packages/channel-yuanbao/` | 长连 WebSocket、自定义签名、消息去重、心跳通知 |
-| 内置 `weixin` | `src/channels/weixin-channel.ts` | 唯一一个走 `supportsLogin: true` + `ConsumerLock` 的频道 |
+| `@ganglion/xacpx-channel-feishu` | `packages/channel-feishu/` | Standard OAuth2 / custom app, HTTP webhook, @ mention, group vs direct routing |
+| `@ganglion/xacpx-channel-yuanbao` | `packages/channel-yuanbao/` | Long-lived WebSocket, custom signing, message deduplication, heartbeat notification |
+| Built-in `weixin` | `src/channels/weixin-channel.ts` | The only channel using `supportsLogin: true` + `ConsumerLock` |
 
-每个一方包都有 `src/index.ts`（plugin 入口）+ `src/channel.ts`（runtime）+ `src/<type>-provider.ts`（CLI provider），对照看最快。
+Each first-party package has `src/index.ts` (plugin entry) + `src/channel.ts` (runtime) + `src/<type>-provider.ts` (CLI provider); reading them side by side is the fastest way.
 
 ---
 
-## 拓展阅读
+## Further reading
 
-- 用户向频道管理：[docs/channel-management.md](./channel-management.md)
-- 配置文件全字段：[docs/config-reference.md](./config-reference.md)
-- 发布 / 版本流程：[docs/release.md](./release.md)
-- Code wiki / 模块地图：[docs/code-wiki.md](./code-wiki.md)
+- User-facing channel management: [docs/channel-management.md](./channel-management.md)
+- All config file fields: [docs/config-reference.md](./config-reference.md)
+- Release / versioning process: [docs/release.md](./release.md)
+- Code wiki / module map: [docs/code-wiki.md](./code-wiki.md)

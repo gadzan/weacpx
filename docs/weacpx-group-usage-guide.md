@@ -1,116 +1,80 @@
 # Weacpx Group Usage Guide
 
-这份指南只讲一件事：**任务组什么时候该取消，什么时候该清理，什么时候可以删**。  
-下面的说明和当前 `/help group` / `/help orchestration` 的命令行为保持一致。
+This guide covers just one thing: **when a task group's work should be cancelled, and when finished task records should be cleaned up**.  
+The descriptions below stay consistent with the current command behavior of `/help group` / `/help orchestration`.
 
-## 先记住三个动作
+> There is **no** `/group delete` and **no** `/groups clean`. To stop a group's unfinished work use `/group cancel <groupId>`; to clean up finished task records use `/tasks clean`.
 
-| 命令 | 作用 | 是否影响运行中的任务 |
+## Remember two actions first
+
+| Command | Effect | Affects running tasks? |
 |---|---|---|
-| `/group cancel <groupId>` | 停掉某个任务组里的运行中工作 | 会 |
-| `/groups clean` | 批量清理当前 coordinator 主线下已经安全收尾的组壳 | 不会 |
-| `/group delete <groupId>` | 针对单个安全任务组做清理 | 不会 |
+| `/group cancel <groupId>` | Stops the running work inside a task group | Yes |
+| `/tasks clean` | Removes finished tasks and stale worker bindings under the current coordinator | No |
 
-一句话区分：
+In one line:
 
-- **cancel**：先把活干停。
-- **clean**：批量删掉已经结束、已经安全的组壳。
-- **delete**：只删一个已经安全的组壳。
+- **cancel**: stop the work first.
+- **clean**: remove finished task records that are already safe to discard.
+
+`/tasks clean` is **task-scoped, not group-scoped** — it sweeps finished tasks across the current coordinator rather than deleting a specific group shell. There is no command that deletes a single group.
 
 ## `/group cancel <groupId>`
 
-这个命令的目标不是“删除任务组”，而是**停止该组里还在跑的工作**。
+The goal of this command is not to "delete the task group", but to **stop the work still running in that group**.
 
-它会：
+It will:
 
-- 对组内所有未结束任务发起取消
-- 跳过已经结束的任务
-- 保留这个任务组本身，方便你之后继续查看、收尾或做结果判断
+- Initiate cancellation for all unfinished tasks in the group
+- Skip tasks that have already finished
+- Keep the task group itself, so you can later keep inspecting it, finalize it, or make a result judgment
 
-适合这些场景：
+Suitable for these scenarios:
 
-- 发现这一组方向错了，先停掉
-- 想保留上下文，但不想再继续执行
-- 还不确定这组能不能删，先让它收口
+- You realize this group went in the wrong direction and want to stop it first
+- You want to keep the context, but don't want to keep executing
+- You're not yet sure whether the work is done, so let it wind down first
 
-## `/groups clean`
+## `/tasks clean`
 
-这个命令是**批量清理**，只处理当前 coordinator 主线下已经安全的组。
+This command is a **cleanup of finished task records** under the current coordinator. It removes:
 
-它会清理两类对象：
+1. **Finished tasks** (completed, failed, cancelled)
+2. **Stale worker bindings** that are no longer in use
 
-1. **空任务组**
-2. **已经完成且收尾完成的任务组**
+It will not touch tasks that are still executing, nor will it cancel running tasks for you. It is scoped to the current coordinator's main line and does not reach into other coordinators' tasks.
 
-它不会去碰还在执行中的组，也不会替你取消运行中的任务。
+Suitable for these scenarios:
 
-适合这些场景：
+- You want to clear out the already-finished task records under the current main line in one go
+- You only care about the current coordinator's main line and don't want to touch other people's tasks across main lines
 
-- 你想一次性把当前主线下已经结束的“组壳”清掉
-- 你不想逐个 `/group delete`
-- 你只关心当前 coordinator 主线，不想跨主线动别人的组
+If a group still has unfinished tasks, cancel them first with `/group cancel <groupId>`, then run `/tasks clean` to clear the finished records.
 
-## `/group delete <groupId>`
+## When to use which
 
-这个命令是**定点清理一个组**。
+- **You just want to stop the work still running**: use `/group cancel <groupId>`
+- **You want to clear the already-finished task records under the current main line**: use `/tasks clean`
 
-它只允许删除**安全任务组**，也就是：
+To inspect before acting, use `/groups` to see groups and their status, `/group <id>` for one group's details, and `/tasks` (optionally `/task <id>`) to review individual tasks.
 
-- 空任务组
-- 或者已经收尾完成、没有遗留活跃工作的任务组
+## Minimal decision flow
 
-删除一个安全的已完成任务组时，会同时做这些事：
+1. Is this group still running work you no longer want?
+   - Yes: first `/group cancel <groupId>`, then wait for the running tasks to stop
+   - No: continue to the next step
+2. Do you want to tidy up finished task records?
+   - Yes: run `/tasks clean` to remove finished tasks and stale bindings under the current coordinator
+   - No: nothing else to do; the group is kept for inspection
 
-- 清掉这个组的终端任务记录
-- 释放现在不再使用的 worker 绑定
-
-### 删除会被拒绝的情况
-
-#### 情况 A：组里还有活跃任务
-
-如果这个组里还有活跃任务，`/group delete <groupId>` 会直接拒绝。
-
-这时正确做法是：
-
-1. 先执行 `/group cancel <groupId>`
-2. 等组内运行中任务停下来
-3. 再考虑删除
-
-#### 情况 B：任务都结束了，但收尾还没完成
-
-如果这个组已经是终态，但 **fan-in / 注入收尾还没完成**，它也还不能删。
-
-这时应该：
-
-- 继续当前 coordinator 主线
-- 或者等待任务组收尾完成
-- 等收尾完成后再执行 `/group delete <groupId>`
-
-## 什么时候用哪个
-
-- **只是想停掉还在跑的工作**：用 `/group cancel <groupId>`
-- **想把当前主线下已经结束的组一次性清掉**：用 `/groups clean`
-- **只想删一个已经安全收尾的组**：用 `/group delete <groupId>`
-
-## 最小决策流程
-
-1. 这个组还在跑吗？
-   - 是：先 `/group cancel <groupId>`
-   - 否：继续下一步
-2. 这个组已经安全收尾了吗？
-   - 否：继续 coordinator 主线，等收尾完成
-   - 是：可以 `/group delete <groupId>`，或者直接 `/groups clean`
-
-## 示例
+## Examples
 
 ```text
-/group cancel review-batch
-/groups clean
-/group delete review-batch
+/group cancel review-batch   # stop the unfinished work in review-batch (group is kept)
+/tasks clean                 # remove finished tasks and stale bindings under this coordinator
 ```
 
-如果你在看 `/group` 详情时发现：
+If, when looking at `/group` details, you find:
 
-- 组里还有 running 任务：先 cancel
-- 组里已经没有活任务：可以考虑 delete
-- 组看起来已经结束，但还提示收尾未完成：先等收尾，再 delete
+- The group still has running tasks: cancel first with `/group cancel <groupId>`
+- The group has no live tasks left: run `/tasks clean` to clear the finished records

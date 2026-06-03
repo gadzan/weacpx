@@ -1,4 +1,4 @@
-import { cpSync, existsSync, readFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { CORE_HOME_DIR_NAME, CORE_HOME_LEGACY_DIR_NAME } from "./core-home";
@@ -9,6 +9,7 @@ export type MigrateCoreHomeReason =
   | "no-legacy"
   | "daemon-running"
   | "copied"
+  | "supplemented"
   | "failed";
 
 export interface MigrateCoreHomeResult {
@@ -30,7 +31,9 @@ export interface MigrateCoreHomeDeps {
  * weacpx→xacpx rename (0.8.0).
  *
  * Behavior (idempotent — safe to call on every CLI invocation):
- * - If `~/.xacpx` already exists → no-op (`already-current`).
+ * - If `~/.xacpx` already exists → supplement missing top-level state files
+ *   from `~/.weacpx` without overwriting current files (`supplemented`), or
+ *   no-op when nothing is missing (`already-current`).
  * - If there is no legacy `~/.weacpx` → no-op (`no-legacy`, fresh install).
  * - If a legacy daemon still appears to be running → skip and warn
  *   (`daemon-running`); the caller keeps operating on `~/.weacpx` via
@@ -44,19 +47,21 @@ export function migrateCoreHome(home: string, deps: MigrateCoreHomeDeps = {}): M
   const isProcessAlive = deps.isProcessAlive ?? defaultIsProcessAlive;
 
   const primary = join(home, CORE_HOME_DIR_NAME);
-  if (existsSync(primary)) {
-    return { migrated: false, reason: "already-current" };
-  }
-
   const legacy = join(home, CORE_HOME_LEGACY_DIR_NAME);
   if (!existsSync(legacy)) {
-    return { migrated: false, reason: "no-legacy" };
+    return existsSync(primary)
+      ? { migrated: false, reason: "already-current" }
+      : { migrated: false, reason: "no-legacy" };
   }
 
   const legacyPid = readLegacyDaemonPid(legacy);
   if (legacyPid !== null && isProcessAlive(legacyPid)) {
     log(t().migrate.daemonRunning(legacyPid, legacy, primary));
     return { migrated: false, reason: "daemon-running", from: legacy };
+  }
+
+  if (existsSync(primary)) {
+    return supplementMissingCoreFiles({ legacy, primary, log });
   }
 
   try {
@@ -68,6 +73,34 @@ export function migrateCoreHome(home: string, deps: MigrateCoreHomeDeps = {}): M
     log(t().migrate.failed(legacy, primary, detail));
     return { migrated: false, reason: "failed", from: legacy };
   }
+}
+
+function supplementMissingCoreFiles(input: {
+  legacy: string;
+  primary: string;
+  log: (message: string) => void;
+}): MigrateCoreHomeResult {
+  const copied: string[] = [];
+  for (const fileName of ["config.json", "state.json"]) {
+    const from = join(input.legacy, fileName);
+    const to = join(input.primary, fileName);
+    if (!existsSync(from) || existsSync(to)) continue;
+    try {
+      mkdirSync(input.primary, { recursive: true });
+      copyFileSync(from, to);
+      copied.push(fileName);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      input.log(t().migrate.supplementFailed(from, to, detail));
+    }
+  }
+
+  if (copied.length === 0) {
+    return { migrated: false, reason: "already-current" };
+  }
+
+  input.log(t().migrate.supplemented(copied.join(", "), input.primary));
+  return { migrated: true, reason: "supplemented", from: input.legacy, to: input.primary };
 }
 
 function readLegacyDaemonPid(legacyHome: string): number | null {

@@ -9,6 +9,7 @@ import { importPluginFromHome } from "./plugin-loader.js";
 import { validateWeacpxPlugin } from "./validate-plugin.js";
 import { inspectPlugins, type PluginDoctorIssue } from "./plugin-doctor.js";
 import { listKnownPlugins } from "./known-plugins.js";
+import { normalizePluginPackageName } from "./plugin-renames.js";
 import { t } from "../i18n";
 
 export function looksLikePath(spec: string): boolean {
@@ -139,7 +140,8 @@ function parseRestartAndVersionFlags(args: string[]): { ok: true; rest: string[]
 }
 
 function findPlugin(plugins: PluginConfig[], name: string): PluginConfig | undefined {
-  return plugins.find((plugin) => plugin.name === name);
+  const normalizedName = normalizePluginPackageName(name);
+  return plugins.find((plugin) => normalizePluginPackageName(plugin.name) === normalizedName);
 }
 
 async function validateInstalledPluginDefault(packageName: string, pluginHome: string): Promise<{ name: string; channels: string[] }> {
@@ -246,14 +248,18 @@ async function addPlugin(packageSpec: string, rawArgs: string[], deps: PluginCli
   });
   try {
     await install(installInput);
+    // npm may prune our synthetic node_modules/xacpx and node_modules/weacpx
+    // plugin-api shims as extraneous during install. Refresh them before
+    // importing the just-installed plugin for validation.
+    await ensurePluginHome(pluginHome);
   } catch (error) {
     deps.print(t().pluginCli.pluginInstallFailed(packageSpec, describeError(error)));
     return 1;
   }
 
-  const recordedName = looksLikePath(packageSpec)
+  const recordedName = normalizePluginPackageName(looksLikePath(packageSpec)
     ? await resolveLocalPluginName(installSpec, pluginHome, namesBeforeInstall)
-    : packageSpec;
+    : packageSpec);
 
   const validate = deps.validateInstalledPlugin ?? ((name: string) => validateInstalledPluginDefault(name, pluginHome));
   let summary: { name: string; channels: string[] };
@@ -273,7 +279,9 @@ async function addPlugin(packageSpec: string, rawArgs: string[], deps: PluginCli
     enabled: true,
   };
   if (existing) {
-    config.plugins = config.plugins.map((entry) => (entry.name === recordedName ? next : entry));
+    config.plugins = config.plugins
+      .filter((entry) => normalizePluginPackageName(entry.name) !== recordedName)
+      .concat(next);
   } else {
     config.plugins = [...config.plugins, next];
   }
@@ -372,6 +380,8 @@ async function updatePlugins(args: string[], deps: PluginCliDeps): Promise<numbe
     const updateInput = nextVersion ? { packageName: existing.name, version: nextVersion } : { packageName: existing.name };
     try {
       await update(updateInput);
+      // Package managers can prune the plugin-api shim during update too.
+      await ensurePluginHome(pluginHome);
     } catch (error) {
       deps.print(t().pluginCli.pluginUpdateFailed(existing.name, describeError(error)));
       return 1;

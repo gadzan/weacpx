@@ -1066,3 +1066,54 @@ test("drops an invalid language field", () => {
   });
   expect(cfg.language).toBeUndefined();
 });
+
+test("normalizes legacy weacpx channel plugin package names", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-bridge" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {},
+      plugins: [
+        { name: "@ganglion/weacpx-channel-feishu", version: "0.2.2", enabled: true },
+        { name: "@ganglion/weacpx-channel-yuanbao", enabled: false },
+      ],
+    }),
+  );
+
+  const config = await loadConfig(path);
+
+  expect(config.plugins).toEqual([
+    { name: "@ganglion/xacpx-channel-feishu", version: "0.2.2", enabled: true },
+    { name: "@ganglion/xacpx-channel-yuanbao", enabled: false },
+  ]);
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("deduplicates legacy and canonical channel plugin package names", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-bridge" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {},
+      plugins: [
+        { name: "@ganglion/weacpx-channel-feishu", version: "0.2.2", enabled: true },
+        { name: "@ganglion/xacpx-channel-feishu", enabled: true },
+      ],
+    }),
+  );
+
+  const config = await loadConfig(path);
+
+  expect(config.plugins).toEqual([{ name: "@ganglion/xacpx-channel-feishu", enabled: true }]);
+
+  await rm(dir, { recursive: true, force: true });
+});

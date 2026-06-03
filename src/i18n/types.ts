@@ -1212,6 +1212,12 @@ export interface MigrateMessages {
 
   // migrateCoreHome — copy failed
   failed: (legacy: string, primary: string, detail: string) => string;
+
+  // supplementMissingCoreFiles — per-file supplement copy failed
+  supplementFailed: (from: string, to: string, detail: string) => string;
+
+  // supplementMissingCoreFiles — supplemented missing files from legacy dir
+  supplemented: (files: string, primary: string) => string;
 }
 
 export interface MiscMessages {
