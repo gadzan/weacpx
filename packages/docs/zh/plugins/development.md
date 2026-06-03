@@ -219,6 +219,10 @@ export interface ChannelStartInput {
   abortSignal: AbortSignal;
   quota: OutboundQuota;
   logger: AppLogger;
+  // 可选字段（核心按需注入）：
+  commandHints?: CommandHint[];   // 内置命令目录，供输入框命令提示用
+  coreVersion?: string;           // xacpx 核心版本字符串
+  locale?: Locale;                // 当前运行时语言（"en" | "zh"），见“国际化”
 }
 ```
 
@@ -228,10 +232,47 @@ export interface ChannelStartInput {
 | `abortSignal` | 守护进程关闭信号。监听 `aborted` 事件，停止所有长连接和定时器。 |
 | `quota` | 出站速率/数量配额。详见[回复与媒体](#回复与媒体)。 |
 | `logger` | 结构化日志记录器。详见 [AppLogger](#applogger)。 |
+| `commandHints?` | 内置命令目录，供支持输入框命令提示的频道使用。 |
+| `coreVersion?` | xacpx 核心版本字符串，供需要它的频道（如命令同步元数据）使用。 |
+| `locale?` | 当前运行时语言（`"en"` \| `"zh"`，类型 `Locale`），由 `config.language` 解析得来。用它本地化你的频道输出。详见[国际化](#国际化i18n)。 |
 
 `start()` 返回后，保持对 `agent`、`quota` 和 `logger` 的引用直到 `logout()` 被调用或 `abortSignal` 触发——`start()` 返回后不会再次传入它们。
 
 `start()` 通常是一个长期运行的 Promise，在回调注册完成后返回。消息循环可在后台异步持续运行。
+
+## 国际化（i18n）
+
+xacpx 的界面语言由 `config.language`（`en` | `zh`）控制，缺省按系统 locale 推断。频道插件可以让自己的用户可见文本跟随同一个语言。
+
+**从 `ChannelStartInput.locale` 读取语言**（在 `start(input)` 内，类型 `Locale`，从 `xacpx/plugin-api` 导出）。这是**推荐**来源——核心按值传入，与模块实例无关。
+
+`xacpx/plugin-api` 也导出了 `getLocale()`，但**不要把它当作主来源**：插件包与 daemon 通常各自打包了一份独立的 i18n 状态，`getLocale()` 读到的是插件这一份，未必反映 daemon 的 `config.language`。它只适合作兜底。
+
+**推荐做法**——插件自带一份小型双语目录（不要 import 核心内部的 `src/i18n`）：
+
+```ts
+// my-channel/src/i18n.ts
+import { getLocale, type Locale } from "xacpx/plugin-api";
+
+const en = { greeting: "Hi", failed: (id: string) => `Task ${id} failed` };
+const zh: typeof en = { greeting: "你好", failed: (id) => `任务 ${id} 执行失败` };
+
+let active: Locale | null = null;
+export function setChannelLocale(locale: Locale): void { active = locale; }
+export function t() { return (active ?? getLocale()) === "zh" ? zh : en; }
+```
+
+```ts
+// my-channel/src/channel.ts
+async start(input: ChannelStartInput): Promise<void> {
+  setChannelLocale(input.locale ?? "en");   // 先定语言，再产出任何文本
+  // ... 之后用 t().greeting / t().failed(id) 产出用户可见文本
+}
+```
+
+> 在函数体内调用 `t()`（不要在模块顶层把目录值固定下来），这样语言切换才生效。
+
+**不要本地化“用来匹配”的字符串**：凡是拿来匹配用户输入或外部工具输出的词（例如中文中断词「停止」「取消」、或匹配 acpx 输出的标记），必须是与界面语言无关的固定常量，**不**随 `locale` 切换——中文用户不论界面是什么语言都会打「停止」。
 
 ## 回复与媒体
 
