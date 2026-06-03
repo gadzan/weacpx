@@ -57,9 +57,10 @@ export interface YuanbaoChannelConfig extends YuanbaoAccountConfig {
   accounts: YuanbaoResolvedAccountConfig[];
 }
 
+import { t } from "./i18n/index.js";
+
 const DEFAULT_API_DOMAIN = "bot.yuanbao.tencent.com";
 const DEFAULT_WS_URL = "wss://bot-wss.yuanbao.tencent.com/wss/connection";
-const DEFAULT_FALLBACK_REPLY = "暂时无法解答，你可以换个问题问问我哦";
 const DEFAULT_ACCOUNT_ID = "default";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -172,7 +173,7 @@ function resolveAccount(accountId: string, base: Record<string, unknown>, overri
     mediaMaxMb: positiveNumber(merged.mediaMaxMb, `${path}.mediaMaxMb`, 20),
     historyLimit: nonNegativeNumber(merged.historyLimit, `${path}.historyLimit`, 100),
     disableBlockStreaming: booleanOptional(merged.disableBlockStreaming, `${path}.disableBlockStreaming`) ?? false,
-    fallbackReply: stringOptional(merged.fallbackReply, `${path}.fallbackReply`) ?? DEFAULT_FALLBACK_REPLY,
+    fallbackReply: stringOptional(merged.fallbackReply, `${path}.fallbackReply`) ?? t().fallbackReply,
     markdownHintEnabled: booleanOptional(merged.markdownHintEnabled, `${path}.markdownHintEnabled`) ?? true,
     debugBotIds: stringArray(merged.debugBotIds, `${path}.debugBotIds`),
   };

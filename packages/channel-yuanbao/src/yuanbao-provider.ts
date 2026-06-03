@@ -6,6 +6,7 @@ import type {
   ChannelCliValidationIssue,
   ChannelRuntimeConfig,
 } from "xacpx/plugin-api";
+import { t } from "./i18n/index.js";
 
 function parseBooleanFlag(value: string, flagName: string): { ok: true; value: boolean } | { ok: false; message: string } {
   if (value === "true") return { ok: true, value: true };
@@ -134,7 +135,7 @@ export const yuanbaoCliProvider: ChannelCliProvider = {
       mediaMaxMb: 20,
       historyLimit: 100,
       disableBlockStreaming: false,
-      fallbackReply: "暂时无法解答，你可以换个问题问问我哦",
+      fallbackReply: t().fallbackReply,
       markdownHintEnabled: true,
     };
     for (const key of Object.keys(options)) {
@@ -170,7 +171,7 @@ export const yuanbaoCliProvider: ChannelCliProvider = {
         return false;
       });
       if (!hasUsableAccount) {
-        issues.push({ kind: "invalid-config", message: "channel.options.accounts 中至少要有一个启用账号同时配置 appKey/appSecret，或者配置 token（静态 token 还需要 botId）" });
+        issues.push({ kind: "invalid-config", message: t().accountsNeedUsable });
       }
       return issues;
     }
@@ -179,15 +180,15 @@ export const yuanbaoCliProvider: ChannelCliProvider = {
     const hasToken = Boolean(options?.token);
     const hasStaticToken = hasToken && !isAppKeySecretToken(options?.token);
     if (!hasAppPair && !hasToken) {
-      issues.push({ kind: "missing-required-field", flag: "--app-key", message: "缺少 Yuanbao appKey" });
-      issues.push({ kind: "missing-required-field", flag: "--app-secret", message: "缺少 Yuanbao appSecret" });
+      issues.push({ kind: "missing-required-field", flag: "--app-key", message: t().missingAppKey });
+      issues.push({ kind: "missing-required-field", flag: "--app-secret", message: t().missingAppSecret });
     } else if (options?.appKey && !options.appSecret) {
-      issues.push({ kind: "missing-required-field", flag: "--app-secret", message: "缺少 Yuanbao appSecret" });
+      issues.push({ kind: "missing-required-field", flag: "--app-secret", message: t().missingAppSecret });
     } else if (!options?.appKey && options?.appSecret) {
-      issues.push({ kind: "missing-required-field", flag: "--app-key", message: "缺少 Yuanbao appKey" });
+      issues.push({ kind: "missing-required-field", flag: "--app-key", message: t().missingAppKey });
     }
     if (!hasAppPair && hasStaticToken && !options?.botId) {
-      issues.push({ kind: "missing-required-field", flag: "--bot-id", message: "静态 Yuanbao token 需要同时配置 botId" });
+      issues.push({ kind: "missing-required-field", flag: "--bot-id", message: t().staticTokenNeedsBotId });
     }
     return issues;
   },

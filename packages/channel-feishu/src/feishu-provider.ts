@@ -1,5 +1,6 @@
 import type { ChannelRuntimeConfig } from "xacpx/plugin-api";
 import { parseBooleanFlag, takeFlagValue, type ChannelCliInput, type ChannelCliIo, type ChannelCliParseResult, type ChannelCliProvider, type ChannelCliValidationIssue } from "./provider.js";
+import { t } from "./i18n/index.js";
 
 const DEFAULT_FEISHU_DOMAIN = "feishu";
 const DEFAULT_FEISHU_DEDUP_TTL_MS = 12 * 60 * 60 * 1000;
@@ -92,13 +93,13 @@ export const feishuCliProvider: ChannelCliProvider = {
       : Boolean(options?.appId && options?.appSecret);
     if (!hasConfiguredAccount) {
       if (!accounts && !options?.appId) {
-        issues.push({ kind: "missing-required-field", flag: "--app-id", message: "缺少 Feishu appId" });
+        issues.push({ kind: "missing-required-field", flag: "--app-id", message: t().providerMissingAppId });
       }
       if (!accounts && !options?.appSecret) {
-        issues.push({ kind: "missing-required-field", flag: "--app-secret", message: "缺少 Feishu appSecret" });
+        issues.push({ kind: "missing-required-field", flag: "--app-secret", message: t().providerMissingAppSecret });
       }
       if (accounts) {
-        issues.push({ kind: "invalid-config", message: "channel.options.accounts 中至少要有一个账号同时配置了 appId 和 appSecret" });
+        issues.push({ kind: "invalid-config", message: t().providerAccountsMissingCredentials });
       }
     }
     return issues;

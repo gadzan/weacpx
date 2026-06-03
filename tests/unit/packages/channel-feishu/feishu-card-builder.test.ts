@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
+import { setChannelLocale, t } from "../../../../packages/channel-feishu/src/i18n/index";
 
 import {
   CARD_BODY_MAX_CHARS,
@@ -10,6 +11,14 @@ import {
   truncateForCardBody,
 } from "../../../../packages/channel-feishu/src/card/card-builder";
 
+beforeAll(() => {
+  setChannelLocale("zh");
+});
+
+afterAll(() => {
+  setChannelLocale("en");
+});
+
 test("buildCard 'thinking' returns streaming-mode card with empty body and processing footer", () => {
   const card = buildCard({ state: "thinking", text: "" }) as {
     schema: string;
@@ -18,13 +27,13 @@ test("buildCard 'thinking' returns streaming-mode card with empty body and proce
   };
   expect(card.schema).toBe("2.0");
   expect(card.config.streaming_mode).toBe(true);
-  expect(card.config.summary.content).toBe("Processing...");
+  expect(card.config.summary.content).toBe(t().summaryProcessing);
   expect(card.body.elements[0]).toMatchObject({
     tag: "markdown",
     element_id: STREAMING_ELEMENT_ID,
     content: "",
   });
-  expect(card.body.elements[1].content).toContain("处理中");
+  expect(card.body.elements[1].content).toContain(t().summaryProcessing);
 });
 
 test("buildCard 'streaming' renders text body without footer", () => {
@@ -43,7 +52,7 @@ test("buildCard 'complete' disables streaming_mode and shows final summary", () 
     config: { streaming_mode: boolean; summary: { content: string } };
   };
   expect(card.config.streaming_mode).toBe(false);
-  expect(card.config.summary.content).toBe("Done");
+  expect(card.config.summary.content).toBe(t().summaryComplete);
   expect(card.body.elements).toHaveLength(1);
   expect(card.body.elements[0].content).toBe("final answer");
 });
@@ -55,14 +64,14 @@ test("buildCard 'aborted' shows stopped footer", () => {
   };
   expect(card.config.streaming_mode).toBe(false);
   expect(card.body.elements[0].content).toBe("partial output");
-  expect(card.body.elements[1].content).toContain("已停止");
+  expect(card.body.elements[1].content).toContain(t().summaryStopped);
 });
 
 test("buildCard 'error' shows error footer", () => {
   const card = buildCard({ state: "error", text: "stack trace" }) as {
     body: { elements: Array<{ content: string }> };
   };
-  expect(card.body.elements[1].content).toContain("出错");
+  expect(card.body.elements[1].content).toContain(t().summaryError);
 });
 
 test("truncateForCardBody clips at the limit and appends marker", () => {
@@ -103,7 +112,7 @@ test("buildCard 'complete' with elapsedMs renders footer", () => {
     body: { elements: Array<{ content: string }> };
   };
   expect(card.body.elements).toHaveLength(2);
-  expect(card.body.elements[1].content).toContain("已完成");
+  expect(card.body.elements[1].content).toContain(t().summaryComplete);
   expect(card.body.elements[1].content).toContain("3.4s");
 });
 
@@ -118,13 +127,13 @@ test("buildCard 'aborted' / 'error' embed elapsed when provided", () => {
   const aborted = buildCard({ state: "aborted", text: "...", elapsedMs: 1200 }) as {
     body: { elements: Array<{ content: string }> };
   };
-  expect(aborted.body.elements[1].content).toContain("已停止");
+  expect(aborted.body.elements[1].content).toContain(t().summaryStopped);
   expect(aborted.body.elements[1].content).toContain("1.2s");
 
   const err = buildCard({ state: "error", text: "...", elapsedMs: 800 }) as {
     body: { elements: Array<{ content: string }> };
   };
-  expect(err.body.elements[1].content).toContain("出错");
+  expect(err.body.elements[1].content).toContain(t().summaryError);
   expect(err.body.elements[1].content).toContain("800ms");
 });
 
@@ -133,7 +142,7 @@ test("buildCard streaming state with elapsedMs renders a ticking footer", () => 
   const elements = (card.body as { elements: Array<{ content?: string; tag: string }> }).elements;
   const footer = elements[elements.length - 1];
   expect(footer.tag).toBe("markdown");
-  expect(footer.content).toContain("处理中");
+  expect(footer.content).toContain(t().summaryProcessing);
   expect(footer.content).toContain("4.0s");
 });
 
@@ -197,10 +206,10 @@ test("buildCard caps visible tool panel rows while preserving total count", () =
   });
   const panel = ((card.body as { elements: Array<Record<string, unknown>> }).elements[0]);
   const serialized = JSON.stringify(panel);
-  expect(serialized).toContain("工具调用 (55)");
+  expect(serialized).toContain(t().toolPanelHeader(55));
   expect(serialized).toContain("Tool 49");
   expect(serialized).not.toContain("Tool 50");
-  expect(serialized).toContain("还有 5 个工具调用未显示");
+  expect(serialized).toContain(t().toolPanelOmitted(5));
 });
 
 test("buildCard renders reasoningText as an always-collapsed collapsible_panel", () => {
@@ -210,7 +219,7 @@ test("buildCard renders reasoningText as an always-collapsed collapsible_panel",
   expect(panel).toBeDefined();
   expect(panel!.expanded).toBe(false);
   const json = JSON.stringify(panel);
-  expect(json).toContain("思考过程");
+  expect(json).toContain(t().reasoningHeader);
   expect(json).toContain("step one");
   expect(json).toContain("step two");
   // Inner markdown element keeps the reasoning element id.
@@ -228,7 +237,7 @@ test("buildCard reasoning header shows elapsed when reasoningElapsedMs is provid
   const elements = (card.body as { elements: Array<Record<string, unknown>> }).elements;
   const panel = elements.find((el) => el.tag === "collapsible_panel")!;
   const headerJson = JSON.stringify(panel.header);
-  expect(headerJson).toContain("已思考");
+  expect(headerJson).toContain(t().reasoningHeaderElapsed("8.4s"));
   expect(headerJson).toContain("8.4s");
 });
 
@@ -237,8 +246,8 @@ test("buildCard reasoning header omits elapsed when reasoningElapsedMs is absent
   const elements = (card.body as { elements: Array<Record<string, unknown>> }).elements;
   const panel = elements.find((el) => el.tag === "collapsible_panel")!;
   const headerJson = JSON.stringify(panel.header);
-  expect(headerJson).toContain("思考过程");
-  expect(headerJson).not.toContain("已思考");
+  expect(headerJson).toContain(t().reasoningHeader);
+  expect(headerJson).not.toContain(t().reasoningHeaderElapsed(""));
 });
 
 test("buildCard reasoning header omits elapsed when reasoningElapsedMs is zero", () => {
@@ -251,6 +260,6 @@ test("buildCard reasoning header omits elapsed when reasoningElapsedMs is zero",
   const elements = (card.body as { elements: Array<Record<string, unknown>> }).elements;
   const panel = elements.find((el) => el.tag === "collapsible_panel")!;
   const headerJson = JSON.stringify(panel.header);
-  expect(headerJson).toContain("思考过程");
-  expect(headerJson).not.toContain("已思考");
+  expect(headerJson).toContain(t().reasoningHeader);
+  expect(headerJson).not.toContain(t().reasoningHeaderElapsed(""));
 });

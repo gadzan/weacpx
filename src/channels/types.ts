@@ -6,6 +6,7 @@ import type { PendingFinalChunk } from "../weixin/messaging/quota-manager.js";
 import type { PerfTracer } from "../perf/perf-tracer.js";
 import type { SessionService } from "../sessions/session-service.js";
 import type { ActiveTurnRegistry } from "../sessions/active-turn-registry.js";
+import type { Locale } from "../i18n/index.js";
 
 export type { ChatAgent };
 
@@ -73,6 +74,12 @@ export interface ChannelStartInput {
   commandHints?: CommandHint[];
   /** xacpx 核心版本字符串，供需要它的频道（如命令同步元数据）使用。 */
   coreVersion?: string;
+  /**
+   * Resolved runtime locale (`en` | `zh`). Channel plugins can use this to select
+   * the language of their own per-package string catalogs. Plugins may also read
+   * the active locale via `getLocale()` from `xacpx/plugin-api`.
+   */
+  locale?: Locale;
 }
 
 export interface OrchestrationDeliveryCallbacks {

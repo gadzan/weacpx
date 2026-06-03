@@ -1,4 +1,5 @@
-import { afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { setChannelLocale, t } from "../../../../packages/channel-feishu/src/i18n/index";
 
 import feishuPlugin from "../../../../packages/channel-feishu/src/index";
 import { FeishuChannel } from "../../../../packages/channel-feishu/src/channel";
@@ -21,6 +22,11 @@ function ensureFeishuPluginRegisteredForTest(): void {
 
 beforeAll(() => {
   ensureFeishuPluginRegisteredForTest();
+  setChannelLocale("zh");
+});
+
+afterAll(() => {
+  setChannelLocale("en");
 });
 
 afterEach(() => {
@@ -215,8 +221,8 @@ test("FeishuChannel streaming abort fast-path renders aborted card instead of se
   expect(textReplies).toHaveLength(0);
 
   const lastUpdate = calls.cardUpdate[calls.cardUpdate.length - 1];
-  expect(lastUpdate.cardJson.config.summary.content).toBe("Stopped");
-  expect(lastUpdate.cardJson.body.elements[0].content).toBe("已停止当前任务。");
+  expect(lastUpdate.cardJson.config.summary.content).toBe(t().summaryStopped);
+  expect(lastUpdate.cardJson.body.elements[0].content).toBe(t().abortAck);
 });
 
 test("FeishuChannel with replyMode='auto' uses streaming in p2p and static in groups", async () => {

@@ -375,6 +375,10 @@ export interface ChannelStartInput {
   abortSignal: AbortSignal;
   quota: OutboundQuota;
   logger: AppLogger;
+  // Optional fields the core injects when relevant:
+  commandHints?: CommandHint[];   // built-in command catalog for input-box hints
+  coreVersion?: string;           // xacpx core version string
+  locale?: Locale;                // active runtime language ("en" | "zh") — see §5.1
 }
 ```
 
@@ -384,10 +388,47 @@ export interface ChannelStartInput {
 | `abortSignal` | The daemon shutdown signal. Listen for the `aborted` event and stop all long-lived connections and timers. |
 | `quota` | Outbound rate/total quota; see the next section. |
 | `logger` | Structured logger; see [§7](#7-application-logging-applogger). |
+| `commandHints?` | Built-in command catalog, for channels that support input-box command hints. |
+| `coreVersion?` | xacpx core version string, for channels that need it (e.g. command-sync metadata). |
+| `locale?` | Active runtime language (`"en"` \| `"zh"`, type `Locale`), resolved from `config.language`. Use it to localize your channel's output. See [§5.1](#51-internationalization-i18n). |
 
 The `ChatAgent` interface itself is internal, but the `MessageChannelRuntime` contract only requires you to `await agent.handle(chatKey, text)` for inbound text. It returns no data; the agent calls your send methods within its own callback chain.
 
 > **Important**: Your channel must hold a reference to `agent` / `quota` / `logger` until `logout()` or `abortSignal` fires. They are not passed again after `start()` returns.
+
+### 5.1 Internationalization (i18n)
+
+xacpx's interface language is controlled by `config.language` (`en` | `zh`), defaulting to the system locale. A channel plugin can make its own user-facing text follow the same language.
+
+**Read the language from `ChannelStartInput.locale`** inside `start(input)` (type `Locale`, exported from `xacpx/plugin-api`). This is the **recommended** source — the core passes it by value, so it is independent of module instances.
+
+`xacpx/plugin-api` also exports `getLocale()`, but **don't rely on it as the primary source**: a plugin package and the daemon are typically bundled with separate copies of the i18n state, so `getLocale()` reads the *plugin's* copy, which may not reflect the daemon's `config.language`. Use it only as a fallback.
+
+**Recommended pattern** — keep a small per-package catalog (do **not** import the core's internal `src/i18n`):
+
+```ts
+// my-channel/src/i18n.ts
+import { getLocale, type Locale } from "xacpx/plugin-api";
+
+const en = { greeting: "Hi", failed: (id: string) => `Task ${id} failed` };
+const zh: typeof en = { greeting: "你好", failed: (id) => `任务 ${id} 执行失败` };
+
+let active: Locale | null = null;
+export function setChannelLocale(locale: Locale): void { active = locale; }
+export function t() { return (active ?? getLocale()) === "zh" ? zh : en; }
+```
+
+```ts
+// my-channel/src/channel.ts
+async start(input: ChannelStartInput): Promise<void> {
+  setChannelLocale(input.locale ?? "en");   // pin the language before emitting any text
+  // ... then use t().greeting / t().failed(id) for user-facing output
+}
+```
+
+> Call `t()` inside function bodies (never capture a catalog value at module load), so language switching takes effect.
+
+**Do not localize strings you match against.** Tokens you compare against user input or external tool output — e.g. Chinese abort words like `停止` / `取消`, or markers matched against acpx output — must be locale-independent constants, **not** gated on `locale`: a Chinese user types `停止` regardless of the UI language.
 
 ---
 

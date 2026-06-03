@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 
 import feishuPlugin from "../../../../packages/channel-feishu/src/index";
 import { FeishuChannel } from "../../../../packages/channel-feishu/src/channel";
@@ -6,6 +6,7 @@ import { resetFeishuChatQueueForTests } from "../../../../packages/channel-feish
 import { hasChannelFactory } from "../../../../src/channels/create-channel";
 import { hasChannelCliProvider } from "../../../../src/channels/cli/registry";
 import { registerChannelPlugin } from "../../../../src/channels/plugin";
+import { setChannelLocale, t } from "../../../../packages/channel-feishu/src/i18n/index";
 import type { ChatAgent } from "../../../../src/channels/types";
 import type { FeishuMessageEvent } from "../../../../packages/channel-feishu/src/types";
 
@@ -22,8 +23,17 @@ beforeAll(() => {
   ensureFeishuPluginRegisteredForTest();
 });
 
+beforeEach(() => {
+  setChannelLocale("zh");
+});
+
 afterEach(() => {
+  setChannelLocale("en");
   resetFeishuChatQueueForTests();
+});
+
+afterAll(() => {
+  setChannelLocale("en");
 });
 
 function createNoopQuota() {
@@ -149,7 +159,7 @@ test("FeishuChannel abort fast-path aborts the in-flight task and acks", async (
 
   expect(abortObserved).toBe(true);
   expect(replied).toEqual([
-    { replyTo: "om_stop", text: "已停止当前任务。" },
+    { replyTo: "om_stop", text: t().abortAck },
   ]);
   expect(reactions.some((r) => r.op === "add" && r.messageId === "om_in")).toBe(true);
   expect(reactions.some((r) => r.op === "del" && r.messageId === "om_in")).toBe(true);
@@ -230,7 +240,8 @@ test("FeishuChannel suppresses queued task when abort arrives before it starts",
   // First turn completed; second was suppressed (never reached agent).
   expect(agentCalls).toEqual(["first task"]);
   // Stop should have acked.
-  expect(sentTexts.some((t) => t.includes("已停止"))).toBe(true);
+  const abortAck = t().abortAck;
+  expect(sentTexts.some((s) => s.includes(abortAck))).toBe(true);
 });
 
 test("FeishuChannel stop suppresses ALL queued turns when multiple are pending", async () => {
@@ -353,7 +364,7 @@ test("FeishuChannel suppresses agent.reply() output after abort", async () => {
   await handlers["im.message.receive_v1"]!(makeTextEvent("om_stop", "/stop"));
   await longRunning;
 
-  expect(replied.map((r) => r.text)).toEqual(["已停止当前任务。"]);
+  expect(replied.map((r) => r.text)).toEqual([t().abortAck]);
 });
 
 test("stop from a different sender does not abort the owner's task", async () => {

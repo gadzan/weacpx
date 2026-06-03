@@ -1,6 +1,6 @@
 import { isMessageUnavailable, markIfUnavailableError } from "../message-unavailable.js";
 import { resolveFeishuReceiveIdType, normalizeFeishuTarget } from "../send.js";
-import { formatErrorFootnote } from "../strings.js";
+import { t } from "../i18n/index.js";
 import {
   CARD_BODY_MAX_CHARS,
   STREAMING_ELEMENT_ID,
@@ -354,7 +354,7 @@ export class StreamingCardController {
     const tail = errorMessage.trim();
     if (tail) {
       this.streamedText = this.streamedText.length > 0
-        ? `${this.streamedText.trimEnd()}\n\n${formatErrorFootnote(tail)}`
+        ? `${this.streamedText.trimEnd()}\n\n${t().errorFootnote(tail)}`
         : tail;
     }
     this.terminated = true;
