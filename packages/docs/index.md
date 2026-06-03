@@ -3,15 +3,15 @@ layout: home
 
 hero:
   name: xacpx
-  text: Remote agent control from chat
-  tagline: Drive acpx agent sessions — Codex, Claude Code, Gemini — from WeChat, Feishu, Yuanbao, and other message channels. No terminal required.
+  text: Your agents, in any chat
+  tagline: Drive Codex, Claude Code & Gemini sessions from WeChat, Feishu, Yuanbao — no terminal required.
   actions:
     - theme: brand
       text: Get Started
       link: /guide/getting-started
     - theme: alt
-      text: Command Reference
-      link: /reference/commands
+      text: View on GitHub
+      link: https://github.com/gadzan/xacpx
 
 features:
   - icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>'

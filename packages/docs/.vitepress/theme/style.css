@@ -148,3 +148,266 @@
   border-radius: 4px;
   background: linear-gradient(90deg, var(--xacpx-blue), var(--xacpx-green));
 }
+
+/* ---- hero install command (under the CTA buttons) ------------------------- */
+.install-cmd {
+  margin-top: 28px;
+  width: 100%;
+  max-width: 540px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 14px;
+  background-color: var(--vp-c-bg-alt);
+  overflow: hidden;
+}
+
+.install-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 6px 0;
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+
+.install-tab {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 9px 9px 0 0;
+  background: transparent;
+  color: var(--vp-c-text-2);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+.install-tab:hover {
+  color: var(--vp-c-text-1);
+}
+
+.install-tab.active {
+  color: var(--vp-c-text-1);
+  background-color: var(--vp-c-bg);
+  box-shadow: inset 0 -2px 0 var(--xacpx-blue);
+}
+
+.install-tab-note {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--vp-c-text-3);
+}
+
+.install-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 14px 16px 18px;
+}
+
+.install-code {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--vp-font-family-mono);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.install-line {
+  display: flex;
+  gap: 10px;
+  white-space: nowrap;
+  overflow-x: auto;
+}
+
+.install-prompt {
+  color: var(--xacpx-green);
+  user-select: none;
+}
+
+.install-text {
+  color: var(--vp-c-text-1);
+}
+
+.install-copy {
+  flex: none;
+  align-self: stretch;
+  padding: 0 14px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 9px;
+  background-color: var(--vp-c-bg-soft);
+  color: var(--vp-c-text-2);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.install-copy:hover {
+  color: var(--vp-c-text-1);
+  border-color: var(--xacpx-blue);
+}
+
+.install-copy.copied {
+  color: var(--xacpx-green);
+  border-color: var(--xacpx-green);
+}
+
+/* ---- hero chat mockup (phone frame, placeholder until screenshot lands) ---- */
+.chat-mockup {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.phone {
+  position: relative;
+  width: 268px;
+  aspect-ratio: 9 / 19;
+  padding: 12px;
+  border-radius: 38px;
+  background: linear-gradient(160deg, #1b1f24, #0c0e11);
+  border: 1px solid var(--vp-c-divider);
+  box-shadow: 0 30px 70px -30px rgba(68, 147, 248, 0.45),
+    0 10px 30px -12px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.phone-notch {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 96px;
+  height: 22px;
+  border-radius: 0 0 14px 14px;
+  background: #0c0e11;
+  z-index: 2;
+}
+
+.phone-shot {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 28px;
+  display: block;
+}
+
+.phone-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  padding: 24px 18px;
+  text-align: center;
+  border-radius: 28px;
+  background:
+    radial-gradient(70% 50% at 50% 0%, rgba(68, 147, 248, 0.16), transparent 70%),
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.03) 0 10px,
+      transparent 10px 20px
+    ),
+    var(--vp-c-bg-soft);
+  border: 1px dashed var(--vp-c-divider);
+}
+
+.ph-badge {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--xacpx-blue);
+  background: var(--vp-c-brand-soft);
+}
+
+.ph-title {
+  margin: 4px 0 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--vp-c-text-1);
+}
+
+.ph-path {
+  margin: 0;
+}
+
+.ph-path code {
+  font-size: 11.5px;
+  color: var(--vp-c-text-2);
+}
+
+.ph-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--vp-c-text-3);
+}
+
+/* ---- "works with" strip (below hero) -------------------------------------- */
+.works-with {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+  max-width: 1152px;
+  margin: 8px auto 0;
+  padding: 28px 24px 8px;
+}
+
+.ww-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 14px;
+}
+
+.ww-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--vp-c-text-3);
+}
+
+.ww-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.ww-chip {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--vp-c-divider);
+  background-color: var(--vp-c-bg-soft);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--vp-c-text-2);
+  transition: color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.ww-chip:hover {
+  transform: translateY(-2px);
+  color: var(--vp-c-text-1);
+  border-color: var(--xacpx-blue);
+}
+
+.ww-chip-green:hover {
+  border-color: var(--xacpx-green);
+}
+
+@media (max-width: 640px) {
+  .install-cmd {
+    max-width: 100%;
+  }
+  .phone {
+    width: 230px;
+  }
+}
