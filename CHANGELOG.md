@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.9.0] - 2026-06-03
+
+### Added
+
+- **全量运行时国际化（i18n）——本版头条：** 新增全局 `config.language`（`en` | `zh`），xacpx 的所有用户可见输出——聊天命令回复、CLI 终端输出、Agent 编排提示词、错误与日志信息——都按所选语言产出。缺省时按系统 locale 推断（`$LC_ALL` / `$LC_MESSAGES` / `$LANG`，`zh*` → 中文，否则英文）并写入配置；之后可用 `/config set language en`（或 `zh`）切换（改后需 `xacpx restart` 生效）。语言会经 `XACPX_LANG` 透传到 acpx / bridge / mcp-stdio 等子进程，保持一致。
+- **频道插件国际化能力：** `xacpx/plugin-api` 新增导出 `getLocale()` 与 `Locale` 类型，`ChannelStartInput` 新增 `locale` 字段（核心在 `start()` 时按值传入当前语言）。插件据此用自带的小型双语目录让自己的用户可见文本跟随 `config.language`。飞书、元宝两个官方插件已各自落地双语目录（均升至 `0.5.0`，peer 依赖提升为 `xacpx >=0.9.0`）。
+
+### Changed
+
+- **底层实现：** 引入 typed `Messages` 契约 + 按域拆分的 `en`/`zh` 目录（约 640 条消息），由编译期类型检查保证中英文键与参数完全对齐；新增 `no-hardcoded-CJK` 守卫测试，强制 `src/` 内不再出现硬编码中文字符串（用于匹配的固定词如中断词、acpx 输出标记除外，刻意保持与界面语言无关）。
+
+### Docs
+
+- 插件开发文档（仓库 + 文档站点，中英双份）新增「国际化（i18n）」章节，说明从 `ChannelStartInput.locale` 取语言、per-package 双语目录 + `setChannelLocale` 模式，以及「用来匹配的字符串不要本地化」的约束。
+
 ## [0.8.0] - 2026-06-02
 
 ### Changed

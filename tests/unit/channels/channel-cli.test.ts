@@ -1,4 +1,4 @@
-import { expect, test, beforeAll } from "bun:test";
+import { expect, test, beforeAll, afterAll } from "bun:test";
 
 import type { AppConfig } from "../../../src/config/types";
 import { handleChannelCli } from "../../../src/channels/cli/channel-cli";
@@ -7,8 +7,13 @@ import { hasChannelFactory } from "../../../src/channels/create-channel";
 import { registerChannelPlugin } from "../../../src/channels/plugin";
 import feishuPlugin from "../../../packages/channel-feishu/src/index";
 import { setLocale, t } from "../../../src/i18n";
+// The feishu provider's validateConfig runs outside start(), so it uses the
+// plugin's own i18n module (separate from core's). Pin its locale directly —
+// core's setLocale cannot reach the plugin catalog (bundle isolation).
+import { setChannelLocale } from "../../../packages/channel-feishu/src/i18n";
 
-beforeAll(() => { setLocale("zh"); });
+beforeAll(() => { setLocale("zh"); setChannelLocale("zh"); });
+afterAll(() => { setLocale("en"); setChannelLocale("en"); });
 
 function ensureFeishuPluginRegisteredForTest(): void {
   const factoryRegistered = hasChannelFactory("feishu");

@@ -16,10 +16,10 @@ test("root package publishes as xacpx and exposes plugin-api", () => {
   });
 });
 
-test("root package version is 0.8.3", () => {
+test("root package version is 0.9.0", () => {
   const pkg = readJson("package.json");
 
-  expect(pkg.version).toBe("0.8.3");
+  expect(pkg.version).toBe("0.9.0");
 });
 
 test("first-party channel plugins peer depend on xacpx", () => {
@@ -27,7 +27,7 @@ test("first-party channel plugins peer depend on xacpx", () => {
   const yuanbao = readJson("packages/channel-yuanbao/package.json");
 
   for (const pkg of [feishu, yuanbao]) {
-    expect(pkg.peerDependencies.xacpx).toBe(">=0.8.0-0");
+    expect(pkg.peerDependencies.xacpx).toBe(">=0.9.0-0");
     expect(pkg.peerDependencies.weacpx).toBeUndefined();
     expect(pkg.peerDependenciesMeta.xacpx.optional).toBe(true);
     expect(pkg.peerDependenciesMeta.weacpx).toBeUndefined();
