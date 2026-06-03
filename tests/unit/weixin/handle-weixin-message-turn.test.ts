@@ -1,7 +1,16 @@
-import { expect, mock, test } from "bun:test";
+import { expect, mock, test, beforeAll, afterAll } from "bun:test";
 import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { setLocale } from "../../../src/i18n";
+
+// One assertion (line ~721) checks the localized pagination heads-up text, which
+// is produced via t().misc and is English by default. Pin zh so it renders the
+// expected Chinese; all other assertions here echo mock-provided text and are
+// locale-independent.
+beforeAll(() => { setLocale("zh"); });
+afterAll(() => { setLocale("en"); });
 
 import {
   getWeixinMessageTurnLane,
