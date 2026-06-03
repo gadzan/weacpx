@@ -1,207 +1,207 @@
-# 贡献者开发指南
+# Contributor Development Guide
 
-> 给想修 bug、加功能、写频道插件，或者读代码理解架构的人。
-> 用户向使用文档：[README.md](../README.md)。
-
----
-
-## 目录
-
-- [项目快照](#项目快照)
-- [5 分钟环境准备](#5-分钟环境准备)
-- [仓库结构](#仓库结构)
-- [构建管线](#构建管线)
-- [本地运行的三种模式](#本地运行的三种模式)
-- [测试](#测试)
-- [架构地图](#架构地图)
-- [子系统速查表](#子系统速查表)
-- [acpx / SDK / 插件解析顺序](#acpx--sdk--插件解析顺序)
-- [配置与运行时文件](#配置与运行时文件)
-- [代码风格与约定](#代码风格与约定)
-- [按场景找入口](#按场景找入口)
-- [Plan / Spec 写作流程](#plan--spec-写作流程)
-- [提交、PR 与发布](#提交pr-与发布)
-- [拓展阅读](#拓展阅读)
+> For anyone who wants to fix bugs, add features, write channel plugins, or read the code to understand the architecture.
+> User-facing usage docs: [README.md](../README.md).
 
 ---
 
-## 项目快照
+## Table of Contents
 
-`weacpx` 是 **"消息频道 ↔ 命令路由 ↔ acpx 会话驱动"** 的桥接系统：
-
-- **频道**：内置 `weixin`；`feishu` / `yuanbao` 通过一方插件包分发；任何符合 `WeacpxPlugin` 契约的 npm 包都可以加进来。
-- **命令路由**：解析微信/飞书/元宝/CLI 收到的 `/ss`、`/agent`、`/group` 等 slash 命令，普通文本作为 prompt 喂给当前会话。
-- **Transport**：把"会话 ensure/prompt/cancel/setMode"统一为 `SessionTransport` 接口，具体实现两套——`acpx-cli`（直接 spawn `acpx`，可选 `node-pty` 分配 PTY）和 `acpx-bridge`（独立 bridge 子进程 + JSONL 协议）。
-- **Orchestration**（可选）：coordinator 会话下委派多个 worker，跟踪进度、问题、人类确认、分组汇总。可通过 `weacpx mcp-stdio` 暴露给外部 MCP host。
-- **Daemon**：`weacpx start` / `status` / `stop`，PID + status + log 落在 `~/.weacpx/runtime/`。
-- **Monorepo**：`packages/channel-feishu`、`packages/channel-yuanbao` 作为 npm workspaces 与主包同仓发布。
+- [Project Snapshot](#project-snapshot)
+- [5-Minute Environment Setup](#5-minute-environment-setup)
+- [Repository Structure](#repository-structure)
+- [Build Pipeline](#build-pipeline)
+- [Three Modes for Running Locally](#three-modes-for-running-locally)
+- [Testing](#testing)
+- [Architecture Map](#architecture-map)
+- [Subsystem Cheat Sheet](#subsystem-cheat-sheet)
+- [acpx / SDK / Plugin Resolution Order](#acpx--sdk--plugin-resolution-order)
+- [Config and Runtime Files](#config-and-runtime-files)
+- [Code Style and Conventions](#code-style-and-conventions)
+- [Finding the Entry Point by Scenario](#finding-the-entry-point-by-scenario)
+- [Plan / Spec Writing Workflow](#plan--spec-writing-workflow)
+- [Commits, PRs, and Releases](#commits-prs-and-releases)
+- [Further Reading](#further-reading)
 
 ---
 
-## 5 分钟环境准备
+## Project Snapshot
 
-### 必要环境
+`weacpx` is a bridging system of **"message channel ↔ command router ↔ acpx session driver"**:
 
-- **Node.js ≥ 22** 或 **Bun**（Bun 用于开发脚本与 build；运行时也可用 Node）
-- 一个可用的微信 / 飞书 / 元宝账号（看你测哪个频道；只读取代码可以省）
-- 本机能跑 `acpx` 和你想接的 agent CLI（codex / claude / gemini …）
+- **Channels**: `weixin` is built in; `feishu` / `yuanbao` are distributed as first-party plugin packages; any npm package conforming to the `WeacpxPlugin` contract can be added.
+- **Command routing**: parses slash commands such as `/ss`, `/agent`, `/group` received from WeChat/Feishu/Yuanbao/CLI; plain text is fed to the current session as a prompt.
+- **Transport**: unifies "session ensure/prompt/cancel/setMode" into the `SessionTransport` interface, with two concrete implementations — `acpx-cli` (spawns `acpx` directly, optionally allocating a PTY via `node-pty`) and `acpx-bridge` (a standalone bridge subprocess + JSONL protocol).
+- **Orchestration** (optional): under a coordinator session, delegates multiple workers, tracking progress, questions, human confirmation, and grouped aggregation. Can be exposed to an external MCP host via `weacpx mcp-stdio`.
+- **Daemon**: `weacpx start` / `status` / `stop`, with PID + status + log landing in `~/.weacpx/runtime/`.
+- **Monorepo**: `packages/channel-feishu` and `packages/channel-yuanbao` are published from the same repo as npm workspaces alongside the main package.
 
-### 克隆与依赖
+---
+
+## 5-Minute Environment Setup
+
+### Required Environment
+
+- **Node.js ≥ 22** or **Bun** (Bun is used for dev scripts and builds; the runtime can also use Node)
+- A usable WeChat / Feishu / Yuanbao account (depending on which channel you're testing; can be skipped if you're only reading code)
+- The ability to run `acpx` and the agent CLI you want to connect (codex / claude / gemini …) locally
+
+### Clone and Dependencies
 
 ```bash
 git clone https://github.com/gadzan/weacpx
 cd weacpx
-bun install            # 同时装根包和 packages/* 的依赖（workspaces）
+bun install            # Installs deps for both the root package and packages/* (workspaces)
 ```
 
-### 第一次构建
+### First Build
 
 ```bash
-bun run build              # 主包：dist/cli.js + dist/bridge/bridge-main.js + dist/plugin-api.{js,d.ts}
-bun run build:packages     # 主包 + 全部 packages/*（发布前必须）
+bun run build              # Main package: dist/cli.js + dist/bridge/bridge-main.js + dist/plugin-api.{js,d.ts}
+bun run build:packages     # Main package + all packages/* (required before publishing)
 ```
 
-### 第一次跑
+### First Run
 
 ```bash
-bun run dev                # 等价于 bun run ./src/cli.ts run，前台运行 daemon
+bun run dev                # Equivalent to bun run ./src/cli.ts run, runs the daemon in the foreground
 ```
 
-或者只跑 dry-run（不连 IM）：
+Or just run a dry-run (without connecting to an IM):
 
 ```bash
 bun run dry-run --chat-key wx:test -- "/ss new demo --agent codex --ws backend" "/status"
 ```
 
-### 第一次测
+### First Test
 
 ```bash
 npm test                   # tsc --noEmit + tests/unit/**/*.test.ts
 ```
 
-跑通这一步之后，欢迎开始动代码。
+Once this step passes, you're welcome to start working on the code.
 
 ---
 
-## 仓库结构
+## Repository Structure
 
-### 顶层
+### Top Level
 
 ```
 weacpx/
-├── src/                # 主包源码
-├── packages/           # 一方频道插件
+├── src/                # Main package source
+├── packages/           # First-party channel plugins
 │   ├── channel-feishu/
 │   └── channel-yuanbao/
 ├── tests/
-│   ├── unit/           # 默认单测
-│   ├── smoke/          # 需要真实 acpx / 真实账号
-│   ├── helpers/        # 共享 fixture / mock
-│   └── fixtures/       # 静态数据
-├── docs/               # 用户文档 + 本指南 + 设计文档
-│   ├── superpowers/    # plans/ + specs/，工作流详见下文
-│   └── releases/       # 历史发版说明
-├── scripts/            # 测试 runner、发布前校验
-├── package.json        # 同时是 npm workspaces 根
+│   ├── unit/           # Default unit tests
+│   ├── smoke/          # Require real acpx / real accounts
+│   ├── helpers/        # Shared fixtures / mocks
+│   └── fixtures/       # Static data
+├── docs/               # User docs + this guide + design docs
+│   ├── superpowers/    # plans/ + specs/, workflow detailed below
+│   └── releases/       # Historical release notes
+├── scripts/            # Test runner, pre-publish checks
+├── package.json        # Also the npm workspaces root
 ├── bun.lock
 ├── tsconfig.json
 ├── tsconfig.plugin-api.json
-├── AGENTS.md           # 项目规约（CLAUDE.md 是它的符号链接）
+├── AGENTS.md           # Project conventions (CLAUDE.md is a symlink to it)
 └── README.md
 ```
 
-### `src/` 子目录
+### `src/` Subdirectories
 
-每一个目录一句话说清职责，更深入的内容见对应模块文档。
+One sentence per directory to make its responsibility clear; deeper content is in the corresponding module docs.
 
-| 目录 | 职责 | 入口 / 关键文件 |
+| Directory | Responsibility | Entry / Key Files |
 | --- | --- | --- |
-| `src/cli.ts` | CLI 总入口，`weacpx <command>` 派发 | `runCli()` |
-| `src/main.ts` | `buildApp()` 装配运行时；`resolveRuntimePaths()` 路径解析 | `buildApp` |
-| `src/run-console.ts` | 启动序列：channel → daemon runtime → consumer lock → channel start | `runConsole()` |
-| `src/console-agent.ts` | 把入站消息桥接到 router | `ConsoleAgent` |
-| `src/channels/` | 频道注册中心；内置 weixin；暴露 `MessageChannelRuntime` 给插件 | `channels/types.ts`、`channels/plugin.ts` |
-| `src/commands/` | 命令解析 + handler + router | `command-router.ts`、`parse-command.ts` |
-| `src/sessions/` | 逻辑会话（state.json 持久化）+ AsyncMutex 串行化 | `session-service.ts` |
-| `src/transport/` | acpx 桥接抽象 + cli/bridge 两实现 | `transport/types.ts`、`acpx-cli/`、`acpx-bridge/` |
-| `src/bridge/` | acpx-bridge 子进程入口与 JSONL 协议 | `bridge-main.ts`、`bridge-server.ts`、`bridge-runtime.ts` |
-| `src/orchestration/` | 多 agent 编排服务 + IPC server/client + 状态机 | `orchestration-service.ts`、`orchestration-server.ts` |
-| `src/mcp/` | `weacpx mcp-stdio` 实现，把 orchestration 暴露成 MCP server | `weacpx-mcp-server.ts`、`weacpx-mcp-tools.ts` |
-| `src/daemon/` | daemon 控制器、status/PID 文件、运行时元数据 | `daemon-controller.ts`、`daemon-runtime.ts` |
-| `src/plugins/` | 插件加载、CLI、doctor、包管理器抽象、签名校验 | `plugin-loader.ts`、`plugin-cli.ts`、`plugin-doctor.ts` |
-| `src/plugin-api.ts` | **公共**插件 API 类型再导出（编译产物 `dist/plugin-api.d.ts`） | — |
-| `src/state/` | `state.json` 持久化 + `DebouncedStateStore`（50ms 写合并） | `state-store.ts`、`debounced-state-store.ts` |
-| `src/config/` | `config.json` 加载/写入/默认模板 | `config-store.ts`、`load-config.ts` |
-| `src/recovery/` | 缺失可选依赖时的自动恢复（`auto-install-optional-dep.ts`） | — |
-| `src/process/` | 跨平台子进程封装 | — |
-| `src/logging/` | bounded `app.log`、按级别过滤 | `app-logger.ts` |
-| `src/formatting/` | 出站文本/任务渲染 | — |
-| `src/util/` | `writePrivateFileAtomic` + `proper-lockfile` 等通用工具 | `private-file.ts` |
-| `src/weixin/` | 内置 weixin 频道 + 媒体管线 + consumer lock | `monitor/`、`messaging/` |
-| `src/weixin-sdk.ts` | weixin SDK 解析器，支持 `WEACPX_WEIXIN_SDK` 覆盖 | `loadWeixinSdk()` |
-| `src/dry-run.ts` | 不连 IM 跑 router 的入口 | `bun run dry-run` |
-| `src/login.ts` | 微信扫码登录流程 | `weacpx login` |
-| `src/doctor/` | `weacpx doctor` 诊断套件 | — |
+| `src/cli.ts` | Top-level CLI entry, `weacpx <command>` dispatch | `runCli()` |
+| `src/main.ts` | `buildApp()` assembles the runtime; `resolveRuntimePaths()` resolves paths | `buildApp` |
+| `src/run-console.ts` | Startup sequence: channel → daemon runtime → consumer lock → channel start | `runConsole()` |
+| `src/console-agent.ts` | Bridges inbound messages to the router | `ConsoleAgent` |
+| `src/channels/` | Channel registry; built-in weixin; exposes `MessageChannelRuntime` to plugins | `channels/types.ts`, `channels/plugin.ts` |
+| `src/commands/` | Command parsing + handlers + router | `command-router.ts`, `parse-command.ts` |
+| `src/sessions/` | Logical sessions (state.json persistence) + AsyncMutex serialization | `session-service.ts` |
+| `src/transport/` | acpx bridging abstraction + cli/bridge implementations | `transport/types.ts`, `acpx-cli/`, `acpx-bridge/` |
+| `src/bridge/` | acpx-bridge subprocess entry and JSONL protocol | `bridge-main.ts`, `bridge-server.ts`, `bridge-runtime.ts` |
+| `src/orchestration/` | Multi-agent orchestration service + IPC server/client + state machine | `orchestration-service.ts`, `orchestration-server.ts` |
+| `src/mcp/` | `weacpx mcp-stdio` implementation, exposing orchestration as an MCP server | `weacpx-mcp-server.ts`, `weacpx-mcp-tools.ts` |
+| `src/daemon/` | daemon controller, status/PID files, runtime metadata | `daemon-controller.ts`, `daemon-runtime.ts` |
+| `src/plugins/` | plugin loading, CLI, doctor, package manager abstraction, signature verification | `plugin-loader.ts`, `plugin-cli.ts`, `plugin-doctor.ts` |
+| `src/plugin-api.ts` | **Public** plugin API type re-exports (build artifact `dist/plugin-api.d.ts`) | — |
+| `src/state/` | `state.json` persistence + `DebouncedStateStore` (50ms write coalescing) | `state-store.ts`, `debounced-state-store.ts` |
+| `src/config/` | `config.json` load/write/default template | `config-store.ts`, `load-config.ts` |
+| `src/recovery/` | Auto-recovery when an optional dependency is missing (`auto-install-optional-dep.ts`) | — |
+| `src/process/` | Cross-platform subprocess wrapper | — |
+| `src/logging/` | bounded `app.log`, filtered by level | `app-logger.ts` |
+| `src/formatting/` | Outbound text/task rendering | — |
+| `src/util/` | General utilities like `writePrivateFileAtomic` + `proper-lockfile` | `private-file.ts` |
+| `src/weixin/` | Built-in weixin channel + media pipeline + consumer lock | `monitor/`, `messaging/` |
+| `src/weixin-sdk.ts` | weixin SDK resolver, supports the `WEACPX_WEIXIN_SDK` override | `loadWeixinSdk()` |
+| `src/dry-run.ts` | Entry for running the router without connecting to an IM | `bun run dry-run` |
+| `src/login.ts` | WeChat QR code login flow | `weacpx login` |
+| `src/doctor/` | `weacpx doctor` diagnostic suite | — |
 
-### `packages/` 子包
+### `packages/` Subpackages
 
-每个插件包结构一致：
+Each plugin package has a consistent structure:
 
 ```
 packages/channel-<name>/
 ├── src/
-│   ├── index.ts          # 默认导出 WeacpxPlugin
+│   ├── index.ts          # Default-exports WeacpxPlugin
 │   ├── channel.ts        # implements MessageChannelRuntime
 │   ├── <name>-provider.ts# implements ChannelCliProvider
 │   └── ...
-├── dist/                  # bun build 产物 + tsc emit 的 .d.ts
+├── dist/                  # bun build artifacts + .d.ts emitted by tsc
 ├── package.json           # peerDependencies.weacpx (optional)
-├── tsconfig.json          # 继承根 tsconfig，emitDeclarationOnly
+├── tsconfig.json          # Inherits the root tsconfig, emitDeclarationOnly
 └── README.md
 ```
 
-写新频道插件请看 [docs/plugin-development.md](./plugin-development.md)。
+To write a new channel plugin, see [docs/plugin-development.md](./plugin-development.md).
 
 ---
 
-## 构建管线
+## Build Pipeline
 
-`package.json` 中关键 script：
+Key scripts in `package.json`:
 
-| Script | 作用 |
+| Script | Purpose |
 | --- | --- |
-| `bun run build` | 主包：`bun build` 出 `dist/cli.js`、`dist/bridge/bridge-main.js`、`dist/plugin-api.js` + `tsc -p tsconfig.plugin-api.json` 出 `dist/plugin-api.d.ts` |
-| `bun run build:plugin-api` | 单独刷新 `dist/plugin-api.d.ts`（写新公共类型时用） |
-| `bun run build:channel-feishu` | 主包 + feishu 插件 |
-| `bun run build:channel-yuanbao` | 主包 + yuanbao 插件 |
-| `bun run build:packages` | 主包 + 全部 packages/* |
-| `bun run verify:publish` | `build:packages` + `scripts/verify-publish.mjs`（发布前必跑） |
-| `bun run dev` | 前台跑主包源码（不需要先 build） |
-| `bun run dry-run -- ...` | dry-run 入口 |
-| `bun run login` | 微信登录 |
+| `bun run build` | Main package: `bun build` produces `dist/cli.js`, `dist/bridge/bridge-main.js`, `dist/plugin-api.js` + `tsc -p tsconfig.plugin-api.json` produces `dist/plugin-api.d.ts` |
+| `bun run build:plugin-api` | Refresh `dist/plugin-api.d.ts` on its own (used when writing new public types) |
+| `bun run build:channel-feishu` | Main package + feishu plugin |
+| `bun run build:channel-yuanbao` | Main package + yuanbao plugin |
+| `bun run build:packages` | Main package + all packages/* |
+| `bun run verify:publish` | `build:packages` + `scripts/verify-publish.mjs` (must run before publishing) |
+| `bun run dev` | Run main package source in the foreground (no build needed first) |
+| `bun run dry-run -- ...` | dry-run entry |
+| `bun run login` | WeChat login |
 
-要点：
+Key points:
 
-- `bun build --target node --external node-pty`：`node-pty` 不打进 bundle，运行时由 `node_modules` 解析。`packages/*` 同理 `--external weacpx`。
-- 主包对外只导出 `weacpx/plugin-api`；其它路径（`weacpx/dist/*`、`weacpx/src/*`）**不是稳定 API**，别在外部依赖。
-- 插件包用 `tsc -p packages/<name>/tsconfig.json` 单独 emit `.d.ts`，因为 bun build 目前不出 `.d.ts`。
+- `bun build --target node --external node-pty`: `node-pty` is not bundled; it is resolved from `node_modules` at runtime. `packages/*` likewise use `--external weacpx`.
+- The main package only exports `weacpx/plugin-api` publicly; other paths (`weacpx/dist/*`, `weacpx/src/*`) are **not stable APIs** — don't depend on them externally.
+- Plugin packages emit `.d.ts` separately via `tsc -p packages/<name>/tsconfig.json`, because bun build currently does not emit `.d.ts`.
 
 ---
 
-## 本地运行的三种模式
+## Three Modes for Running Locally
 
-### 1. `bun run dev` — 前台主包
+### 1. `bun run dev` — Foreground Main Package
 
-最常用。直接跑 `src/cli.ts run`，热修改，不打 dist。
+The most common. Runs `src/cli.ts run` directly, hot edits, no dist build.
 
 ```bash
-bun run dev                # 前台跑，Ctrl-C 退出
-bun run login              # 单独完成微信扫码（或在另一个 shell）
+bun run dev                # Run in the foreground, Ctrl-C to exit
+bun run login              # Complete the WeChat QR scan separately (or in another shell)
 ```
 
-适合：调试 router、channel、orchestration、transport。
+Good for: debugging the router, channel, orchestration, transport.
 
-### 2. `dist/cli.js` — 模拟用户安装态
+### 2. `dist/cli.js` — Simulating the Installed-User State
 
 ```bash
 bun run build
@@ -210,9 +210,9 @@ node ./dist/cli.js status
 node ./dist/cli.js stop
 ```
 
-适合：复现"用户装好以后跑出来"的状态；测 `bin/weacpx` 入口；验证打包后 `node-pty` 解析等。
+Good for: reproducing the "what users get after installing" state; testing the `bin/weacpx` entry; verifying `node-pty` resolution after bundling, etc.
 
-### 3. `bun run dry-run` — 不连 IM
+### 3. `bun run dry-run` — Without Connecting to an IM
 
 ```bash
 bun run dry-run --chat-key wx:test -- \
@@ -222,48 +222,48 @@ bun run dry-run --chat-key wx:test -- \
   "/status"
 ```
 
-复用同一套 `buildApp` + router + transport，把 IM 入站换成命令行参数，把出站打印到终端。适合复现命令解析、session lifecycle 的 bug，单测无法复现的复杂时序也能在这里手动跑通。
+Reuses the same `buildApp` + router + transport, replacing IM inbound with command-line arguments and printing outbound to the terminal. Good for reproducing command-parsing and session-lifecycle bugs; complex timing that unit tests can't reproduce can also be manually exercised here.
 
-`--chat-key` 任意值都可以，建议用 `wx:test` / `feishu:test` / `yuanbao:test` 模拟不同频道路由。
+`--chat-key` can be any value; we recommend `wx:test` / `feishu:test` / `yuanbao:test` to simulate routing for different channels.
 
 ---
 
-## 测试
+## Testing
 
-完整说明：[docs/testing.md](./testing.md)。简要：
+Full description: [docs/testing.md](./testing.md). In brief:
 
-| 目录 | 跑法 | 何时用 |
+| Directory | How to Run | When to Use |
 | --- | --- | --- |
-| `tests/unit/` | `npm test` / `npm run test:unit` | 默认；镜像 `src/` 结构；CI 跑这套 |
-| `tests/smoke/` | `npm run test:smoke` | 真实 acpx / 真实 IM 协议；本地手动跑，不进 CI |
-| `tests/integration/` | (尚未启用) | 跨模块跨进程的协作测试，未来扩 |
-| `tests/helpers/`、`tests/fixtures/` | — | 测试公用 |
+| `tests/unit/` | `npm test` / `npm run test:unit` | Default; mirrors the `src/` structure; CI runs this set |
+| `tests/smoke/` | `npm run test:smoke` | Real acpx / real IM protocol; run manually locally, not in CI |
+| `tests/integration/` | (not yet enabled) | Cross-module, cross-process collaboration tests, to be expanded in the future |
+| `tests/helpers/`, `tests/fixtures/` | — | Shared by tests |
 
-测试 runner：`scripts/run-tests.mjs` → `scripts/run-tests-lib.mjs::buildTestPlan`。它先 `tsc --noEmit`，再为每个 `*.test.ts` 单独起 `bun test`。改 runner 行为请只动这两个文件。
+Test runner: `scripts/run-tests.mjs` → `scripts/run-tests-lib.mjs::buildTestPlan`. It first runs `tsc --noEmit`, then starts a separate `bun test` for each `*.test.ts`. To change runner behavior, only touch these two files.
 
-约定：
+Conventions:
 
-- 任何写盘的 test 用 `mkdtemp` 隔离，`rm -rf` 自清理。
-- 时间相关断言**不要**用 `Bun.sleep(20)` 当同步屏障。要么显式 `await someExpectedPromise`，要么 poll until 条件满足。原因见我们历史踩过的坑。
-- 涉及 `state.json` 写盘的测试用例，记得 buildApp 时传 `stateSaveDebounceMs: 0`（`tests/unit/main.test.ts` 顶部已经有 wrapper）。
+- Any test that writes to disk uses `mkdtemp` for isolation and `rm -rf` to self-clean.
+- For time-related assertions, **do not** use `Bun.sleep(20)` as a synchronization barrier. Either explicitly `await someExpectedPromise`, or poll until the condition is satisfied. The reason is in the pitfalls we've hit historically.
+- For test cases involving `state.json` disk writes, remember to pass `stateSaveDebounceMs: 0` when calling buildApp (the wrapper is already at the top of `tests/unit/main.test.ts`).
 
 ---
 
-## 架构地图
+## Architecture Map
 
-完整地图：[docs/code-wiki.md](./code-wiki.md)。这里只画一张总流图，方便先建心智模型。
+Full map: [docs/code-wiki.md](./code-wiki.md). Here we only draw a single overall flow diagram, to help build a mental model first.
 
 ```
             +------------------------------------------------------+
-            | 用户在 IM 平台发消息 / CLI 输入                        |
+            | User sends a message on an IM platform / CLI input   |
             +------------------------------------------------------+
                               |
                               v
    +-----------------------------------------------------+
    | MessageChannelRuntime (weixin / feishu / yuanbao …) |
-   |   - chatKey 构造                                    |
-   |   - 入站去重、媒体落盘                              |
-   |   - 出站配额（OutboundQuota）                       |
+   |   - chatKey construction                            |
+   |   - inbound dedup, media persistence                |
+   |   - outbound quota (OutboundQuota)                  |
    +-----------------------------------------------------+
                               |  agent.handle(chatKey, text)
                               v
@@ -276,7 +276,7 @@ bun run dry-run --chat-key wx:test -- \
                     | CommandRouter       |  ← src/commands/
                     +---------------------+
                        |              |
-        slash command  |              | 普通文本
+        slash command  |              | plain text
                        v              v
               +------------+    +-------------+
               | handlers/  |    | SessionService → transport.prompt
@@ -288,172 +288,172 @@ bun run dry-run --chat-key wx:test -- \
               +-------------------------------------------+
                                        |
                                        v
-                                 acpx 子进程
+                                 acpx subprocess
 ```
 
-旁路：
+Side paths:
 
-- **Orchestration** 通过 `OrchestrationServer`（Unix socket / Named Pipe）把多 agent 编排能力对外暴露。`weacpx mcp-stdio` 是它的 MCP-over-stdio 客户端封装。
-- **Daemon** 把 `runConsole` + IPC server + heartbeat 包成后台进程；前台 `weacpx run` 跳过 daemon 包装。
-- **State 持久化** 走 `DebouncedStateStore` → `StateStore` → `writePrivateFileAtomic`（`proper-lockfile` 跨进程互斥 + `write-file-atomic` 原子 rename + Windows EBUSY 兜底）。
+- **Orchestration** exposes multi-agent orchestration capability externally via `OrchestrationServer` (Unix socket / Named Pipe). `weacpx mcp-stdio` is its MCP-over-stdio client wrapper.
+- **Daemon** wraps `runConsole` + IPC server + heartbeat into a background process; the foreground `weacpx run` skips the daemon wrapping.
+- **State persistence** goes through `DebouncedStateStore` → `StateStore` → `writePrivateFileAtomic` (`proper-lockfile` for cross-process mutual exclusion + `write-file-atomic` for atomic rename + a Windows EBUSY fallback).
 
 ---
 
-## 子系统速查表
+## Subsystem Cheat Sheet
 
-| 子系统 | 入口 | 文档 |
+| Subsystem | Entry | Doc |
 | --- | --- | --- |
-| 命令解析与路由 | `src/commands/` | [commands-module.md](./commands-module.md), [commands.md](./commands.md) |
-| Daemon CLI | `src/daemon/`、`src/cli.ts` | [daemon-module.md](./daemon-module.md) |
-| Acpx-Bridge 协议 | `src/bridge/` | [`docs/2026-03-25-weacpx-acpx-bridge-design.md`](./2026-03-25-weacpx-acpx-bridge-design.md) |
+| Command parsing and routing | `src/commands/` | [commands-module.md](./commands-module.md), [commands.md](./commands.md) |
+| Daemon CLI | `src/daemon/`, `src/cli.ts` | [daemon-module.md](./daemon-module.md) |
+| Acpx-Bridge protocol | `src/bridge/` | [`docs/2026-03-25-weacpx-acpx-bridge-design.md`](./2026-03-25-weacpx-acpx-bridge-design.md) |
 | Orchestration | `src/orchestration/` | [`docs/2026-04-13-weacpx-orchestration-design.md`](./2026-04-13-weacpx-orchestration-design.md) |
-| 外部 MCP 集成 | `src/mcp/` | [external-mcp.md](./external-mcp.md) |
-| 频道管理 | `src/channels/` | [channel-management.md](./channel-management.md) |
-| 频道插件 SPI | `src/plugin-api.ts`、`src/plugins/` | [plugin-development.md](./plugin-development.md) |
-| 配置 | `src/config/` | [config-reference.md](./config-reference.md), [config-command.md](./config-command.md) |
-| 测试 | `tests/`、`scripts/run-tests*` | [testing.md](./testing.md) |
-| 发布 | `scripts/verify-publish.mjs` | [release.md](./release.md) |
+| External MCP integration | `src/mcp/` | [external-mcp.md](./external-mcp.md) |
+| Channel management | `src/channels/` | [channel-management.md](./channel-management.md) |
+| Channel plugin SPI | `src/plugin-api.ts`, `src/plugins/` | [plugin-development.md](./plugin-development.md) |
+| Config | `src/config/` | [config-reference.md](./config-reference.md), [config-command.md](./config-command.md) |
+| Testing | `tests/`, `scripts/run-tests*` | [testing.md](./testing.md) |
+| Releasing | `scripts/verify-publish.mjs` | [release.md](./release.md) |
 
 ---
 
-## acpx / SDK / 插件解析顺序
+## acpx / SDK / Plugin Resolution Order
 
 ### acpx
 
-`src/config/resolve-acpx-command.ts:resolveAcpxCommand`：
+`src/config/resolve-acpx-command.ts:resolveAcpxCommand`:
 
-1. `transport.command`（config 显式覆盖）
-2. **bundled** acpx：从主包 `node_modules/acpx/...` 解析（默认 `dependencies` 已经声明 `acpx@^0.6.1`）
+1. `transport.command` (explicit config override)
+2. **bundled** acpx: resolved from the main package's `node_modules/acpx/...` (by default `dependencies` already declares `acpx@^0.6.1`)
 3. Shell `PATH`
 
 ### weixin SDK
 
-`src/weixin-sdk.ts:loadWeixinSdk`：
+`src/weixin-sdk.ts:loadWeixinSdk`:
 
-1. `WEACPX_WEIXIN_SDK` 环境变量
-2. 已安装包 `weixin-agent-sdk`
+1. `WEACPX_WEIXIN_SDK` environment variable
+2. The installed package `weixin-agent-sdk`
 
-### 插件 home
+### Plugin home
 
-`src/plugins/plugin-home.ts:resolvePluginHome`：
+`src/plugins/plugin-home.ts:resolvePluginHome`:
 
-1. `WEACPX_PLUGIN_HOME` 环境变量
-2. 默认 `~/.weacpx/plugins/`（独立 `package.json`，与全局 / 项目 `node_modules` 隔离）
+1. `WEACPX_PLUGIN_HOME` environment variable
+2. Default `~/.weacpx/plugins/` (a standalone `package.json`, isolated from the global / project `node_modules`)
 
-包管理器自动探测：能跑 `bun --version` 就用 `bun add/remove`，否则回退 `npm install/uninstall`（`src/plugins/package-manager.ts`）。
+Package manager auto-detection: if `bun --version` runs, use `bun add/remove`; otherwise fall back to `npm install/uninstall` (`src/plugins/package-manager.ts`).
 
 ---
 
-## 配置与运行时文件
+## Config and Runtime Files
 
-默认全在 `~/.weacpx/`：
+By default everything is under `~/.weacpx/`:
 
-| 路径 | 内容 | 写入方 |
+| Path | Contents | Writer |
 | --- | --- | --- |
-| `~/.weacpx/config.json` | agents、workspaces、channels、plugins、transport 等静态配置 | `ConfigStore`，CLI |
-| `~/.weacpx/state.json` | sessions、chat_contexts、orchestration 状态 | `DebouncedStateStore`（50ms 合并）→ `StateStore` |
-| `~/.weacpx/runtime/daemon.pid` | 当前 daemon PID | `DaemonRuntime` |
-| `~/.weacpx/runtime/status.json` | daemon heartbeat / start_at / log paths | 同上 |
-| `~/.weacpx/runtime/app.log` | bounded 应用日志（轮转） | `AppLogger` |
+| `~/.weacpx/config.json` | Static config: agents, workspaces, channels, plugins, transport, etc. | `ConfigStore`, CLI |
+| `~/.weacpx/state.json` | sessions, chat_contexts, orchestration state | `DebouncedStateStore` (50ms coalescing) → `StateStore` |
+| `~/.weacpx/runtime/daemon.pid` | Current daemon PID | `DaemonRuntime` |
+| `~/.weacpx/runtime/status.json` | daemon heartbeat / start_at / log paths | Same as above |
+| `~/.weacpx/runtime/app.log` | bounded application log (rotated) | `AppLogger` |
 | `~/.weacpx/runtime/orchestration.sock` | Unix socket / `\\.\pipe\weacpx-orchestration-<hash>` | `OrchestrationServer` |
-| `~/.weacpx/plugins/` | 插件 npm home（独立 `package.json` + `node_modules`） | `weacpx plugin add/update` |
+| `~/.weacpx/plugins/` | Plugin npm home (standalone `package.json` + `node_modules`) | `weacpx plugin add/update` |
 
-字段细节：[docs/config-reference.md](./config-reference.md)。
-
----
-
-## 代码风格与约定
-
-强约束写在 `AGENTS.md`（`CLAUDE.md` 是它的符号链接）。重点：
-
-- **第一性原理**：从原始需求出发，不复制模板；目标不清楚先停下来对齐。
-- **TypeScript 严格模式**：`strict: true`；不放过 `any`；类型即文档。
-- **不写无用注释**：除非要解释 *WHY*（隐性约束、过去事故、特意规避的写法）。删掉解释 WHAT 的注释。
-- **不要为不可能发生的场景加 `try/catch` / fallback**：内部边界相信类型；只在系统边界（用户输入、外部 API）做校验。
-- **测试先行**：bug 修复要附 failing test → 修复 → test 转绿。修代码不写测试视为未完成。
-- **频道**：内置只有 `weixin`；非 weixin 频道**必须**作为插件包，在 `src/channels/` 写 product-specific 通道运行时一律不接受。
-- **避免破坏性变更**：`weacpx/plugin-api` 是公开类型；改它要慎重，必要时升 `WEACPX_PLUGIN_API_VERSION`。
+Field details: [docs/config-reference.md](./config-reference.md).
 
 ---
 
-## 按场景找入口
+## Code Style and Conventions
 
-新人最容易卡在"我要加 X，从哪里下手"。这张表覆盖最常见的场景：
+The hard constraints are in `AGENTS.md` (`CLAUDE.md` is a symlink to it). Highlights:
 
-| 想做的事 | 看这里 / 改这里 |
+- **First principles**: start from the raw requirement, don't copy templates; if the goal is unclear, stop and align first.
+- **TypeScript strict mode**: `strict: true`; don't let `any` slide; types are documentation.
+- **Don't write useless comments**: unless explaining *WHY* (implicit constraints, past incidents, deliberately avoided approaches). Delete comments that explain WHAT.
+- **Don't add `try/catch` / fallbacks for scenarios that can't happen**: trust the types at internal boundaries; only validate at system boundaries (user input, external APIs).
+- **Tests first**: a bug fix must include a failing test → fix → test turns green. Changing code without writing tests counts as unfinished.
+- **Channels**: only `weixin` is built in; non-weixin channels **must** be plugin packages, and writing a product-specific channel runtime in `src/channels/` is categorically not accepted.
+- **Avoid breaking changes**: `weacpx/plugin-api` is a public type; change it carefully, and bump `WEACPX_PLUGIN_API_VERSION` when necessary.
+
+---
+
+## Finding the Entry Point by Scenario
+
+Newcomers most often get stuck on "I want to add X, where do I start." This table covers the most common scenarios:
+
+| What You Want to Do | Look Here / Change Here |
 | --- | --- |
-| 加一个新的 slash 命令 | `src/commands/parse-command.ts` 加 token；`src/commands/handlers/` 加 handler；`src/commands/command-router.ts` 注册；测试镜像到 `tests/unit/commands/` |
-| 改某个命令的回复格式 | `src/formatting/` 的 render 函数；命令在 router 里调对应 render |
-| 加一个新的频道（飞书/Slack/Discord …） | **不要**改 `src/channels/`，看 [docs/plugin-development.md](./plugin-development.md)，在 `packages/channel-<type>/` 起新包 |
-| 改 acpx 调用方式（命令行参数、PTY、超时） | `src/transport/acpx-cli/` 或 `src/transport/acpx-bridge/`，保持 `SessionTransport` 接口稳定 |
-| 加 / 改一项 orchestration 能力 | `src/orchestration/orchestration-service.ts` + `orchestration-ipc.ts` + `orchestration-server.ts`；测试在 `tests/unit/orchestration/` |
-| 改 daemon 启停行为 | `src/daemon/`；status 字段改了同步更 `daemon-status.ts` 与文档 |
-| 改 `weacpx doctor` | `src/doctor/index.ts` 与各 probe |
-| 改 `weacpx mcp-stdio` 暴露的工具 | `src/mcp/weacpx-mcp-tools.ts` |
-| 改 `state.json` schema | `src/state/types.ts` + `state-store.ts` 的解析；考虑迁移 |
-| 加可恢复的运行时错误 | `src/recovery/`；router 里 wire 进对应命令 |
-| 加 / 改全局公共类型 | `src/plugin-api.ts` 再导出 + `bun run build:plugin-api` |
-| 修测试 runner | `scripts/run-tests-lib.mjs`（`buildTestPlan`） |
-| 加发布前 preflight | `scripts/verify-publish.mjs` |
+| Add a new slash command | Add a token in `src/commands/parse-command.ts`; add a handler in `src/commands/handlers/`; register in `src/commands/command-router.ts`; mirror tests to `tests/unit/commands/` |
+| Change a command's reply format | The render functions in `src/formatting/`; the command calls the corresponding render in the router |
+| Add a new channel (Feishu/Slack/Discord …) | **Don't** change `src/channels/`; see [docs/plugin-development.md](./plugin-development.md), start a new package under `packages/channel-<type>/` |
+| Change how acpx is invoked (CLI args, PTY, timeout) | `src/transport/acpx-cli/` or `src/transport/acpx-bridge/`, keeping the `SessionTransport` interface stable |
+| Add / change an orchestration capability | `src/orchestration/orchestration-service.ts` + `orchestration-ipc.ts` + `orchestration-server.ts`; tests in `tests/unit/orchestration/` |
+| Change daemon start/stop behavior | `src/daemon/`; if you change status fields, also update `daemon-status.ts` and the docs |
+| Change `weacpx doctor` | `src/doctor/index.ts` and the individual probes |
+| Change the tools exposed by `weacpx mcp-stdio` | `src/mcp/weacpx-mcp-tools.ts` |
+| Change the `state.json` schema | The parsing in `src/state/types.ts` + `state-store.ts`; consider migration |
+| Add a recoverable runtime error | `src/recovery/`; wire it into the corresponding command in the router |
+| Add / change a global public type | Re-export in `src/plugin-api.ts` + `bun run build:plugin-api` |
+| Fix the test runner | `scripts/run-tests-lib.mjs` (`buildTestPlan`) |
+| Add a pre-publish preflight | `scripts/verify-publish.mjs` |
 
 ---
 
-## Plan / Spec 写作流程
+## Plan / Spec Writing Workflow
 
-`docs/superpowers/specs/` 与 `docs/superpowers/plans/` 是非强制但**强推荐**的工作流：
+`docs/superpowers/specs/` and `docs/superpowers/plans/` are a non-mandatory but **strongly recommended** workflow:
 
-- **spec**（设计文档）：解释"我要解决什么 / 为什么这样做 / 备选方案"。
-  在动复杂代码前先写一份，命名 `YYYY-MM-DD-<topic>-design.md`。
-- **plan**（实施计划）：把 spec 拆成可被 agent / 自己一步步执行的步骤，命名 `YYYY-MM-DD-<topic>.md`。
+- **spec** (design doc): explains "what I want to solve / why I'm doing it this way / alternatives."
+  Write one before working on complex code, named `YYYY-MM-DD-<topic>-design.md`.
+- **plan** (implementation plan): breaks the spec into steps that an agent / yourself can execute one by one, named `YYYY-MM-DD-<topic>.md`.
 
-这两份在历史 PR 里通常作为同一次合并的一部分，便于后续考古。
+These two are usually part of the same merge in historical PRs, which makes later archaeology easier.
 
 ---
 
-## 提交、PR 与发布
+## Commits, PRs, and Releases
 
-### 提交
+### Commits
 
-- 提交信息走 conventional commits 风格（`fix:`、`feat:`、`docs:`、`chore:`、`test:`）。
-- 一个提交聚焦一件事；diff 越小越容易审。
-- 测试与代码改动尽量在同一个 commit 里。
+- Commit messages follow the conventional commits style (`fix:`, `feat:`, `docs:`, `chore:`, `test:`).
+- One commit focuses on one thing; the smaller the diff, the easier to review.
+- Try to keep test and code changes in the same commit.
 
-### PR
+### PRs
 
-- PR 标题简洁（< 70 字），描述里写：
-  - 为什么改（链接 issue / spec）
-  - 怎么改
-  - 怎么验（手动 / 自动测试）
-- 触发 daemon 行为变化的改动（频道、transport、orchestration、state）建议附 dry-run 脚本作证据。
+- Keep the PR title concise (< 70 chars), and in the description write:
+  - Why the change (link the issue / spec)
+  - How it changes
+  - How it's verified (manual / automated tests)
+- For changes that affect daemon behavior (channel, transport, orchestration, state), it's recommended to attach a dry-run script as evidence.
 
-### 发布
+### Releases
 
-完整流程：[release.md](./release.md)。一句话版：
+Full process: [release.md](./release.md). One-liner version:
 
 ```bash
 bun run verify:publish      # build:packages + scripts/verify-publish.mjs
 bun run publish:weacpx
-bun run publish:plugins     # 升一方插件包时
+bun run publish:plugins     # When bumping first-party plugin packages
 ```
 
-发版时记得：
+Remember when releasing:
 
-- 升 `package.json` `version`；如果改了一方插件，也升对应 `packages/*/package.json`。
-- 在 `docs/releases/` 加发版说明。
-- 给 git tag。
+- Bump `package.json` `version`; if you changed a first-party plugin, also bump the corresponding `packages/*/package.json`.
+- Add release notes under `docs/releases/`.
+- Create a git tag.
 
 ---
 
-## 拓展阅读
+## Further Reading
 
-- 用户视角：[README.md](../README.md)
-- 完整命令参考：[commands.md](./commands.md)
-- 频道管理：[channel-management.md](./channel-management.md)
-- 插件开发：[plugin-development.md](./plugin-development.md)
-- 配置字段：[config-reference.md](./config-reference.md)
-- 代码地图：[code-wiki.md](./code-wiki.md)
-- 测试约定：[testing.md](./testing.md)
-- 发版流程：[release.md](./release.md)
-- 多 Agent 编排原理：[`2026-04-13-weacpx-orchestration-design.md`](./2026-04-13-weacpx-orchestration-design.md)
-- Acpx-Bridge 协议：[`2026-03-25-weacpx-acpx-bridge-design.md`](./2026-03-25-weacpx-acpx-bridge-design.md)
-- 项目规约（`AGENTS.md` / `CLAUDE.md`）：[../AGENTS.md](../AGENTS.md)
+- User perspective: [README.md](../README.md)
+- Full command reference: [commands.md](./commands.md)
+- Channel management: [channel-management.md](./channel-management.md)
+- Plugin development: [plugin-development.md](./plugin-development.md)
+- Config fields: [config-reference.md](./config-reference.md)
+- Code map: [code-wiki.md](./code-wiki.md)
+- Testing conventions: [testing.md](./testing.md)
+- Release process: [release.md](./release.md)
+- Multi-agent orchestration principles: [`2026-04-13-weacpx-orchestration-design.md`](./2026-04-13-weacpx-orchestration-design.md)
+- Acpx-Bridge protocol: [`2026-03-25-weacpx-acpx-bridge-design.md`](./2026-03-25-weacpx-acpx-bridge-design.md)
+- Project conventions (`AGENTS.md` / `CLAUDE.md`): [../AGENTS.md](../AGENTS.md)

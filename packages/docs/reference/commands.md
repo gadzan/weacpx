@@ -2,6 +2,8 @@
 
 This page lists every command you can send to xacpx from a chat channel (WeChat, Feishu, Yuanbao, or a plugin channel). For day-to-day essentials only, see the README; come here when you need the full command surface, aliases, and argument formats.
 
+> Looking for the terminal `xacpx` commands (`start`, `update`, `plugin`, `channel`, `doctor`, …)? See [CLI Commands](/reference/cli).
+
 ## Command syntax
 
 - `<value>` denotes a required argument.
@@ -186,6 +188,7 @@ Currently supported paths:
 - `transport.sessionInitTimeoutMs`
 - `transport.permissionMode`
 - `transport.nonInteractivePermissions`
+- `transport.permissionPolicy`
 - `logging.level`
 - `logging.maxSizeBytes`
 - `logging.maxFiles`

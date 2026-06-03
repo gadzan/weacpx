@@ -16,10 +16,10 @@ test("root package publishes as xacpx and exposes plugin-api", () => {
   });
 });
 
-test("root package version is 0.8.0", () => {
+test("root package version is 0.8.3", () => {
   const pkg = readJson("package.json");
 
-  expect(pkg.version).toBe("0.8.0");
+  expect(pkg.version).toBe("0.8.3");
 });
 
 test("first-party channel plugins peer depend on xacpx", () => {
@@ -36,11 +36,13 @@ test("first-party channel plugins peer depend on xacpx", () => {
 });
 
 test("deprecated weacpx compat shim forwards plugin-api to xacpx", () => {
+  const root = readJson("package.json");
   const shim = readJson("weacpx-compat/package.json");
 
   expect(shim.name).toBe("weacpx");
+  expect(shim.version).toBe(root.version);
   expect(shim.bin).toBeUndefined();
-  expect(shim.dependencies["@ganglion/xacpx"]).toBeDefined();
+  expect(shim.dependencies["@ganglion/xacpx"]).toBe(`^${root.version}`);
   expect(shim.exports["./plugin-api"]).toEqual({
     types: "./plugin-api.d.ts",
     default: "./plugin-api.js",

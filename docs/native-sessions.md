@@ -1,145 +1,145 @@
-# 接入本地 Agent 原生会话（/ssn）
+# Attaching to a Local Agent's Native Session (/ssn)
 
-> README 只保留基础入口；本文说明 `/ssn` / `/ss native` 的完整语义、使用流程和排障。完整命令速查见 [commands.md](./commands.md)。
+> The README keeps only the basic entry point; this document explains the full semantics, usage flow, and troubleshooting of `/ssn` / `/ss native`. For the complete command quick-reference, see [commands.md](./commands.md).
 
-## 一句话说明
+## In One Sentence
 
-`/ssn` 用来把本机上 Codex 等 Agent 已有的**原生会话**接到 xacpx 里。接入后，你在微信、飞书或元宝里继续发普通消息，消息会继续进入同一个 Agent 原生会话，而不是复制出一份新上下文。
+`/ssn` is used to attach an **existing native session** of an Agent such as Codex on your local machine into xacpx. After attaching, when you continue sending plain messages in WeChat, Feishu, or Yuanbao, the messages continue to enter the same Agent native session, rather than copying out a new context.
 
-日常记这两类命令即可：
+For everyday use, just remember these two kinds of commands:
 
 ```text
-/ss codex --ws project       # 创建或复用 xacpx 逻辑会话
-/ssn codex --ws project      # 查询并接入本地 Codex 原生会话
+/ss codex --ws project       # Create or reuse an xacpx logical session
+/ssn codex --ws project      # Query and attach to a local Codex native session
 ```
 
-## 什么时候用 `/ss`，什么时候用 `/ssn`
+## When to Use `/ss`, When to Use `/ssn`
 
-| 场景 | 推荐命令 |
+| Scenario | Recommended Command |
 |------|----------|
-| 从手机新开一个远程工作会话 | `/ss codex -d /path/to/repo` |
-| 切回已有 xacpx 会话 | `/ss` 然后 `/use <alias>` |
-| 接入本地 Codex/Agent CLI 里已经存在的原生会话 | `/ssn codex -d /path/to/repo` |
-| 列出当前会话同 agent、同 workspace 下的本地原生会话 | `/ssn` |
-| 已知道原生 `sessionId`，想直接挂进 xacpx | `/ssn attach <sessionId> -a <alias>` |
+| Start a brand-new remote work session from your phone | `/ss codex -d /path/to/repo` |
+| Switch back to an existing xacpx session | `/ss` then `/use <alias>` |
+| Attach to a native session that already exists in the local Codex/Agent CLI | `/ssn codex -d /path/to/repo` |
+| List the local native sessions under the same agent and same workspace as the current session | `/ssn` |
+| You already know the native `sessionId` and want to attach it directly into xacpx | `/ssn attach <sessionId> -a <alias>` |
 
-`/ss` 不会主动枚举或接入新的原生会话；它只管理 xacpx 逻辑会话。通过 `/ssn` 接入后，会生成一个普通 xacpx 逻辑会话别名（例如 `codex-e8e552e7`），后续可在 `/ss` 列表里看到，并用 `/session use <alias>` 切回。
+`/ss` will not actively enumerate or attach new native sessions; it only manages xacpx logical sessions. After attaching via `/ssn`, an ordinary xacpx logical session alias is generated (for example `codex-e8e552e7`), which you can later see in the `/ss` list and switch back to with `/session use <alias>`.
 
-## 前置条件
+## Prerequisites
 
-- 本机使用的 `acpx` 版本需要支持 agent-side session 查询与恢复。
-- 对应 Agent 也要支持原生会话列表/恢复；如果 Agent 不支持，xacpx 会提示继续使用 `/ss`。
-- 如果使用 `--ws <name>`，该 workspace 需要已经在 xacpx 配置里存在；也可以直接用 `-d /absolute/path`。
+- The `acpx` version on your machine needs to support agent-side session querying and resumption.
+- The corresponding Agent must also support native session listing/resumption; if the Agent does not support it, xacpx will prompt you to keep using `/ss`.
+- If you use `--ws <name>`, that workspace must already exist in the xacpx configuration; you can also use `-d /absolute/path` directly.
 
-## 常用流程
+## Common Flows
 
-### 1. 按 workspace 查询并自动接入
+### 1. Query by workspace and Auto-attach
 
 ```text
 /ssn codex --ws project
 ```
 
-如果只找到一个候选，xacpx 会直接接入并切换到该会话。默认别名是：
+If only one candidate is found, xacpx will directly attach and switch to that session. The default alias is:
 
 ```text
-<agent>-<sessionId最后8位>
+<agent>-<last 8 characters of sessionId>
 ```
 
-例如 `codex-e8e552e7`。workspace 已经由 `/ssn` 查询上下文决定，别名优先突出原生 sessionId 尾号，方便和列表里的 `ID：…e8e552e7` 对应。如果这个别名或对应的底层 transport session 名已经被占用，xacpx 会自动追加 `-2`、`-3`，避免覆盖已有会话。
+For example `codex-e8e552e7`. The workspace is already determined by the `/ssn` query context, and the alias preferentially highlights the trailing digits of the native sessionId, making it easy to correspond with the `ID: …e8e552e7` in the list. If this alias or the corresponding underlying transport session name is already taken, xacpx will automatically append `-2`, `-3` to avoid overwriting an existing session.
 
-### 2. 多个候选时先选编号
+### 2. With Multiple Candidates, Pick a Number First
 
 ```text
 /ssn codex --ws project
 /ssn 1
 ```
 
-第一次命令会列出候选并缓存一个短时间列表；`/ssn 1`、`/ssn 2` 会选择最近一次列表里的对应项。如果列表过期或被新的查询覆盖，请重新执行 `/ssn ...`。
+The first command lists candidates and caches a short-lived list; `/ssn 1`, `/ssn 2` will select the corresponding item from the most recent list. If the list has expired or been overwritten by a new query, please re-run `/ssn ...`.
 
-想在接入时直接指定别名，用 `/ssn <编号> -a <alias>`，例如 `/ssn 1 -a fix-ci`。微信里列表只显示 sessionId 尾号、看不到完整 id，按编号指定别名比 `/ssn attach <sessionId> -a ...` 更顺手。
+To specify an alias directly at attach time, use `/ssn <number> -a <alias>`, for example `/ssn 1 -a fix-ci`. In WeChat the list only shows the trailing digits of the sessionId and you cannot see the full id, so specifying an alias by number is handier than `/ssn attach <sessionId> -a ...`.
 
-### 3. 直接按路径查询
+### 3. Query Directly by Path
 
 ```text
 /ssn codex -d /Users/me/project
 ```
 
-这适合还没注册 workspace 的项目。xacpx 会按路径解析或创建内部工作区上下文，并把接入后的逻辑会话绑定到该路径。
+This suits projects that have not yet registered a workspace. xacpx will resolve or create an internal workspace context by path, and bind the attached logical session to that path.
 
-### 4. 直接按原生 sessionId 接入
+### 4. Attach Directly by Native sessionId
 
 ```text
 /ssn attach 019e5d48 -a fix-ci
 ```
 
-这会按最近一次 `/ssn` 查询的上下文接入指定 `sessionId`，并把 xacpx 逻辑会话别名设为 `fix-ci`。如果还没有上下文，请先执行一次：
+This attaches the specified `sessionId` according to the context of the most recent `/ssn` query, and sets the xacpx logical session alias to `fix-ci`. If there is no context yet, please run once first:
 
 ```text
 /ssn codex --ws project
 ```
 
-长写法等价：
+The long form is equivalent:
 
 ```text
 /ss attach native 019e5d48 -a fix-ci
 ```
 
-### 5. 查看更多或跨 cwd 查询
+### 5. View More or Query Across cwd
 
-默认 `/ssn codex --ws project` 只看该工作目录下的原生会话。需要跨 cwd 查询时，加 `--all`：
+By default `/ssn codex --ws project` only looks at the native sessions under that working directory. When you need to query across cwd, add `--all`:
 
 ```text
 /ssn codex --ws project --all
 ```
 
-如果底层返回分页，列表末尾会给出“更多”命令，直接复制发送即可。
+If the underlying layer returns paginated results, a "more" command will be given at the end of the list; just copy and send it.
 
-## 接入后的行为
+## Behavior After Attaching
 
-接入成功后，xacpx 会创建一个逻辑会话来指向这个原生会话：
+After a successful attach, xacpx creates a logical session that points to this native session:
 
-- 普通消息会继续发送到同一个 Agent 原生 session。
-- `/use <alias>`、`/sessions`、`/status` 等仍按 xacpx 逻辑会话工作。
-- `/session rm <alias>` 只删除 xacpx 里的逻辑映射，不等于删除 Agent 原生会话。
-- 同一个原生 session 再次被 `/ssn` 选中时，xacpx 会优先切回已经接入的逻辑会话，避免重复创建。
+- Plain messages continue to be sent to the same Agent native session.
+- `/use <alias>`, `/sessions`, `/status`, etc. still work in terms of the xacpx logical session.
+- `/session rm <alias>` only deletes the logical mapping inside xacpx; it does not equal deleting the Agent native session.
+- When the same native session is selected by `/ssn` again, xacpx will preferentially switch back to the already-attached logical session, avoiding duplicate creation.
 
-## 命令速查
+## Command Quick-reference
 
-| 命令 | 说明 |
+| Command | Description |
 |------|------|
-| `/ssn` | 使用当前 xacpx 会话上下文查看本地原生会话 |
-| `/ssn codex --ws project` | 查询指定 workspace 下的 Codex 原生会话 |
-| `/ssn codex -d /Users/me/project` | 按本机绝对路径查询 |
-| `/ssn codex --ws project --all` | 跨 cwd 查询该 agent 的原生会话 |
-| `/ssn 1` | 接入或切换到列表第 1 个候选 |
-| `/ssn 1 -a <alias>` | 接入列表第 1 个候选并指定 xacpx 别名（微信里看不到完整 id 时用这个） |
-| `/ssn attach <sessionId> -a <alias>` | 按原生 sessionId 接入并指定 xacpx 别名（适合已知完整 id） |
-| `/ss attach native <sessionId> -a <alias>` | `/ssn attach` 的长写法 |
-| `/help ssn` | 在聊天里查看精简帮助 |
+| `/ssn` | View local native sessions using the current xacpx session context |
+| `/ssn codex --ws project` | Query the Codex native sessions under the specified workspace |
+| `/ssn codex -d /Users/me/project` | Query by absolute local path |
+| `/ssn codex --ws project --all` | Query that agent's native sessions across cwd |
+| `/ssn 1` | Attach to or switch to the 1st candidate in the list |
+| `/ssn 1 -a <alias>` | Attach to the 1st candidate in the list and specify an xacpx alias (use this when you cannot see the full id in WeChat) |
+| `/ssn attach <sessionId> -a <alias>` | Attach by native sessionId and specify an xacpx alias (suitable when you know the full id) |
+| `/ss attach native <sessionId> -a <alias>` | The long form of `/ssn attach` |
+| `/help ssn` | View the concise help inside the chat |
 
-## 常见问题
+## FAQ
 
-### `/ssn` 和 `/ss native` 是什么关系？
+### What is the Relationship Between `/ssn` and `/ss native`?
 
-`/ssn` 是推荐短命令；`/ss native ...` 是同一能力的显式写法。日常使用优先记 `/ssn`。
+`/ssn` is the recommended short command; `/ss native ...` is the explicit form of the same capability. For everyday use, prefer remembering `/ssn`.
 
-### `/ssn codex` 为什么没有自动接入唯一候选？
+### Why Didn't `/ssn codex` Auto-attach the Only Candidate?
 
-只写 agent 时，范围不够明确，xacpx 会展示列表而不是自动接入。想自动接入唯一候选，请显式指定 workspace 或路径：
+When you write only the agent, the scope is not specific enough, so xacpx will show a list rather than auto-attach. To auto-attach the only candidate, please explicitly specify a workspace or path:
 
 ```text
 /ssn codex --ws project
 /ssn codex -d /Users/me/project
 ```
 
-### 为什么提示“当前 transport 不支持列出本地会话”？
+### Why Does It Say "The current transport does not support listing local sessions"?
 
-说明当前 transport、`acpx` 或 Agent 暂时不能查询原生会话。你仍然可以使用 `/ss codex -d /path/to/repo` 管理普通 xacpx 会话。
+It means the current transport, `acpx`, or Agent cannot currently query native sessions. You can still use `/ss codex -d /path/to/repo` to manage ordinary xacpx sessions.
 
-### 接入失败会影响原来的 xacpx 会话吗？
+### Will a Failed Attach Affect the Original xacpx Session?
 
-xacpx 会在接入前检查 alias 和底层 transport session 名，尽量避免覆盖已有映射。如果冲突，会自动分配后缀别名，例如 `codex-e8e552e7-2`。
+xacpx checks the alias and the underlying transport session name before attaching, doing its best to avoid overwriting an existing mapping. If there is a conflict, it will automatically assign a suffixed alias, for example `codex-e8e552e7-2`.
 
-### 在手机里聊了几轮，本地 Agent 原生会话会有这些记录吗？
+### After Chatting a Few Rounds on My Phone, Will the Local Agent Native Session Have These Records?
 
-会。`/ssn` 是恢复并继续同一个 Agent 原生 session，不是只复制上下文再开一个 xacpx 私有副本。具体能否在本地 CLI 中看到完整记录，取决于该 Agent 自己的 session 展示能力。
+Yes. `/ssn` resumes and continues the same Agent native session, not just copying the context and opening another private xacpx copy. Whether the full records can specifically be seen in the local CLI depends on that Agent's own session display capability.

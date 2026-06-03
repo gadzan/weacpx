@@ -1,220 +1,220 @@
-# `/later` 定时任务命令详解
+# `/later` Scheduled Task Command Reference
 
-`/later`（别名 `/lt`）让你在聊天里安排一个**一次性**定时任务：在未来某个时间执行一条普通消息——默认在一个为该任务新建的**临时会话**里执行（沿用创建时当前会话的 agent 与工作区，对话历史全新，跑完即销毁），也可用 `--bind` 发送到创建时绑定的当前会话；两种模式下 agent 的回复都推回原聊天。
+`/later` (alias `/lt`) lets you schedule a **one-off** scheduled task in chat: execute a plain message at some future time—by default in a **temporary session** newly created for that task (it inherits the agent and workspace of the current session at creation time, has a fresh conversation history, and is destroyed once it finishes), or you can use `--bind` to send it to the current session bound at creation time; in both modes the agent's reply is pushed back to the original chat.
 
-> README 只做基础引导，本文是完整参考。命令面速查见 [commands.md](./commands.md)；交互设计与取舍见 [superpowers/specs/2026-05-23-later-scheduled-tasks-design.md](./superpowers/specs/2026-05-23-later-scheduled-tasks-design.md)。
+> The README only provides basic guidance; this document is the complete reference. For a command-surface quick reference, see [commands.md](./commands.md); for the interaction design and trade-offs, see [superpowers/specs/2026-05-23-later-scheduled-tasks-design.md](./superpowers/specs/2026-05-23-later-scheduled-tasks-design.md).
 
-## 心智模型
+## Mental Model
 
-> 在未来 7 天内的某个时间执行一条普通用户消息：默认在一个**临时会话**里执行（沿用创建时的 agent 与工作区），`--bind` 则发送到创建时绑定的当前会话。
+> Execute a plain user message at some time within the next 7 days: by default in a **temporary session** (inheriting the agent and workspace at creation time), or with `--bind`, send it to the current session bound at creation time.
 
-- 创建任务时**必须**有当前会话：临时模式据此**快照 agent 与工作区**，绑定模式（`--bind`）据此确定投递目标。两种模式都在创建那一刻固定，之后 `/use` 切到别的会话**不影响**已创建任务。
-- 当前聊天频道必须支持**定时消息投递**。如果频道插件没有实现 `sendScheduledMessage`，`/lt <time> <message>` 会在创建阶段被拒绝，不会保存一个到点必然失败的任务。
-  - 内置微信频道、Feishu 插件频道、Yuanbao 插件频道支持该能力；第三方频道需要实现 `sendScheduledMessage` 后才会允许创建 `/lt` 任务。
-- 只发送**普通消息**，不会延迟执行 xacpx 的 `/` 命令。
-- 一次性：到点执行一次，不重复。
+- A current session is **required** when creating the task: temporary mode uses it to **snapshot the agent and workspace**, and bind mode (`--bind`) uses it to determine the delivery target. Both modes are fixed at the moment of creation; later switching to a different session with `/use` **does not affect** an already-created task.
+- The current chat channel must support **scheduled message delivery**. If the channel plugin does not implement `sendScheduledMessage`, `/lt <time> <message>` is rejected at creation time and will not save a task that is bound to fail when it comes due.
+  - The built-in WeChat channel, the Feishu plugin channel, and the Yuanbao plugin channel support this capability; third-party channels must implement `sendScheduledMessage` before they are allowed to create `/lt` tasks.
+- It sends only **plain messages**; it will not delay-execute xacpx's `/` commands.
+- One-off: it runs once when due, with no repetition.
 
-## 执行会话：临时会话（默认）vs 绑定当前会话
+## Execution Session: Temporary Session (default) vs Bound Current Session
 
-定时任务到点时有两种执行会话模式：
+When a scheduled task comes due, there are two execution-session modes:
 
-- **临时会话（默认）**：新建一个干净的会话执行本次任务，沿用创建时当前会话的 agent 与工作区，但对话历史是全新的；任务跑完即销毁该会话。更符合「定时任务不该污染我正在用的会话」的预期。
-- **绑定当前会话（`--bind`）**：把消息发送到创建时绑定的那个会话，结果进入该会话上下文（旧行为）。
-
-```text
-/lt in 2h 检查 CI            # 临时会话（默认）
-/lt --bind in 2h 检查 CI     # 绑定当前会话
-/lt --temp tomorrow 09:00 看 PR   # 显式临时（当默认被改为 bind 时使用）
-```
-
-- `--bind` 与 `--temp` 互斥，同时出现会被拒绝。
-- 默认模式可用配置 `later.defaultMode`（`"temp"` | `"bind"`，默认 `"temp"`）修改，见 [config-reference.md](./config-reference.md)。
-- 两种模式都要求创建时存在当前会话（临时模式需要它来快照 agent/工作区）。
-- 临时会话不可续聊：对结果消息的回复进入你当前的正常会话，不会复活临时会话。
-
-## 命令一览
+- **Temporary session (default)**: a clean session is created to run this task, inheriting the agent and workspace of the current session at creation time, but with a brand-new conversation history; once the task finishes, that session is destroyed. This better matches the expectation that "a scheduled task should not pollute the session I'm using."
+- **Bound current session (`--bind`)**: the message is sent to the session bound at creation time, and the result enters that session's context (the old behavior).
 
 ```text
-/later                  # 显示帮助
-/later <time> <message> # 创建一次性定时任务
-/later list             # 查看全局待执行任务
-/later cancel <id>      # 取消待执行任务
+/lt in 2h Check CI            # temporary session (default)
+/lt --bind in 2h Check CI     # bind the current session
+/lt --temp tomorrow 09:00 Look at the PR   # explicitly temporary (use when the default has been changed to bind)
 ```
 
-`/lt` 与 `/later` 完全等价：
+- `--bind` and `--temp` are mutually exclusive; supplying both is rejected.
+- The default mode can be changed via the config `later.defaultMode` (`"temp"` | `"bind"`, default `"temp"`); see [config-reference.md](./config-reference.md).
+- Both modes require a current session at creation time (temporary mode needs it to snapshot the agent/workspace).
+- A temporary session cannot be continued: a reply to the result message enters your current normal session and will not revive the temporary session.
+
+## Command Overview
+
+```text
+/later                  # show help
+/later <time> <message> # create a one-off scheduled task
+/later list             # view global pending tasks
+/later cancel <id>      # cancel a pending task
+```
+
+`/lt` and `/later` are fully equivalent:
 
 ```text
 /lt
-/lt in 30m 检查 CI
+/lt in 30m Check CI
 /lt list
 /lt cancel k8f2
 ```
 
-## 自然语言创建与管理（当前会话内）
+## Natural-Language Creation and Management (within the current session)
 
-除了 `/lt` 命令，普通对话里的 agent 也可以在理解到“稍后/明天/某个时间提醒我做某事”时，通过当前会话内部 MCP 工具创建同样的定时任务。这个能力只暴露给 xacpx 为**当前对话会话**启动的 queue owner，不会出现在外部 `xacpx mcp-stdio` 配置里。
+In addition to the `/lt` command, an agent in ordinary conversation can also create the same scheduled task—through an MCP tool internal to the current session—when it understands "remind me to do something later / tomorrow / at some time." This capability is only exposed to the queue owner that xacpx starts for the **current conversation session**, and does not appear in the external `xacpx mcp-stdio` configuration.
 
-- agent 只提供 `timeText`、`message` 和可选模式（`temp` / `bound`）；`chatKey`、会话 alias、账号、回复上下文等路由信息由 daemon 从当前会话记录中解析。
-- 时间语法、10 秒～7 天限制、默认临时会话、`later.defaultMode`、频道投递能力检查都与 `/lt` 一致。
-- 群聊权限也与 `/lt` 一致：群聊中只有群主可以创建定时任务，避免通过自然语言绕过频道命令权限。
-- 如果当前会话路由或聊天类型/群主元数据无法可靠记录，xacpx 会拒绝创建（或取消本次发送），避免使用旧路由误创建任务。
-- 除创建外，agent 还可以用 `scheduled_list` 查看待执行任务、用 `scheduled_cancel <id>` 取消任务。`scheduled_list` 返回**全局**待执行列表（与 `/lt list` 一致），`scheduled_cancel` 按任务 id 取消（id 前的 `#` 可选）；群聊中两者同样仅群主可调用。
+- The agent provides only `timeText`, `message`, and an optional mode (`temp` / `bound`); routing information such as `chatKey`, the session alias, the account, and the reply context is resolved by the daemon from the current session record.
+- The time syntax, the 10-second–7-day limit, the default temporary session, `later.defaultMode`, and the channel delivery-capability check are all consistent with `/lt`.
+- Group-chat permissions are also consistent with `/lt`: in group chats, only the group owner can create scheduled tasks, to prevent bypassing channel command permissions via natural language.
+- If the current session's routing or the chat type / group-owner metadata cannot be recorded reliably, xacpx refuses to create (or cancels this send), to avoid creating a task by mistake using stale routing.
+- Besides creating, the agent can also use `scheduled_list` to view pending tasks and `scheduled_cancel <id>` to cancel tasks. `scheduled_list` returns the **global** pending list (consistent with `/lt list`), and `scheduled_cancel` cancels by task id (the leading `#` is optional); in group chats both can likewise only be called by the group owner.
 
-## 时间语法
+## Time Syntax
 
-时间按**本机本地时区**解析。`<time>` 是命令里 `<message>` 之前的 1~2 个 token，其余部分都算消息内容。创建成功时会回显**绝对日期和星期**，避免相对表达产生歧义。
+Time is parsed in the **machine's local time zone**. `<time>` is the 1–2 tokens before `<message>` in the command, and everything else is treated as message content. On successful creation it echoes back the **absolute date and day of week** to avoid ambiguity from relative expressions.
 
-所有任务都必须满足：
+Every task must satisfy:
 
-- 执行时间 **≥ 当前时间 + 10 秒**
-- 执行时间 **≤ 当前时间 + 7 天**
+- Execution time **≥ current time + 10 seconds**
+- Execution time **≤ current time + 7 days**
 
-### 相对时间
+### Relative Time
 
-英文（两个 token：`in` + 数字单位）：
-
-```text
-/lt in 10m 检查 CI
-/lt in 2h 检查 CI
-/lt in 1d 总结当前进展
-```
-
-中文（一个 token，紧凑无空格）：
+English (two tokens: `in` + number-unit):
 
 ```text
-/lt 10分钟后 检查 CI
-/lt 2小时后 检查 CI
-/lt 1天后 总结当前进展
+/lt in 10m Check CI
+/lt in 2h Check CI
+/lt in 1d Summarize current progress
 ```
 
-支持单位：
+Chinese (one token, compact with no spaces):
 
-| 类别 | 可用写法 |
+```text
+/lt 10分钟后 Check CI
+/lt 2小时后 Check CI
+/lt 1天后 Summarize current progress
+```
+
+Supported units:
+
+| Category | Available forms |
 |------|----------|
-| 分钟 | `m` / `min` / `minute` / `minutes` / `分钟` |
-| 小时 | `h` / `hour` / `hours` / `小时` |
-| 天   | `d` / `day` / `days` / `天` |
+| Minutes | `m` / `min` / `minute` / `minutes` / `分钟` |
+| Hours | `h` / `hour` / `hours` / `小时` |
+| Days   | `d` / `day` / `days` / `天` |
 
-只支持**阿拉伯数字 + 单位**；不支持小数（`1.5h`）和中文数字（`一小时后`、`半小时后`），中文写法也不能有空格（`10 分钟后` 不识别）。
+Only **Arabic numerals + unit** are supported; decimals (`1.5h`) and Chinese numerals (`一小时后`, `半小时后`) are not supported, and the Chinese form also cannot contain spaces (`10 分钟后` is not recognized).
 
-### 今天 / 明天 / 后天 + 时刻
-
-```text
-/lt at 21:30 继续处理
-/lt today 21:30 继续处理
-/lt tomorrow 09:00 看 PR
-
-/lt 今天 21:30 继续处理
-/lt 明天 09:00 看 PR
-/lt 后天 14:30 继续 debug
-```
-
-- `at 21:30` 等价于「今天 21:30」。
-- `today` = `今天`（当天），`tomorrow` = `明天`（+1 天），`后天` = +2 天（无对应英文词）。
-- 时刻格式为 `H:MM` 或 `HH:MM`，小时 0–23，分钟必须两位（`09:00`，不接受 `9:0`）。
-- 如果 `today` / `at` 指定的时刻**今天已经过去**，会被**拒绝**，不会自动顺延到明天：
+### Today / Tomorrow / Day After Tomorrow + Time
 
 ```text
-今天 21:30 已经过了，请指定一个未来的时间，或使用「明天」。
+/lt at 21:30 Continue working
+/lt today 21:30 Continue working
+/lt tomorrow 09:00 Look at the PR
+
+/lt 今天 21:30 Continue working
+/lt 明天 09:00 Look at the PR
+/lt 后天 14:30 Continue debugging
 ```
 
-### 星期几 + 时刻
+- `at 21:30` is equivalent to "today 21:30."
+- `today` = `今天` (the same day), `tomorrow` = `明天` (+1 day), `后天` = +2 days (no corresponding English word).
+- The time format is `H:MM` or `HH:MM`, hours 0–23, minutes must be two digits (`09:00`, `9:0` is not accepted).
+- If the time specified by `today` / `at` has **already passed today**, it is **rejected** and will not automatically roll over to tomorrow:
 
 ```text
-/lt 周五 09:00 看 PR
-/lt 星期五 09:00 看 PR
-/lt fri 09:00 看 PR
-/lt friday 09:00 看 PR
+Today 21:30 has already passed; please specify a future time, or use "tomorrow."
 ```
 
-- 解析为「未来 7 天内最近的那个同名星期几」。
-- 如果今天就是目标星期几且时刻还没到，安排到**今天**；若时刻已过，则顺延到**下周同一天同一时刻**。
-- 结果仍须落在 7 天内。
-- 支持中英文全部 7 天：`周日/周天/星期日/星期天/sun/sunday` … `周六/星期六/sat/saturday`。
+### Day of Week + Time
 
-### 不支持的表达
+```text
+/lt 周五 09:00 Look at the PR
+/lt 星期五 09:00 Look at the PR
+/lt fri 09:00 Look at the PR
+/lt friday 09:00 Look at the PR
+```
 
-第一版**故意**不识别这些模糊或复合表达（避免自然语言误判）：
+- Parsed as "the nearest occurrence of that same-named weekday within the next 7 days."
+- If today is the target weekday and the time has not yet passed, it is scheduled for **today**; if the time has already passed, it rolls over to **the same day and time next week**.
+- The result must still fall within 7 days.
+- All 7 days in both Chinese and English are supported: `周日/周天/星期日/星期天/sun/sunday` … `周六/星期六/sat/saturday`.
+
+### Unsupported Expressions
+
+The first version **intentionally** does not recognize these vague or compound expressions (to avoid natural-language misinterpretation):
 
 ```text
 明早   今晚   下午三点   周五晚上   下周一   月底   饭后   睡前
 ```
 
-无法识别时会给出统一引导：
+When it cannot be recognized, it gives a uniform guidance:
 
 ```text
-无法识别时间格式。
+Unable to recognize the time format.
 
-支持的格式：
-- /lt in 2h 消息（2小时后）
-- /lt 30分钟后 消息
-- /lt tomorrow 09:00 消息
-- /lt 周五 09:00 消息
+Supported formats:
+- /lt in 2h message (in 2 hours)
+- /lt 30分钟后 message
+- /lt tomorrow 09:00 message
+- /lt 周五 09:00 message
 ```
 
-## 消息内容限制
+## Message Content Limitations
 
-- 定时任务只发送**普通 prompt**。
-- 如果 `<message>` 以 `/` 开头，会被拒绝——避免误以为可以定时执行 `/status`、`/cancel`、`/config set` 等管理命令。如果你想让 agent 讨论某条命令，请写成普通句子，例如 `/lt in 1h 请解释 /status 的作用`。
-- 没有消息内容时会提示补充。
-- 内容展示采用摘要策略：约 120 字以内完整显示，超过则截断并追加省略号。
+- A scheduled task sends only a **plain prompt**.
+- If `<message>` starts with `/`, it is rejected—to avoid the misconception that management commands such as `/status`, `/cancel`, `/config set` can be scheduled. If you want the agent to discuss a command, write it as a plain sentence, e.g. `/lt in 1h Please explain what /status does`.
+- If there is no message content, it prompts you to add some.
+- Content display uses a summary strategy: roughly up to 120 characters are shown in full; beyond that it is truncated and an ellipsis is appended.
 
-## 创建成功回显
+## Successful-Creation Echo
 
 ```text
-已创建定时任务 #k8f2
-执行时间：2026-05-23 周六 21:30
-临时会话（backend · codex）
-内容：检查 CI
+Created scheduled task #k8f2
+Execution time: 2026-05-23 Sat 21:30
+Temporary session (backend · codex)
+Content: Check CI
 ```
 
-加 `--bind` 时，会话行显示绑定会话：
+With `--bind`, the session line shows the bound session:
 
 ```text
-已创建定时任务 #k8f2
-执行时间：2026-05-23 周六 21:30
-会话：backend-codex
-内容：检查 CI
+Created scheduled task #k8f2
+Execution time: 2026-05-23 Sat 21:30
+Session: backend-codex
+Content: Check CI
 ```
 
-## 频道不支持时
+## When the Channel Does Not Support It
 
-如果当前频道还没有实现定时消息投递能力，创建会被拒绝：
+If the current channel has not yet implemented the scheduled message delivery capability, creation is rejected:
 
 ```text
-当前频道暂不支持定时任务，未创建任务。
+The current channel does not yet support scheduled tasks; no task was created.
 
-原因：这个频道还没有实现定时消息投递能力，任务到点后无法把结果发回原聊天。
-请切换到支持定时任务的频道后再使用 /lt。
+Reason: this channel has not yet implemented the scheduled message delivery capability, so when the task comes due the result cannot be sent back to the original chat.
+Please switch to a channel that supports scheduled tasks before using /lt.
 ```
 
-这类失败发生在创建阶段，不会写入 `state.json`，也不会等到任务到点后才标记失败。
+This kind of failure occurs at the creation stage; it is not written to `state.json`, and it does not wait until the task comes due to be marked as failed.
 
-## 查看与取消
+## View and Cancel
 
 ```text
-/lt list          # 全局待执行任务，不限当前聊天/会话，并显示执行会话（临时会话或绑定会话）
-/lt cancel k8f2   # 取消；id 带不带 # 都行，大小写不敏感
+/lt list          # global pending tasks, not limited to the current chat/session, and shows the execution session (temporary session or bound session)
+/lt cancel k8f2   # cancel; the id works with or without #, case-insensitive
 /lt cancel #k8f2
 ```
 
-列表示例：
+List example:
 
 ```text
-待执行定时任务：
+Pending scheduled tasks:
 
-#k8f2  2026-05-23 周六 21:30  临时会话（backend · codex）
-检查 CI 是否恢复
+#k8f2  2026-05-23 Sat 21:30  Temporary session (backend · codex)
+Check whether CI has recovered
 
-#p91a  2026-05-24 周日 09:00  会话：frontend-claude
-继续整理昨天的问题
+#p91a  2026-05-24 Sun 09:00  Session: frontend-claude
+Continue organizing yesterday's issues
 ```
 
-没有待执行任务时显示：`当前没有待执行定时任务。`
+When there are no pending tasks, it shows: `There are currently no pending scheduled tasks.`
 
-### CLI 查看与取消
+### CLI View and Cancel
 
-如果当前频道不可用、无法发消息，或只想在电脑终端管理本机任务，可以用 CLI 查看和取消待执行任务：
+If the current channel is unavailable, you cannot send messages, or you just want to manage local tasks from your computer's terminal, you can use the CLI to view and cancel pending tasks:
 
 ```bash
 xacpx later list
@@ -223,59 +223,59 @@ xacpx lt list
 xacpx lt cancel #k8f2
 ```
 
-CLI 只做管理能力：支持 `list` / `cancel`，不支持创建定时任务，也不会触发频道投递。
+The CLI only provides management capability: it supports `list` / `cancel`, does not support creating scheduled tasks, and will not trigger channel delivery.
 
-## 触发与任务状态
+## Triggering and Task States
 
-到点后：
+When it comes due:
 
-1. 先向原聊天发送一条可见**通知**（`执行定时任务 #id …`，并标明执行会话是临时会话还是绑定会话）。
-2. 再把内容作为普通 prompt 投递执行：临时模式在新建的临时会话里执行、跑完即销毁该会话；绑定模式投递到绑定会话。两种模式下 agent 的回复都通过现有频道路由推回该聊天。
+1. First, a visible **notification** is sent to the original chat (`Executing scheduled task #id …`, indicating whether the execution session is a temporary session or a bound session).
+2. Then the content is delivered as a plain prompt for execution: temporary mode runs in a newly created temporary session and destroys that session once it finishes; bind mode delivers to the bound session. In both modes the agent's reply is pushed back to that chat through the existing channel routing.
 
-任务状态机：
+Task state machine:
 
-| 状态 | 含义 |
+| State | Meaning |
 |------|------|
-| `pending` | 等待执行（`/lt list` 只显示这一类） |
-| `triggering` | 正在执行（已 claim、投递中） |
-| `executed` | 已派发执行 |
-| `cancelled` | 被 `/lt cancel` 取消 |
-| `missed` | 启动时发现已过期、未执行 → 不补执行，仅标记 |
-| `failed` | 投递失败（如绑定会话不存在、临时会话的 agent/工作区已注销、transport 不可用） |
+| `pending` | Waiting for execution (`/lt list` shows only this category) |
+| `triggering` | Currently executing (claimed, in delivery) |
+| `executed` | Dispatched for execution |
+| `cancelled` | Cancelled by `/lt cancel` |
+| `missed` | Found to be already expired and not executed at startup → not re-executed, only marked |
+| `failed` | Delivery failed (e.g. the bound session does not exist, the temporary session's agent/workspace has been deregistered, the transport is unavailable) |
 
-- **错过补偿**：如果 daemon 在任务到点时未运行，重启后发现 `execute_at < now` 的待执行任务会被标记为 `missed`，**不会**补发——避免几小时/几天前的旧任务在重启后突然发出。
-- **崩溃安全**：被中断在 `triggering` 的任务在重启后会被标记 `failed`，不会重复触发。
-- 第一版**不重试**，也不提供历史查询命令。
+- **Missed compensation**: if the daemon is not running when the task comes due, after restart it finds pending tasks with `execute_at < now` and marks them as `missed`, and **does not** re-send them—to avoid old tasks from hours/days ago suddenly firing after a restart.
+- **Crash safety**: a task interrupted in `triggering` is marked `failed` after restart and will not be triggered again.
+- The first version **does not retry** and does not provide a history-query command.
 
-## 投递可达性说明（重要）
+## Delivery Reachability Notes (Important)
 
-触发时的「通知」和「agent 回复」都要靠频道的出站推送能力：
+Both the "notification" and the "agent reply" at trigger time rely on the channel's outbound push capability:
 
-- 微信的出站推送依赖会话上下文窗口。一个排期很靠后（接近 7 天）且期间用户没有任何新消息的任务，到点时可能**无法推送**，此时任务记为 `failed` 并记日志。
-- 如果通知发送失败、但仍有可用的投递上下文（例如仅 mid 配额耗尽），任务**不会被取消**：agent 照常执行，最终结果走 final 配额投递。
-- 只有在「完全不可投递」（没有可用账号 / 上下文）时才中止，不执行 agent。
+- WeChat's outbound push depends on the session context window. A task scheduled far out (close to 7 days) with no new messages from the user during that period may be **unable to push** when it comes due; in that case the task is recorded as `failed` and logged.
+- If sending the notification fails but there is still a usable delivery context (e.g. only the mid quota is exhausted), the task is **not cancelled**: the agent runs as usual, and the final result is delivered via the final quota.
+- Only when it is "completely undeliverable" (no usable account / context) is it aborted without running the agent.
 
-如果你需要排期很久之后的任务，建议确认届时仍有近期互动，或缩短排期。
+If you need a task scheduled far in the future, it's recommended to confirm there will still be recent interaction by then, or shorten the schedule.
 
-## 权限模型
+## Permission Model
 
-第一版按「可信频道 / 个人工具」假设：
+The first version assumes a "trusted channel / personal tool":
 
-- 私聊里 `/later` 全部可用。
-- 群聊里 `/later`（创建）、`/lt list`、`/lt cancel` 属于控制类命令，**仅群主**可用；`/later`（不带参数的帮助）所有人可用。
-- 能执行 `/lt list` 的人可以取消任意待执行任务。`/lt list` 是**全局**的，会显示其它聊天创建的任务摘要与执行会话——这是有意的 v1 取舍。
+- In private chat, all of `/later` is available.
+- In group chat, `/later` (creation), `/lt list`, and `/lt cancel` are control-type commands available **only to the group owner**; `/later` (help with no arguments) is available to everyone.
+- Anyone who can run `/lt list` can cancel any pending task. `/lt list` is **global** and will show summaries of tasks created in other chats along with their execution sessions—this is a deliberate v1 trade-off.
 
-## 非目标（第一版不做）
+## Non-Goals (Not in the First Version)
 
-- 周期性 / 重复任务
-- 延迟执行 `/` 开头的 xacpx 命令
-- 复杂自然语言时间（明早、今晚、下周一、月底……）
-- 错过任务的补执行、失败重试
-- 历史查询命令、图形化维护界面
+- Periodic / repeated tasks
+- Delaying execution of xacpx commands that start with `/`
+- Complex natural-language times (明早, 今晚, 下周一, 月底 …)
+- Re-execution of missed tasks, retry on failure
+- History-query commands, a graphical maintenance interface
 
-## 帮助
+## Help
 
 ```text
-/later          # 聊天内帮助
-/help later     # 帮助主题（含别名、示例、约束）
+/later          # in-chat help
+/help later     # help topic (with aliases, examples, constraints)
 ```
