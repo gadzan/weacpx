@@ -1,10 +1,14 @@
-import { expect, test } from "bun:test";
+import { expect, test, beforeEach, afterAll } from "bun:test";
 
 import {
   findKnownPluginByChannel,
   getMovedChannelInstallHint,
   listKnownPlugins,
 } from "../../../src/plugins/known-plugins";
+import { setLocale } from "../../../src/i18n";
+
+beforeEach(() => { setLocale("zh"); });
+afterAll(() => { setLocale("en"); });
 
 test("listKnownPlugins includes Feishu and Yuanbao first-party packages", () => {
   const plugins = listKnownPlugins();
