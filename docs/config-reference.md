@@ -69,7 +69,9 @@ If you want to manage WeChat/Feishu message channels, see [`docs/channel-managem
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `language` | `"en"` \| `"zh"` | 否 | 选择 xacpx 运行时输出（聊天回复、CLI 输出、编排提示词等）的语言；缺省时首次启动按系统 locale（`$LANG` 等，`zh*` → 中文，否则英文）推断并写入配置；可用 `/config set language en` 修改；改后需 `xacpx restart` 生效 |
+| `language` | `"en"` \| `"zh"` | 否 | 选择 xacpx 运行时输出（聊天回复、CLI 输出、编排提示词等）的语言；缺省时按系统 locale 推断：先看 `$LC_ALL`/`$LC_MESSAGES`/`$LANG`，再回退到系统 locale（`zh*` → 中文，否则英文）；可用 `/config set language en` 修改；改后需 `xacpx restart` 生效 |
+
+> **Windows 提示**：`cmd.exe`/PowerShell 默认不设置 `LANG` 等 POSIX 环境变量，自动探测改为读取系统 locale（经 `Intl`，可识别中文 Windows）。若自动结果不准，显式设置最可靠：`/config set language zh`。
 
 ---
 

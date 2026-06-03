@@ -18,7 +18,20 @@ describe("resolveLocale", () => {
     expect(resolveLocale({ env: { LC_MESSAGES: "zh_TW.UTF-8" } })).toBe("zh");
   });
   it("defaults to en when nothing matches", () => {
-    expect(resolveLocale({ env: {} })).toBe("en");
+    expect(resolveLocale({ env: {}, systemLocale: "en-US" })).toBe("en");
+  });
+  it("falls back to the system locale when POSIX env is empty (Windows path)", () => {
+    // Windows cmd/PowerShell sets none of LC_ALL/LC_MESSAGES/LANG, so detection
+    // must come from the OS locale name (here injected; in prod from Intl).
+    expect(resolveLocale({ env: {}, systemLocale: "zh-CN" })).toBe("zh");
+    expect(resolveLocale({ env: {}, systemLocale: "en-GB" })).toBe("en");
+  });
+  it("prefers POSIX env over the system locale when both are present", () => {
+    expect(resolveLocale({ env: { LANG: "en_US.UTF-8" }, systemLocale: "zh-CN" })).toBe("en");
+    expect(resolveLocale({ env: { LANG: "zh_CN.UTF-8" }, systemLocale: "en-US" })).toBe("zh");
+  });
+  it("defaults to en when the system locale is unavailable", () => {
+    expect(resolveLocale({ env: {}, systemLocale: "" })).toBe("en");
   });
   it("isLocale guards values", () => {
     expect(isLocale("en")).toBe(true);
