@@ -3,15 +3,15 @@ layout: home
 
 hero:
   name: xacpx
-  text: 通过聊天远程控制 Agent
-  tagline: 在微信、飞书、元宝等消息频道中，无需打开终端，即可驱动 acpx Agent 会话（Codex、Claude Code、Gemini 等）。
+  text: 你的 Agent，就在聊天里
+  tagline: 在微信、飞书、元宝中驱动 Codex、Claude Code、Gemini 会话——无需打开终端。
   actions:
     - theme: brand
       text: 快速开始
       link: /zh/guide/getting-started
     - theme: alt
-      text: 命令参考
-      link: /zh/reference/commands
+      text: 在 GitHub 查看
+      link: https://github.com/gadzan/xacpx
 
 features:
   - icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>'

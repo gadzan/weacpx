@@ -41,8 +41,8 @@ The default mode can be changed via the `later.defaultMode` config key (`"temp"`
 
 ```text
 Scheduled task #k8f2 created
-Scheduled for: 2026-05-23 Sat 21:30
-Temporary session (backend · codex)
+Execute at: 2026-05-23 Sat 21:30
+Temp session (backend · codex)
 Message: check CI
 ```
 
@@ -50,7 +50,7 @@ Message: check CI
 
 ```text
 Scheduled task #k8f2 created
-Scheduled for: 2026-05-23 Sat 21:30
+Execute at: 2026-05-23 Sat 21:30
 Session: backend-codex
 Message: check CI
 ```
@@ -147,7 +147,7 @@ Shows all globally pending tasks — not filtered by the current chat or session
 ```text
 Pending scheduled tasks:
 
-#k8f2  2026-05-23 Sat 21:30  Temporary session (backend · codex)
+#k8f2  2026-05-23 Sat 21:30  Temp session (backend · codex)
 check CI status
 
 #p91a  2026-05-24 Sun 09:00  Session: frontend-claude
