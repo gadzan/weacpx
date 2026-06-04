@@ -40,19 +40,19 @@
 **确认输出（临时会话）：**
 
 ```text
-Scheduled task #k8f2 created
-Scheduled for: 2026-05-23 Sat 21:30
-Temporary session (backend · codex)
-Message: check CI
+已创建定时任务 #k8f2
+执行时间：2026-05-23 周六 21:30
+临时会话（backend · codex）
+内容：check CI
 ```
 
 **确认输出（绑定会话）：**
 
 ```text
-Scheduled task #k8f2 created
-Scheduled for: 2026-05-23 Sat 21:30
-Session: backend-codex
-Message: check CI
+已创建定时任务 #k8f2
+执行时间：2026-05-23 周六 21:30
+会话：backend-codex
+内容：check CI
 ```
 
 **时间始终按本地系统时区解析。** 确认回复会显示完整的日期和星期，以消除歧义。
@@ -125,13 +125,13 @@ Message: check CI
 当时间表达式无法识别时，xacpx 会显示格式提示：
 
 ```text
-Time format not recognized.
+无法识别时间格式。
 
-Supported formats:
-- /lt in 2h message        (2 hours from now)
-- /lt 30分钟后 message
-- /lt tomorrow 09:00 message
-- /lt 周五 09:00 message
+支持的格式：
+- /lt in 2h 消息（2小时后）
+- /lt 30分钟后 消息
+- /lt tomorrow 09:00 消息
+- /lt 周五 09:00 消息
 ```
 
 ## 查看定时任务列表
@@ -143,16 +143,16 @@ Supported formats:
 显示所有全局待执行任务，不按当前聊天或会话过滤：
 
 ```text
-Pending scheduled tasks:
+待执行定时任务：
 
-#k8f2  2026-05-23 Sat 21:30  Temporary session (backend · codex)
+#k8f2  2026-05-23 周六 21:30  临时会话（backend · codex）
 check CI status
 
-#p91a  2026-05-24 Sun 09:00  Session: frontend-claude
+#p91a  2026-05-24 周日 09:00  会话：frontend-claude
 continue working through yesterday's issues
 ```
 
-没有待执行任务时显示：`No pending scheduled tasks.`
+没有待执行任务时显示：`当前没有待执行定时任务。`
 
 当聊天频道不可用时，也可以通过终端管理任务：
 

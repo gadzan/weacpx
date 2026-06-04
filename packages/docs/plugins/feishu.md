@@ -84,15 +84,15 @@ While streaming, the card uses two CardKit endpoints intelligently:
 - `cardElement.content` for pure-text deltas — smaller payload, native typewriter animation.
 - Full `card.update` on state transitions, image-key arrival, reasoning panel toggles, and the final state.
 
-Final-state cards display the elapsed turn time in the footer (e.g. `已完成 · 3.4s` — "Done · 3.4s"). Live streaming cards also show a ticking elapsed footer (`⏳ 处理中... 8.2s` — "Processing… 8.2s") so long-running tasks provide a continuous time signal.
+Final-state cards display the elapsed turn time in the footer (e.g. `Done · 3.4s`). Live streaming cards also show a ticking elapsed footer (`⏳ Processing... 8.2s`) so long-running tasks provide a continuous time signal.
 
-> The Feishu channel emits several status strings in Chinese (the project is WeChat/Feishu-first). They are shown below with English translations; the literal text is what actually appears in the card.
+> Status strings shown below are the English locale (`config.language: "en"`). Under `"zh"` the card shows the Chinese equivalents (`Done` → `已完成`, `Processing...` → `处理中...`, `Stopped` → `已停止`, etc.).
 
 Models that emit `<think>...</think>` / `<thinking>...</thinking>` blocks (or a `Reasoning:\n_…_` prefix) have the reasoning rendered above the answer in a separate notation-sized block, with a horizontal divider before the answer body.
 
 Markdown image URLs (`![alt](https://...)`) are resolved to Feishu `image_key` references on the fly so the card renders images inline. URLs that do not resolve within the configurable timeout are stripped.
 
-The streaming card terminates gracefully on daemon shutdown: SIGINT/SIGTERM/`beforeExit` drives every in-flight card to its `已停止` ("Stopped") state before the process exits. A killed xacpx daemon no longer leaves cards stuck at `处理中...` ("Processing…") in the user's Feishu chat.
+The streaming card terminates gracefully on daemon shutdown: SIGINT/SIGTERM/`beforeExit` drives every in-flight card to its `Stopped` state before the process exits. A killed xacpx daemon no longer leaves cards stuck at `Processing...` in the user's Feishu chat.
 
 ### Required bot scopes
 
@@ -100,7 +100,7 @@ Streaming mode requires the bot to have **`cardkit:card:write`** plus **`im:mess
 
 ## Tool call rendering
 
-When `channel.replyMode: "verbose"` — the xacpx session reply mode (config path `channel.replyMode`, values `stream` / `final` / `verbose`), which is separate from Feishu's `options.replyMode` (auto / streaming / static) documented above — is paired with streaming mode, tool calls are rendered as a collapsible **🔧 工具调用 (N)** ("Tool calls (N)") panel above the answer body instead of inline text segments. Each step shows:
+When `channel.replyMode: "verbose"` — the xacpx session reply mode (config path `channel.replyMode`, values `stream` / `final` / `verbose`), which is separate from Feishu's `options.replyMode` (auto / streaming / static) documented above — is paired with streaming mode, tool calls are rendered as a collapsible **🔧 Tool calls (N)** panel above the answer body instead of inline text segments. Each step shows:
 
 - Status: ✅ / ⏳ / ❌
 - Kind icon: 📖 read · 🔍 search · 💻 execute · ✏️ edit · 🧠 think · 🔧 other
@@ -117,7 +117,7 @@ Static mode keeps the legacy inline behavior — each tool call appears as its o
 While the agent is processing, the user can send any of: `stop`, `/stop`, `abort`, `停止` ("stop"), `取消` ("cancel"), etc. The channel:
 
 1. Aborts the per-turn `AbortController`, which the router forwards to `transport.cancel()` so the underlying `acpx` process is interrupted.
-2. Renders a `已停止` ("Stopped") final state on the streaming card, or sends a `已停止当前任务。` ("Stopped the current task.") reply in static mode.
+2. Renders a `Stopped` final state on the streaming card, or sends a `Stopped current task.` reply in static mode.
 3. Removes the typing reaction added to the user's original message.
 
 `/cancel <alias>` and `/stop <alias>` target a specific session's in-flight turn by alias — fuzzy alias resolution applies, the same as `/use`.
@@ -133,7 +133,7 @@ Each inbound prompt is **bound at dispatch time** to whatever session the chat i
 When you switch away from a running session, its turn keeps executing. Feishu uses **"B-semantics"** (card-based):
 
 - The backgrounded session has its **own streaming card** that keeps refreshing **to completion in the chat timeline** — it is not gated or suppressed. The result stays on that card.
-- On completion, a short ping is sent to the chat: `✅ <alias> 已完成` (`<alias>` done) or `⚠️ <alias> 失败` (`<alias>` failed). Unlike the WeChat channel, there is **no `/use 查看结果` ("view result") suffix** — there is nothing to replay because the card already holds the result.
+- On completion, a short ping is sent to the chat: `✅ <alias> done` or `⚠️ <alias> failed`. Unlike the WeChat channel, there is **no `/use <alias> to view result` suffix** — there is nothing to replay because the card already holds the result.
 - Switching **back** to that session does **not** re-send the result.
 - `/sessions` marks sessions with an unfinished or unread background completion using `●`.
 
