@@ -11,6 +11,7 @@ import InstallCommand from './components/InstallCommand.vue';
 import ChatMockup from './components/ChatMockup.vue';
 import WorksWith from './components/WorksWith.vue';
 import ChatDemoSection from './components/ChatDemoSection.vue';
+import ArchitectureSection from './components/ArchitectureSection.vue';
 
 const { Layout } = DefaultTheme;
 const { lang } = useData();
@@ -36,6 +37,9 @@ const zh = computed(() => lang.value.startsWith('zh'));
     </template>
     <template #home-features-before>
       <ChatDemoSection />
+    </template>
+    <template #home-features-after>
+      <ArchitectureSection />
     </template>
   </Layout>
 </template>

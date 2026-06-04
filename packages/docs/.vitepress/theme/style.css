@@ -841,6 +841,278 @@
   }
 }
 
+/* =========================================================================
+   "How it works" — animated pipeline diagram
+   ========================================================================= */
+.arch-section {
+  max-width: 1152px;
+  margin: 8px auto 0;
+  padding: 72px 24px 8px;
+}
+
+.arch-head {
+  text-align: center;
+  max-width: 660px;
+  margin: 0 auto 44px;
+}
+
+.arch-kicker {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--xacpx-green);
+}
+
+.arch-title {
+  margin: 12px 0 0;
+  font-size: clamp(26px, 3.4vw, 38px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.12;
+}
+
+.arch-sub {
+  margin: 14px 0 0;
+  font-size: 16px;
+  color: var(--vp-c-text-2);
+}
+
+/* pipeline row */
+.arch-flow {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 0;
+}
+
+.arch-node {
+  flex: 0 1 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 20px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--vp-c-divider);
+  background-color: var(--vp-c-bg-soft);
+  transition: border-color 0.25s ease, transform 0.25s ease;
+}
+
+.arch-node:hover {
+  transform: translateY(-4px);
+  border-color: var(--xacpx-blue);
+}
+
+.arch-icon {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  color: var(--xacpx-blue);
+  background: linear-gradient(
+    135deg,
+    rgba(68, 147, 248, 0.18),
+    rgba(63, 185, 80, 0.18)
+  );
+  border: 1px solid var(--vp-c-divider);
+}
+
+.arch-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.arch-node-title {
+  margin: 4px 0 0;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--vp-c-text-1);
+}
+
+.arch-node-sub {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--vp-c-text-3);
+}
+
+/* connector with flowing packet */
+.arch-link {
+  position: relative;
+  align-self: center;
+  flex: 1 1 24px;
+  min-width: 16px;
+  max-width: 64px;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    var(--vp-c-divider),
+    var(--vp-c-divider)
+  );
+  border-radius: 2px;
+}
+
+.arch-packet {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--xacpx-blue);
+  box-shadow: 0 0 10px 1px rgba(68, 147, 248, 0.8);
+  animation: packet-x 1.9s ease-in-out infinite;
+  animation-delay: var(--d, 0s);
+}
+
+@keyframes packet-x {
+  0% {
+    left: 0;
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  15% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  85% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    left: 100%;
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+/* two-session-layer callout */
+.arch-layers {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 18px;
+  max-width: 880px;
+  margin: 48px auto 0;
+}
+
+.arch-layer {
+  padding: 18px 20px;
+  border-radius: 14px;
+  border: 1px solid var(--vp-c-divider);
+  background-color: var(--vp-c-bg-soft);
+}
+
+.arch-layer-tag {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--xacpx-blue);
+}
+
+.arch-layer-tag-green {
+  color: var(--xacpx-green);
+}
+
+.arch-layer-body {
+  margin: 7px 0 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--vp-c-text-2);
+}
+
+.arch-maps {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--vp-c-text-3);
+}
+
+.arch-maps-line {
+  width: 1px;
+  height: 16px;
+  background: linear-gradient(var(--xacpx-blue), var(--xacpx-green));
+}
+
+.arch-maps-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+@media (max-width: 860px) {
+  .arch-flow {
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+  .arch-node {
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: 320px;
+    flex-direction: row;
+    text-align: left;
+    gap: 14px;
+  }
+  .arch-node-title,
+  .arch-node-sub {
+    text-align: left;
+  }
+  .arch-link {
+    width: 2px;
+    height: 28px;
+    max-width: none;
+    flex: 0 0 auto;
+    background: linear-gradient(180deg, var(--vp-c-divider), var(--vp-c-divider));
+  }
+  .arch-packet {
+    left: 50% !important;
+    margin-left: -4px;
+    animation-name: packet-y;
+  }
+  .arch-layers {
+    grid-template-columns: 1fr;
+  }
+  .arch-maps {
+    flex-direction: row;
+  }
+  .arch-maps-line {
+    width: 16px;
+    height: 1px;
+  }
+}
+
+@keyframes packet-y {
+  0% {
+    top: 0;
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  15% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  85% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    top: 100%;
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
 /* ---- respect reduced-motion ---------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   .VPHome .VPHero .name.clip,
@@ -848,10 +1120,14 @@
   .VPHome::before,
   .chat-mockup::before,
   .phone,
-  .demo-typing i {
+  .demo-typing i,
+  .arch-packet {
     animation: none !important;
   }
   .bubble-enter-active {
     transition: none !important;
+  }
+  .arch-packet {
+    opacity: 0;
   }
 }
