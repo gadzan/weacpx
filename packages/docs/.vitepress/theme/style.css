@@ -1113,6 +1113,335 @@
   }
 }
 
+/* =========================================================================
+   "More power" — alternating capability panels with animated visuals
+   ========================================================================= */
+.cap-section {
+  max-width: 1152px;
+  margin: 8px auto 0;
+  padding: 72px 24px 8px;
+}
+
+.cap-head {
+  text-align: center;
+  margin: 0 auto 44px;
+}
+
+.cap-kicker {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--xacpx-blue);
+}
+
+.cap-title {
+  margin: 12px 0 0;
+  font-size: clamp(26px, 3.4vw, 38px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.cap-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 44px;
+  align-items: center;
+  padding: 36px 0;
+}
+
+.cap-panel + .cap-panel {
+  border-top: 1px solid var(--vp-c-divider);
+}
+
+.cap-reverse .cap-copy {
+  order: 2;
+}
+
+.cap-tag {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--vp-c-text-3);
+}
+
+.cap-panel-title {
+  margin: 10px 0 0;
+  font-size: clamp(20px, 2.4vw, 26px);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  border: 0;
+  padding: 0;
+}
+
+.cap-panel-body {
+  margin: 12px 0 0;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--vp-c-text-2);
+}
+
+.cap-link {
+  display: inline-block;
+  margin-top: 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--vp-c-brand-1);
+}
+
+/* visual frame shared by all three demos */
+.cap-visual {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  padding: 28px;
+  border-radius: 16px;
+  border: 1px solid var(--vp-c-divider);
+  background:
+    radial-gradient(70% 60% at 50% 0%, rgba(68, 147, 248, 0.08), transparent 70%),
+    var(--vp-c-bg-soft);
+  overflow: hidden;
+}
+
+/* --- orchestration fan-out --- */
+.orch {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+  max-width: 380px;
+}
+
+.orch-coord {
+  flex: none;
+  padding: 14px 16px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, var(--xacpx-blue-strong), var(--xacpx-blue));
+  box-shadow: 0 10px 26px -14px rgba(68, 147, 248, 0.8);
+}
+
+.orch-rails {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.orch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.orch-rail {
+  position: relative;
+  flex: 1;
+  height: 2px;
+  background: var(--vp-c-divider);
+  border-radius: 2px;
+}
+
+.orch-packet {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 7px;
+  height: 7px;
+  margin-top: -3.5px;
+  border-radius: 50%;
+  background: var(--xacpx-green);
+  box-shadow: 0 0 9px 1px rgba(63, 185, 80, 0.8);
+  animation: packet-x 2.2s ease-in-out infinite;
+  animation-delay: var(--d, 0s);
+}
+
+.orch-worker {
+  flex: none;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vp-c-text-1);
+  background: var(--vp-c-bg);
+  border: 1px solid var(--vp-c-divider);
+}
+
+/* --- scheduled timeline --- */
+.timeline {
+  width: 100%;
+  max-width: 420px;
+  padding: 24px 0 8px;
+}
+
+.tl-axis {
+  position: relative;
+  height: 2px;
+  background: var(--vp-c-divider);
+  border-radius: 2px;
+}
+
+.tl-now {
+  position: absolute;
+  top: -22px;
+  bottom: -22px;
+  left: 0;
+  width: 2px;
+  background: linear-gradient(180deg, transparent, var(--xacpx-blue), transparent);
+  animation: tl-sweep 6s linear infinite;
+}
+
+.tl-now-label {
+  position: absolute;
+  top: -16px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--xacpx-blue);
+}
+
+@keyframes tl-sweep {
+  0% {
+    left: 4%;
+  }
+  100% {
+    left: 96%;
+  }
+}
+
+.tl-task {
+  position: absolute;
+  top: 0;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.tl-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--vp-c-bg);
+  border: 2px solid var(--xacpx-green);
+  animation: tl-pulse 3s ease-in-out infinite;
+  animation-delay: var(--d, 0s);
+}
+
+@keyframes tl-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(63, 185, 80, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(63, 185, 80, 0.25);
+  }
+}
+
+.tl-chip {
+  position: absolute;
+  top: 16px;
+  white-space: nowrap;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-family: var(--vp-font-family-mono);
+  font-size: 11px;
+  color: var(--vp-c-text-2);
+  background: var(--vp-c-bg);
+  border: 1px solid var(--vp-c-divider);
+}
+
+/* --- channel slots --- */
+.slots {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  max-width: 380px;
+}
+
+.slots-core {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #fff;
+  background: linear-gradient(135deg, var(--xacpx-blue), var(--xacpx-green));
+  box-shadow: 0 12px 30px -14px rgba(68, 147, 248, 0.8);
+}
+
+.slots-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.slot-chip {
+  position: relative;
+  padding: 9px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--vp-c-text-1);
+  background: var(--vp-c-bg);
+  border: 1px solid var(--vp-c-divider);
+  animation: slot-in 3.2s ease-in-out infinite;
+  animation-delay: var(--d, 0s);
+}
+
+.slot-add {
+  color: var(--xacpx-blue);
+  border-style: dashed;
+  border-color: var(--xacpx-blue);
+}
+
+@keyframes slot-in {
+  0%,
+  70%,
+  100% {
+    transform: translateX(0);
+    border-color: var(--vp-c-divider);
+  }
+  10%,
+  30% {
+    transform: translateX(4px);
+    border-color: var(--xacpx-blue);
+  }
+}
+
+.slot-add {
+  animation: none;
+}
+
+@media (max-width: 860px) {
+  .cap-panel {
+    grid-template-columns: 1fr;
+    gap: 24px;
+    padding: 28px 0;
+  }
+  .cap-reverse .cap-copy {
+    order: 0;
+  }
+}
+
 /* ---- respect reduced-motion ---------------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
   .VPHome .VPHero .name.clip,
@@ -1121,13 +1450,18 @@
   .chat-mockup::before,
   .phone,
   .demo-typing i,
-  .arch-packet {
+  .arch-packet,
+  .orch-packet,
+  .tl-now,
+  .tl-dot,
+  .slot-chip {
     animation: none !important;
   }
   .bubble-enter-active {
     transition: none !important;
   }
-  .arch-packet {
+  .arch-packet,
+  .orch-packet {
     opacity: 0;
   }
 }
