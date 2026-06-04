@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.1] - 2026-06-04
+
+### Fixed
+
+- **Windows 系统语言自动检测：** 未显式设置 `config.language` 时，Windows 上默认没有 POSIX 环境变量（`$LANG` / `$LC_ALL` / `$LC_MESSAGES`），导致语言检测拿不到系统 locale 而总是落到英文。新增用 `Intl.DateTimeFormat().resolvedOptions().locale` 做跨平台兜底，让中文 Windows 用户也能被正确识别为 `zh`（Unix/macOS 行为不变，仍以 POSIX 环境变量为准）。(#9)
+- **新建配置 `channel.replyMode` 默认值不一致：** 新配置模板此前写入 `replyMode: "stream"`，而「字段缺省时」的回退默认与文档都是 `verbose`——即新用户实得 stream，文档却说默认 verbose。改为模板也写 `verbose`，三处对齐。(#10)
+
+### Docs
+
+- **文档站点首页重设计：** VitePress 自定义主题（强制暗色 + WebGL/动效），新增 agent↔频道「桥」展示、自演示对话、架构流水线与能力面板。
+- **修正文档站点国际化：** 定时任务、飞书、元宝页的「产品输出」示例此前在中/英文页混用了错误语言，现按各自 locale 对齐真实输出（周几、卡片状态、完成提醒、`Execute at:` / `Temp session` 等）。
+- 文档与代码一致性审计（`docs/superpowers/plans/2026-06-04-doc-logic-consistency-audit.md`）。
+
 ## [0.9.0] - 2026-06-03
 
 ### Added
