@@ -129,7 +129,7 @@ The assembly point is in `buildApp()`: it injects capabilities such as worker di
 
 - `xacpx mcp-stdio`:
   - Resolve identity (coordinatorSession/sourceHandle/workspace) and register the external coordinator: [prepareMcpCoordinatorStartup()](../src/cli.ts#L49-L104)
-  - Run the MCP server: [runWeacpxMcpServer()](../src/mcp/xacpx-mcp-server.ts#L132-L149)
+  - Run the MCP server: [runWeacpxMcpServer()](../src/mcp/weacpx-mcp-server.ts)
 - This mode usually requires the daemon to be already running (so the orchestration IPC endpoint is available).
 
 ---
@@ -290,9 +290,9 @@ The dependency-injection interface is in `OrchestrationServiceDeps`: [orchestrat
 
 `runWeacpxMcpServer()` starts the MCP stdio server and provides the tool list:
 
-- server initialization and tool registry cache: [xacpx-mcp-server.ts](../src/mcp/xacpx-mcp-server.ts#L39-L111)
-- identity resolution (coordinatorSession/sourceHandle or resolveIdentity): [xacpx-mcp-server.ts](../src/mcp/xacpx-mcp-server.ts#L113-L130)
-- connect the stdio transport: [xacpx-mcp-server.ts](../src/mcp/xacpx-mcp-server.ts#L132-L149)
+- server initialization and tool registry cache: [weacpx-mcp-server.ts](../src/mcp/weacpx-mcp-server.ts)
+- identity resolution (coordinatorSession/sourceHandle or resolveIdentity): [weacpx-mcp-server.ts](../src/mcp/weacpx-mcp-server.ts)
+- connect the stdio transport: [weacpx-mcp-server.ts](../src/mcp/weacpx-mcp-server.ts)
 
 ### 5.12 Logging (src/logging/*)
 

@@ -81,7 +81,7 @@ How xacpx communicates with the acpx backend.
 
 | Field | Type | Required | Description |
 |------|------|------|------|
-| `type` | `"acpx-cli"` \| `"acpx-bridge"` | Yes | Communication method. See notes below |
+| `type` | `"acpx-cli"` \| `"acpx-bridge"` | No | Communication method, defaults to `"acpx-bridge"`. See notes below |
 | `command` | `string` | No | Explicitly specify the acpx binary path. When omitted, it is looked up automatically by priority |
 | `sessionInitTimeoutMs` | `number` | No | Session initialization timeout (milliseconds), defaults to `120000` (2 minutes) |
 | `permissionMode` | `"approve-all"` \| `"approve-reads"` \| `"deny-all"` | No | Permission mode, defaults to `"approve-all"` |
@@ -91,13 +91,13 @@ How xacpx communicates with the acpx backend.
 
 ### `type` Options
 
-#### `"acpx-cli"` (default)
+#### `"acpx-cli"`
 
 Spawns the acpx child process directly in the current process. Each operation (prompt/cancel/ensureSession) starts a new process that exits after completion. Internally uses `node-pty` to allocate a PTY.
 
 Suitable for: local development and debugging scenarios.
 
-#### `"acpx-bridge"`
+#### `"acpx-bridge"` (default)
 
 Starts a separate bridge child process (`bridge-main.ts`), inside which acpx runs persistently. All operations are sent via the stdin/stdout JSON protocol as RPCs, so the acpx process is not restarted for every command.
 
@@ -515,6 +515,7 @@ Controls the default guard policy for when an agent initiates a delegate request
 | `allowedAgentRequestTargets` | `string[]` | No | `[]` | Allowlist of target agents that an agent may specify when initiating a delegate. An empty array means no additional restriction |
 | `allowedAgentRequestRoles` | `string[]` | No | `[]` | Allowlist of roles that an agent may use when initiating a delegate. An empty array means no additional restriction |
 | `maxParallelTasksPerAgent` | `number` | No | `3` | The upper limit of parallel delegate tasks each agent may run simultaneously (integer ≥ 1), counted globally across all coordinators and workspaces. `parallel: true` tasks exceeding the limit are created in `queued` state and do not occupy an acpx session; when a slot is freed, they are automatically promoted to `running` in creation-time order and begin execution. `queued` tasks still count toward the `maxPendingAgentRequestsPerCoordinator` quota |
+| `progressHeartbeatSeconds` | `number` | No | `300` | Interval (seconds) for emitting progress heartbeats on long-running delegate tasks. Accepts any finite number; falls back to `300` when omitted or non-finite |
 
 ### Example
 

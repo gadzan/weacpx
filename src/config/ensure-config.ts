@@ -31,7 +31,7 @@ const BUILTIN_DEFAULT_CONFIG_TEMPLATE = {
   },
   channel: {
     type: "weixin",
-    replyMode: "stream",
+    replyMode: "verbose",
   },
   agents: {
     codex: { driver: "codex" },

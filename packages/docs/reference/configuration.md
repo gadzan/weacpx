@@ -61,7 +61,7 @@ Controls how xacpx communicates with the `acpx` backend.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `type` | `"acpx-cli"` \| `"acpx-bridge"` | Yes | Communication mode |
+| `type` | `"acpx-cli"` \| `"acpx-bridge"` | No | Communication mode (default: `"acpx-bridge"`) |
 | `command` | `string` | No | Explicit path to the `acpx` binary; overrides automatic resolution |
 | `sessionInitTimeoutMs` | `number` | No | Session initialization timeout in milliseconds (default: `120000`) |
 | `permissionMode` | `"approve-all"` \| `"approve-reads"` \| `"deny-all"` | No | Permission mode; **defaults to `"approve-all"` when omitted**, so non-interactive prompt turns do not stop on permission requests unless a stricter policy is explicitly configured |
@@ -321,6 +321,7 @@ The `logging.perf` tracer is bound at `buildApp()` time; changing it requires a 
 | `orchestration.allowWorkerChainedRequests` | `false` |
 | `orchestration.allowedAgentRequestTargets` | `[]` (no restriction) |
 | `orchestration.allowedAgentRequestRoles` | `[]` (no restriction) |
+| `orchestration.progressHeartbeatSeconds` | `300` (falls back to `300` when omitted or non-finite) |
 | `orchestration.maxParallelTasksPerAgent` | `3` |
 
 ## Examples

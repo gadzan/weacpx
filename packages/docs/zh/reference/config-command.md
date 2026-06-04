@@ -47,12 +47,13 @@
 - `transport.sessionInitTimeoutMs`
 - `transport.permissionMode`
 - `transport.nonInteractivePermissions`
+- `transport.permissionPolicy`
 - `logging.level`
 - `logging.maxSizeBytes`
 - `logging.maxFiles`
 - `logging.retentionDays`
-- `channel.type`（遗留单频道配置；多频道场景请优先使用 `xacpx channel ...`）
 - `channel.replyMode`
+- `language`
 
 **动态字段**（命名目标必须已存在）：
 

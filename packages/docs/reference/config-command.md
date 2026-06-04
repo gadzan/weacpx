@@ -47,12 +47,13 @@ Examples:
 - `transport.sessionInitTimeoutMs`
 - `transport.permissionMode`
 - `transport.nonInteractivePermissions`
+- `transport.permissionPolicy`
 - `logging.level`
 - `logging.maxSizeBytes`
 - `logging.maxFiles`
 - `logging.retentionDays`
-- `channel.type` (legacy single-channel; prefer `xacpx channel ...` for multi-channel)
 - `channel.replyMode`
+- `language`
 
 **Dynamic fields** (the named target must already exist):
 
