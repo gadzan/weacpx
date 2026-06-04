@@ -1,74 +1,168 @@
 /* =========================================================================
-   xacpx docs theme
-   Design: minimalist, modern, functional, high-contrast. Dark-mode-first,
-   white/gray text, bright blue + green accents, bold sans-serif headers,
-   card-based grids, single-page scroll. Brand colors apply site-wide; the
-   richer showcase visuals are scoped to the home page.
+   xacpx docs theme — "Plasma"
+   Linear craft (warm near-black, hairlines, restraint, single accent) ×
+   field.io motion (generative WebGL hero, scroll choreography).
+   The home route is forced dark; brand accent is iris-violet site-wide.
    ========================================================================= */
 
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 :root {
-  --xacpx-blue: #4493f8;
-  --xacpx-blue-strong: #1f6feb;
-  --xacpx-green: #3fb950;
-  --xacpx-green-strong: #2ea043;
+  /* single distinctive accent — iris violet (replaces the old blue+green) */
+  --x-accent: #7c6cff;
+  --x-accent-bright: #9a8cff;
+  --x-accent-deep: #5b4ae0;
+  --x-accent-soft: rgba(124, 108, 255, 0.14);
+  --x-status: #34d399; /* semantic only: live / ok / ✓ */
 
-  /* site-wide brand (links, buttons, active states) */
-  --vp-c-brand-1: #4493f8;
-  --vp-c-brand-2: #2f81f7;
-  --vp-c-brand-3: #1f6feb;
-  --vp-c-brand-soft: rgba(68, 147, 248, 0.14);
+  --x-font-display: 'Space Grotesk', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --x-font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 
-  /* gradient hero title, blue → green */
+  /* site-wide brand → violet */
+  --vp-c-brand-1: #8b7cff;
+  --vp-c-brand-2: #7c6cff;
+  --vp-c-brand-3: #5b4ae0;
+  --vp-c-brand-soft: rgba(124, 108, 255, 0.14);
+
   --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: linear-gradient(120deg, #4493f8 28%, #3fb950);
+  --vp-home-hero-name-background: linear-gradient(110deg, #9a8cff 10%, #22d3ee);
 
-  --vp-button-brand-bg: var(--xacpx-blue-strong);
-  --vp-button-brand-hover-bg: #2f81f7;
-  --vp-button-brand-active-bg: #195bc0;
+  --vp-button-brand-bg: var(--x-accent);
+  --vp-button-brand-hover-bg: var(--x-accent-bright);
+  --vp-button-brand-active-bg: var(--x-accent-deep);
   --vp-button-brand-border: transparent;
   --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-text: #0b0a16;
+  --vp-button-brand-hover-text: #0b0a16;
 }
 
 .dark {
-  --vp-c-brand-1: #5b9dff;
-  --vp-c-brand-2: #4493f8;
-  --vp-c-brand-3: #2f81f7;
-  --vp-c-brand-soft: rgba(68, 147, 248, 0.18);
+  --vp-c-brand-1: #9a8cff;
+  --vp-c-brand-2: #8b7cff;
+  --vp-c-brand-3: #7c6cff;
+  --vp-c-brand-soft: rgba(124, 108, 255, 0.18);
 }
 
-/* ---- typography: bold, clean, large headers ------------------------------- */
-.VPHero .name.clip {
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  line-height: 1.08;
+/* =========================================================================
+   Forced-dark home palette (warm near-black) — scoped to html.x-home
+   ========================================================================= */
+.x-home {
+  --vp-c-bg: #08090a;
+  --vp-c-bg-alt: #0b0c0e;
+  --vp-c-bg-soft: #101114;
+  --vp-c-bg-elv: #16181d;
+  --vp-c-bg-elv-up: #1e2026;
+
+  --vp-c-divider: rgba(255, 255, 255, 0.07);
+  --vp-c-divider-strong: rgba(255, 255, 255, 0.12);
+  --vp-c-gutter: #050506;
+
+  --vp-c-text-1: #f4f5f7;
+  --vp-c-text-2: #a0a4ae;
+  --vp-c-text-3: #6b7079;
+
+  /* local aliases used by the home sections */
+  --x-line: rgba(255, 255, 255, 0.07);
+  --x-line-2: rgba(255, 255, 255, 0.12);
+  --x-s1: #101114;
+  --x-s2: #16181d;
+  --x-s3: #1e2026;
+  --x-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --x-shadow-2: 0 12px 40px -16px rgba(0, 0, 0, 0.7);
+  --x-ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.VPHero .text {
-  font-weight: 700;
-  letter-spacing: -0.02em;
+.x-home body {
+  background: var(--vp-c-bg);
 }
 
-/* ---- home canvas: subtle high-contrast glow ------------------------------- */
+/* keep the nav transparent over the hero plasma, hairline divider only */
+.x-home .VPNav {
+  background-color: transparent;
+}
+.x-home .VPNavBar:not(.top) {
+  background-color: rgba(8, 9, 10, 0.72);
+  backdrop-filter: saturate(140%) blur(14px);
+}
+.x-home .VPNavBar .divider {
+  background-color: transparent;
+}
+
+/* =========================================================================
+   Home canvas + full-bleed plasma backdrop
+   ========================================================================= */
 .VPHome {
+  position: relative;
+  overflow-x: clip;
+}
+
+.VPHome .VPHero {
   position: relative;
 }
 
-.VPHome::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 620px;
-  pointer-events: none;
-  z-index: 0;
-  background:
-    radial-gradient(60% 50% at 22% 0%, rgba(68, 147, 248, 0.16), transparent 70%),
-    radial-gradient(55% 45% at 82% 8%, rgba(63, 185, 80, 0.13), transparent 72%);
+.VPHome .VPHero .container {
+  position: relative;
 }
 
-.dark .VPHome::before {
+.hero-canvas-wrap {
+  position: absolute;
+  top: -120px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100vw;
+  height: 1020px;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.hero-canvas,
+.hero-canvas-fallback {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.hero-canvas.is-hidden {
+  display: none;
+}
+
+.hero-canvas-fallback {
   background:
-    radial-gradient(60% 50% at 22% 0%, rgba(68, 147, 248, 0.22), transparent 70%),
-    radial-gradient(55% 45% at 82% 8%, rgba(63, 185, 80, 0.16), transparent 72%);
+    radial-gradient(60% 50% at 72% 18%, rgba(124, 108, 255, 0.4), transparent 60%),
+    radial-gradient(50% 45% at 30% 8%, rgba(34, 211, 238, 0.18), transparent 65%),
+    #08090a;
+}
+
+/* veil: fade plasma into the ground + protect text legibility on the left */
+.hero-canvas-veil {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to bottom, transparent 48%, rgba(8, 9, 10, 0.8) 82%, #08090a 100%),
+    linear-gradient(to right, rgba(8, 9, 10, 0.58) 0%, rgba(8, 9, 10, 0.06) 48%, transparent 66%);
+}
+
+/* lift the actual hero content above the canvas */
+.VPHome .VPHero .container > .main,
+.VPHome .VPHero .container > .image {
+  position: relative;
+  z-index: 1;
+}
+
+/* faint hairline grid texture over the whole home ground */
+.VPHome::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(120% 80% at 50% 0%, #000 30%, transparent 78%);
 }
 
 .VPHome .VPHero,
@@ -78,85 +172,120 @@
   z-index: 1;
 }
 
-/* ---- feature cards: clean grid, hover lift, accent icon chips -------------- */
-.VPHome .VPFeature {
-  border: 1px solid var(--vp-c-divider);
-  border-radius: 14px;
-  background-color: var(--vp-c-bg-soft);
-  transition: transform 0.25s ease, border-color 0.25s ease,
-    box-shadow 0.25s ease;
-}
-
-.VPHome .VPFeature:hover {
-  transform: translateY(-6px);
-  border-color: var(--xacpx-blue);
-  box-shadow: 0 14px 34px -16px rgba(68, 147, 248, 0.55);
-}
-
-.VPHome .VPFeature .icon {
-  width: 48px;
-  height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 12px;
-  background: linear-gradient(
-    135deg,
-    rgba(68, 147, 248, 0.18),
-    rgba(63, 185, 80, 0.18)
-  );
-  border: 1px solid var(--vp-c-divider);
-  color: var(--xacpx-blue);
-}
-
-.VPHome .VPFeature .icon svg {
-  width: 24px;
-  height: 24px;
-}
-
-/* alternate icon accent: blue / green */
-.VPHome .VPFeatures .items .item:nth-child(3n + 2) .VPFeature .icon {
-  color: var(--xacpx-green);
-}
-
-.VPHome .VPFeature .title {
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-
-.VPHome .VPFeature .link-text-value {
-  color: var(--vp-c-brand-1);
+/* =========================================================================
+   Hero typography — Space Grotesk display, single violet→cyan wordmark
+   ========================================================================= */
+.VPHome .VPHero .name {
+  font-family: var(--x-font-display);
   font-weight: 600;
+  font-size: clamp(15px, 1.6vw, 18px);
+  letter-spacing: 0.18em;
+  text-transform: lowercase;
+  line-height: 1;
+  margin-bottom: 6px;
 }
 
-/* ---- section headers in home markdown ------------------------------------- */
-.VPHome .vp-doc h2 {
-  border-top: 0;
-  margin-top: 64px;
-  padding-top: 0;
-  font-size: 30px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
+.VPHome .VPHero .name.clip {
+  background-image: var(--vp-home-hero-name-background);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: wordmark-drift 12s ease-in-out infinite alternate;
 }
 
-.VPHome .vp-doc h2::after {
-  content: "";
-  display: block;
-  width: 54px;
-  height: 4px;
-  margin-top: 12px;
-  border-radius: 4px;
-  background: linear-gradient(90deg, var(--xacpx-blue), var(--xacpx-green));
+@keyframes wordmark-drift {
+  from { background-position: 0% 0; }
+  to { background-position: 100% 0; }
 }
 
-/* ---- hero install command (under the CTA buttons) ------------------------- */
+.VPHome .VPHero .text {
+  font-family: var(--x-font-display);
+  font-weight: 600;
+  font-size: clamp(40px, 5.4vw, 66px);
+  letter-spacing: -0.035em;
+  line-height: 1.02;
+  color: var(--vp-c-text-1);
+  max-width: 19ch;
+}
+
+.VPHome .VPHero .tagline {
+  font-size: clamp(16px, 1.5vw, 19px);
+  line-height: 1.55;
+  color: var(--vp-c-text-2);
+  max-width: 42ch;
+  margin-top: 22px;
+  text-wrap: pretty;
+}
+
+/* CTA buttons — accent fill + hairline ghost */
+.VPHome .VPButton.brand {
+  font-weight: 600;
+  border-radius: 10px;
+  box-shadow: var(--x-shadow-1);
+  transition: transform 0.15s ease, box-shadow 0.2s ease, background-color 0.15s ease;
+}
+.VPHome .VPButton.brand:hover {
+  transform: translateY(-1px);
+}
+.VPHome .VPButton.alt {
+  border-radius: 10px;
+  background-color: var(--x-s2);
+  border: 1px solid var(--x-line-2);
+  color: var(--vp-c-text-1);
+  transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+}
+.VPHome .VPButton.alt:hover {
+  transform: translateY(-1px);
+  border-color: var(--x-accent);
+  background-color: var(--x-s3);
+}
+
+/* =========================================================================
+   Eyebrow label
+   ========================================================================= */
+.hero-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 22px;
+  padding: 5px 13px 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--x-line-2);
+  background: rgba(255, 255, 255, 0.03);
+  font-family: var(--x-font-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--vp-c-text-2);
+}
+
+.hero-eyebrow-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--x-status);
+  box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5);
+  animation: eyebrow-pulse 2.6s ease-out infinite;
+}
+
+@keyframes eyebrow-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5); }
+  70% { box-shadow: 0 0 0 7px rgba(52, 211, 153, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+}
+
+/* =========================================================================
+   Hero install command (tabbed) — hairline, mono, no glow
+   ========================================================================= */
 .install-cmd {
-  margin-top: 28px;
+  margin-top: 30px;
   width: 100%;
   max-width: 540px;
-  border: 1px solid var(--vp-c-divider);
+  border: 1px solid var(--x-line);
   border-radius: 14px;
-  background-color: var(--vp-c-bg-alt);
+  background-color: rgba(16, 17, 20, 0.7);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--x-shadow-2), inset 0 1px 0 rgba(255, 255, 255, 0.04);
   overflow: hidden;
 }
 
@@ -164,22 +293,23 @@
   display: flex;
   gap: 2px;
   padding: 6px 6px 0;
-  border-bottom: 1px solid var(--vp-c-divider);
+  border-bottom: 1px solid var(--x-line);
 }
 
 .install-tab {
   display: inline-flex;
   align-items: baseline;
   gap: 6px;
-  padding: 8px 14px;
+  padding: 9px 14px;
   border: 0;
-  border-radius: 9px 9px 0 0;
+  border-radius: 8px 8px 0 0;
   background: transparent;
-  color: var(--vp-c-text-2);
-  font-size: 13px;
-  font-weight: 600;
+  color: var(--vp-c-text-3);
+  font-family: var(--x-font-mono);
+  font-size: 12.5px;
+  font-weight: 500;
   cursor: pointer;
-  transition: color 0.2s ease, background-color 0.2s ease;
+  transition: color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .install-tab:hover {
@@ -188,19 +318,19 @@
 
 .install-tab.active {
   color: var(--vp-c-text-1);
-  background-color: var(--vp-c-bg);
-  box-shadow: inset 0 -2px 0 var(--xacpx-blue);
+  background-color: rgba(255, 255, 255, 0.03);
+  box-shadow: inset 0 -2px 0 var(--x-accent);
 }
 
 .install-tab-note {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 500;
   color: var(--vp-c-text-3);
 }
 
 .install-body {
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 12px;
   padding: 16px 14px 16px 18px;
 }
@@ -208,9 +338,9 @@
 .install-code {
   flex: 1;
   min-width: 0;
-  font-family: var(--vp-font-family-mono);
+  font-family: var(--x-font-mono);
   font-size: 13px;
-  line-height: 1.7;
+  line-height: 1.75;
 }
 
 .install-line {
@@ -221,7 +351,7 @@
 }
 
 .install-prompt {
-  color: var(--xacpx-green);
+  color: var(--x-status);
   user-select: none;
 }
 
@@ -233,55 +363,68 @@
   flex: none;
   align-self: stretch;
   padding: 0 14px;
-  border: 1px solid var(--vp-c-divider);
+  border: 1px solid var(--x-line);
   border-radius: 9px;
-  background-color: var(--vp-c-bg-soft);
+  background-color: rgba(255, 255, 255, 0.02);
   color: var(--vp-c-text-2);
-  font-size: 12px;
-  font-weight: 600;
+  font-family: var(--x-font-mono);
+  font-size: 11.5px;
+  font-weight: 500;
   cursor: pointer;
-  transition: color 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
 }
 
 .install-copy:hover {
   color: var(--vp-c-text-1);
-  border-color: var(--xacpx-blue);
+  border-color: var(--x-accent);
 }
 
 .install-copy.copied {
-  color: var(--xacpx-green);
-  border-color: var(--xacpx-green);
+  color: var(--x-status);
+  border-color: var(--x-status);
 }
 
-/* ---- hero chat mockup (phone frame, placeholder until screenshot lands) ---- */
+/* =========================================================================
+   Hero phone mockup — clean device, no colored glow
+   ========================================================================= */
 .chat-mockup {
+  position: relative;
   display: flex;
   justify-content: center;
   width: 100%;
+  z-index: 1;
 }
 
 .phone {
   position: relative;
-  width: 268px;
+  z-index: 1;
+  width: 272px;
   aspect-ratio: 9 / 19;
-  padding: 12px;
-  border-radius: 38px;
-  background: linear-gradient(160deg, #1b1f24, #0c0e11);
-  border: 1px solid var(--vp-c-divider);
-  box-shadow: 0 30px 70px -30px rgba(68, 147, 248, 0.45),
-    0 10px 30px -12px rgba(0, 0, 0, 0.5);
-  overflow: hidden;
+  padding: 11px;
+  border-radius: 40px;
+  background: linear-gradient(170deg, #16181d, #0a0b0d);
+  border: 1px solid var(--x-line-2);
+  box-shadow:
+    var(--x-shadow-2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  animation: float 7s ease-in-out infinite;
+  will-change: transform;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
 }
 
 .phone-notch {
   position: absolute;
-  top: 14px;
+  top: 11px;
   left: 50%;
   transform: translateX(-50%);
   width: 96px;
   height: 22px;
   border-radius: 0 0 14px 14px;
-  background: #0c0e11;
+  background: #0a0b0d;
   z-index: 2;
 }
 
@@ -289,7 +432,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: 28px;
+  border-radius: 30px;
   display: block;
 }
 
@@ -303,33 +446,30 @@
   height: 100%;
   padding: 24px 18px;
   text-align: center;
-  border-radius: 28px;
+  border-radius: 30px;
   background:
-    radial-gradient(70% 50% at 50% 0%, rgba(68, 147, 248, 0.16), transparent 70%),
-    repeating-linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.03) 0 10px,
-      transparent 10px 20px
-    ),
-    var(--vp-c-bg-soft);
-  border: 1px dashed var(--vp-c-divider);
+    radial-gradient(70% 50% at 50% 0%, rgba(124, 108, 255, 0.12), transparent 70%),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0 10px, transparent 10px 20px),
+    var(--x-s1);
+  border: 1px dashed var(--x-line-2);
 }
 
 .ph-badge {
   padding: 3px 10px;
   border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
+  font-family: var(--x-font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--xacpx-blue);
-  background: var(--vp-c-brand-soft);
+  color: var(--x-accent-bright);
+  background: var(--x-accent-soft);
 }
 
 .ph-title {
   margin: 4px 0 0;
   font-size: 15px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--vp-c-text-1);
 }
 
@@ -338,7 +478,8 @@
 }
 
 .ph-path code {
-  font-size: 11.5px;
+  font-family: var(--x-font-mono);
+  font-size: 11px;
   color: var(--vp-c-text-2);
 }
 
@@ -348,243 +489,229 @@
   color: var(--vp-c-text-3);
 }
 
-/* ---- "works with" strip (below hero) -------------------------------------- */
-.works-with {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  align-items: center;
-  max-width: 1152px;
-  margin: 8px auto 0;
-  padding: 28px 24px 8px;
+/* =========================================================================
+   Bridge showcase — agents marquee → xacpx hub → channels
+   ========================================================================= */
+.bridge {
+  position: relative;
+  z-index: 1;
+  max-width: 1000px;
+  margin: 34px auto 0;
+  padding: 8px 24px 0;
 }
 
-.ww-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 10px 14px;
-}
-
-.ww-label {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+.bridge-label {
+  text-align: center;
+  margin: 0 0 18px;
+  font-family: var(--x-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--vp-c-text-3);
 }
 
-.ww-chips {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
+/* 1. agents marquee */
+.bridge-marquee {
+  position: relative;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 9%, #000 91%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 9%, #000 91%, transparent);
 }
 
-.ww-chip {
-  padding: 6px 14px;
-  border-radius: 999px;
-  border: 1px solid var(--vp-c-divider);
-  background-color: var(--vp-c-bg-soft);
+.bridge-track {
+  display: flex;
+  width: max-content;
+  animation: marquee 46s linear infinite;
+}
+.bridge-marquee:hover .bridge-track {
+  animation-play-state: paused;
+}
+
+/* Seamless: every chip (incl. the last of each copy) carries a trailing
+   margin, so one copy's width == exactly 50% of the track and -50% lands on a
+   chip boundary with no half-gap jump. Flex `gap` would break this. */
+@keyframes marquee {
+  to { transform: translateX(-50%); }
+}
+
+/* frameless chips — logo + name floating on the ground, larger logos */
+.bridge-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  flex: none;
+  margin-right: 36px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--vp-c-text-2);
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+.bridge-marquee:hover .bridge-chip:hover {
+  color: var(--vp-c-text-1);
+}
+
+.bridge-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  font-size: 28px;
+  flex: none;
+  color: var(--vp-c-text-1);
+}
+.bridge-logo svg {
+  width: 1em;
+  height: 1em;
+  display: block;
+}
+.bridge-logo-mono {
+  font-family: var(--x-font-mono);
   font-size: 13px;
   font-weight: 600;
+  border-radius: 7px;
+  border: 1px solid var(--x-line-2);
   color: var(--vp-c-text-2);
-  transition: color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
 }
 
-.ww-chip:hover {
-  transform: translateY(-2px);
-  color: var(--vp-c-text-1);
-  border-color: var(--xacpx-blue);
+/* 2 + 3. connector stage (wires, hub, channels) */
+.bridge-stage {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: -4px;
+  overflow: visible;
 }
 
-.ww-chip-green:hover {
-  border-color: var(--xacpx-green);
+.bridge-wire {
+  fill: none;
+  stroke: var(--x-line-2);
+  stroke-width: 1.25;
+  stroke-dasharray: 2 7;
+  stroke-linecap: round;
+  animation: wire-flow 1.1s linear infinite;
 }
 
-@media (max-width: 640px) {
-  .install-cmd {
-    max-width: 100%;
-  }
-  .phone {
-    width: 230px;
-  }
+.bridge-flow-glow {
+  fill: var(--x-accent-bright);
+  opacity: 0.55;
+  filter: url(#bridgeGlow);
+}
+.bridge-flow-core {
+  fill: #fff;
+}
+
+/* hub — glassy gradient node with halo, glass sheen, radar ripples */
+.hub-halo {
+  fill: var(--x-accent);
+  opacity: 0.4;
+  filter: url(#hubHalo);
+}
+.hub-pill {
+  fill: url(#hubFill);
+  stroke: rgba(255, 255, 255, 0.28);
+  stroke-width: 1;
+}
+.hub-sheen {
+  fill: #fff;
+  opacity: 0.14;
+}
+.hub-text {
+  fill: #0b0a16;
+  font-family: var(--x-font-display);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+.hub-ring {
+  fill: none;
+  stroke: var(--x-accent);
+  stroke-width: 1.25;
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: hub-ripple 3s ease-out infinite;
+}
+.hub-ring-2 {
+  animation-delay: 1.5s;
+}
+@keyframes hub-ripple {
+  0% { opacity: 0.5; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.6); }
+}
+
+/* 3. channels — real brand logos, columns aligned under the wire ends */
+.bridge-channels {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: -6px;
+}
+
+.bridge-channel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+/* frameless channel logos — brand marks floating, larger */
+.bridge-ctile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 48px;
+  transition: transform 0.18s var(--x-ease);
+}
+.bridge-ctile svg {
+  width: var(--cs, 34px);
+  height: var(--cs, 34px);
+  display: block;
+}
+.bridge-channel:hover .bridge-ctile {
+  transform: translateY(-3px);
+}
+
+.bridge-clabel {
+  font-family: var(--x-font-mono);
+  font-size: 12px;
+  color: var(--vp-c-text-2);
 }
 
 /* =========================================================================
-   Design energy layer — motion + glow, scoped to the home hero.
-   Keeps the blue→green identity; adds the "alive centerpiece" feel that
-   makes reference sites (vite.dev) read as designed rather than templated.
+   Feature cards — hairline grid, accent top-rule on hover, no glow
    ========================================================================= */
-
-/* ---- bigger, tighter headline -------------------------------------------- */
-.VPHome .VPHero .name,
-.VPHome .VPHero .text {
-  font-size: clamp(38px, 5.6vw, 64px);
-  line-height: 1.05;
-}
-
-/* animated gradient wordmark (background-image only — keeps text clipping) */
-.VPHome .VPHero .name.clip {
-  background-image: linear-gradient(120deg, #4493f8, #3fb950, #4493f8);
-  background-size: 200% 100%;
-  animation: wordmark-shimmer 9s linear infinite;
-}
-
-@keyframes wordmark-shimmer {
-  to {
-    background-position: 200% 0;
-  }
-}
-
-/* ---- eyebrow label above the headline ------------------------------------ */
-.hero-eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 20px;
-  padding: 5px 13px 5px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--vp-c-divider);
-  background: var(--vp-c-bg-soft);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--vp-c-text-2);
-}
-
-.hero-eyebrow-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--xacpx-green);
-  animation: eyebrow-pulse 2.4s ease-out infinite;
-}
-
-@keyframes eyebrow-pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.55);
-  }
-  70% {
-    box-shadow: 0 0 0 7px rgba(63, 185, 80, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(63, 185, 80, 0);
-  }
-}
-
-/* ---- drifting aurora backdrop -------------------------------------------- */
-.VPHome::before {
-  height: 760px;
-  background:
-    radial-gradient(50% 42% at 18% 0%, rgba(68, 147, 248, 0.20), transparent 70%),
-    radial-gradient(46% 40% at 85% 6%, rgba(63, 185, 80, 0.16), transparent 72%),
-    radial-gradient(40% 34% at 62% 28%, rgba(68, 147, 248, 0.10), transparent 76%);
-  animation: aurora-drift 16s ease-in-out infinite alternate;
-  will-change: transform;
-}
-
-.dark .VPHome::before {
-  background:
-    radial-gradient(50% 42% at 18% 0%, rgba(68, 147, 248, 0.30), transparent 70%),
-    radial-gradient(46% 40% at 85% 6%, rgba(63, 185, 80, 0.20), transparent 72%),
-    radial-gradient(40% 34% at 62% 28%, rgba(68, 147, 248, 0.14), transparent 76%);
-}
-
-@keyframes aurora-drift {
-  from {
-    transform: translate3d(-2%, -1%, 0) scale(1);
-  }
-  to {
-    transform: translate3d(3%, 2%, 0) scale(1.08);
-  }
-}
-
-/* ---- glowing, floating phone --------------------------------------------- */
-.chat-mockup {
-  position: relative;
-  z-index: 0;
-}
-
-.chat-mockup::before {
-  content: "";
-  position: absolute;
-  inset: -14% -8%;
-  z-index: 0;
-  pointer-events: none;
-  border-radius: 50%;
-  background: radial-gradient(
-    closest-side,
-    rgba(68, 147, 248, 0.36),
-    rgba(63, 185, 80, 0.18) 58%,
-    transparent 78%
-  );
-  filter: blur(30px);
-  animation: glow-pulse 5.5s ease-in-out infinite;
-  will-change: transform, opacity;
-}
-
-.phone {
-  position: relative;
-  z-index: 1;
-  /* gradient ring via padding-box/border-box layering */
-  border: 1px solid transparent;
-  background:
-    linear-gradient(160deg, #1b1f24, #0c0e11) padding-box,
-    linear-gradient(150deg, rgba(68, 147, 248, 0.75), rgba(63, 185, 80, 0.5)) border-box;
-  box-shadow:
-    0 40px 90px -34px rgba(68, 147, 248, 0.55),
-    0 12px 34px -14px rgba(0, 0, 0, 0.6);
-  animation: float 6s ease-in-out infinite;
-  will-change: transform;
-}
-
-@keyframes float {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-12px);
-  }
-}
-
-@keyframes glow-pulse {
-  0%,
-  100% {
-    opacity: 0.7;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.06);
-  }
-}
-
-/* ---- richer accents: install box border + card hover hairline ------------ */
-.install-cmd {
-  border: 1px solid transparent;
-  background:
-    linear-gradient(var(--vp-c-bg-alt), var(--vp-c-bg-alt)) padding-box,
-    linear-gradient(120deg, rgba(68, 147, 248, 0.45), rgba(63, 185, 80, 0.32)) border-box;
-  box-shadow: 0 18px 40px -28px rgba(68, 147, 248, 0.5);
+.VPHome .VPFeatures {
+  margin-top: 24px;
 }
 
 .VPHome .VPFeature {
   position: relative;
   overflow: hidden;
+  border: 1px solid var(--x-line);
+  border-radius: 14px;
+  background-color: var(--x-s1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  transition: transform 0.25s var(--x-ease), border-color 0.25s ease, background-color 0.25s ease;
+}
+
+.VPHome .VPFeature:hover {
+  transform: translateY(-4px);
+  border-color: var(--x-line-2);
+  background-color: var(--x-s2);
 }
 
 .VPHome .VPFeature::before {
-  content: "";
+  content: '';
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, var(--xacpx-blue), var(--xacpx-green));
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--x-accent), transparent);
   opacity: 0;
   transition: opacity 0.25s ease;
 }
@@ -593,110 +720,188 @@
   opacity: 1;
 }
 
-/* =========================================================================
-   "See it work" — self-playing chat demo section
-   ========================================================================= */
-.demo-section {
-  max-width: 1152px;
-  margin: 8px auto 0;
-  padding: 64px 24px 8px;
+.VPHome .VPFeature .icon {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+  background: var(--x-accent-soft);
+  border: 1px solid var(--x-line);
+  color: var(--x-accent-bright);
 }
 
-.demo-head {
-  text-align: center;
-  max-width: 640px;
-  margin: 0 auto 40px;
+.VPHome .VPFeature .icon svg {
+  width: 22px;
+  height: 22px;
 }
 
-.demo-kicker {
-  display: inline-block;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--xacpx-blue);
+.VPHome .VPFeature .title {
+  font-family: var(--x-font-display);
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+  color: var(--vp-c-text-1);
 }
 
-.demo-title {
-  margin: 12px 0 0;
-  font-size: clamp(26px, 3.4vw, 38px);
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  line-height: 1.12;
-}
-
-.demo-sub {
-  margin: 14px 0 0;
-  font-size: 16px;
+.VPHome .VPFeature .details {
+  font-size: 14px;
+  line-height: 1.6;
   color: var(--vp-c-text-2);
 }
 
+.VPHome .VPFeature .link-text-value {
+  color: var(--vp-c-brand-1);
+  font-weight: 500;
+}
+
+/* =========================================================================
+   Section headers inside home markdown
+   ========================================================================= */
+.VPHome .vp-doc h2 {
+  border-top: 0;
+  margin-top: 72px;
+  padding-top: 0;
+  font-family: var(--x-font-display);
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  color: var(--vp-c-text-1);
+}
+
+.VPHome .vp-doc h2::after {
+  content: '';
+  display: block;
+  width: 44px;
+  height: 2px;
+  margin-top: 14px;
+  border-radius: 2px;
+  background: var(--x-accent);
+}
+
+/* =========================================================================
+   Shared section scaffold
+   ========================================================================= */
+.demo-section,
+.arch-section,
+.cap-section {
+  position: relative;
+  z-index: 1;
+  max-width: 1152px;
+  margin: 0 auto;
+  padding: 96px 24px 0;
+}
+
+.demo-head,
+.arch-head,
+.cap-head {
+  text-align: center;
+  max-width: 660px;
+  margin: 0 auto 48px;
+}
+
+.demo-kicker,
+.arch-kicker,
+.cap-kicker {
+  display: inline-block;
+  font-family: var(--x-font-mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--x-accent-bright);
+}
+
+.demo-title,
+.arch-title,
+.cap-title {
+  margin: 14px 0 0;
+  font-family: var(--x-font-display);
+  font-size: clamp(28px, 3.6vw, 40px);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+  color: var(--vp-c-text-1);
+}
+
+.demo-sub,
+.arch-sub {
+  margin: 16px 0 0;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--vp-c-text-2);
+  text-wrap: pretty;
+}
+
+/* =========================================================================
+   "See it work" — self-playing chat demo
+   ========================================================================= */
 .demo-stage {
   display: grid;
-  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1fr);
-  gap: 48px;
+  grid-template-columns: minmax(0, 0.82fr) minmax(0, 1fr);
+  gap: 56px;
   align-items: center;
 }
 
-/* numbered steps */
 .demo-steps {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 26px;
+  gap: 0;
 }
 
 .demo-step {
   display: flex;
   gap: 16px;
   align-items: flex-start;
+  padding: 22px 0;
+  border-top: 1px solid var(--x-line);
+}
+.demo-step:first-child {
+  border-top: 0;
 }
 
 .demo-step-n {
   flex: none;
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 11px;
-  font-size: 13px;
-  font-weight: 800;
+  border-radius: 9px;
+  font-family: var(--x-font-mono);
+  font-size: 12px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
-  color: var(--xacpx-blue);
-  background: linear-gradient(
-    135deg,
-    rgba(68, 147, 248, 0.18),
-    rgba(63, 185, 80, 0.18)
-  );
-  border: 1px solid var(--vp-c-divider);
+  color: var(--x-accent-bright);
+  background: var(--x-accent-soft);
+  border: 1px solid var(--x-line);
 }
 
 .demo-step-title {
-  margin: 6px 0 0;
+  margin: 5px 0 0;
+  font-family: var(--x-font-display);
   font-size: 16px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--vp-c-text-1);
 }
 
 .demo-step-body {
-  margin: 4px 0 0;
+  margin: 5px 0 0;
   font-size: 14px;
   line-height: 1.55;
   color: var(--vp-c-text-2);
 }
 
-/* chat panel */
 .demo-chat {
   position: relative;
-  border-radius: 16px;
-  border: 1px solid transparent;
-  background:
-    linear-gradient(var(--vp-c-bg-alt), var(--vp-c-bg-alt)) padding-box,
-    linear-gradient(150deg, rgba(68, 147, 248, 0.55), rgba(63, 185, 80, 0.4)) border-box;
-  box-shadow: 0 30px 70px -34px rgba(68, 147, 248, 0.5);
+  border-radius: 14px;
+  border: 1px solid var(--x-line);
+  background: var(--x-s1);
+  box-shadow: var(--x-shadow-2), inset 0 1px 0 rgba(255, 255, 255, 0.04);
   overflow: hidden;
 }
 
@@ -705,8 +910,8 @@
   align-items: center;
   gap: 7px;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--vp-c-divider);
-  background: var(--vp-c-bg);
+  border-bottom: 1px solid var(--x-line);
+  background: rgba(255, 255, 255, 0.015);
 }
 
 .demo-dot {
@@ -714,56 +919,38 @@
   height: 11px;
   border-radius: 50%;
   background: var(--vp-c-text-3);
-  opacity: 0.55;
+  opacity: 0.5;
 }
-.demo-dot-r {
-  background: #ed6a5e;
-  opacity: 1;
-}
-.demo-dot-y {
-  background: #f4be4f;
-  opacity: 1;
-}
-.demo-dot-g {
-  background: var(--xacpx-green);
-  opacity: 1;
-}
+.demo-dot-r { background: #ed6a5e; opacity: 1; }
+.demo-dot-y { background: #f4be4f; opacity: 1; }
+.demo-dot-g { background: var(--x-status); opacity: 1; }
 
 .demo-chat-title {
   margin-left: 8px;
-  font-family: var(--vp-font-family-mono);
+  font-family: var(--x-font-mono);
   font-size: 12px;
   color: var(--vp-c-text-3);
 }
 
 .demo-thread {
-  height: 320px;
+  height: 326px;
   overflow: hidden;
   padding: 18px 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  scroll-behavior: smooth;
-  background:
-    radial-gradient(80% 60% at 50% 0%, rgba(68, 147, 248, 0.06), transparent 70%),
-    var(--vp-c-bg-alt);
+  background: var(--x-s1);
 }
 
-.demo-msg {
-  display: flex;
-}
-.demo-msg.is-user {
-  justify-content: flex-end;
-}
-.demo-msg.is-bot {
-  justify-content: flex-start;
-}
+.demo-msg { display: flex; }
+.demo-msg.is-user { justify-content: flex-end; }
+.demo-msg.is-bot { justify-content: flex-start; }
 
 .demo-bubble {
-  max-width: 78%;
+  max-width: 80%;
   padding: 9px 13px;
-  border-radius: 14px;
-  font-family: var(--vp-font-family-mono);
+  border-radius: 13px;
+  font-family: var(--x-font-mono);
   font-size: 12.5px;
   line-height: 1.5;
   white-space: pre-line;
@@ -771,19 +958,19 @@
 }
 
 .is-user .demo-bubble {
-  color: #fff;
-  background: linear-gradient(135deg, var(--xacpx-blue-strong), var(--xacpx-blue));
-  border-bottom-right-radius: 5px;
+  color: #0b0a16;
+  background: var(--x-accent);
+  border-bottom-right-radius: 4px;
+  font-weight: 500;
 }
 
 .is-bot .demo-bubble {
   color: var(--vp-c-text-1);
-  background: var(--vp-c-bg-soft);
-  border: 1px solid var(--vp-c-divider);
-  border-bottom-left-radius: 5px;
+  background: var(--x-s3);
+  border: 1px solid var(--x-line);
+  border-bottom-left-radius: 4px;
 }
 
-/* typing indicator */
 .demo-typing {
   display: inline-flex;
   gap: 4px;
@@ -797,89 +984,32 @@
   background: var(--vp-c-text-3);
   animation: typing-bounce 1.2s ease-in-out infinite;
 }
-.demo-typing i:nth-child(2) {
-  animation-delay: 0.18s;
-}
-.demo-typing i:nth-child(3) {
-  animation-delay: 0.36s;
-}
+.demo-typing i:nth-child(2) { animation-delay: 0.18s; }
+.demo-typing i:nth-child(3) { animation-delay: 0.36s; }
 
 @keyframes typing-bounce {
-  0%,
-  60%,
-  100% {
-    transform: translateY(0);
-    opacity: 0.5;
-  }
-  30% {
-    transform: translateY(-5px);
-    opacity: 1;
-  }
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+  30% { transform: translateY(-5px); opacity: 1; }
 }
 
-/* bubble entrance */
 .bubble-enter-active {
-  transition: opacity 0.35s ease, transform 0.35s ease;
+  transition: opacity 0.45s var(--x-ease), transform 0.45s var(--x-ease);
 }
 .bubble-enter-from {
   opacity: 0;
-  transform: translateY(8px) scale(0.98);
+  transform: translateY(10px) scale(0.98);
 }
 
 @media (max-width: 860px) {
   .demo-stage {
     grid-template-columns: 1fr;
-    gap: 32px;
-  }
-  .demo-steps {
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 18px;
-  }
-  .demo-step {
-    flex: 1 1 200px;
+    gap: 36px;
   }
 }
 
 /* =========================================================================
-   "How it works" — animated pipeline diagram
+   "How it works" — pipeline diagram
    ========================================================================= */
-.arch-section {
-  max-width: 1152px;
-  margin: 8px auto 0;
-  padding: 72px 24px 8px;
-}
-
-.arch-head {
-  text-align: center;
-  max-width: 660px;
-  margin: 0 auto 44px;
-}
-
-.arch-kicker {
-  display: inline-block;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--xacpx-green);
-}
-
-.arch-title {
-  margin: 12px 0 0;
-  font-size: clamp(26px, 3.4vw, 38px);
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  line-height: 1.12;
-}
-
-.arch-sub {
-  margin: 14px 0 0;
-  font-size: 16px;
-  color: var(--vp-c-text-2);
-}
-
-/* pipeline row */
 .arch-flow {
   display: flex;
   align-items: stretch;
@@ -893,106 +1023,84 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 8px;
-  padding: 20px 14px;
+  gap: 9px;
+  padding: 22px 14px;
   border-radius: 14px;
-  border: 1px solid var(--vp-c-divider);
-  background-color: var(--vp-c-bg-soft);
-  transition: border-color 0.25s ease, transform 0.25s ease;
+  border: 1px solid var(--x-line);
+  background-color: var(--x-s1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  transition: border-color 0.25s ease, transform 0.25s var(--x-ease), background-color 0.25s ease;
 }
 
 .arch-node:hover {
   transform: translateY(-4px);
-  border-color: var(--xacpx-blue);
+  border-color: var(--x-line-2);
+  background-color: var(--x-s2);
 }
 
 .arch-icon {
-  width: 44px;
-  height: 44px;
+  width: 42px;
+  height: 42px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 12px;
-  color: var(--xacpx-blue);
-  background: linear-gradient(
-    135deg,
-    rgba(68, 147, 248, 0.18),
-    rgba(63, 185, 80, 0.18)
-  );
-  border: 1px solid var(--vp-c-divider);
+  border-radius: 11px;
+  color: var(--x-accent-bright);
+  background: var(--x-accent-soft);
+  border: 1px solid var(--x-line);
 }
 
 .arch-icon svg {
-  width: 22px;
-  height: 22px;
+  width: 21px;
+  height: 21px;
 }
 
 .arch-node-title {
-  margin: 4px 0 0;
+  margin: 2px 0 0;
+  font-family: var(--x-font-display);
   font-size: 14.5px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--vp-c-text-1);
 }
 
 .arch-node-sub {
   margin: 0;
-  font-size: 12px;
-  line-height: 1.45;
+  font-family: var(--x-font-mono);
+  font-size: 11px;
+  line-height: 1.5;
   color: var(--vp-c-text-3);
 }
 
-/* connector with flowing packet */
 .arch-link {
   position: relative;
   align-self: center;
   flex: 1 1 24px;
   min-width: 16px;
   max-width: 64px;
-  height: 2px;
-  background: linear-gradient(
-    90deg,
-    var(--vp-c-divider),
-    var(--vp-c-divider)
-  );
-  border-radius: 2px;
+  height: 1px;
+  background: var(--x-line-2);
 }
 
 .arch-packet {
   position: absolute;
   top: 50%;
   left: 0;
-  width: 8px;
-  height: 8px;
-  margin-top: -4px;
+  width: 7px;
+  height: 7px;
+  margin-top: -3.5px;
   border-radius: 50%;
-  background: var(--xacpx-blue);
-  box-shadow: 0 0 10px 1px rgba(68, 147, 248, 0.8);
-  animation: packet-x 1.9s ease-in-out infinite;
+  background: var(--x-accent-bright);
+  animation: packet-x 1.9s var(--x-ease) infinite;
   animation-delay: var(--d, 0s);
 }
 
 @keyframes packet-x {
-  0% {
-    left: 0;
-    opacity: 0;
-    transform: scale(0.6);
-  }
-  15% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  85% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  100% {
-    left: 100%;
-    opacity: 0;
-    transform: scale(0.6);
-  }
+  0% { left: 0; opacity: 0; transform: scale(0.6); }
+  15% { opacity: 1; transform: scale(1); }
+  85% { opacity: 1; transform: scale(1); }
+  100% { left: 100%; opacity: 0; transform: scale(0.6); }
 }
 
-/* two-session-layer callout */
 .arch-layers {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -1003,26 +1111,28 @@
 }
 
 .arch-layer {
-  padding: 18px 20px;
+  padding: 20px 22px;
   border-radius: 14px;
-  border: 1px solid var(--vp-c-divider);
-  background-color: var(--vp-c-bg-soft);
+  border: 1px solid var(--x-line);
+  background-color: var(--x-s1);
 }
 
 .arch-layer-tag {
   margin: 0;
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  color: var(--xacpx-blue);
+  font-family: var(--x-font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--x-accent-bright);
 }
 
 .arch-layer-tag-green {
-  color: var(--xacpx-green);
+  color: var(--x-status);
 }
 
 .arch-layer-body {
-  margin: 7px 0 0;
+  margin: 9px 0 0;
   font-size: 13.5px;
   line-height: 1.55;
   color: var(--vp-c-text-2);
@@ -1032,19 +1142,20 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   color: var(--vp-c-text-3);
 }
 
 .arch-maps-line {
   width: 1px;
   height: 16px;
-  background: linear-gradient(var(--xacpx-blue), var(--xacpx-green));
+  background: var(--x-line-2);
 }
 
 .arch-maps-label {
-  font-size: 11px;
-  font-weight: 600;
+  font-family: var(--x-font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   white-space: nowrap;
@@ -1054,7 +1165,6 @@
   .arch-flow {
     flex-direction: column;
     align-items: center;
-    gap: 0;
   }
   .arch-node {
     flex: 0 0 auto;
@@ -1065,403 +1175,331 @@
     gap: 14px;
   }
   .arch-node-title,
-  .arch-node-sub {
-    text-align: left;
-  }
+  .arch-node-sub { text-align: left; }
   .arch-link {
-    width: 2px;
-    height: 28px;
+    width: 1px;
+    height: 26px;
     max-width: none;
     flex: 0 0 auto;
-    background: linear-gradient(180deg, var(--vp-c-divider), var(--vp-c-divider));
   }
   .arch-packet {
     left: 50% !important;
-    margin-left: -4px;
+    margin-left: -3.5px;
     animation-name: packet-y;
   }
-  .arch-layers {
-    grid-template-columns: 1fr;
-  }
-  .arch-maps {
-    flex-direction: row;
-  }
-  .arch-maps-line {
-    width: 16px;
-    height: 1px;
-  }
+  .arch-layers { grid-template-columns: 1fr; }
+  .arch-maps { flex-direction: row; }
+  .arch-maps-line { width: 16px; height: 1px; }
 }
 
 @keyframes packet-y {
-  0% {
-    top: 0;
-    opacity: 0;
-    transform: scale(0.6);
-  }
-  15% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  85% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  100% {
-    top: 100%;
-    opacity: 0;
-    transform: scale(0.6);
-  }
+  0% { top: 0; opacity: 0; transform: scale(0.6); }
+  15% { opacity: 1; transform: scale(1); }
+  85% { opacity: 1; transform: scale(1); }
+  100% { top: 100%; opacity: 0; transform: scale(0.6); }
 }
 
 /* =========================================================================
-   "More power" — alternating capability panels with animated visuals
+   "More power" — alternating capability panels
    ========================================================================= */
-.cap-section {
-  max-width: 1152px;
-  margin: 8px auto 0;
-  padding: 72px 24px 8px;
-}
-
-.cap-head {
-  text-align: center;
-  margin: 0 auto 44px;
-}
-
-.cap-kicker {
-  display: inline-block;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--xacpx-blue);
-}
-
-.cap-title {
-  margin: 12px 0 0;
-  font-size: clamp(26px, 3.4vw, 38px);
-  font-weight: 800;
-  letter-spacing: -0.02em;
-}
+.cap-head { max-width: none; }
 
 .cap-panel {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
-  gap: 44px;
+  gap: 56px;
   align-items: center;
-  padding: 36px 0;
+  padding: 44px 0;
 }
 
 .cap-panel + .cap-panel {
-  border-top: 1px solid var(--vp-c-divider);
+  border-top: 1px solid var(--x-line);
 }
 
-.cap-reverse .cap-copy {
-  order: 2;
-}
+.cap-reverse .cap-copy { order: 2; }
 
 .cap-tag {
   display: inline-block;
-  font-size: 12px;
-  font-weight: 700;
+  font-family: var(--x-font-mono);
+  font-size: 11px;
+  font-weight: 500;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--vp-c-text-3);
 }
 
 .cap-panel-title {
-  margin: 10px 0 0;
-  font-size: clamp(20px, 2.4vw, 26px);
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  line-height: 1.2;
+  margin: 12px 0 0;
+  font-family: var(--x-font-display);
+  font-size: clamp(21px, 2.5vw, 27px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.18;
   border: 0;
   padding: 0;
+  color: var(--vp-c-text-1);
 }
 
 .cap-panel-body {
-  margin: 12px 0 0;
+  margin: 14px 0 0;
   font-size: 15px;
-  line-height: 1.6;
+  line-height: 1.62;
   color: var(--vp-c-text-2);
+  text-wrap: pretty;
 }
 
 .cap-link {
   display: inline-block;
-  margin-top: 16px;
+  margin-top: 18px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--vp-c-brand-1);
+  transition: color 0.15s ease;
 }
+.cap-link:hover { color: var(--x-accent-bright); }
 
-/* visual frame shared by all three demos */
 .cap-visual {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 220px;
-  padding: 28px;
-  border-radius: 16px;
-  border: 1px solid var(--vp-c-divider);
-  background:
-    radial-gradient(70% 60% at 50% 0%, rgba(68, 147, 248, 0.08), transparent 70%),
-    var(--vp-c-bg-soft);
+  min-height: 230px;
+  padding: 32px;
+  border-radius: 14px;
+  border: 1px solid var(--x-line);
+  background: var(--x-s1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
   overflow: hidden;
 }
 
-/* --- orchestration fan-out --- */
-.orch {
-  display: flex;
-  align-items: center;
-  gap: 0;
+/* -------------------------------------------------------------------------
+   SVG data-flow scenes (curves, flowing packets, igniting nodes).
+   A scoped "moment": a touch more motion + restrained glow than the UI
+   chrome, but still single-accent and hairline-built.
+   ------------------------------------------------------------------------- */
+.scene {
   width: 100%;
-  max-width: 380px;
+  max-width: 470px;
+  height: auto;
+  overflow: visible;
+  font-family: var(--x-font-mono);
 }
 
-.orch-coord {
-  flex: none;
-  padding: 14px 16px;
-  border-radius: 12px;
-  font-size: 13px;
-  font-weight: 700;
-  color: #fff;
-  background: linear-gradient(135deg, var(--xacpx-blue-strong), var(--xacpx-blue));
-  box-shadow: 0 10px 26px -14px rgba(68, 147, 248, 0.8);
+/* connectors */
+.scene .wire {
+  fill: none;
+  stroke: var(--x-line-2);
+  stroke-width: 1.25;
+  stroke-dasharray: 2 7;
+  stroke-linecap: round;
+  animation: wire-flow 1.1s linear infinite;
+}
+@keyframes wire-flow {
+  to { stroke-dashoffset: -9; }
+}
+.scene .wire-add {
+  stroke: var(--x-accent);
+  animation: wire-breathe 3s ease-in-out infinite;
+}
+@keyframes wire-breathe {
+  0%, 100% { stroke-opacity: 0.28; }
+  50% { stroke-opacity: 0.75; }
 }
 
-.orch-rails {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+/* flowing packets */
+.scene .flow-glow {
+  fill: var(--x-accent-bright);
+  opacity: 0.55;
+  filter: url(#xGlow);
 }
+.chan-svg .flow-glow { filter: url(#xGlowCh); }
+.scene .flow-core { fill: #fff; }
 
-.orch-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+/* nodes */
+.scene .node rect {
+  stroke: var(--x-line-2);
+  fill: var(--x-s2);
 }
-
-.orch-rail {
-  position: relative;
-  flex: 1;
-  height: 2px;
-  background: var(--vp-c-divider);
-  border-radius: 2px;
-}
-
-.orch-packet {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  width: 7px;
-  height: 7px;
-  margin-top: -3.5px;
-  border-radius: 50%;
-  background: var(--xacpx-green);
-  box-shadow: 0 0 9px 1px rgba(63, 185, 80, 0.8);
-  animation: packet-x 2.2s ease-in-out infinite;
-  animation-delay: var(--d, 0s);
-}
-
-.orch-worker {
-  flex: none;
-  padding: 8px 12px;
-  border-radius: 10px;
+.scene .node text {
+  fill: var(--vp-c-text-1);
   font-size: 12px;
+  font-weight: 500;
+  dominant-baseline: central;
+}
+.scene .node-coord,
+.scene .node-core {
+  fill: var(--x-accent);
+  stroke: none;
+}
+.scene .node-coord-t,
+.scene .node-core-t {
+  fill: #0b0a16;
   font-weight: 600;
-  color: var(--vp-c-text-1);
-  background: var(--vp-c-bg);
-  border: 1px solid var(--vp-c-divider);
+  text-anchor: middle;
 }
 
-/* --- scheduled timeline --- */
-.timeline {
-  width: 100%;
-  max-width: 420px;
-  padding: 24px 0 8px;
+/* emit pulse from coordinator / core */
+.scene .emit {
+  fill: var(--x-accent-bright);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: emit 2.4s ease-out infinite;
+}
+@keyframes emit {
+  0% { transform: scale(0.5); opacity: 0.65; }
+  70% { opacity: 0; }
+  100% { transform: scale(3.4); opacity: 0; }
 }
 
-.tl-axis {
-  position: relative;
-  height: 2px;
-  background: var(--vp-c-divider);
-  border-radius: 2px;
+/* orchestration workers */
+.orch-svg .node-worker { fill: var(--x-s3); }
+.orch-svg .node-worker-t { text-anchor: start; font-size: 11.5px; }
+.orch-svg .wstatus {
+  fill: var(--x-status);
+  animation: status-blink 2.4s ease-in-out infinite;
+  animation-delay: var(--b, 0s);
+}
+@keyframes status-blink {
+  0%, 100% { opacity: 0.28; }
+  45%, 70% { opacity: 1; }
 }
 
-.tl-now {
-  position: absolute;
-  top: -22px;
-  bottom: -22px;
-  left: 0;
-  width: 2px;
-  background: linear-gradient(180deg, transparent, var(--xacpx-blue), transparent);
-  animation: tl-sweep 6s linear infinite;
+/* timeline */
+.tl-svg .tl-axis { stroke: var(--x-line-2); stroke-width: 1; }
+.tl-svg .tl-tick { stroke: var(--x-line); stroke-width: 1; }
+.tl-svg .tl-dot {
+  fill: var(--x-s1);
+  stroke: var(--x-status);
+  stroke-width: 2;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: tl-pop 6s linear infinite;
+  animation-delay: var(--b, 0s);
 }
-
-.tl-now-label {
-  position: absolute;
-  top: -16px;
-  left: 50%;
-  transform: translateX(-50%);
+.tl-svg .tl-ring {
+  fill: none;
+  stroke: var(--x-status);
+  stroke-width: 1.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: tl-ring 6s linear infinite;
+  animation-delay: var(--b, 0s);
+}
+@keyframes tl-pop {
+  0% { transform: scale(1); fill: var(--x-s1); }
+  3% { transform: scale(1.55); fill: var(--x-status); }
+  13% { transform: scale(1); fill: var(--x-s1); }
+  100% { transform: scale(1); }
+}
+@keyframes tl-ring {
+  0% { opacity: 0; transform: scale(1); }
+  3% { opacity: 0.85; transform: scale(1); }
+  18% { opacity: 0; transform: scale(2.8); }
+  100% { opacity: 0; }
+}
+.tl-svg .tl-chip {
+  fill: var(--vp-c-text-2);
   font-size: 10px;
-  font-style: normal;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--xacpx-blue);
+  text-anchor: middle;
 }
-
-@keyframes tl-sweep {
-  0% {
-    left: 4%;
-  }
-  100% {
-    left: 96%;
-  }
-}
-
-.tl-task {
-  position: absolute;
-  top: 0;
-  transform: translate(-50%, -50%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-
-.tl-dot {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: var(--vp-c-bg);
-  border: 2px solid var(--xacpx-green);
-  animation: tl-pulse 3s ease-in-out infinite;
-  animation-delay: var(--d, 0s);
-}
-
-@keyframes tl-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(63, 185, 80, 0);
-  }
-  50% {
-    box-shadow: 0 0 0 5px rgba(63, 185, 80, 0.25);
-  }
-}
-
-.tl-chip {
-  position: absolute;
-  top: 16px;
-  white-space: nowrap;
-  padding: 4px 9px;
-  border-radius: 999px;
-  font-family: var(--vp-font-family-mono);
-  font-size: 11px;
-  color: var(--vp-c-text-2);
-  background: var(--vp-c-bg);
-  border: 1px solid var(--vp-c-divider);
-}
-
-/* --- channel slots --- */
-.slots {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  width: 100%;
-  max-width: 380px;
-}
-
-.slots-core {
-  flex: none;
-  width: 64px;
-  height: 64px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 16px;
-  font-size: 13px;
-  font-weight: 800;
-  color: #fff;
-  background: linear-gradient(135deg, var(--xacpx-blue), var(--xacpx-green));
-  box-shadow: 0 12px 30px -14px rgba(68, 147, 248, 0.8);
-}
-
-.slots-list {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-}
-
-.slot-chip {
-  position: relative;
-  padding: 9px 14px;
-  border-radius: 10px;
-  font-size: 13px;
+.tl-svg .tl-now-line { stroke-width: 1.5; }
+.tl-svg .tl-now-head { fill: var(--x-accent-bright); }
+.tl-svg .tl-now-core { fill: #fff; }
+.tl-svg .tl-now-cap {
+  fill: var(--x-accent-bright);
+  font-size: 9px;
   font-weight: 600;
-  color: var(--vp-c-text-1);
-  background: var(--vp-c-bg);
-  border: 1px solid var(--vp-c-divider);
-  animation: slot-in 3.2s ease-in-out infinite;
-  animation-delay: var(--d, 0s);
+  letter-spacing: 0.1em;
+  text-anchor: middle;
+  text-transform: uppercase;
 }
 
-.slot-add {
-  color: var(--xacpx-blue);
-  border-style: dashed;
-  border-color: var(--xacpx-blue);
+/* channels */
+.chan-svg .chan-slot { fill: var(--x-s3); }
+.chan-svg .chan-slot-t { text-anchor: start; font-size: 12px; }
+.chan-svg .cstatus {
+  fill: var(--x-status);
+  animation: status-blink 2.6s ease-in-out infinite;
+  animation-delay: var(--b, 0s);
 }
-
-@keyframes slot-in {
-  0%,
-  70%,
-  100% {
-    transform: translateX(0);
-    border-color: var(--vp-c-divider);
-  }
-  10%,
-  30% {
-    transform: translateX(4px);
-    border-color: var(--xacpx-blue);
-  }
+.chan-svg .chan-add .chan-slot {
+  fill: transparent;
+  stroke: var(--x-accent);
+  stroke-dasharray: 5 4;
+  animation: wire-breathe 3s ease-in-out infinite;
 }
-
-.slot-add {
-  animation: none;
+.chan-svg .chan-add .chan-slot-t {
+  fill: var(--x-accent-bright);
+  text-anchor: middle;
 }
 
 @media (max-width: 860px) {
   .cap-panel {
     grid-template-columns: 1fr;
-    gap: 24px;
-    padding: 28px 0;
+    gap: 28px;
+    padding: 32px 0;
   }
-  .cap-reverse .cap-copy {
-    order: 0;
-  }
+  .cap-reverse .cap-copy { order: 0; }
 }
 
-/* ---- respect reduced-motion ---------------------------------------------- */
+/* =========================================================================
+   Scroll-reveal (v-reveal directive)
+   ========================================================================= */
+.x-reveal {
+  opacity: 0;
+  transform: translateY(26px);
+  transition:
+    opacity 0.7s var(--x-ease),
+    transform 0.7s var(--x-ease);
+  transition-delay: calc(var(--ri, 0) * 80ms);
+  will-change: opacity, transform;
+}
+.x-reveal.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+/* =========================================================================
+   Responsive
+   ========================================================================= */
+@media (max-width: 640px) {
+  .install-cmd { max-width: 100%; }
+  .phone { width: 240px; }
+  .hero-canvas-wrap { height: 880px; }
+}
+
+/* =========================================================================
+   Reduced motion
+   ========================================================================= */
 @media (prefers-reduced-motion: reduce) {
   .VPHome .VPHero .name.clip,
   .hero-eyebrow-dot,
-  .VPHome::before,
-  .chat-mockup::before,
   .phone,
   .demo-typing i,
   .arch-packet,
-  .orch-packet,
-  .tl-now,
-  .tl-dot,
-  .slot-chip {
+  .scene .wire,
+  .scene .wire-add,
+  .scene .emit,
+  .orch-svg .wstatus,
+  .chan-svg .cstatus,
+  .chan-svg .chan-add .chan-slot,
+  .tl-svg .tl-dot,
+  .tl-svg .tl-ring,
+  .bridge-track,
+  .bridge-wire,
+  .hub-ring {
     animation: none !important;
   }
-  .bubble-enter-active {
-    transition: none !important;
-  }
+  .bubble-enter-active { transition: none !important; }
   .arch-packet,
-  .orch-packet {
-    opacity: 0;
+  .scene .flow,
+  .bridge-flow { display: none; }
+  .scene .emit { opacity: 0; }
+  .tl-svg .tl-now { display: none; }
+  .tl-svg .tl-dot { fill: var(--x-status) !important; }
+  .x-reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
   }
 }

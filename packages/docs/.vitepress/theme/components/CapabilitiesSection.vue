@@ -55,17 +55,39 @@ const t = computed(() => ({
     slots: zh.value ? ['微信', '飞书', '元宝', '+ 你的'] : ['WeChat', 'Feishu', 'Yuanbao', '+ yours'],
   },
 }));
+
+// --- SVG scene geometry (shared viewBox space, animateMotion-aligned) -------
+// Orchestration: coordinator (right edge 130,110) curves out to 3 workers.
+function orchPath(i: number): string {
+  const y = 60 + i * 70;
+  return `M130,110 C 214,110 206,${y} 288,${y}`;
+}
+// Channels: core (right edge 84,115) radiates to 4 channel slots.
+function chanPath(i: number): string {
+  const y = 34 + i * 52;
+  return `M84,115 C 166,115 170,${y} 250,${y}`;
+}
+// Timeline: a "now" head sweeps the axis; tasks ignite as it passes.
+const TL_X0 = 34;
+const TL_X1 = 392;
+const tlTicks = Array.from({ length: 14 }, (_, i) => TL_X0 + i * ((TL_X1 - TL_X0) / 13));
+function tlX(i: number): number {
+  return 104 + i * 106;
+}
+function tlBegin(i: number): string {
+  return (6 * ((tlX(i) - TL_X0) / (TL_X1 - TL_X0))).toFixed(2) + 's';
+}
 </script>
 
 <template>
   <section class="cap-section">
-    <div class="cap-head">
+    <div class="cap-head" v-reveal="0">
       <span class="cap-kicker">{{ t.kicker }}</span>
       <h2 class="cap-title">{{ t.title }}</h2>
     </div>
 
     <!-- Orchestration -->
-    <div class="cap-panel">
+    <div class="cap-panel" v-reveal="0">
       <div class="cap-copy">
         <span class="cap-tag">{{ t.orch.tag }}</span>
         <h3 class="cap-panel-title">{{ t.orch.title }}</h3>
@@ -73,20 +95,56 @@ const t = computed(() => ({
         <a class="cap-link" :href="t.orch.link">{{ t.orch.linkText }} →</a>
       </div>
       <div class="cap-visual" aria-hidden="true">
-        <div class="orch">
-          <div class="orch-coord">{{ t.orch.coord }}</div>
-          <div class="orch-rails">
-            <div v-for="(w, i) in t.orch.workers" :key="w" class="orch-row" :style="{ '--d': i * 0.4 + 's' }">
-              <span class="orch-rail"><span class="orch-packet" /></span>
-              <span class="orch-worker">{{ w }}</span>
-            </div>
-          </div>
-        </div>
+        <svg class="scene orch-svg" viewBox="0 0 420 220" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <filter id="xGlow" x="-200%" y="-200%" width="500%" height="500%">
+              <feGaussianBlur stdDeviation="2.4" />
+            </filter>
+          </defs>
+
+          <!-- connectors -->
+          <path
+            v-for="(w, i) in t.orch.workers"
+            :key="'wire' + i"
+            class="wire"
+            :d="orchPath(i)"
+          />
+
+          <!-- flowing packets -->
+          <g v-for="(w, i) in t.orch.workers" :key="'flow' + i" class="flow">
+            <circle class="flow-glow" r="6" />
+            <circle class="flow-core" r="3" />
+            <animateMotion
+              :dur="'2.4s'"
+              :begin="i * 0.55 + 's'"
+              repeatCount="indefinite"
+              :path="orchPath(i)"
+              keyPoints="0;1"
+              keyTimes="0;1"
+              calcMode="spline"
+              keySplines="0.5 0 0.5 1"
+            />
+          </g>
+
+          <!-- coordinator -->
+          <g class="node">
+            <rect class="node-coord" x="14" y="84" width="116" height="52" rx="13" />
+            <circle class="emit" cx="130" cy="110" r="4" />
+            <text class="node-coord-t" x="72" y="110">{{ t.orch.coord }}</text>
+          </g>
+
+          <!-- workers -->
+          <g v-for="(w, i) in t.orch.workers" :key="'wk' + i" class="node">
+            <rect class="node-worker" x="288" :y="38 + i * 70" width="124" height="44" rx="11" />
+            <circle class="wstatus" cx="304" :cy="60 + i * 70" r="3.6" :style="{ '--b': i * 0.55 + 's' }" />
+            <text class="node-worker-t" x="318" :y="60 + i * 70">{{ w }}</text>
+          </g>
+        </svg>
       </div>
     </div>
 
     <!-- Scheduled tasks (reversed) -->
-    <div class="cap-panel cap-reverse">
+    <div class="cap-panel cap-reverse" v-reveal="0">
       <div class="cap-copy">
         <span class="cap-tag">{{ t.later.tag }}</span>
         <h3 class="cap-panel-title">{{ t.later.title }}</h3>
@@ -94,25 +152,63 @@ const t = computed(() => ({
         <a class="cap-link" :href="t.later.link">{{ t.later.linkText }} →</a>
       </div>
       <div class="cap-visual" aria-hidden="true">
-        <div class="timeline">
-          <div class="tl-axis">
-            <span class="tl-now"><i class="tl-now-label">{{ t.later.nowLabel }}</i></span>
-            <span
-              v-for="(task, i) in t.later.tasks"
-              :key="task.label"
-              class="tl-task"
-              :style="{ left: 22 + i * 28 + '%', '--d': i * 0.5 + 's' }"
-            >
-              <span class="tl-dot" />
-              <span class="tl-chip">{{ task.at }} · {{ task.label }}</span>
-            </span>
-          </div>
-        </div>
+        <svg class="scene tl-svg" viewBox="0 0 420 170" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <filter id="xGlowTl" x="-200%" y="-200%" width="500%" height="500%">
+              <feGaussianBlur stdDeviation="2.4" />
+            </filter>
+            <linearGradient id="tlNowGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="var(--x-accent)" stop-opacity="0" />
+              <stop offset="0.5" stop-color="var(--x-accent-bright)" stop-opacity="1" />
+              <stop offset="1" stop-color="var(--x-accent)" stop-opacity="0" />
+            </linearGradient>
+          </defs>
+
+          <!-- axis + ticks -->
+          <line class="tl-axis" x1="34" y1="95" x2="392" y2="95" />
+          <line
+            v-for="(x, i) in tlTicks"
+            :key="'tk' + i"
+            class="tl-tick"
+            :x1="x"
+            y1="91"
+            :x2="x"
+            y2="99"
+          />
+
+          <!-- tasks -->
+          <g
+            v-for="(task, i) in t.later.tasks"
+            :key="task.label"
+            class="tl-task"
+            :style="{ '--b': tlBegin(i) }"
+          >
+            <circle class="tl-ring" :cx="tlX(i)" cy="95" r="6" />
+            <circle class="tl-dot" :cx="tlX(i)" cy="95" r="5" />
+            <text class="tl-chip" :x="tlX(i)" y="122">{{ task.at }} · {{ task.label }}</text>
+          </g>
+
+          <!-- sweeping now head -->
+          <g class="tl-now">
+            <animateTransform
+              attributeName="transform"
+              type="translate"
+              from="0 0"
+              to="358 0"
+              dur="6s"
+              repeatCount="indefinite"
+            />
+            <line class="tl-now-line" x1="34" y1="50" x2="34" y2="140" stroke="url(#tlNowGrad)" />
+            <circle class="tl-now-head" cx="34" cy="95" r="4" filter="url(#xGlowTl)" />
+            <circle class="tl-now-core" cx="34" cy="95" r="2.4" />
+            <text class="tl-now-cap" x="34" y="42">{{ t.later.nowLabel }}</text>
+          </g>
+        </svg>
       </div>
     </div>
 
     <!-- Channels -->
-    <div class="cap-panel">
+    <div class="cap-panel" v-reveal="0">
       <div class="cap-copy">
         <span class="cap-tag">{{ t.chan.tag }}</span>
         <h3 class="cap-panel-title">{{ t.chan.title }}</h3>
@@ -120,19 +216,66 @@ const t = computed(() => ({
         <a class="cap-link" :href="t.chan.link">{{ t.chan.linkText }} →</a>
       </div>
       <div class="cap-visual" aria-hidden="true">
-        <div class="slots">
-          <div class="slots-core">{{ t.chan.core }}</div>
-          <div class="slots-list">
-            <span
-              v-for="(s, i) in t.chan.slots"
-              :key="s"
-              class="slot-chip"
-              :class="{ 'slot-add': i === t.chan.slots.length - 1 }"
-              :style="{ '--d': i * 0.35 + 's' }"
-              >{{ s }}</span
-            >
-          </div>
-        </div>
+        <svg class="scene chan-svg" viewBox="0 0 420 220" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <filter id="xGlowCh" x="-200%" y="-200%" width="500%" height="500%">
+              <feGaussianBlur stdDeviation="2.4" />
+            </filter>
+          </defs>
+
+          <!-- connectors -->
+          <path
+            v-for="(s, i) in t.chan.slots"
+            :key="'cw' + i"
+            class="wire"
+            :class="{ 'wire-add': i === t.chan.slots.length - 1 }"
+            :d="chanPath(i)"
+          />
+
+          <!-- flowing packets (not on the open +slot) -->
+          <template v-for="(s, i) in t.chan.slots" :key="'cf' + i">
+            <g v-if="i < t.chan.slots.length - 1" class="flow">
+              <circle class="flow-glow" r="5.5" />
+              <circle class="flow-core" r="2.8" />
+              <animateMotion
+                :dur="'2.6s'"
+                :begin="i * 0.6 + 's'"
+                repeatCount="indefinite"
+                :path="chanPath(i)"
+                keyPoints="0;1"
+                keyTimes="0;1"
+                calcMode="spline"
+                keySplines="0.5 0 0.5 1"
+              />
+            </g>
+          </template>
+
+          <!-- core -->
+          <g class="node">
+            <rect class="node-core" x="18" y="82" width="66" height="66" rx="17" />
+            <circle class="emit" cx="84" cy="115" r="4" />
+            <text class="node-core-t" x="51" y="115">{{ t.chan.core }}</text>
+          </g>
+
+          <!-- channel slots -->
+          <g
+            v-for="(s, i) in t.chan.slots"
+            :key="'cs' + i"
+            class="node"
+            :class="{ 'chan-add': i === t.chan.slots.length - 1 }"
+          >
+            <rect class="chan-slot" x="250" :y="14 + i * 52" width="152" height="40" rx="11" />
+            <circle
+              v-if="i < t.chan.slots.length - 1"
+              class="cstatus"
+              cx="266"
+              :cy="34 + i * 52"
+              r="3.4"
+              :style="{ '--b': i * 0.6 + 's' }"
+            />
+            <text class="chan-slot-t" :x="i < t.chan.slots.length - 1 ? 282 : 326" :y="34 + i * 52">{{ s }}</text>
+          </g>
+        </svg>
       </div>
     </div>
   </section>

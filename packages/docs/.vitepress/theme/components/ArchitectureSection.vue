@@ -48,7 +48,7 @@ const nodes = computed<Node[]>(() =>
 
 <template>
   <section class="arch-section">
-    <div class="arch-head">
+    <div class="arch-head" v-reveal="0">
       <span class="arch-kicker">{{ zh ? '工作原理' : 'How it works' }}</span>
       <h2 class="arch-title">
         {{ zh ? '一条消息，穿过整条管线' : 'One message, through the whole pipeline' }}
@@ -62,7 +62,7 @@ const nodes = computed<Node[]>(() =>
       </p>
     </div>
 
-    <div class="arch-flow" aria-hidden="true">
+    <div class="arch-flow" aria-hidden="true" v-reveal="1">
       <template v-for="(n, i) in nodes" :key="n.key">
         <div class="arch-node">
           <span class="arch-icon">
@@ -85,7 +85,7 @@ const nodes = computed<Node[]>(() =>
       </template>
     </div>
 
-    <div class="arch-layers">
+    <div class="arch-layers" v-reveal="2">
       <div class="arch-layer">
         <p class="arch-layer-tag">{{ zh ? '逻辑会话' : 'Logical session' }}</p>
         <p class="arch-layer-body">

@@ -9,6 +9,7 @@
     "preview": "vitepress preview ."
   },
   "devDependencies": {
+    "@lobehub/icons-static-svg": "^1.91.0",
     "vitepress": "1.6.4"
   }
 }

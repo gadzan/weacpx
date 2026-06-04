@@ -90,21 +90,29 @@ function run() {
 
 watch([visible, typing], scrollToEnd, { deep: true });
 
-onMounted(() => {
+function start() {
   const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
   if (reduced) {
+    clearTimers();
     visible.value = [...steps.value];
     return;
   }
   run();
-});
+}
+
+onMounted(start);
+
+// The home Layout keeps this section mounted across locale switches, so the
+// running thread would otherwise keep replaying the previous language until
+// its next loop. Restart immediately when the language changes.
+watch(zh, start);
 
 onUnmounted(clearTimers);
 </script>
 
 <template>
   <section class="demo-section">
-    <div class="demo-head">
+    <div class="demo-head" v-reveal="0">
       <span class="demo-kicker">{{ zh ? '实际效果' : 'See it work' }}</span>
       <h2 class="demo-title">
         {{ zh ? '在一条对话里跑完整个会话' : 'Drive a whole session from one thread' }}
@@ -120,7 +128,7 @@ onUnmounted(clearTimers);
 
     <div class="demo-stage">
       <ol class="demo-steps">
-        <li v-for="c in captions" :key="c.n" class="demo-step">
+        <li v-for="(c, i) in captions" :key="c.n" class="demo-step" v-reveal="i">
           <span class="demo-step-n">{{ c.n }}</span>
           <div>
             <p class="demo-step-title">{{ c.title }}</p>
@@ -129,7 +137,7 @@ onUnmounted(clearTimers);
         </li>
       </ol>
 
-      <div class="demo-chat" aria-hidden="true">
+      <div class="demo-chat" aria-hidden="true" v-reveal="1">
         <div class="demo-chat-bar">
           <span class="demo-dot demo-dot-r" />
           <span class="demo-dot demo-dot-y" />
