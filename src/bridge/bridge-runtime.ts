@@ -383,7 +383,7 @@ export class BridgeRuntime {
     });
   }
 
-  private async readSessionRecord(input: BridgeSessionInput): Promise<{ acpxRecordId: string }> {
+  private async readSessionRecord(input: BridgeSessionInput): Promise<{ acpxRecordId: string; agentSessionId?: string }> {
     const spawnSpec = resolveSpawnCommand(this.command, this.buildSessionArgs(input, [
       "sessions",
       "show",
@@ -394,15 +394,16 @@ export class BridgeRuntime {
       throw new Error(result.stderr || result.stdout || "sessions show failed");
     }
     try {
-      const parsed = JSON.parse(result.stdout) as { acpxRecordId?: unknown; id?: unknown };
+      const parsed = JSON.parse(result.stdout) as { acpxRecordId?: unknown; id?: unknown; agentSessionId?: unknown };
       let acpxRecordId: string | undefined;
       if (typeof parsed.acpxRecordId === "string") {
         acpxRecordId = parsed.acpxRecordId;
       } else if (typeof parsed.id === "string") {
         acpxRecordId = parsed.id;
       }
+      const agentSessionId = typeof parsed.agentSessionId === "string" ? parsed.agentSessionId : undefined;
       if (acpxRecordId) {
-        return { acpxRecordId };
+        return { acpxRecordId, agentSessionId };
       }
     } catch {
       const firstLine = result.stdout.trim().split(/\r?\n/, 1)[0];
@@ -411,6 +412,16 @@ export class BridgeRuntime {
       }
     }
     throw new Error("failed to resolve acpx session record id");
+  }
+
+  async getAgentSessionId(input: {
+    agent: string;
+    agentCommand?: string;
+    cwd: string;
+    name: string;
+  }): Promise<{ agentSessionId: string | undefined }> {
+    const record = await this.readSessionRecord(input);
+    return { agentSessionId: record.agentSessionId };
   }
 
   async setMode(input: {
