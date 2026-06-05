@@ -67,7 +67,7 @@ export function buildWeacpxMcpServerSpec(input: {
 }): AcpxMcpServerSpec {
   const { command, args } = splitCommandLine(input.weacpxCommand);
   return {
-    name: "weacpx",
+    name: "xacpx",
     type: "stdio",
     command,
     args: [
