@@ -87,6 +87,7 @@ test("falls back to a weacpx session when the fresh agent id is unavailable", as
   expect(ctx.attachSession).toHaveBeenCalledTimes(1);
   expect(ctx.attachNativeSession).not.toHaveBeenCalled();
   expect(ctx.removeSession).toHaveBeenCalledTimes(1);
+  expect(ctx.removeSession.mock.calls[0][0]).toMatchObject({ transportSession: "backend:review" });
   expect(reply.text).toBe(t().misc.sessionResetSuccess("review"));
 });
 
@@ -98,6 +99,8 @@ test("falls back when reading the fresh agent id throws", async () => {
 
   expect(ctx.attachSession).toHaveBeenCalledTimes(1);
   expect(ctx.attachNativeSession).not.toHaveBeenCalled();
+  // Even on the fallback path, the old native session is still closed.
+  expect(ctx.removeSession).toHaveBeenCalledTimes(1);
   expect(reply.text).toBe(t().misc.sessionResetSuccess("review"));
 });
 
