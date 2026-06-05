@@ -3,9 +3,9 @@ import { buildBaseInfo, sanitizeBotAgent } from "../../../../src/weixin/api/api.
 
 describe("sanitizeBotAgent", () => {
   it("returns DEFAULT when input is empty/whitespace/undefined", () => {
-    expect(sanitizeBotAgent(undefined)).toBe("weacpx");
-    expect(sanitizeBotAgent("")).toBe("weacpx");
-    expect(sanitizeBotAgent("   ")).toBe("weacpx");
+    expect(sanitizeBotAgent(undefined)).toBe("xacpx");
+    expect(sanitizeBotAgent("")).toBe("xacpx");
+    expect(sanitizeBotAgent("   ")).toBe("xacpx");
   });
 
   it("accepts a valid single product token", () => {
@@ -21,7 +21,7 @@ describe("sanitizeBotAgent", () => {
   });
 
   it("falls back to DEFAULT when all tokens are dropped", () => {
-    expect(sanitizeBotAgent("!!! @@@ ###")).toBe("weacpx");
+    expect(sanitizeBotAgent("!!! @@@ ###")).toBe("xacpx");
   });
 
   it("truncates over the 256-byte cap", () => {
