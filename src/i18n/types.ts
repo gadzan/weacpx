@@ -41,10 +41,11 @@ export interface SessionMessages {
   replyModeHeader: string;
   replyModeSessionLabel: (alias: string) => string;
   replyModeGlobalDefault: (value: string) => string;
+  replyModeChannelDefault: (value: string) => string;
   replyModeSessionOverride: (value: string) => string;
   replyModeEffective: (value: string) => string;
   replyModeSet: (replyMode: string) => string;
-  replyModeReset: (globalDefault: string) => string;
+  replyModeReset: (effective: string) => string;
 
   // handleStatus
   statusHeader: string;

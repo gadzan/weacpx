@@ -49,11 +49,12 @@ export const session: SessionMessages = {
   replyModeHeader: "Current reply mode:",
   replyModeSessionLabel: (alias) => `- Session: ${alias}`,
   replyModeGlobalDefault: (value) => `- Global default: ${value}`,
+  replyModeChannelDefault: (value) => `- Channel default: ${value}`,
   replyModeSessionOverride: (value) => `- Session override: ${value}`,
   replyModeEffective: (value) => `- Effective: ${value}`,
   replyModeSet: (replyMode) => `Current session reply mode set to: ${replyMode}`,
-  replyModeReset: (globalDefault) =>
-    `Session reply mode reset. Falling back to global default: ${globalDefault}`,
+  replyModeReset: (effective) =>
+    `Session reply mode reset. Now effective: ${effective}`,
 
   // handleStatus
   statusHeader: "Current session:",
