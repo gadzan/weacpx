@@ -33,7 +33,7 @@
 - **Command routing**: parses slash commands such as `/ss`, `/agent`, `/group` received from WeChat/Feishu/Yuanbao/CLI; plain text is fed to the current session as a prompt.
 - **Transport**: unifies "session ensure/prompt/cancel/setMode" into the `SessionTransport` interface, with two concrete implementations — `acpx-cli` (spawns `acpx` directly, optionally allocating a PTY via `node-pty`) and `acpx-bridge` (a standalone bridge subprocess + JSONL protocol).
 - **Orchestration** (optional): under a coordinator session, delegates multiple workers, tracking progress, questions, human confirmation, and grouped aggregation. Can be exposed to an external MCP host via `weacpx mcp-stdio`.
-- **Daemon**: `weacpx start` / `status` / `stop`, with PID + status + log landing in `~/.weacpx/runtime/`.
+- **Daemon**: `weacpx start` / `status` / `stop`, with PID + status + log landing in `~/.xacpx/runtime/`.
 - **Monorepo**: `packages/channel-feishu` and `packages/channel-yuanbao` are published from the same repo as npm workspaces alongside the main package.
 
 ---
@@ -338,7 +338,7 @@ Side paths:
 `src/plugins/plugin-home.ts:resolvePluginHome`:
 
 1. `WEACPX_PLUGIN_HOME` environment variable
-2. Default `~/.weacpx/plugins/` (a standalone `package.json`, isolated from the global / project `node_modules`)
+2. Default `~/.xacpx/plugins/` (a standalone `package.json`, isolated from the global / project `node_modules`)
 
 Package manager auto-detection: if `bun --version` runs, use `bun add/remove`; otherwise fall back to `npm install/uninstall` (`src/plugins/package-manager.ts`).
 
@@ -346,17 +346,17 @@ Package manager auto-detection: if `bun --version` runs, use `bun add/remove`; o
 
 ## Config and Runtime Files
 
-By default everything is under `~/.weacpx/`:
+By default everything is under `~/.xacpx/`:
 
 | Path | Contents | Writer |
 | --- | --- | --- |
-| `~/.weacpx/config.json` | Static config: agents, workspaces, channels, plugins, transport, etc. | `ConfigStore`, CLI |
-| `~/.weacpx/state.json` | sessions, chat_contexts, orchestration state | `DebouncedStateStore` (50ms coalescing) → `StateStore` |
-| `~/.weacpx/runtime/daemon.pid` | Current daemon PID | `DaemonRuntime` |
-| `~/.weacpx/runtime/status.json` | daemon heartbeat / start_at / log paths | Same as above |
-| `~/.weacpx/runtime/app.log` | bounded application log (rotated) | `AppLogger` |
-| `~/.weacpx/runtime/orchestration.sock` | Unix socket / `\\.\pipe\weacpx-orchestration-<hash>` | `OrchestrationServer` |
-| `~/.weacpx/plugins/` | Plugin npm home (standalone `package.json` + `node_modules`) | `weacpx plugin add/update` |
+| `~/.xacpx/config.json` | Static config: agents, workspaces, channels, plugins, transport, etc. | `ConfigStore`, CLI |
+| `~/.xacpx/state.json` | sessions, chat_contexts, orchestration state | `DebouncedStateStore` (50ms coalescing) → `StateStore` |
+| `~/.xacpx/runtime/daemon.pid` | Current daemon PID | `DaemonRuntime` |
+| `~/.xacpx/runtime/status.json` | daemon heartbeat / start_at / log paths | Same as above |
+| `~/.xacpx/runtime/app.log` | bounded application log (rotated) | `AppLogger` |
+| `~/.xacpx/runtime/orchestration.sock` | Unix socket / `\\.\pipe\xacpx-orchestration-<hash>` | `OrchestrationServer` |
+| `~/.xacpx/plugins/` | Plugin npm home (standalone `package.json` + `node_modules`) | `weacpx plugin add/update` |
 
 Field details: [docs/config-reference.md](./config-reference.md).
 

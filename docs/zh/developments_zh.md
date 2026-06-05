@@ -33,7 +33,7 @@
 - **命令路由**：解析微信/飞书/元宝/CLI 收到的 `/ss`、`/agent`、`/group` 等 slash 命令，普通文本作为 prompt 喂给当前会话。
 - **Transport**：把"会话 ensure/prompt/cancel/setMode"统一为 `SessionTransport` 接口，具体实现两套——`acpx-cli`（直接 spawn `acpx`，可选 `node-pty` 分配 PTY）和 `acpx-bridge`（独立 bridge 子进程 + JSONL 协议）。
 - **Orchestration**（可选）：coordinator 会话下委派多个 worker，跟踪进度、问题、人类确认、分组汇总。可通过 `weacpx mcp-stdio` 暴露给外部 MCP host。
-- **Daemon**：`weacpx start` / `status` / `stop`，PID + status + log 落在 `~/.weacpx/runtime/`。
+- **Daemon**：`weacpx start` / `status` / `stop`，PID + status + log 落在 `~/.xacpx/runtime/`。
 - **Monorepo**：`packages/channel-feishu`、`packages/channel-yuanbao` 作为 npm workspaces 与主包同仓发布。
 
 ---
@@ -338,7 +338,7 @@ bun run dry-run --chat-key wx:test -- \
 `src/plugins/plugin-home.ts:resolvePluginHome`：
 
 1. `WEACPX_PLUGIN_HOME` 环境变量
-2. 默认 `~/.weacpx/plugins/`（独立 `package.json`，与全局 / 项目 `node_modules` 隔离）
+2. 默认 `~/.xacpx/plugins/`（独立 `package.json`，与全局 / 项目 `node_modules` 隔离）
 
 包管理器自动探测：能跑 `bun --version` 就用 `bun add/remove`，否则回退 `npm install/uninstall`（`src/plugins/package-manager.ts`）。
 
@@ -346,17 +346,17 @@ bun run dry-run --chat-key wx:test -- \
 
 ## 配置与运行时文件
 
-默认全在 `~/.weacpx/`：
+默认全在 `~/.xacpx/`：
 
 | 路径 | 内容 | 写入方 |
 | --- | --- | --- |
-| `~/.weacpx/config.json` | agents、workspaces、channels、plugins、transport 等静态配置 | `ConfigStore`，CLI |
-| `~/.weacpx/state.json` | sessions、chat_contexts、orchestration 状态 | `DebouncedStateStore`（50ms 合并）→ `StateStore` |
-| `~/.weacpx/runtime/daemon.pid` | 当前 daemon PID | `DaemonRuntime` |
-| `~/.weacpx/runtime/status.json` | daemon heartbeat / start_at / log paths | 同上 |
-| `~/.weacpx/runtime/app.log` | bounded 应用日志（轮转） | `AppLogger` |
-| `~/.weacpx/runtime/orchestration.sock` | Unix socket / `\\.\pipe\weacpx-orchestration-<hash>` | `OrchestrationServer` |
-| `~/.weacpx/plugins/` | 插件 npm home（独立 `package.json` + `node_modules`） | `weacpx plugin add/update` |
+| `~/.xacpx/config.json` | agents、workspaces、channels、plugins、transport 等静态配置 | `ConfigStore`，CLI |
+| `~/.xacpx/state.json` | sessions、chat_contexts、orchestration 状态 | `DebouncedStateStore`（50ms 合并）→ `StateStore` |
+| `~/.xacpx/runtime/daemon.pid` | 当前 daemon PID | `DaemonRuntime` |
+| `~/.xacpx/runtime/status.json` | daemon heartbeat / start_at / log paths | 同上 |
+| `~/.xacpx/runtime/app.log` | bounded 应用日志（轮转） | `AppLogger` |
+| `~/.xacpx/runtime/orchestration.sock` | Unix socket / `\\.\pipe\xacpx-orchestration-<hash>` | `OrchestrationServer` |
+| `~/.xacpx/plugins/` | 插件 npm home（独立 `package.json` + `node_modules`） | `weacpx plugin add/update` |
 
 字段细节：[docs/config-reference.md](./config-reference_zh.md)。
 
