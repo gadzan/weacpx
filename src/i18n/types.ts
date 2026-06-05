@@ -723,6 +723,8 @@ export interface ConfigMessages {
 
   // applySupportedConfigUpdate — channel.replyMode
   channelReplyModeInvalid: string;
+  channelRuntimeNotFound: (id: string) => string;
+  channelRuntimeReplyModeInvalid: (id: string) => string;
 
   // applySupportedConfigUpdate — wechat.replyMode (legacy)
   wechatReplyModeInvalid: string;
