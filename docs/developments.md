@@ -27,13 +27,13 @@
 
 ## Project Snapshot
 
-`weacpx` is a bridging system of **"message channel ↔ command router ↔ acpx session driver"**:
+`xacpx` is a bridging system of **"message channel ↔ command router ↔ acpx session driver"**:
 
 - **Channels**: `weixin` is built in; `feishu` / `yuanbao` are distributed as first-party plugin packages; any npm package conforming to the `WeacpxPlugin` contract can be added.
 - **Command routing**: parses slash commands such as `/ss`, `/agent`, `/group` received from WeChat/Feishu/Yuanbao/CLI; plain text is fed to the current session as a prompt.
 - **Transport**: unifies "session ensure/prompt/cancel/setMode" into the `SessionTransport` interface, with two concrete implementations — `acpx-cli` (spawns `acpx` directly, optionally allocating a PTY via `node-pty`) and `acpx-bridge` (a standalone bridge subprocess + JSONL protocol).
-- **Orchestration** (optional): under a coordinator session, delegates multiple workers, tracking progress, questions, human confirmation, and grouped aggregation. Can be exposed to an external MCP host via `weacpx mcp-stdio`.
-- **Daemon**: `weacpx start` / `status` / `stop`, with PID + status + log landing in `~/.xacpx/runtime/`.
+- **Orchestration** (optional): under a coordinator session, delegates multiple workers, tracking progress, questions, human confirmation, and grouped aggregation. Can be exposed to an external MCP host via `xacpx mcp-stdio`.
+- **Daemon**: `xacpx start` / `status` / `stop`, with PID + status + log landing in `~/.xacpx/runtime/`.
 - **Monorepo**: `packages/channel-feishu` and `packages/channel-yuanbao` are published from the same repo as npm workspaces alongside the main package.
 
 ---
@@ -49,8 +49,8 @@
 ### Clone and Dependencies
 
 ```bash
-git clone https://github.com/gadzan/weacpx
-cd weacpx
+git clone https://github.com/gadzan/xacpx
+cd xacpx
 bun install            # Installs deps for both the root package and packages/* (workspaces)
 ```
 
@@ -88,7 +88,7 @@ Once this step passes, you're welcome to start working on the code.
 ### Top Level
 
 ```
-weacpx/
+xacpx/
 ├── src/                # Main package source
 ├── packages/           # First-party channel plugins
 │   ├── channel-feishu/
@@ -116,7 +116,7 @@ One sentence per directory to make its responsibility clear; deeper content is i
 
 | Directory | Responsibility | Entry / Key Files |
 | --- | --- | --- |
-| `src/cli.ts` | Top-level CLI entry, `weacpx <command>` dispatch | `runCli()` |
+| `src/cli.ts` | Top-level CLI entry, `xacpx <command>` dispatch | `runCli()` |
 | `src/main.ts` | `buildApp()` assembles the runtime; `resolveRuntimePaths()` resolves paths | `buildApp` |
 | `src/run-console.ts` | Startup sequence: channel → daemon runtime → consumer lock → channel start | `runConsole()` |
 | `src/console-agent.ts` | Bridges inbound messages to the router | `ConsoleAgent` |
@@ -140,8 +140,8 @@ One sentence per directory to make its responsibility clear; deeper content is i
 | `src/weixin/` | Built-in weixin channel + media pipeline + consumer lock | `monitor/`, `messaging/` |
 | `src/weixin-sdk.ts` | weixin SDK resolver, supports the `WEACPX_WEIXIN_SDK` override | `loadWeixinSdk()` |
 | `src/dry-run.ts` | Entry for running the router without connecting to an IM | `bun run dry-run` |
-| `src/login.ts` | WeChat QR code login flow | `weacpx login` |
-| `src/doctor/` | `weacpx doctor` diagnostic suite | — |
+| `src/login.ts` | WeChat QR code login flow | `xacpx login` |
+| `src/doctor/` | `xacpx doctor` diagnostic suite | — |
 
 ### `packages/` Subpackages
 
@@ -155,7 +155,7 @@ packages/channel-<name>/
 │   ├── <name>-provider.ts# implements ChannelCliProvider
 │   └── ...
 ├── dist/                  # bun build artifacts + .d.ts emitted by tsc
-├── package.json           # peerDependencies.weacpx (optional)
+├── package.json           # peerDependencies.xacpx (optional)
 ├── tsconfig.json          # Inherits the root tsconfig, emitDeclarationOnly
 └── README.md
 ```
@@ -182,8 +182,8 @@ Key scripts in `package.json`:
 
 Key points:
 
-- `bun build --target node --external node-pty`: `node-pty` is not bundled; it is resolved from `node_modules` at runtime. `packages/*` likewise use `--external weacpx`.
-- The main package only exports `weacpx/plugin-api` publicly; other paths (`weacpx/dist/*`, `weacpx/src/*`) are **not stable APIs** — don't depend on them externally.
+- `bun build --target node --external node-pty`: `node-pty` is not bundled; it is resolved from `node_modules` at runtime. `packages/*` likewise use `--external xacpx`.
+- The main package only exports `xacpx/plugin-api` publicly; other paths (`xacpx/dist/*`, `xacpx/src/*`) are **not stable APIs** — don't depend on them externally.
 - Plugin packages emit `.d.ts` separately via `tsc -p packages/<name>/tsconfig.json`, because bun build currently does not emit `.d.ts`.
 
 ---
@@ -210,7 +210,7 @@ node ./dist/cli.js status
 node ./dist/cli.js stop
 ```
 
-Good for: reproducing the "what users get after installing" state; testing the `bin/weacpx` entry; verifying `node-pty` resolution after bundling, etc.
+Good for: reproducing the "what users get after installing" state; testing the `bin/xacpx` entry; verifying `node-pty` resolution after bundling, etc.
 
 ### 3. `bun run dry-run` — Without Connecting to an IM
 
@@ -293,8 +293,8 @@ Full map: [docs/code-wiki.md](./code-wiki.md). Here we only draw a single overal
 
 Side paths:
 
-- **Orchestration** exposes multi-agent orchestration capability externally via `OrchestrationServer` (Unix socket / Named Pipe). `weacpx mcp-stdio` is its MCP-over-stdio client wrapper.
-- **Daemon** wraps `runConsole` + IPC server + heartbeat into a background process; the foreground `weacpx run` skips the daemon wrapping.
+- **Orchestration** exposes multi-agent orchestration capability externally via `OrchestrationServer` (Unix socket / Named Pipe). `xacpx mcp-stdio` is its MCP-over-stdio client wrapper.
+- **Daemon** wraps `runConsole` + IPC server + heartbeat into a background process; the foreground `xacpx run` skips the daemon wrapping.
 - **State persistence** goes through `DebouncedStateStore` → `StateStore` → `writePrivateFileAtomic` (`proper-lockfile` for cross-process mutual exclusion + `write-file-atomic` for atomic rename + a Windows EBUSY fallback).
 
 ---
@@ -356,7 +356,7 @@ By default everything is under `~/.xacpx/`:
 | `~/.xacpx/runtime/status.json` | daemon heartbeat / start_at / log paths | Same as above |
 | `~/.xacpx/runtime/app.log` | bounded application log (rotated) | `AppLogger` |
 | `~/.xacpx/runtime/orchestration.sock` | Unix socket / `\\.\pipe\xacpx-orchestration-<hash>` | `OrchestrationServer` |
-| `~/.xacpx/plugins/` | Plugin npm home (standalone `package.json` + `node_modules`) | `weacpx plugin add/update` |
+| `~/.xacpx/plugins/` | Plugin npm home (standalone `package.json` + `node_modules`) | `xacpx plugin add/update` |
 
 Field details: [docs/config-reference.md](./config-reference.md).
 
@@ -372,7 +372,7 @@ The hard constraints are in `AGENTS.md` (`CLAUDE.md` is a symlink to it). Highli
 - **Don't add `try/catch` / fallbacks for scenarios that can't happen**: trust the types at internal boundaries; only validate at system boundaries (user input, external APIs).
 - **Tests first**: a bug fix must include a failing test → fix → test turns green. Changing code without writing tests counts as unfinished.
 - **Channels**: only `weixin` is built in; non-weixin channels **must** be plugin packages, and writing a product-specific channel runtime in `src/channels/` is categorically not accepted.
-- **Avoid breaking changes**: `weacpx/plugin-api` is a public type; change it carefully, and bump `WEACPX_PLUGIN_API_VERSION` when necessary.
+- **Avoid breaking changes**: `xacpx/plugin-api` is a public type; change it carefully, and bump `WEACPX_PLUGIN_API_VERSION` when necessary.
 
 ---
 
@@ -388,7 +388,7 @@ Newcomers most often get stuck on "I want to add X, where do I start." This tabl
 | Change how acpx is invoked (CLI args, PTY, timeout) | `src/transport/acpx-cli/` or `src/transport/acpx-bridge/`, keeping the `SessionTransport` interface stable |
 | Add / change an orchestration capability | `src/orchestration/orchestration-service.ts` + `orchestration-ipc.ts` + `orchestration-server.ts`; tests in `tests/unit/orchestration/` |
 | Change daemon start/stop behavior | `src/daemon/`; if you change status fields, also update `daemon-status.ts` and the docs |
-| Change `weacpx doctor` | `src/doctor/index.ts` and the individual probes |
+| Change `xacpx doctor` | `src/doctor/index.ts` and the individual probes |
 | Change the tools exposed by `xacpx mcp-stdio` | `src/mcp/xacpx-mcp-tools.ts` |
 | Change the `state.json` schema | The parsing in `src/state/types.ts` + `state-store.ts`; consider migration |
 | Add a recoverable runtime error | `src/recovery/`; wire it into the corresponding command in the router |
@@ -432,7 +432,7 @@ Full process: [release.md](./release.md). One-liner version:
 
 ```bash
 bun run verify:publish      # build:packages + scripts/verify-publish.mjs
-bun run publish:weacpx
+bun run publish:xacpx
 bun run publish:plugins     # When bumping first-party plugin packages
 ```
 
