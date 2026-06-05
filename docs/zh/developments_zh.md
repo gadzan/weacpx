@@ -372,7 +372,7 @@ bun run dry-run --chat-key wx:test -- \
 - **不要为不可能发生的场景加 `try/catch` / fallback**：内部边界相信类型；只在系统边界（用户输入、外部 API）做校验。
 - **测试先行**：bug 修复要附 failing test → 修复 → test 转绿。修代码不写测试视为未完成。
 - **频道**：内置只有 `weixin`；非 weixin 频道**必须**作为插件包，在 `src/channels/` 写 product-specific 通道运行时一律不接受。
-- **避免破坏性变更**：`xacpx/plugin-api` 是公开类型；改它要慎重，必要时升 `WEACPX_PLUGIN_API_VERSION`。
+- **避免破坏性变更**：`xacpx/plugin-api` 是公开类型；改它要慎重，必要时升 `XACPX_PLUGIN_API_VERSION`。
 
 ---
 

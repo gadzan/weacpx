@@ -372,7 +372,7 @@ The hard constraints are in `AGENTS.md` (`CLAUDE.md` is a symlink to it). Highli
 - **Don't add `try/catch` / fallbacks for scenarios that can't happen**: trust the types at internal boundaries; only validate at system boundaries (user input, external APIs).
 - **Tests first**: a bug fix must include a failing test → fix → test turns green. Changing code without writing tests counts as unfinished.
 - **Channels**: only `weixin` is built in; non-weixin channels **must** be plugin packages, and writing a product-specific channel runtime in `src/channels/` is categorically not accepted.
-- **Avoid breaking changes**: `xacpx/plugin-api` is a public type; change it carefully, and bump `WEACPX_PLUGIN_API_VERSION` when necessary.
+- **Avoid breaking changes**: `xacpx/plugin-api` is a public type; change it carefully, and bump `XACPX_PLUGIN_API_VERSION` when necessary.
 
 ---
 
