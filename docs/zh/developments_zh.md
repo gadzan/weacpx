@@ -126,7 +126,7 @@ weacpx/
 | `src/transport/` | acpx 桥接抽象 + cli/bridge 两实现 | `transport/types.ts`、`acpx-cli/`、`acpx-bridge/` |
 | `src/bridge/` | acpx-bridge 子进程入口与 JSONL 协议 | `bridge-main.ts`、`bridge-server.ts`、`bridge-runtime.ts` |
 | `src/orchestration/` | 多 agent 编排服务 + IPC server/client + 状态机 | `orchestration-service.ts`、`orchestration-server.ts` |
-| `src/mcp/` | `weacpx mcp-stdio` 实现，把 orchestration 暴露成 MCP server | `weacpx-mcp-server.ts`、`weacpx-mcp-tools.ts` |
+| `src/mcp/` | `xacpx mcp-stdio` 实现，把 orchestration 暴露成 MCP server | `xacpx-mcp-server.ts`、`xacpx-mcp-tools.ts` |
 | `src/daemon/` | daemon 控制器、status/PID 文件、运行时元数据 | `daemon-controller.ts`、`daemon-runtime.ts` |
 | `src/plugins/` | 插件加载、CLI、doctor、包管理器抽象、签名校验 | `plugin-loader.ts`、`plugin-cli.ts`、`plugin-doctor.ts` |
 | `src/plugin-api.ts` | **公共**插件 API 类型再导出（编译产物 `dist/plugin-api.d.ts`） | — |
@@ -389,7 +389,7 @@ bun run dry-run --chat-key wx:test -- \
 | 加 / 改一项 orchestration 能力 | `src/orchestration/orchestration-service.ts` + `orchestration-ipc.ts` + `orchestration-server.ts`；测试在 `tests/unit/orchestration/` |
 | 改 daemon 启停行为 | `src/daemon/`；status 字段改了同步更 `daemon-status.ts` 与文档 |
 | 改 `weacpx doctor` | `src/doctor/index.ts` 与各 probe |
-| 改 `weacpx mcp-stdio` 暴露的工具 | `src/mcp/weacpx-mcp-tools.ts` |
+| 改 `xacpx mcp-stdio` 暴露的工具 | `src/mcp/xacpx-mcp-tools.ts` |
 | 改 `state.json` schema | `src/state/types.ts` + `state-store.ts` 的解析；考虑迁移 |
 | 加可恢复的运行时错误 | `src/recovery/`；router 里 wire 进对应命令 |
 | 加 / 改全局公共类型 | `src/plugin-api.ts` 再导出 + `bun run build:plugin-api` |

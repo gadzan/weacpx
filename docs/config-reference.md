@@ -128,7 +128,7 @@ The queue owner's idle time-to-live is determined by acpx's `--ttl` (acpx's own 
 
 ### Automatic orchestration MCP injection
 
-Before sending a regular prompt to an acpx session, weacpx temporarily starts acpx's queue owner and, via `ACPX_QUEUE_OWNER_PAYLOAD`, injects a stdio MCP server named `xacpx` (the tool prefix is therefore `mcp__xacpx__*`, e.g. `mcp__xacpx__delegate_request`, `mcp__xacpx__scheduled_create`). This way the agent managed by acpx can see orchestration and scheduled-task tools such as `delegate_request` and `scheduled_create`.
+Before sending a regular prompt to an acpx session, xacpx temporarily starts acpx's queue owner and, via `ACPX_QUEUE_OWNER_PAYLOAD`, injects a stdio MCP server named `xacpx` (the tool prefix is therefore `mcp__xacpx__*`, e.g. `mcp__xacpx__delegate_request`, `mcp__xacpx__scheduled_create`). This way the agent managed by acpx can see orchestration and scheduled-task tools such as `delegate_request` and `scheduled_create`.
 
 This compatibility path does not write to the working directory's `.acpxrc.json`, nor does it modify `~/.acpx/config.json` or replace the acpx home, so it does not affect acpx's existing sessions, stream logs, or `index.json` mapping relationships.
 

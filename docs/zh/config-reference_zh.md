@@ -117,7 +117,7 @@ queue owner 的空闲存活时长由 acpx 的 `--ttl` 决定（acpx 自身默认
 
 ### orchestration MCP 自动注入
 
-weacpx 会在向 acpx session 发送普通 prompt 前，临时启动 acpx 的 queue owner，并通过 `ACPX_QUEUE_OWNER_PAYLOAD` 注入名为 `xacpx` 的 stdio MCP server（工具前缀因此为 `mcp__xacpx__*`，例如 `mcp__xacpx__delegate_request`、`mcp__xacpx__scheduled_create`）。这样被 acpx 管理的 agent 可以看到 `delegate_request`、`scheduled_create` 等编排与定时任务工具。
+xacpx 会在向 acpx session 发送普通 prompt 前，临时启动 acpx 的 queue owner，并通过 `ACPX_QUEUE_OWNER_PAYLOAD` 注入名为 `xacpx` 的 stdio MCP server（工具前缀因此为 `mcp__xacpx__*`，例如 `mcp__xacpx__delegate_request`、`mcp__xacpx__scheduled_create`）。这样被 acpx 管理的 agent 可以看到 `delegate_request`、`scheduled_create` 等编排与定时任务工具。
 
 这个兼容路径不会写入工作目录的 `.acpxrc.json`，也不会修改 `~/.acpx/config.json` 或替换 acpx home，因此不会影响 acpx 既有 sessions、流日志和 `index.json` 映射关系。
 

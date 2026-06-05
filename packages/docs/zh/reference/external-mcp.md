@@ -4,7 +4,7 @@
 
 `xacpx mcp-stdio` 是一个标准的 MCP stdio 服务器。外部 MCP 宿主——Codex、Claude Code 等——可连接到它并调用 xacpx 编排工具，如 `delegate_request`、`task_get`、`task_list` 和 `task_watch`。支持 MCP Tasks 的宿主可在 `delegate_request` 和 `task_watch` 上使用原生任务执行：现在发起调用，稍后获取结果。
 
-> **工具名称前缀：** MCP 服务器以 `weacpx` 名称注册（出于向后兼容性）。因此工具名称使用前缀 `mcp__weacpx__*`（例如 `mcp__weacpx__delegate_request`、`mcp__weacpx__task_get`）。该前缀是有意为之，在经过弃用周期之前不会更改。
+> **工具名称前缀：** MCP 服务器以 `xacpx` 名称注册。因此工具名称使用前缀 `mcp__xacpx__*`（例如 `mcp__xacpx__delegate_request`、`mcp__xacpx__task_get`）。（v0.8.0 之前该服务器名为 `weacpx`；硬编码了旧前缀 `mcp__weacpx__*` 的宿主需更新为 `mcp__xacpx__*`。）
 
 > **定时任务工具**（`scheduled_create`、`scheduled_list`、`scheduled_cancel`）仅对 xacpx 内部会话可用——它们复用当前的聊天路由和群主鉴权。外部 `mcp-stdio` 服务器不暴露这些工具。
 

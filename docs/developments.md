@@ -126,7 +126,7 @@ One sentence per directory to make its responsibility clear; deeper content is i
 | `src/transport/` | acpx bridging abstraction + cli/bridge implementations | `transport/types.ts`, `acpx-cli/`, `acpx-bridge/` |
 | `src/bridge/` | acpx-bridge subprocess entry and JSONL protocol | `bridge-main.ts`, `bridge-server.ts`, `bridge-runtime.ts` |
 | `src/orchestration/` | Multi-agent orchestration service + IPC server/client + state machine | `orchestration-service.ts`, `orchestration-server.ts` |
-| `src/mcp/` | `weacpx mcp-stdio` implementation, exposing orchestration as an MCP server | `weacpx-mcp-server.ts`, `weacpx-mcp-tools.ts` |
+| `src/mcp/` | `xacpx mcp-stdio` implementation, exposing orchestration as an MCP server | `xacpx-mcp-server.ts`, `xacpx-mcp-tools.ts` |
 | `src/daemon/` | daemon controller, status/PID files, runtime metadata | `daemon-controller.ts`, `daemon-runtime.ts` |
 | `src/plugins/` | plugin loading, CLI, doctor, package manager abstraction, signature verification | `plugin-loader.ts`, `plugin-cli.ts`, `plugin-doctor.ts` |
 | `src/plugin-api.ts` | **Public** plugin API type re-exports (build artifact `dist/plugin-api.d.ts`) | — |
@@ -389,7 +389,7 @@ Newcomers most often get stuck on "I want to add X, where do I start." This tabl
 | Add / change an orchestration capability | `src/orchestration/orchestration-service.ts` + `orchestration-ipc.ts` + `orchestration-server.ts`; tests in `tests/unit/orchestration/` |
 | Change daemon start/stop behavior | `src/daemon/`; if you change status fields, also update `daemon-status.ts` and the docs |
 | Change `weacpx doctor` | `src/doctor/index.ts` and the individual probes |
-| Change the tools exposed by `weacpx mcp-stdio` | `src/mcp/weacpx-mcp-tools.ts` |
+| Change the tools exposed by `xacpx mcp-stdio` | `src/mcp/xacpx-mcp-tools.ts` |
 | Change the `state.json` schema | The parsing in `src/state/types.ts` + `state-store.ts`; consider migration |
 | Add a recoverable runtime error | `src/recovery/`; wire it into the corresponding command in the router |
 | Add / change a global public type | Re-export in `src/plugin-api.ts` + `bun run build:plugin-api` |

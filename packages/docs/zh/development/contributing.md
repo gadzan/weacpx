@@ -240,7 +240,7 @@ Tag 命名约定：
 | 添加或修改编排能力 | `src/orchestration/orchestration-service.ts` + IPC 相关文件；测试在 `tests/unit/orchestration/` |
 | 修改守护进程的 start/stop 行为 | `src/daemon/`；若状态字段有变更，同步更新 `daemon-status.ts` 和本文档站 |
 | 修改 `xacpx doctor` | `src/doctor/index.ts` 及其探针 |
-| 修改 `xacpx mcp-stdio` 暴露的工具 | `src/mcp/weacpx-mcp-tools.ts`（MCP 源文件保留 `weacpx-` 文件名以维持兼容性） |
+| 修改 `xacpx mcp-stdio` 暴露的工具 | `src/mcp/xacpx-mcp-tools.ts` |
 | 修改 `state.json` 的 schema | `src/state/types.ts` + `state-store.ts` 解析逻辑；考虑迁移兼容性 |
 | 添加或修改公共插件 API 类型 | `src/plugin-api.ts` 重导出 + `bun run build:plugin-api` |
 | 修复测试运行器 | `scripts/run-tests-lib.mjs`（`buildTestPlan`） |

@@ -4,7 +4,7 @@
 
 `xacpx mcp-stdio` is a standard MCP stdio server. External MCP hosts — Codex, Claude Code, and others — can connect to it and call xacpx orchestration tools such as `delegate_request`, `task_get`, `task_list`, and `task_watch`. Hosts that support MCP Tasks can use native task execution on `delegate_request` and `task_watch`: call now, fetch later.
 
-> **Tool name prefix:** The MCP server is registered under the name `weacpx` for backward compatibility. Tool names therefore use the prefix `mcp__weacpx__*` (for example `mcp__weacpx__delegate_request`, `mcp__weacpx__task_get`). This prefix is intentional and will not change without a deprecation cycle.
+> **Tool name prefix:** The MCP server is registered under the name `xacpx`. Tool names therefore use the prefix `mcp__xacpx__*` (for example `mcp__xacpx__delegate_request`, `mcp__xacpx__task_get`). (Before v0.8.0 the server was named `weacpx`; hosts that hardcoded the old `mcp__weacpx__*` prefix must update to `mcp__xacpx__*`.)
 
 > **Scheduled task tools** (`scheduled_create`, `scheduled_list`, `scheduled_cancel`) are available only to the internal xacpx session — they reuse the current chat route and group-owner authorization. The external `mcp-stdio` server does not expose them.
 
