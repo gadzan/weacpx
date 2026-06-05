@@ -1462,6 +1462,23 @@
 /* =========================================================================
    Responsive
    ========================================================================= */
+/* Stacked hero (< 960px). The default theme gives .image order:1 (above the
+   copy), a fixed-height container (320/392px), and negative margins — all
+   tuned for the tiny decorative image-src, not our full-height phone. That
+   makes the phone overflow its box and sit on top of the hero text. Reset to
+   normal flow and drop the phone below the copy. */
+@media (max-width: 959px) {
+  .VPHome .VPHero .image {
+    order: 2;
+    margin: 12px 0 0;
+  }
+  .VPHome .VPHero .image-container {
+    width: 100%;
+    height: auto;
+    transform: none;
+  }
+}
+
 @media (max-width: 640px) {
   .install-cmd { max-width: 100%; }
   .phone { width: 240px; }
