@@ -423,6 +423,9 @@ function parseRuntimeChannelConfig(raw: unknown, index: number): ChannelRuntimeC
     throw new Error(`channels[${index}].type must be a non-empty string`);
   }
   const enabled = raw.enabled !== false;
+  if ("replyMode" in raw && !isReplyMode(raw.replyMode)) {
+    throw new Error(`channels[${index}].replyMode must be stream, final, or verbose`);
+  }
   let options: Record<string, unknown> | undefined = undefined;
   if ("feishu" in raw && isRecord(raw.feishu)) {
     options = raw.feishu;
@@ -433,6 +436,7 @@ function parseRuntimeChannelConfig(raw: unknown, index: number): ChannelRuntimeC
     id,
     type: raw.type,
     enabled,
+    ...(isReplyMode(raw.replyMode) ? { replyMode: raw.replyMode } : {}),
     ...(options ? { options } : {}),
   };
 }

@@ -55,6 +55,10 @@ export const config: ConfigMessages = {
   // applySupportedConfigUpdate — channel.replyMode
   channelReplyModeInvalid: "channel.replyMode only supports: stream, final, verbose",
 
+  // applySupportedConfigUpdate — channels.<id>.replyMode (per-channel default)
+  channelRuntimeNotFound: (id) => `Channel "${id}" does not exist; add it first with \`xacpx channel add ${id}\`.`,
+  channelRuntimeReplyModeInvalid: (id) => `channels.${id}.replyMode only supports: stream, final, verbose`,
+
   // applySupportedConfigUpdate — wechat.replyMode (legacy)
   wechatReplyModeInvalid: "wechat.replyMode only supports: stream, final, verbose",
 

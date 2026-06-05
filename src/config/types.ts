@@ -79,6 +79,7 @@ export interface ChannelRuntimeConfig {
   id: string;
   type: string;
   enabled: boolean;
+  replyMode?: ReplyMode;
   options?: Record<string, unknown>;
 }
 

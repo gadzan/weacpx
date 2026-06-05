@@ -13,6 +13,7 @@ import type { HelpTopicMetadata } from "../help/help-types";
 import type { ChatRequestMetadata } from "../../weixin/agent/interface";
 import { buildCoordinatorPrompt } from "../../orchestration/build-coordinator-prompt";
 import { toDisplaySessionAlias, getChannelIdFromChatKey, scopeDisplayAliasToInternal, resolveSessionAliasForInput } from "../../channels/channel-scope";
+import { resolveChannelDefaultReplyMode, resolveEffectiveReplyMode } from "./resolve-reply-mode";
 import { quoteWorkspaceNameIfNeeded } from "../workspace-name";
 import type { SessionSwitchResult } from "../../sessions/session-service";
 import { decorateUnread } from "./session-list-marker";
@@ -388,8 +389,9 @@ export async function handleReplyModeShow(context: SessionHandlerContext, chatKe
   }
 
   const globalDefault = context.config?.channel.replyMode ?? "verbose";
+  const channelDefault = resolveChannelDefaultReplyMode(context.config, chatKey);
   const sessionOverride = session.replyMode;
-  const effective = sessionOverride ?? globalDefault;
+  const effective = resolveEffectiveReplyMode(context.config, chatKey, sessionOverride);
   const s = t().session;
 
   return {
@@ -397,6 +399,7 @@ export async function handleReplyModeShow(context: SessionHandlerContext, chatKe
       s.replyModeHeader,
       s.replyModeSessionLabel(toDisplaySessionAlias(session.alias)),
       s.replyModeGlobalDefault(globalDefault),
+      s.replyModeChannelDefault(channelDefault ?? s.modeNotSet),
       s.replyModeSessionOverride(sessionOverride ?? s.modeNotSet),
       s.replyModeEffective(effective),
     ].join("\n"),
@@ -424,8 +427,8 @@ export async function handleReplyModeReset(context: SessionHandlerContext, chatK
   }
 
   await context.sessions.setCurrentSessionReplyMode(chatKey, undefined);
-  const globalDefault = context.config?.channel.replyMode ?? "verbose";
-  return { text: t().session.replyModeReset(globalDefault) };
+  const fallback = resolveEffectiveReplyMode(context.config, chatKey, undefined);
+  return { text: t().session.replyModeReset(fallback) };
 }
 
 export async function handleStatus(context: SessionHandlerContext, chatKey: string): Promise<RouterResponse> {
@@ -621,7 +624,7 @@ async function promptWithSession(
   perfSpan?: PerfSpan,
   metadata?: ChatRequestMetadata,
 ): Promise<RouterResponse> {
-const effectiveReplyMode = session.replyMode ?? context.config?.channel.replyMode ?? "verbose";
+  const effectiveReplyMode = resolveEffectiveReplyMode(context.config, chatKey, session.replyMode);
   // Ensure the session carries the resolved value so downstream transports
   // see "verbose" instead of undefined and format tool-call progress correctly.
   if (!session.replyMode) session.replyMode = effectiveReplyMode;

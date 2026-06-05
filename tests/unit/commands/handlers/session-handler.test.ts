@@ -1,5 +1,5 @@
 import { expect, test, beforeEach } from "bun:test";
-import { handleCancel, handlePrompt, handleSessionUse, handleSessions } from "../../../../src/commands/handlers/session-handler";
+import { handleCancel, handlePrompt, handleReplyModeShow, handleSessionUse, handleSessions } from "../../../../src/commands/handlers/session-handler";
 import { setLocale, t } from "../../../../src/i18n";
 
 beforeEach(() => {
@@ -306,4 +306,36 @@ test("handleSessions marks session with unread background result with ● prefix
   const res = await handleSessions(context, "weixin:a:u");
   expect(res.text).toContain("● backend");
   expect(res.text).not.toContain("● frontend");
+});
+
+test("handleReplyModeShow reports the per-channel default and resolves effective from it", async () => {
+  const session = { alias: "weixin:backend", replyMode: undefined } as any;
+  const context = {
+    sessions: { getCurrentSession: async (_k: string) => session },
+    config: {
+      channel: { type: "weixin", replyMode: "verbose" },
+      channels: [{ id: "weixin", type: "weixin", enabled: true, replyMode: "final" }],
+    },
+  } as any;
+
+  const result = await handleReplyModeShow(context, "weixin:u");
+  const s = t().session;
+  expect(result.text).toContain(s.replyModeChannelDefault("final"));
+  expect(result.text).toContain(s.replyModeEffective("final"));
+  expect(result.text).toContain(s.replyModeGlobalDefault("verbose"));
+});
+
+test("handleReplyModeShow shows session override as effective over channel default", async () => {
+  const session = { alias: "weixin:backend", replyMode: "stream" } as any;
+  const context = {
+    sessions: { getCurrentSession: async (_k: string) => session },
+    config: {
+      channel: { type: "weixin", replyMode: "verbose" },
+      channels: [{ id: "weixin", type: "weixin", enabled: true, replyMode: "final" }],
+    },
+  } as any;
+
+  const result = await handleReplyModeShow(context, "weixin:u");
+  const s = t().session;
+  expect(result.text).toContain(s.replyModeEffective("stream"));
 });

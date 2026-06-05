@@ -41,10 +41,11 @@ export interface SessionMessages {
   replyModeHeader: string;
   replyModeSessionLabel: (alias: string) => string;
   replyModeGlobalDefault: (value: string) => string;
+  replyModeChannelDefault: (value: string) => string;
   replyModeSessionOverride: (value: string) => string;
   replyModeEffective: (value: string) => string;
   replyModeSet: (replyMode: string) => string;
-  replyModeReset: (globalDefault: string) => string;
+  replyModeReset: (effective: string) => string;
 
   // handleStatus
   statusHeader: string;
@@ -722,6 +723,8 @@ export interface ConfigMessages {
 
   // applySupportedConfigUpdate — channel.replyMode
   channelReplyModeInvalid: string;
+  channelRuntimeNotFound: (id: string) => string;
+  channelRuntimeReplyModeInvalid: (id: string) => string;
 
   // applySupportedConfigUpdate — wechat.replyMode (legacy)
   wechatReplyModeInvalid: string;
@@ -979,6 +982,8 @@ export interface ChannelCliMessages {
   // setChannelEnabled
   cannotDisableLastEnabled: string;
   channelEnabledToggled: (id: string, enabled: boolean) => string;
+  channelReplyModeSet: (id: string, mode: string) => string;
+  channelReplyModeInvalid: (mode: string) => string;
 
   // addChannelAccount
   channelAccountAlreadyExists: (type: string, accountId: string) => string;

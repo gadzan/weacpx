@@ -214,9 +214,9 @@ Notes:
 - `stream`: when there are intermediate text segments, send them in streaming fashion preferentially
 - `final`: suppress intermediate text segments, sending the final text only once at the end
 - `verbose`: on top of stream, additionally send real-time events such as tool calls
-- This configuration is a **global default value**
+- This configuration is the **global default value**; a channel may override it via `channels[].replyMode`, and a session may override both via `/replymode`. Precedence: session override → `channels[].replyMode` → `channel.replyMode` → `verbose`.
 - You can use `/replymode` to set an override for the **current logical session**
-- `/replymode reset` clears the current session override, falling back to `channel.replyMode`
+- `/replymode reset` clears the current session override, falling back to the channel default (`channels[].replyMode`) if set, otherwise `channel.replyMode`
 - `final` only affects whether text is sent in real time; it does not change how the acpx transport generates output
 
 ### Backward Compatibility
@@ -247,6 +247,7 @@ See full operation instructions in: [docs/channel-management.md](./channel-manag
 | `id` | `string` | Yes | Unique channel identifier, must be the same as `type` (built-in: `"weixin"`; plugins: e.g. `"feishu"`, `"yuanbao"`) |
 | `type` | `string` | Yes | Channel type. The only built-in channel type is `"weixin"`. `"feishu"` is provided by `@ganglion/xacpx-channel-feishu`, `"yuanbao"` is provided by `@ganglion/xacpx-channel-yuanbao`; other types are provided by installed plugins |
 | `enabled` | `boolean` | No | Whether to enable. Defaults to `true` |
+| `replyMode` | `"stream"` \| `"final"` \| `"verbose"` | No | Per-channel default reply mode. When set, it overrides the global `channel.replyMode` for this channel; when omitted, the channel falls back to `channel.replyMode`. The per-session `/replymode` override still takes precedence over this. |
 | `options` | `object` | Depends on the channel | Channel configuration (see Feishu/Yuanbao fields below) |
 
 ### Feishu Channel Configuration (`options`)

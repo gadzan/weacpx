@@ -46,11 +46,12 @@ export const session: SessionMessages = {
   replyModeHeader: "当前 reply mode：",
   replyModeSessionLabel: (alias) => `- 会话：${alias}`,
   replyModeGlobalDefault: (value) => `- 全局默认：${value}`,
+  replyModeChannelDefault: (value) => `- 频道默认：${value}`,
   replyModeSessionOverride: (value) => `- 当前会话覆盖：${value}`,
   replyModeEffective: (value) => `- 当前生效：${value}`,
   replyModeSet: (replyMode) => `已设置当前会话 reply mode：${replyMode}`,
-  replyModeReset: (globalDefault) =>
-    `已重置当前会话 reply mode，当前回退到全局默认：${globalDefault}`,
+  replyModeReset: (effective) =>
+    `已重置当前会话 reply mode，当前生效：${effective}`,
 
   // handleStatus
   statusHeader: "当前会话：",

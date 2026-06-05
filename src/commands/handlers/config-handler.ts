@@ -24,6 +24,7 @@ const SUPPORTED_CONFIG_PATHS = [
   "logging.maxFiles",
   "logging.retentionDays",
   "channel.replyMode",
+  "channels.<id>.replyMode",
   "agents.<name>.driver",
   "agents.<name>.command",
   "workspaces.<name>.cwd",
@@ -219,6 +220,24 @@ function applySupportedConfigUpdate(
       workspace.description = rawValue;
     }
     return { renderedValue: rawValue };
+  }
+
+  const channelMatch = path.match(/^channels\.([^.]+)\.replyMode$/);
+  if (channelMatch) {
+    const [, id] = channelMatch;
+    if (!id) {
+      return { error: c.pathNotSupported(path) };
+    }
+    const channel = config.channels.find((entry) => entry.id === id);
+    if (!channel) {
+      return { error: c.channelRuntimeNotFound(id) };
+    }
+    const parsed = parseEnum<ReplyMode>(rawValue, ["stream", "final", "verbose"]);
+    if (!parsed) {
+      return { error: c.channelRuntimeReplyModeInvalid(id) };
+    }
+    channel.replyMode = parsed;
+    return { renderedValue: parsed };
   }
 
   return { error: c.pathNotSupported(path) };
