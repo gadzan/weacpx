@@ -49,14 +49,20 @@
 
 4. **文件重命名** `src/mcp/weacpx-mcp-server.ts` / `weacpx-mcp-transport.ts` / `weacpx-mcp-tools.ts` → `xacpx-mcp-server.ts` / `xacpx-mcp-transport.ts` / `xacpx-mcp-tools.ts`，并更新所有 import 路径（用 `git mv` 保留历史）。对应测试文件 `tests/unit/mcp/weacpx-mcp-transport.test.ts` 等也一并重命名 + 更新 import。
 
-5. **内部常量/参数/类型重命名**（仅内部使用的标识）：
-   - `WEACPX_PLUGIN_API_VERSION` / `WEACPX_PLUGIN_API_SUPPORTED_VERSIONS` / `WEACPX_PLUGIN_MIN_CORE_VERSION` / `WEACPX_KNOWN_COMMAND_PREFIXES` → `XACPX_*`。
+5. **公开插件常量：新增 `XACPX_*` 别名、保留旧名**（核对发现 `WEACPX_PLUGIN_API_VERSION` / `WEACPX_PLUGIN_API_SUPPORTED_VERSIONS` / `WEACPX_PLUGIN_MIN_CORE_VERSION` 经 `src/plugin-api.ts:28-32` **公开 re-export**，插件作者会 `import ... from "xacpx/plugin-api"`，并非内部）：
+   - 在 `src/plugins/compatibility.ts` 定义规范名 `XACPX_PLUGIN_API_VERSION` / `XACPX_PLUGIN_API_SUPPORTED_VERSIONS` / `XACPX_PLUGIN_MIN_CORE_VERSION`，并保留 `WEACPX_PLUGIN_*` 作为指向同值的 **deprecated 别名**。
+   - `src/plugins/types.ts` 与 `src/plugin-api.ts` 同时 re-export 新名与旧名。
+   - 内部引用（`compatibility.ts:123-124`、`validate-plugin.ts:70`）改用 `XACPX_*`。
+   - 插件脚手架（`plugin-cli`）生成的示例改 `import { XACPX_PLUGIN_API_VERSION }`（对应 `plugin-cli.test.ts:146/149` 断言同步）。
+   - 插件内部统一引用 `XacpxPlugin` 类型；`WeacpxPlugin` 作为 deprecated 别名**保留**（已存在，老插件 `.d.ts` 仍引用）。
+
+6. **内部标识重命名**（确属内部、无公开 re-export）：
+   - `WEACPX_KNOWN_COMMAND_PREFIXES`（`src/commands/command-list.ts:1`，未进 plugin-api）→ `XACPX_KNOWN_COMMAND_PREFIXES`。
    - `compatibility.ts` 的 `currentWeacpxVersion` 上下文字段与错误消息字段标签 → `*Xacpx*`（**注意：不改对 plugin 元数据 `minWeacpxVersion` 的读取**）。
-   - 插件内部统一引用 `XacpxPlugin` 类型；`WeacpxPlugin` 作为 deprecated 别名**保留**（老插件 `.d.ts` 仍引用）。
 
-6. **`weacpxCommand` 字段 / `resolveDefaultWeacpxCommand`**（`src/transport/acpx-queue-owner-launcher.ts:47/64/68/109/120/156`）→ `xacpxCommand` / `resolveDefaultXacpxCommand`（内部改名；解析出的命令值不变，本就指向 xacpx bin）。
+7. **`weacpxCommand` 字段 / `buildWeacpxMcpServerSpec` / `resolveDefaultWeacpxCommand`**（`src/transport/acpx-queue-owner-launcher.ts:47/63/64/68/109/120/155/156/276`，仅被本文件与 `tests/unit/transport/acpx-queue-owner-launcher.test.ts` 引用）→ `xacpxCommand` / `buildXacpxMcpServerSpec` / `resolveDefaultXacpxCommand`（内部改名；解析出的命令值不变，本就指向 xacpx bin）。
 
-7. **orchestration pipe 名** `weacpx-orchestration-` → `xacpx-orchestration-`（`src/orchestration/orchestration-ipc.ts:127`，server/client 共用同一路径 helper，一处改）。
+8. **orchestration pipe 名** `weacpx-orchestration-` → `xacpx-orchestration-`（`src/orchestration/orchestration-ipc.ts:127`，server/client 共用同一路径 helper，一处改）。
 
 ### 留（KEEP，明确不动）
 
