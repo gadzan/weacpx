@@ -312,7 +312,7 @@ Side paths:
 | Channel plugin SPI | `src/plugin-api.ts`, `src/plugins/` | [plugin-development.md](./plugin-development.md) |
 | Config | `src/config/` | [config-reference.md](./config-reference.md), [config-command.md](./config-command.md) |
 | Testing | `tests/`, `scripts/run-tests*` | [testing.md](./testing.md) |
-| Releasing | `scripts/verify-publish.mjs` | [release.md](./release.md) |
+| Releasing | `scripts/verify-publish.mjs` | [Releases section](#releases) |
 
 ---
 
@@ -428,7 +428,7 @@ These two are usually part of the same merge in historical PRs, which makes late
 
 ### Releases
 
-Full process: [release.md](./release.md). One-liner version:
+Release flow (one-liner version):
 
 ```bash
 bun run verify:publish      # build:packages + scripts/verify-publish.mjs
@@ -453,7 +453,7 @@ Remember when releasing:
 - Config fields: [config-reference.md](./config-reference.md)
 - Code map: [code-wiki.md](./code-wiki.md)
 - Testing conventions: [testing.md](./testing.md)
-- Release process: [release.md](./release.md)
+- Release process: [Releases section](#releases)
 - Multi-agent orchestration principles: [`2026-04-13-weacpx-orchestration-design.md`](./2026-04-13-weacpx-orchestration-design.md)
 - Acpx-Bridge protocol: [`2026-03-25-weacpx-acpx-bridge-design.md`](./2026-03-25-weacpx-acpx-bridge-design.md)
 - Project conventions (`AGENTS.md` / `CLAUDE.md`): [../AGENTS.md](../AGENTS.md)

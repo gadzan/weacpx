@@ -312,7 +312,7 @@ bun run dry-run --chat-key wx:test -- \
 | 频道插件 SPI | `src/plugin-api.ts`、`src/plugins/` | [plugin-development.md](./plugin-development_zh.md) |
 | 配置 | `src/config/` | [config-reference.md](./config-reference_zh.md), [config-command.md](./config-command_zh.md) |
 | 测试 | `tests/`、`scripts/run-tests*` | [testing.md](./testing_zh.md) |
-| 发布 | `scripts/verify-publish.mjs` | [release.md](../release.md) |
+| 发布 | `scripts/verify-publish.mjs` | [发布章节](#发布) |
 
 ---
 
@@ -428,7 +428,7 @@ bun run dry-run --chat-key wx:test -- \
 
 ### 发布
 
-完整流程：[release.md](../release.md)。一句话版：
+发布流程（一句话版）：
 
 ```bash
 bun run verify:publish      # build:packages + scripts/verify-publish.mjs
@@ -453,7 +453,7 @@ bun run publish:plugins     # 升一方插件包时
 - 配置字段：[config-reference.md](./config-reference_zh.md)
 - 代码地图：[code-wiki.md](./code-wiki_zh.md)
 - 测试约定：[testing.md](./testing_zh.md)
-- 发版流程：[release.md](../release.md)
+- 发版流程：[发布章节](#发布)
 - 多 Agent 编排原理：[`2026-04-13-weacpx-orchestration-design.md`](../2026-04-13-weacpx-orchestration-design.md)
 - Acpx-Bridge 协议：[`2026-03-25-weacpx-acpx-bridge-design.md`](../2026-03-25-weacpx-acpx-bridge-design.md)
 - 项目规约（`AGENTS.md` / `CLAUDE.md`）：[../AGENTS.md](../../AGENTS.md)

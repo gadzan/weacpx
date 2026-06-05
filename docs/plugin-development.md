@@ -840,7 +840,7 @@ Pre-publish checklist:
 - The published artifact imports **only** `xacpx/plugin-api`. You can verify with `bunx publint`.
 - All ESM, `"type": "module"`.
 
-For publish commands, preflight, dry-run, and version-number selection (patch / minor / major), see [docs/release.md](./release.md).
+For publish commands, preflight, dry-run, and version-number selection (patch / minor / major), see the [Releases section in docs/developments.md](./developments.md#releases).
 
 ---
 
@@ -873,5 +873,5 @@ Each first-party package has `src/index.ts` (plugin entry) + `src/channel.ts` (r
 
 - User-facing channel management: [docs/channel-management.md](./channel-management.md)
 - All config file fields: [docs/config-reference.md](./config-reference.md)
-- Release / versioning process: [docs/release.md](./release.md)
+- Release / versioning process: [docs/developments.md → Releases](./developments.md#releases)
 - Code wiki / module map: [docs/code-wiki.md](./code-wiki.md)
