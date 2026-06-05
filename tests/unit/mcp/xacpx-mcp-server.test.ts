@@ -12,8 +12,8 @@ import {
   installMcpStdioShutdownHooks,
   WATCH_TASKS_CACHE_LIMIT,
   WEACPX_MCP_SERVER_INSTRUCTIONS,
-} from "../../../src/mcp/weacpx-mcp-server";
-import { createMemoryTransport } from "../../../src/mcp/weacpx-mcp-transport";
+} from "../../../src/mcp/xacpx-mcp-server";
+import { createMemoryTransport } from "../../../src/mcp/xacpx-mcp-transport";
 import type { OrchestrationTaskRecord } from "../../../src/orchestration/orchestration-types";
 
 test("lists 11 MCP tools and hides coordinator/source identity from input schemas", async () => {

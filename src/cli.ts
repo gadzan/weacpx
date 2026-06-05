@@ -18,7 +18,7 @@ import type { DaemonController } from "./daemon/daemon-controller";
 import { DaemonRuntime } from "./daemon/daemon-runtime";
 import type { DaemonStatus } from "./daemon/daemon-status";
 import type { DoctorRunOptions } from "./doctor/doctor-types";
-import { runWeacpxMcpServer } from "./mcp/weacpx-mcp-server";
+import { runWeacpxMcpServer } from "./mcp/xacpx-mcp-server";
 import {
   inferExternalCoordinatorSession,
 } from "./mcp/infer-coordinator-identity";
@@ -27,7 +27,7 @@ import { parseCoordinatorSession } from "./mcp/parse-coordinator-session";
 import { parseInternalSessionToolsFlag } from "./mcp/parse-internal-session-tools";
 import { parseSourceHandle } from "./mcp/parse-source-handle";
 import { resolveDefaultOrchestrationEndpoint } from "./mcp/resolve-endpoint";
-import { createOrchestrationTransport } from "./mcp/weacpx-mcp-transport";
+import { createOrchestrationTransport } from "./mcp/xacpx-mcp-transport";
 import { OrchestrationClient } from "./orchestration/orchestration-client";
 import { basenameForWorkspacePath, normalizeWorkspacePath, sameWorkspacePath } from "./commands/workspace-path";
 import {

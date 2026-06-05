@@ -4,7 +4,7 @@ import {
   createMemoryTransport,
   createOrchestrationTransport,
   type WeacpxMcpTaskIdArgs,
-} from "../../../src/mcp/weacpx-mcp-transport";
+} from "../../../src/mcp/xacpx-mcp-transport";
 
 test("createMemoryTransport delegates and exposes override hooks", async () => {
   const calls: unknown[] = [];

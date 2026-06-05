@@ -24,8 +24,8 @@ import { coreEnv } from "../runtime/core-env";
 import type { OrchestrationIpcEndpoint } from "../orchestration/orchestration-ipc";
 import type { OrchestrationTaskRecord } from "../orchestration/orchestration-types";
 import { resolveDefaultOrchestrationEndpoint } from "./resolve-endpoint";
-import { buildWeacpxMcpToolRegistry } from "./weacpx-mcp-tools";
-import { createOrchestrationTransport, type WeacpxMcpTransport } from "./weacpx-mcp-transport";
+import { buildWeacpxMcpToolRegistry } from "./xacpx-mcp-tools";
+import { createOrchestrationTransport, type WeacpxMcpTransport } from "./xacpx-mcp-transport";
 
 const TASK_OPTIONS_CACHE_LIMIT = 1_000;
 const TASKS_LIST_PAGE_SIZE = 100;

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { buildWeacpxMcpToolRegistry } from "../../../src/mcp/weacpx-mcp-tools";
-import { createMemoryTransport } from "../../../src/mcp/weacpx-mcp-transport";
+import { buildWeacpxMcpToolRegistry } from "../../../src/mcp/xacpx-mcp-tools";
+import { createMemoryTransport } from "../../../src/mcp/xacpx-mcp-transport";
 import type { OrchestrationTaskRecord } from "../../../src/orchestration/orchestration-types";
 import { QuotaDeferredError } from "../../../src/weixin/messaging/quota-errors";
 

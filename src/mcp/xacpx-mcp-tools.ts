@@ -1,5 +1,5 @@
 import type { CallToolResult, ToolExecution } from "@modelcontextprotocol/sdk/types.js";
-import type { WeacpxMcpTransport } from "./weacpx-mcp-transport";
+import type { WeacpxMcpTransport } from "./xacpx-mcp-transport";
 import {
   DEFAULT_TASK_WATCH_POLL_INTERVAL_MS,
   DEFAULT_TASK_WATCH_TIMEOUT_MS,
