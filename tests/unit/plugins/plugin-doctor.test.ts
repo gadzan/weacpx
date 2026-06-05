@@ -141,7 +141,7 @@ test("doctor reports plugin requiring newer weacpx core", async () => {
   try {
     const issues = await inspectPlugins({
       pluginHome,
-      currentWeacpxVersion: "0.3.3",
+      currentXacpxVersion: "0.3.3",
       config: baseConfig({ plugins: [{ name: "weacpx-channel-demo", enabled: true }] }),
       importPlugin: async () => ({
         default: {
@@ -169,7 +169,7 @@ test("doctor reports plugin built for unsupported apiVersion", async () => {
   try {
     const issues = await inspectPlugins({
       pluginHome,
-      currentWeacpxVersion: "0.3.3",
+      currentXacpxVersion: "0.3.3",
       config: baseConfig({ plugins: [{ name: "weacpx-channel-demo", enabled: true }] }),
       importPlugin: async () => ({
         default: {

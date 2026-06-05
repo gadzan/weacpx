@@ -429,7 +429,7 @@ Notes:
 
 If you want to first understand when to delegate and when to dispatch multiple subtasks in parallel, see:
 
-- [docs/weacpx-group-usage-guide.md](./docs/weacpx-group-usage-guide.md)
+- [docs/xacpx-group-usage-guide.md](./docs/xacpx-group-usage-guide.md)
 
 
 ### MCP integration: external coordinator
@@ -581,7 +581,7 @@ If what you're about to do is one of the following, you can continue from here:
 
 - Want the full chat-command reference: [docs/commands.md](./docs/commands.md)
 - Want to schedule a one-time future message with scheduled tasks (`/later`): [docs/later-command.md](./docs/later-command.md)
-- Want to understand when to delegate and when to open a group: [docs/weacpx-group-usage-guide.md](./docs/weacpx-group-usage-guide.md)
+- Want to understand when to delegate and when to open a group: [docs/xacpx-group-usage-guide.md](./docs/xacpx-group-usage-guide.md)
 
 ### Troubleshooting and verification
 

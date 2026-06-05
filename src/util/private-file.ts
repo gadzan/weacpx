@@ -44,7 +44,7 @@ export async function writePrivateFileAtomic(path: string, content: string): Pro
       // target without FILE_SHARE_DELETE). Direct overwrite sacrifices
       // atomicity but stays within FILE_SHARE_WRITE-friendly territory and
       // is preferable to losing the write entirely. We still hold the
-      // proper-lockfile, so weacpx-aware processes are excluded.
+      // proper-lockfile, so xacpx-aware processes are excluded.
       await writeFile(path, content, { encoding: "utf8", mode: PRIVATE_FILE_MODE });
       await chmod(path, PRIVATE_FILE_MODE).catch(() => {});
     }

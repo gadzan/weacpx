@@ -174,7 +174,7 @@ The bridge isolates `acpx` driving into a separate subprocess, giving the main p
 | `~/.xacpx/runtime/daemon.pid` | Current daemon PID | `DaemonRuntime` |
 | `~/.xacpx/runtime/status.json` | daemon heartbeat / start_at / log paths | `DaemonRuntime` |
 | `~/.xacpx/runtime/app.log` | Bounded application log (rolling) | `AppLogger` |
-| `~/.xacpx/runtime/orchestration.sock` | Unix socket (or `\\.\pipe\weacpx-orchestration-<hash>` on Windows) | `OrchestrationServer` |
+| `~/.xacpx/runtime/orchestration.sock` | Unix socket (or `\\.\pipe\xacpx-orchestration-<hash>` on Windows) | `OrchestrationServer` |
 | `~/.xacpx/plugins/` | Plugin npm home (isolated `package.json` + `node_modules`) | `xacpx plugin add/update` |
 
 `WEACPX_CONFIG` and `WEACPX_STATE` environment variables override the config and state paths respectively.
@@ -203,6 +203,6 @@ Source: [`src/logging/app-logger.ts`](https://github.com/gadzan/xacpx/blob/main/
 
 `xacpx mcp-stdio` starts an MCP stdio server and exposes orchestration tools:
 - Identity parsing (`coordinatorSession` / `sourceHandle` / `workspace`) and external coordinator registration: [`src/cli.ts`](https://github.com/gadzan/xacpx/blob/main/src/cli.ts)
-- MCP server run loop: [`src/mcp/weacpx-mcp-server.ts`](https://github.com/gadzan/xacpx/blob/main/src/mcp/weacpx-mcp-server.ts) (the MCP source files intentionally keep `weacpx-` filenames for compatibility)
+- MCP server run loop: [`src/mcp/xacpx-mcp-server.ts`](https://github.com/gadzan/xacpx/blob/main/src/mcp/xacpx-mcp-server.ts)
 
-This mode requires the daemon to be running (the orchestration IPC endpoint must be available). The live MCP server name exposed to external hosts is intentionally still `weacpx` (tool prefix `mcp__weacpx__*`) for backward compatibility.
+This mode requires the daemon to be running (the orchestration IPC endpoint must be available). The live MCP server name exposed to external hosts is `xacpx` (tool prefix `mcp__xacpx__*`).

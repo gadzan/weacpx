@@ -3,8 +3,8 @@ import { expect, test } from "bun:test";
 import {
   createMemoryTransport,
   createOrchestrationTransport,
-  type WeacpxMcpTaskIdArgs,
-} from "../../../src/mcp/weacpx-mcp-transport";
+  type XacpxMcpTaskIdArgs,
+} from "../../../src/mcp/xacpx-mcp-transport";
 
 test("createMemoryTransport delegates and exposes override hooks", async () => {
   const calls: unknown[] = [];
@@ -149,7 +149,7 @@ test("createOrchestrationTransport maps coordinator-scoped MCP calls onto the RP
     { kind: "unix", path: "/tmp/test.sock" },
     { client: fakeClient },
   );
-  const taskArgs: WeacpxMcpTaskIdArgs = { coordinatorSession: "backend:main", taskId: "task-1" };
+  const taskArgs: XacpxMcpTaskIdArgs = { coordinatorSession: "backend:main", taskId: "task-1" };
 
   await transport.delegateRequest({
     coordinatorSession: "backend:main",

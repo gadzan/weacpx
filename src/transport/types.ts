@@ -29,7 +29,7 @@ export interface ResolvedSession {
   agentCommand?: string;
   workspace: string;
   transportSession: string;
-  source?: "weacpx" | "agent-side";
+  source?: "xacpx" | "agent-side";
   agentSessionId?: string;
   agentSessionTitle?: string;
   agentSessionUpdatedAt?: string;

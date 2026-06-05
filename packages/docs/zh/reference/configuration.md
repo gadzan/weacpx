@@ -97,7 +97,7 @@
 
 ### 编排 MCP 自动注入
 
-向 `acpx` 会话发送提示词之前，xacpx 会启动 `acpx` 队列所有者，并通过 `ACPX_QUEUE_OWNER_PAYLOAD` 注入一个名为 `weacpx` 的 MCP stdio 服务器。因此 MCP 工具前缀为 `mcp__weacpx__*`（例如 `mcp__weacpx__delegate_request`），使托管代理能够访问编排工具（`delegate_request` 等）和定时任务工具。
+向 `acpx` 会话发送提示词之前，xacpx 会启动 `acpx` 队列所有者，并通过 `ACPX_QUEUE_OWNER_PAYLOAD` 注入一个名为 `xacpx` 的 MCP stdio 服务器。因此 MCP 工具前缀为 `mcp__xacpx__*`（例如 `mcp__xacpx__delegate_request`），使托管代理能够访问编排工具（`delegate_request` 等）和定时任务工具。
 
 此注入不会修改 `.acpxrc.json`、`~/.acpx/config.json` 或替换 `acpx` 主目录，因此已有的会话、流式日志和索引映射均不受影响。
 

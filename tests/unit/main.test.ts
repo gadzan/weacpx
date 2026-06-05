@@ -1876,7 +1876,7 @@ test("falls back to the OS home directory when HOME is unset", () => {
     expect(normalizedStatePath).toBe(`${base}/state.json`);
     expect(normalizedPerfPath).toBe(`${base}/runtime/perf.log`);
     if (process.platform === "win32") {
-      expect(paths.orchestrationSocketPath.startsWith("\\\\.\\pipe\\weacpx-orchestration-")).toBe(true);
+      expect(paths.orchestrationSocketPath.startsWith("\\\\.\\pipe\\xacpx-orchestration-")).toBe(true);
     } else {
       expect(paths.orchestrationSocketPath.replace(/\\/g, "/")).toBe(`${base}/runtime/orchestration.sock`);
     }

@@ -66,7 +66,7 @@ export interface ChatRequestMetadata {
   senderName?: string;
   groupId?: string;
   isOwner?: boolean;
-  /** Internal weacpx session alias to use for non-interactive scheduled prompts. */
+  /** Internal xacpx session alias to use for non-interactive scheduled prompts. */
   scheduledSessionAlias?: string;
   /** Transient session descriptor for temp-mode scheduled prompts (no persisted alias). */
   scheduledSessionDescriptor?: ScheduledSessionDescriptor;

@@ -20,7 +20,7 @@ export interface LoadConfiguredPluginsInput {
    * Override the weacpx core version reported to plugin compatibility checks.
    * Defaults to the value embedded in `validateWeacpxPlugin` (i.e. `readVersion()`).
    */
-  currentWeacpxVersion?: string;
+  currentXacpxVersion?: string;
   /**
    * When provided, a plugin that fails to import or validate is reported here
    * and skipped instead of aborting the whole load. Console startup uses this so
@@ -54,7 +54,7 @@ export async function loadConfiguredPlugins(input: LoadConfiguredPluginsInput): 
         throw new Error(`failed to load plugin ${config.name}: ${message}`);
       }
       const plugin = validateWeacpxPlugin(moduleValue, config.name, {
-        ...(input.currentWeacpxVersion !== undefined ? { currentWeacpxVersion: input.currentWeacpxVersion } : {}),
+        ...(input.currentXacpxVersion !== undefined ? { currentXacpxVersion: input.currentXacpxVersion } : {}),
       });
       const channels = plugin.channels ?? [];
       for (const channel of channels) {

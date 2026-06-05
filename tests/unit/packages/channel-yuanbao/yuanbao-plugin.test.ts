@@ -20,7 +20,7 @@ beforeAll(() => {
 });
 
 test("@ganglion/xacpx-channel-yuanbao exports a valid plugin definition", () => {
-  const validated = validateWeacpxPlugin(plugin, "@ganglion/xacpx-channel-yuanbao", { currentWeacpxVersion: "0.8.0" });
+  const validated = validateWeacpxPlugin(plugin, "@ganglion/xacpx-channel-yuanbao", { currentXacpxVersion: "0.8.0" });
 
   expect(validated.name).toBe("@ganglion/xacpx-channel-yuanbao");
   expect(validated.channels?.map((channel) => channel.type)).toEqual(["yuanbao"]);

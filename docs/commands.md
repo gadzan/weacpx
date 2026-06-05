@@ -305,7 +305,7 @@ Examples:
 
 Orchestration commands require a current session first. The current session acts as the coordinator session, and subtasks are dispatched to other agent sessions for execution.
 
-If you are not yet sure when to use delegate versus when to start a group, read [weacpx-group-usage-guide.md](./weacpx-group-usage-guide.md) first.
+If you are not yet sure when to use delegate versus when to start a group, read [xacpx-group-usage-guide.md](./xacpx-group-usage-guide.md) first.
 
 ### Delegate a Single Subtask
 

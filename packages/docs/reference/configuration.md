@@ -97,7 +97,7 @@ The owner's idle lifetime is set by `--ttl`. xacpx defaults to `1800` seconds (3
 
 ### Orchestration MCP auto-injection
 
-Before sending a prompt to an `acpx` session, xacpx starts the `acpx` queue owner and injects an MCP stdio server named `weacpx` via `ACPX_QUEUE_OWNER_PAYLOAD`. The MCP tool prefix is therefore `mcp__weacpx__*` (for example `mcp__weacpx__delegate_request`). This gives the managed agent access to orchestration tools (`delegate_request`, etc.) and scheduled-task tools.
+Before sending a prompt to an `acpx` session, xacpx starts the `acpx` queue owner and injects an MCP stdio server named `xacpx` via `ACPX_QUEUE_OWNER_PAYLOAD`. The MCP tool prefix is therefore `mcp__xacpx__*` (for example `mcp__xacpx__delegate_request`). This gives the managed agent access to orchestration tools (`delegate_request`, etc.) and scheduled-task tools.
 
 This injection does not modify `.acpxrc.json`, `~/.acpx/config.json`, or replace the `acpx` home directory, so existing sessions, stream logs, and index mappings are unaffected.
 

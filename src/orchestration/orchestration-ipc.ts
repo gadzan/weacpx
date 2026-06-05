@@ -124,7 +124,7 @@ export function resolveOrchestrationEndpoint(
     const suffix = createHash("sha256").update(runtimeDir).digest("hex").slice(0, 12);
     return {
       kind: "named-pipe",
-      path: `\\\\.\\pipe\\weacpx-orchestration-${suffix}`,
+      path: `\\\\.\\pipe\\xacpx-orchestration-${suffix}`,
     };
   }
 

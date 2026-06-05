@@ -32,5 +32,5 @@ export function readVersion(moduleUrl: string = import.meta.url): string {
   return "unknown";
 }
 
-/** weacpx 核心版本，派生自 package.json（经 readVersion 动态读取，无硬编码漂移）。 */
-export const WEACPX_CORE_VERSION = readVersion();
+/** xacpx 核心版本，派生自 package.json（经 readVersion 动态读取，无硬编码漂移）。 */
+export const XACPX_CORE_VERSION = readVersion();

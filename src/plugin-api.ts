@@ -26,6 +26,9 @@ export type { CommandHint } from "./commands/command-hints.js";
 export type { AppLogger } from "./logging/app-logger.js";
 export type { WeacpxPlugin, XacpxPlugin } from "./plugins/types.js";
 export {
+  XACPX_PLUGIN_API_VERSION,
+  XACPX_PLUGIN_API_SUPPORTED_VERSIONS,
+  XACPX_PLUGIN_MIN_CORE_VERSION,
   WEACPX_PLUGIN_API_VERSION,
   WEACPX_PLUGIN_API_SUPPORTED_VERSIONS,
   WEACPX_PLUGIN_MIN_CORE_VERSION,

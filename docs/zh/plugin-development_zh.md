@@ -840,7 +840,7 @@ xacpx plugin add <你的-npm-包名>
 - 发布产物里**只**导入 `xacpx/plugin-api`。可以用 `bunx publint` 验证。
 - 全 ESM，`"type": "module"`。
 
-发布命令、preflight、dry-run、版本号选取（patch / minor / major）见 [docs/release.md](../release.md)。
+发布命令、preflight、dry-run、版本号选取（patch / minor / major）见 [docs/developments_zh.md 的发布章节](./developments_zh.md#发布)。
 
 ---
 
@@ -873,5 +873,5 @@ xacpx plugin add <你的-npm-包名>
 
 - 用户向频道管理：[docs/channel-management.md](./channel-management_zh.md)
 - 配置文件全字段：[docs/config-reference.md](./config-reference_zh.md)
-- 发布 / 版本流程：[docs/release.md](../release.md)
+- 发布 / 版本流程：[docs/developments_zh.md → 发布](./developments_zh.md#发布)
 - Code wiki / 模块地图：[docs/code-wiki.md](./code-wiki_zh.md)

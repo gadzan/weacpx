@@ -1,7 +1,7 @@
 import { createEmptyOrchestrationState, type OrchestrationState } from "../orchestration/orchestration-types";
 import type { ScheduledTaskRecord } from "../scheduled/scheduled-types";
 
-export type LogicalSessionSource = "weacpx" | "agent-side";
+export type LogicalSessionSource = "xacpx" | "agent-side";
 
 export interface NativeSessionCacheEntry {
   session_id: string;
