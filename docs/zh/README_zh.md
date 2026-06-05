@@ -425,7 +425,7 @@ README 里只保留用户视角的最常用命令。
 
 如果你想先理解什么时候该用 delegate、什么时候应该并行派出多个子任务，请看：
 
-- [docs/weacpx-group-usage-guide.md](./weacpx-group-usage-guide_zh.md)
+- [docs/xacpx-group-usage-guide.md](./xacpx-group-usage-guide_zh.md)
 
 
 ### MCP 集成：外部 coordinator
@@ -577,7 +577,7 @@ bun run dev
 
 - 想查看完整聊天命令参考：[docs/commands.md](./commands_zh.md)
 - 想用定时任务（`/later`）安排一次性的未来消息：[docs/later-command.md](./later-command_zh.md)
-- 想理解什么时候该用 delegate、什么时候该开 group：[docs/weacpx-group-usage-guide.md](./weacpx-group-usage-guide_zh.md)
+- 想理解什么时候该用 delegate、什么时候该开 group：[docs/xacpx-group-usage-guide.md](./xacpx-group-usage-guide_zh.md)
 
 ### 排错与验证
 
