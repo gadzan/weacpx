@@ -41,6 +41,9 @@ export async function handleChannelCli(args: string[], deps: ChannelCliDeps): Pr
     case "disable":
       if (args.length < 2 || !args[1]) return null;
       return await dispatchSetEnabled(args[1], false, args.slice(2), deps);
+    case "set-reply-mode":
+      if (args.length < 3 || !args[1] || !args[2]) return null;
+      return await setChannelReplyMode(args[1], args[2], args.slice(3), deps);
     default:
       return null;
   }
@@ -365,6 +368,31 @@ async function setChannelEnabled(type: string, enabled: boolean, rawArgs: string
   channel.enabled = enabled;
   await deps.saveConfig(config);
   deps.print(t().channelCli.channelEnabledToggled(channel.id, enabled));
+  return await maybeRestartAfterMutation(restartFlags.restart, deps);
+}
+
+async function setChannelReplyMode(type: string, mode: string, rawArgs: string[], deps: ChannelCliDeps): Promise<number> {
+  const restartFlags = parseRestartFlags(rawArgs);
+  if (!restartFlags.ok) {
+    deps.print(restartFlags.message);
+    return 1;
+  }
+  // Mirrors the private isReplyMode guard in src/config/load-config.ts; keep the
+  // accepted values in sync if ReplyMode ever changes.
+  if (mode !== "stream" && mode !== "final" && mode !== "verbose") {
+    deps.print(t().channelCli.channelReplyModeInvalid(mode));
+    return 1;
+  }
+  const config = await deps.loadConfig();
+  ensureChannelsArray(config);
+  const channel = findChannel(config.channels, type);
+  if (!channel) {
+    deps.print(t().channelCli.channelNotFound(type));
+    return 1;
+  }
+  channel.replyMode = mode;
+  await deps.saveConfig(config);
+  deps.print(t().channelCli.channelReplyModeSet(channel.id, mode));
   return await maybeRestartAfterMutation(restartFlags.restart, deps);
 }
 

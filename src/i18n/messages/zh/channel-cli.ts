@@ -25,6 +25,8 @@ export const channelCli: ChannelCliMessages = {
   // setChannelEnabled
   cannotDisableLastEnabled: "不能禁用最后一个启用的频道。",
   channelEnabledToggled: (id, enabled) => `频道 ${id} 已${enabled ? "启用" : "禁用"}`,
+  channelReplyModeSet: (id, mode) => `频道 ${id} 的默认 reply mode 已设置为：${mode}`,
+  channelReplyModeInvalid: (mode) => `reply mode 只支持 stream / final / verbose，收到：${mode}`,
 
   // addChannelAccount
   channelAccountAlreadyExists: (type, accountId) => `频道 ${type} 的账号 ${accountId} 已存在；先 xacpx channel rm ${type} --account ${accountId}`,

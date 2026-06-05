@@ -25,6 +25,8 @@ export const channelCli: ChannelCliMessages = {
   // setChannelEnabled
   cannotDisableLastEnabled: "Cannot disable the last enabled channel.",
   channelEnabledToggled: (id, enabled) => `Channel ${id} ${enabled ? "enabled" : "disabled"}`,
+  channelReplyModeSet: (id, mode) => `Channel ${id} default reply mode set to: ${mode}`,
+  channelReplyModeInvalid: (mode) => `reply mode must be stream / final / verbose, got: ${mode}`,
 
   // addChannelAccount
   channelAccountAlreadyExists: (type, accountId) => `Account ${accountId} already exists on channel ${type}; run xacpx channel rm ${type} --account ${accountId} first`,

@@ -982,6 +982,8 @@ export interface ChannelCliMessages {
   // setChannelEnabled
   cannotDisableLastEnabled: string;
   channelEnabledToggled: (id: string, enabled: boolean) => string;
+  channelReplyModeSet: (id: string, mode: string) => string;
+  channelReplyModeInvalid: (mode: string) => string;
 
   // addChannelAccount
   channelAccountAlreadyExists: (type: string, accountId: string) => string;
