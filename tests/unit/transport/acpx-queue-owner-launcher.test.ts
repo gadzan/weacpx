@@ -1,7 +1,7 @@
 import { expect, mock, test } from "bun:test";
 
 import {
-  buildWeacpxMcpServerSpec,
+  buildXacpxMcpServerSpec,
   buildQueueOwnerPayload,
   AcpxQueueOwnerLauncher,
   type QueueOwnerSpawner,
@@ -9,8 +9,8 @@ import {
 } from "../../../src/transport/acpx-queue-owner-launcher";
 
 test("builds coordinator MCP server spec from a session identity", () => {
-  expect(buildWeacpxMcpServerSpec({
-    weacpxCommand: "node ./dist/cli.js",
+  expect(buildXacpxMcpServerSpec({
+    xacpxCommand: "node ./dist/cli.js",
     coordinatorSession: "backend:main",
   })).toEqual({
     name: "xacpx",
@@ -21,8 +21,8 @@ test("builds coordinator MCP server spec from a session identity", () => {
 });
 
 test("builds worker MCP server spec with source handle", () => {
-  expect(buildWeacpxMcpServerSpec({
-    weacpxCommand: "node ./dist/cli.js",
+  expect(buildXacpxMcpServerSpec({
+    xacpxCommand: "node ./dist/cli.js",
     coordinatorSession: "backend:main",
     sourceHandle: "backend:claude:backend:main",
   })).toEqual({
@@ -97,7 +97,7 @@ test("terminates existing owner then starts acpx queue owner with payload", asyn
   });
   const launcher = new AcpxQueueOwnerLauncher({
     acpxCommand: "E:/node/acpx/dist/cli.js",
-    weacpxCommand: "node ./dist/cli.js",
+    xacpxCommand: "node ./dist/cli.js",
     spawnOwner,
     terminateOwner,
   });
@@ -188,8 +188,8 @@ test("cleans per-record launch locks after launch settles", async () => {
 });
 
 test("parses quoted weacpx command paths with spaces", () => {
-  expect(buildWeacpxMcpServerSpec({
-    weacpxCommand: '"C:/Program Files/nodejs/node.exe" "E:/projects/weacpx/dist/cli.js"',
+  expect(buildXacpxMcpServerSpec({
+    xacpxCommand: '"C:/Program Files/nodejs/node.exe" "E:/projects/weacpx/dist/cli.js"',
     coordinatorSession: "backend:main",
   })).toEqual({
     name: "xacpx",

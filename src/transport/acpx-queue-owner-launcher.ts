@@ -44,7 +44,7 @@ export type QueueOwnerTerminator = (sessionId: string) => Promise<void>;
 
 export interface AcpxQueueOwnerLauncherOptions {
   acpxCommand: string;
-  weacpxCommand?: string;
+  xacpxCommand?: string;
   spawnOwner?: QueueOwnerSpawner;
   terminateOwner?: QueueOwnerTerminator;
   baseEnv?: NodeJS.ProcessEnv;
@@ -60,12 +60,12 @@ export interface LaunchQueueOwnerInput {
   nonInteractivePermissions: NonInteractivePermissions;
 }
 
-export function buildWeacpxMcpServerSpec(input: {
-  weacpxCommand: string;
+export function buildXacpxMcpServerSpec(input: {
+  xacpxCommand: string;
   coordinatorSession: string;
   sourceHandle?: string;
 }): AcpxMcpServerSpec {
-  const { command, args } = splitCommandLine(input.weacpxCommand);
+  const { command, args } = splitCommandLine(input.xacpxCommand);
   return {
     name: "xacpx",
     type: "stdio",
@@ -106,7 +106,7 @@ export function buildQueueOwnerPayload(input: {
 
 export class AcpxQueueOwnerLauncher {
   private readonly acpxCommand: string;
-  private readonly weacpxCommand: string;
+  private readonly xacpxCommand: string;
   private readonly spawnOwner: QueueOwnerSpawner;
   private readonly terminateOwner: QueueOwnerTerminator;
   private readonly baseEnv: NodeJS.ProcessEnv;
@@ -117,7 +117,7 @@ export class AcpxQueueOwnerLauncher {
 
   constructor(options: AcpxQueueOwnerLauncherOptions) {
     this.acpxCommand = options.acpxCommand;
-    this.weacpxCommand = options.weacpxCommand ?? resolveDefaultWeacpxCommand(options.baseEnv ?? process.env);
+    this.xacpxCommand = options.xacpxCommand ?? resolveDefaultXacpxCommand(options.baseEnv ?? process.env);
     this.spawnOwner = options.spawnOwner ?? defaultQueueOwnerSpawner;
     this.terminateOwner = options.terminateOwner ?? createDefaultQueueOwnerTerminator(options.acpxCommand);
     this.baseEnv = options.baseEnv ?? process.env;
@@ -152,8 +152,8 @@ export class AcpxQueueOwnerLauncher {
       nonInteractivePermissions: input.nonInteractivePermissions,
       ttlMs: this.ttlMs,
       maxQueueDepth: this.maxQueueDepth,
-      mcpServers: [buildWeacpxMcpServerSpec({
-        weacpxCommand: this.weacpxCommand,
+      mcpServers: [buildXacpxMcpServerSpec({
+        xacpxCommand: this.xacpxCommand,
         coordinatorSession: input.coordinatorSession,
         ...(input.sourceHandle ? { sourceHandle: input.sourceHandle } : {}),
       })],
@@ -273,7 +273,7 @@ function shortHash(value: string, length: number): string {
   return createHash("sha256").update(value).digest("hex").slice(0, length);
 }
 
-function resolveDefaultWeacpxCommand(env: NodeJS.ProcessEnv): string {
+function resolveDefaultXacpxCommand(env: NodeJS.ProcessEnv): string {
   const cliCommand = coreEnv("CLI_COMMAND", env);
   if (cliCommand?.trim()) {
     return cliCommand.trim();
