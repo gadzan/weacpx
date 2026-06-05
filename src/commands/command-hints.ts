@@ -10,7 +10,7 @@ export interface CommandHint {
 
 /**
  * 每个 help topic 的主命令名。topic 名不一定等于命令名（如 native -> /ssn），
- * 因此用显式映射；新增 topic 若未在此登记，listWeacpxCommandHints 会抛错以防静默漂移。
+ * 因此用显式映射；新增 topic 若未在此登记，listXacpxCommandHints 会抛错以防静默漂移。
  */
 const PRIMARY_COMMAND_BY_TOPIC: Record<string, string> = {
   session: "/session",
@@ -31,7 +31,7 @@ const PRIMARY_COMMAND_BY_TOPIC: Record<string, string> = {
  * 从 HELP_TOPICS 派生输入框命令提示（单一真源，与 /help 同源不漂移）。
  * 额外置顶 /help。
  */
-export function listWeacpxCommandHints(): CommandHint[] {
+export function listXacpxCommandHints(): CommandHint[] {
   const hints: CommandHint[] = [{ name: "/help", description: t().hints.helpDescription }];
   for (const topic of listHelpTopics()) {
     const name = PRIMARY_COMMAND_BY_TOPIC[topic.topic];

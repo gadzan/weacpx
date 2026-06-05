@@ -1,8 +1,8 @@
 import type { AppRuntime, RuntimePaths } from "./main";
 import type { ChannelStartInput, ConsumerLock, ConsumerLockMetadata } from "./channels/types.js";
 import { ActiveWeixinConsumerLockError } from "./weixin/monitor/consumer-lock";
-import { listWeacpxCommandHints } from "./commands/command-hints.js";
-import { WEACPX_CORE_VERSION } from "./version.js";
+import { listXacpxCommandHints } from "./commands/command-hints.js";
+import { XACPX_CORE_VERSION } from "./version.js";
 import { getLocale } from "./i18n/index.js";
 
 interface DaemonLifecycle {
@@ -185,8 +185,8 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
       activeTurns: runtime.activeTurns,
       logger: runtime.logger,
       perfTracer: runtime.perfTracer,
-      commandHints: listWeacpxCommandHints(),
-      coreVersion: WEACPX_CORE_VERSION,
+      commandHints: listXacpxCommandHints(),
+      coreVersion: XACPX_CORE_VERSION,
       locale: getLocale(),
     });
     // Observe rejections immediately so a channel failure cannot become an

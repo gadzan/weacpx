@@ -7,7 +7,7 @@ import { t } from "../i18n";
 
 export interface ValidateWeacpxPluginOptions {
   /**
-   * Current weacpx core version. Defaults to `readVersion()`. Pass an explicit
+   * Current xacpx core version. Defaults to `readVersion()`. Pass an explicit
    * value in tests so the result does not depend on the dev/install layout.
    * Use `"unknown"` to skip core-version compatibility (matches readVersion's
    * fallback when package.json is missing).
