@@ -1440,3 +1440,33 @@ test("rejects scheduled tasks with an invalid session_mode", async () => {
   await expect(new StateStore(path).load()).rejects.toThrow("malformed scheduled task record");
   await rm(dir, { recursive: true, force: true });
 });
+
+test("load keeps sessions with legacy source 'weacpx' and new source 'xacpx'", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
+  const path = join(dir, "state.json");
+  const store = new StateStore(path);
+
+  await Bun.write(
+    path,
+    JSON.stringify({
+      sessions: {
+        "w:legacy": {
+          alias: "w:legacy", agent: "codex", workspace: "w", transport_session: "w:legacy",
+          source: "weacpx", created_at: "2026-01-01T00:00:00.000Z", last_used_at: "2026-01-01T00:00:00.000Z",
+        },
+        "w:fresh": {
+          alias: "w:fresh", agent: "codex", workspace: "w", transport_session: "w:fresh",
+          source: "xacpx", created_at: "2026-01-01T00:00:00.000Z", last_used_at: "2026-01-01T00:00:00.000Z",
+        },
+      },
+      chat_contexts: {},
+      orchestration: { tasks: {}, workerBindings: {}, groups: {} },
+    }),
+  );
+
+  const state = await store.load();
+  expect(state.sessions["w:legacy"]?.source).toBe("weacpx");
+  expect(state.sessions["w:fresh"]?.source).toBe("xacpx");
+
+  await rm(dir, { recursive: true, force: true });
+});

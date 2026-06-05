@@ -434,7 +434,7 @@ function isReplyMode(value: unknown): value is AppState["sessions"][string]["rep
 }
 
 function isSessionSource(value: unknown): value is AppState["sessions"][string]["source"] {
-  return value === undefined || value === "weacpx" || value === "agent-side";
+  return value === undefined || value === "weacpx" || value === "xacpx" || value === "agent-side";
 }
 
 function isSessionRecord(value: unknown): value is AppState["sessions"][string] {
