@@ -210,13 +210,13 @@ function splitCommandLine(value: string): { command: string; args: string[] } {
     current += "\\";
   }
   if (quote) {
-    throw new Error("weacpx MCP command has an unterminated quote");
+    throw new Error("xacpx MCP command has an unterminated quote");
   }
   if (current.length > 0) {
     parts.push(current);
   }
   if (parts.length === 0) {
-    throw new Error("weacpx MCP command must not be empty");
+    throw new Error("xacpx MCP command must not be empty");
   }
   return { command: parts[0]!, args: parts.slice(1) };
 }

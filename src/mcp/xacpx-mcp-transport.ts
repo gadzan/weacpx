@@ -18,7 +18,7 @@ import type {
   OrchestrationTaskRecord,
 } from "../orchestration/orchestration-types";
 
-export interface WeacpxMcpDelegateRequest {
+export interface XacpxMcpDelegateRequest {
   coordinatorSession: string;
   sourceHandle?: string;
   targetAgent: string;
@@ -29,7 +29,7 @@ export interface WeacpxMcpDelegateRequest {
   parallel?: boolean;
 }
 
-export interface WeacpxMcpTaskWatchArgs {
+export interface XacpxMcpTaskWatchArgs {
   coordinatorSession: string;
   taskId: string;
   timeoutMs?: number;
@@ -39,26 +39,26 @@ export interface WeacpxMcpTaskWatchArgs {
   includeProgress?: boolean;
 }
 
-export interface WeacpxMcpTaskIdArgs {
+export interface XacpxMcpTaskIdArgs {
   coordinatorSession: string;
   taskId: string;
 }
 
-export interface WeacpxMcpTaskListArgs extends Pick<
+export interface XacpxMcpTaskListArgs extends Pick<
   OrchestrationTaskFilter,
   "status" | "stuck" | "sort" | "order"
 > {
   coordinatorSession: string;
 }
 
-export interface WeacpxMcpGroupNewArgs {
+export interface XacpxMcpGroupNewArgs {
   coordinatorSession: string;
   title: string;
 }
 
-export interface WeacpxMcpTaskQuestionRef extends CoordinatorTaskQuestionRef {}
+export interface XacpxMcpTaskQuestionRef extends CoordinatorTaskQuestionRef {}
 
-export interface WeacpxMcpWorkerRaiseQuestionArgs {
+export interface XacpxMcpWorkerRaiseQuestionArgs {
   sourceHandle: string;
   taskId: string;
   question: string;
@@ -66,54 +66,54 @@ export interface WeacpxMcpWorkerRaiseQuestionArgs {
   whatIsNeeded: string;
 }
 
-export interface WeacpxMcpCoordinatorAnswerQuestionArgs {
+export interface XacpxMcpCoordinatorAnswerQuestionArgs {
   coordinatorSession: string;
   taskId: string;
   questionId: string;
   answer: string;
 }
 
-export interface WeacpxMcpCoordinatorRequestHumanInputArgs {
+export interface XacpxMcpCoordinatorRequestHumanInputArgs {
   coordinatorSession: string;
-  taskQuestions: WeacpxMcpTaskQuestionRef[];
+  taskQuestions: XacpxMcpTaskQuestionRef[];
   promptText: string;
   expectedActivePackageId?: string;
 }
 
-export interface WeacpxMcpCoordinatorReviewContestedResultArgs {
+export interface XacpxMcpCoordinatorReviewContestedResultArgs {
   coordinatorSession: string;
   taskId: string;
   reviewId: string;
   decision: "accept" | "discard";
 }
 
-export interface WeacpxMcpScheduledCreateArgs extends ScheduledCreateFromRouteInput {}
-export interface WeacpxMcpScheduledListArgs extends ScheduledListFromRouteInput {}
-export interface WeacpxMcpScheduledCancelArgs extends ScheduledCancelFromRouteInput {}
+export interface XacpxMcpScheduledCreateArgs extends ScheduledCreateFromRouteInput {}
+export interface XacpxMcpScheduledListArgs extends ScheduledListFromRouteInput {}
+export interface XacpxMcpScheduledCancelArgs extends ScheduledCancelFromRouteInput {}
 
-export interface WeacpxMcpTransport {
-  delegateRequest: (input: WeacpxMcpDelegateRequest) => Promise<RequestDelegateRpcResult>;
-  createGroup: (input: WeacpxMcpGroupNewArgs) => Promise<OrchestrationGroupRecord>;
-  getTask: (input: WeacpxMcpTaskIdArgs) => Promise<OrchestrationTaskRecord | null>;
-  listTasks: (input: WeacpxMcpTaskListArgs) => Promise<OrchestrationTaskRecord[]>;
-  approveTask: (input: WeacpxMcpTaskIdArgs) => Promise<OrchestrationTaskRecord>;
-  cancelTask: (input: WeacpxMcpTaskIdArgs) => Promise<OrchestrationTaskRecord>;
-  watchTask: (input: WeacpxMcpTaskWatchArgs) => Promise<WatchTaskResult>;
+export interface XacpxMcpTransport {
+  delegateRequest: (input: XacpxMcpDelegateRequest) => Promise<RequestDelegateRpcResult>;
+  createGroup: (input: XacpxMcpGroupNewArgs) => Promise<OrchestrationGroupRecord>;
+  getTask: (input: XacpxMcpTaskIdArgs) => Promise<OrchestrationTaskRecord | null>;
+  listTasks: (input: XacpxMcpTaskListArgs) => Promise<OrchestrationTaskRecord[]>;
+  approveTask: (input: XacpxMcpTaskIdArgs) => Promise<OrchestrationTaskRecord>;
+  cancelTask: (input: XacpxMcpTaskIdArgs) => Promise<OrchestrationTaskRecord>;
+  watchTask: (input: XacpxMcpTaskWatchArgs) => Promise<WatchTaskResult>;
   workerRaiseQuestion: (
-    input: WeacpxMcpWorkerRaiseQuestionArgs,
+    input: XacpxMcpWorkerRaiseQuestionArgs,
   ) => Promise<{ taskId: string; questionId: string; status: "blocked" }>;
   coordinatorAnswerQuestion: (
-    input: WeacpxMcpCoordinatorAnswerQuestionArgs,
+    input: XacpxMcpCoordinatorAnswerQuestionArgs,
   ) => Promise<OrchestrationTaskRecord>;
   coordinatorRequestHumanInput: (
-    input: WeacpxMcpCoordinatorRequestHumanInputArgs,
+    input: XacpxMcpCoordinatorRequestHumanInputArgs,
   ) => Promise<CoordinatorRequestHumanInputResult>;
   coordinatorReviewContestedResult: (
-    input: WeacpxMcpCoordinatorReviewContestedResultArgs,
+    input: XacpxMcpCoordinatorReviewContestedResultArgs,
   ) => Promise<OrchestrationTaskRecord>;
-  scheduledCreate: (input: WeacpxMcpScheduledCreateArgs) => Promise<ScheduledTaskRecord>;
-  scheduledList: (input: WeacpxMcpScheduledListArgs) => Promise<ScheduledTaskRecord[]>;
-  scheduledCancel: (input: WeacpxMcpScheduledCancelArgs) => Promise<{ id: string; cancelled: boolean }>;
+  scheduledCreate: (input: XacpxMcpScheduledCreateArgs) => Promise<ScheduledTaskRecord>;
+  scheduledList: (input: XacpxMcpScheduledListArgs) => Promise<ScheduledTaskRecord[]>;
+  scheduledCancel: (input: XacpxMcpScheduledCancelArgs) => Promise<{ id: string; cancelled: boolean }>;
 }
 
 interface OrchestrationClientLike {
@@ -137,7 +137,7 @@ interface OrchestrationClientLike {
 export function createOrchestrationTransport(
   endpoint: OrchestrationIpcEndpoint,
   deps: { client?: OrchestrationClientLike } = {},
-): WeacpxMcpTransport {
+): XacpxMcpTransport {
   const client = deps.client ?? new OrchestrationClient(endpoint);
 
   return {
@@ -208,37 +208,37 @@ export function createOrchestrationTransport(
 }
 
 export function createMemoryTransport(
-  delegateRequest: WeacpxMcpTransport["delegateRequest"],
-  overrides: Partial<Omit<WeacpxMcpTransport, "delegateRequest">> = {},
-): WeacpxMcpTransport {
+  delegateRequest: XacpxMcpTransport["delegateRequest"],
+  overrides: Partial<Omit<XacpxMcpTransport, "delegateRequest">> = {},
+): XacpxMcpTransport {
   const unimplemented = (name: string) => async () => {
     throw new Error(`memory transport ${name} is not implemented`);
   };
 
   return {
     delegateRequest: async (input) => await delegateRequest(input),
-    createGroup: overrides.createGroup ?? (unimplemented("createGroup") as WeacpxMcpTransport["createGroup"]),
-    getTask: overrides.getTask ?? (unimplemented("getTask") as WeacpxMcpTransport["getTask"]),
-    listTasks: overrides.listTasks ?? (unimplemented("listTasks") as WeacpxMcpTransport["listTasks"]),
-    approveTask: overrides.approveTask ?? (unimplemented("approveTask") as WeacpxMcpTransport["approveTask"]),
-    cancelTask: overrides.cancelTask ?? (unimplemented("cancelTask") as WeacpxMcpTransport["cancelTask"]),
-    watchTask: overrides.watchTask ?? (unimplemented("watchTask") as WeacpxMcpTransport["watchTask"]),
+    createGroup: overrides.createGroup ?? (unimplemented("createGroup") as XacpxMcpTransport["createGroup"]),
+    getTask: overrides.getTask ?? (unimplemented("getTask") as XacpxMcpTransport["getTask"]),
+    listTasks: overrides.listTasks ?? (unimplemented("listTasks") as XacpxMcpTransport["listTasks"]),
+    approveTask: overrides.approveTask ?? (unimplemented("approveTask") as XacpxMcpTransport["approveTask"]),
+    cancelTask: overrides.cancelTask ?? (unimplemented("cancelTask") as XacpxMcpTransport["cancelTask"]),
+    watchTask: overrides.watchTask ?? (unimplemented("watchTask") as XacpxMcpTransport["watchTask"]),
     workerRaiseQuestion:
-      overrides.workerRaiseQuestion ?? (unimplemented("workerRaiseQuestion") as WeacpxMcpTransport["workerRaiseQuestion"]),
+      overrides.workerRaiseQuestion ?? (unimplemented("workerRaiseQuestion") as XacpxMcpTransport["workerRaiseQuestion"]),
     coordinatorAnswerQuestion:
       overrides.coordinatorAnswerQuestion
-      ?? (unimplemented("coordinatorAnswerQuestion") as WeacpxMcpTransport["coordinatorAnswerQuestion"]),
+      ?? (unimplemented("coordinatorAnswerQuestion") as XacpxMcpTransport["coordinatorAnswerQuestion"]),
     coordinatorRequestHumanInput:
       overrides.coordinatorRequestHumanInput
-      ?? (unimplemented("coordinatorRequestHumanInput") as WeacpxMcpTransport["coordinatorRequestHumanInput"]),
+      ?? (unimplemented("coordinatorRequestHumanInput") as XacpxMcpTransport["coordinatorRequestHumanInput"]),
     coordinatorReviewContestedResult:
       overrides.coordinatorReviewContestedResult
-      ?? (unimplemented("coordinatorReviewContestedResult") as WeacpxMcpTransport["coordinatorReviewContestedResult"]),
+      ?? (unimplemented("coordinatorReviewContestedResult") as XacpxMcpTransport["coordinatorReviewContestedResult"]),
     scheduledCreate:
-      overrides.scheduledCreate ?? (unimplemented("scheduledCreate") as WeacpxMcpTransport["scheduledCreate"]),
+      overrides.scheduledCreate ?? (unimplemented("scheduledCreate") as XacpxMcpTransport["scheduledCreate"]),
     scheduledList:
-      overrides.scheduledList ?? (unimplemented("scheduledList") as WeacpxMcpTransport["scheduledList"]),
+      overrides.scheduledList ?? (unimplemented("scheduledList") as XacpxMcpTransport["scheduledList"]),
     scheduledCancel:
-      overrides.scheduledCancel ?? (unimplemented("scheduledCancel") as WeacpxMcpTransport["scheduledCancel"]),
+      overrides.scheduledCancel ?? (unimplemented("scheduledCancel") as XacpxMcpTransport["scheduledCancel"]),
   };
 }

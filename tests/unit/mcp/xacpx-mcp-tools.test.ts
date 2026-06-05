@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { buildWeacpxMcpToolRegistry } from "../../../src/mcp/xacpx-mcp-tools";
+import { buildXacpxMcpToolRegistry } from "../../../src/mcp/xacpx-mcp-tools";
 import { createMemoryTransport } from "../../../src/mcp/xacpx-mcp-transport";
 import type { OrchestrationTaskRecord } from "../../../src/orchestration/orchestration-types";
 import { QuotaDeferredError } from "../../../src/weixin/messaging/quota-errors";
@@ -47,7 +47,7 @@ test("builds 11 MCP tools and appends blocker-loop actions after the original or
     },
   );
 
-  const registry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({
     transport,
     coordinatorSession: "backend:main",
     sourceHandle: "backend:worker",
@@ -171,18 +171,18 @@ test("registers scheduled_create only for internal non-worker session tools", as
     },
   );
 
-  const registry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({
     transport,
     coordinatorSession: "backend:main",
     internalSessionTools: true,
   });
-  const workerRegistry = buildWeacpxMcpToolRegistry({
+  const workerRegistry = buildXacpxMcpToolRegistry({
     transport,
     coordinatorSession: "backend:main",
     sourceHandle: "backend:worker",
     internalSessionTools: true,
   });
-  const externalRegistry = buildWeacpxMcpToolRegistry({
+  const externalRegistry = buildXacpxMcpToolRegistry({
     transport,
     coordinatorSession: "external_codex:backend",
     isExternalCoordinator: true,
@@ -268,20 +268,20 @@ test("registers scheduled_list and scheduled_cancel only for internal non-worker
     },
   );
 
-  const registry = buildWeacpxMcpToolRegistry({ transport, coordinatorSession: "backend:main", internalSessionTools: true });
-  const workerRegistry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({ transport, coordinatorSession: "backend:main", internalSessionTools: true });
+  const workerRegistry = buildXacpxMcpToolRegistry({
     transport,
     coordinatorSession: "backend:main",
     sourceHandle: "backend:worker",
     internalSessionTools: true,
   });
-  const externalRegistry = buildWeacpxMcpToolRegistry({
+  const externalRegistry = buildXacpxMcpToolRegistry({
     transport,
     coordinatorSession: "external_codex:backend",
     isExternalCoordinator: true,
     internalSessionTools: true,
   });
-  const offRegistry = buildWeacpxMcpToolRegistry({ transport, coordinatorSession: "backend:main" });
+  const offRegistry = buildXacpxMcpToolRegistry({ transport, coordinatorSession: "backend:main" });
 
   for (const name of ["scheduled_list", "scheduled_cancel"]) {
     expect(registry.map((tool) => tool.name)).toContain(name);
@@ -326,7 +326,7 @@ test("registers scheduled_list and scheduled_cancel only for internal non-worker
 
 test("worker_raise_question fails clearly when no host sourceHandle is bound", async () => {
   const calls: unknown[] = [];
-  const registry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({
     transport: createMemoryTransport(
       async () => ({ taskId: "task-1", status: "needs_confirmation" }),
       {
@@ -368,7 +368,7 @@ test("worker_raise_question fails clearly when no host sourceHandle is bound", a
 });
 
 test("QuotaDeferredError from coordinator_request_human_input becomes a soft deferred_quota result", async () => {
-  const registry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({
     transport: createMemoryTransport(
       async () => ({ taskId: "task-1", status: "needs_confirmation" }),
       {
@@ -405,7 +405,7 @@ test("QuotaDeferredError from coordinator_request_human_input becomes a soft def
 });
 
 test("generic Error remains a hard error result (backward compatible)", async () => {
-  const registry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({
     transport: createMemoryTransport(
       async () => {
         throw new Error("rpc blew up");
@@ -436,7 +436,7 @@ test("generic Error remains a hard error result (backward compatible)", async ()
 });
 
 test("task_get renders not-found as text plus structured null wrapper", async () => {
-  const registry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({
     transport: createMemoryTransport(
       async () => ({ taskId: "task-1", status: "needs_confirmation" }),
       {
@@ -465,7 +465,7 @@ test("task_get renders not-found as text plus structured null wrapper", async ()
 test("task_get omits the delegated prompt by default but keeps it for needs_confirmation / includePrompt", async () => {
   const longPrompt = "PROMPT-LINE-".repeat(40);
   const getText = async (task: OrchestrationTaskRecord, args: Record<string, unknown>) => {
-    const registry = buildWeacpxMcpToolRegistry({
+    const registry = buildXacpxMcpToolRegistry({
       transport: createMemoryTransport(async () => ({ taskId: "task-1", status: "running" }), {
         getTask: async () => task,
       }),
@@ -499,7 +499,7 @@ test("task_get omits the delegated prompt by default but keeps it for needs_conf
 });
 
 test("task_watch surfaces the result on a terminal stop instead of pointing at task_get", async () => {
-  const registry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({
     transport: createMemoryTransport(async () => ({ taskId: "task-1", status: "running" }), {
       watchTask: async () => ({
         status: "terminal" as const,
@@ -522,7 +522,7 @@ test("task_watch surfaces the result on a terminal stop instead of pointing at t
 });
 
 test("task_watch falls back to the summary on a terminal stop with no result text", async () => {
-  const registry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({
     transport: createMemoryTransport(async () => ({ taskId: "task-1", status: "running" }), {
       watchTask: async () => ({
         status: "terminal" as const,
@@ -545,7 +545,7 @@ test("task_watch falls back to the summary on a terminal stop with no result tex
 });
 
 test("task_watch surfaces the open question on an attention stop", async () => {
-  const registry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({
     transport: createMemoryTransport(async () => ({ taskId: "task-1", status: "running" }), {
       watchTask: async () => ({
         status: "attention_required" as const,
@@ -578,7 +578,7 @@ test("task_watch surfaces the open question on an attention stop", async () => {
 });
 
 test("delegate_request running result appends a non-blocking Next hint", async () => {
-  const registry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({
     transport: createMemoryTransport(
       async () => ({ taskId: "task-running", status: "running" }),
       {
@@ -615,7 +615,7 @@ test("delegate_request running result appends a non-blocking Next hint", async (
 });
 
 test("task_watch description states the native watcher is single-shot", async () => {
-  const registry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({
     transport: createMemoryTransport(async () => ({ taskId: "task-1", status: "running" })),
     coordinatorSession: "backend:main",
   });
@@ -625,7 +625,7 @@ test("task_watch description states the native watcher is single-shot", async ()
 });
 
 test("tool descriptions reference the next step in the lifecycle", () => {
-  const registry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({
     transport: createMemoryTransport(
       async () => ({ taskId: "task-1", status: "running" }),
       {
@@ -656,7 +656,7 @@ test("tool descriptions reference the next step in the lifecycle", () => {
 });
 
 test("task_approve result text points the coordinator back to task_watch", async () => {
-  const registry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({
     transport: createMemoryTransport(
       async () => ({ taskId: "task-1", status: "needs_confirmation" }),
       {
@@ -698,7 +698,7 @@ test("registry hides human-input package tools when the coordinator is external"
     },
   );
 
-  const externalRegistry = buildWeacpxMcpToolRegistry({
+  const externalRegistry = buildXacpxMcpToolRegistry({
     transport,
     coordinatorSession: "external_claude-code:backend",
     isExternalCoordinator: true,
@@ -715,7 +715,7 @@ test("registry hides human-input package tools when the coordinator is external"
   expect(externalNames).toContain("coordinator_review_contested_result");
   expect(externalRegistry).toHaveLength(10);
 
-  const internalRegistry = buildWeacpxMcpToolRegistry({
+  const internalRegistry = buildXacpxMcpToolRegistry({
     transport,
     coordinatorSession: "backend:main",
   });
@@ -726,7 +726,7 @@ test("registry hides human-input package tools when the coordinator is external"
 test("delegate_batch creates one group and delegates every task into it", async () => {
   const calls: unknown[] = [];
   let groupSeq = 0;
-  const registry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({
     transport: createMemoryTransport(
       async (input) => {
         calls.push({ method: "delegateRequest", input });
@@ -775,7 +775,7 @@ test("delegate_batch creates one group and delegates every task into it", async 
 
 test("delegate_batch with a single task skips group creation", async () => {
   const calls: unknown[] = [];
-  const registry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({
     transport: createMemoryTransport(async (input) => {
       calls.push({ method: "delegateRequest", input });
       return { taskId: "task-1", status: "running" as const };
@@ -793,7 +793,7 @@ test("delegate_batch with a single task skips group creation", async () => {
 
 test("delegate_batch passes an explicit title to createGroup verbatim", async () => {
   const createGroupCalls: unknown[] = [];
-  const registry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({
     transport: createMemoryTransport(
       async () => ({ taskId: "task-1", status: "running" as const }),
       {
@@ -828,7 +828,7 @@ test("delegate_batch passes an explicit title to createGroup verbatim", async ()
 
 test("delegate_batch reports a per-task error without aborting the rest of the batch", async () => {
   let n = 0;
-  const registry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({
     transport: createMemoryTransport(
       async () => {
         n += 1;
@@ -870,7 +870,7 @@ test("delegate_batch reports a per-task error without aborting the rest of the b
 
 test("delegate_request forwards parallel:true to the transport", async () => {
   const capturedInputs: unknown[] = [];
-  const registry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({
     transport: createMemoryTransport(
       async (input) => {
         capturedInputs.push(input);
@@ -912,7 +912,7 @@ test("delegate_request forwards parallel:true to the transport", async () => {
 
 test("delegate_request omits parallel when not provided", async () => {
   const capturedInputs: unknown[] = [];
-  const registry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({
     transport: createMemoryTransport(
       async (input) => {
         capturedInputs.push(input);
@@ -945,7 +945,7 @@ test("delegate_request omits parallel when not provided", async () => {
 
 test("delegate_batch forwards per-task parallel and omits it when not provided", async () => {
   const calls: unknown[] = [];
-  const registry = buildWeacpxMcpToolRegistry({
+  const registry = buildXacpxMcpToolRegistry({
     transport: createMemoryTransport(
       async (input) => {
         calls.push({ method: "delegateRequest", input });

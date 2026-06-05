@@ -18,7 +18,7 @@ import type { DaemonController } from "./daemon/daemon-controller";
 import { DaemonRuntime } from "./daemon/daemon-runtime";
 import type { DaemonStatus } from "./daemon/daemon-status";
 import type { DoctorRunOptions } from "./doctor/doctor-types";
-import { runWeacpxMcpServer } from "./mcp/xacpx-mcp-server";
+import { runXacpxMcpServer } from "./mcp/xacpx-mcp-server";
 import {
   inferExternalCoordinatorSession,
 } from "./mcp/infer-coordinator-identity";
@@ -135,7 +135,7 @@ export function createMcpStdioIdentityResolver(input: {
   };
   client: PrepareMcpCoordinatorStartupInput["client"];
   internalSessionTools?: boolean;
-}): NonNullable<Parameters<typeof runWeacpxMcpServer>[0]["resolveIdentity"]> {
+}): NonNullable<Parameters<typeof runXacpxMcpServer>[0]["resolveIdentity"]> {
   const instanceId = randomUUID().slice(0, 8);
   return async (context) => {
     const parsedCoordinatorSession = input.parsedCoordinatorSession?.trim() || null;
@@ -989,7 +989,7 @@ async function defaultMcpStdio(
   let sourceHandle: string | null;
   let endpoint: ReturnType<typeof resolveDefaultOrchestrationEndpoint>;
   let transport!: ReturnType<typeof createOrchestrationTransport>;
-  let identityResolver: Parameters<typeof runWeacpxMcpServer>[0]["resolveIdentity"] | undefined;
+  let identityResolver: Parameters<typeof runXacpxMcpServer>[0]["resolveIdentity"] | undefined;
   let availableAgents: string[] | undefined;
   let internalSessionTools = false;
   try {
@@ -1027,7 +1027,7 @@ async function defaultMcpStdio(
     return 2;
   }
 
-  await runWeacpxMcpServer({
+  await runXacpxMcpServer({
     transport,
     ...(coordinatorSession ? { coordinatorSession } : {}),
     ...(sourceHandle ? { sourceHandle } : {}),
