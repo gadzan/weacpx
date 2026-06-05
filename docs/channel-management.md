@@ -305,6 +305,15 @@ The CLI writes `channels[]`, like:
 
 `channel.replyMode` is still the global default reply mode; the channel CLI does not switch channels by modifying `channel.type`.
 
+按频道设置默认回复模式：
+
+```bash
+xacpx channel set-reply-mode feishu final
+xacpx restart
+```
+
+`channels[].replyMode` 覆盖全局 `channel.replyMode`，但仍低于会话级 `/replymode`。优先级：会话覆盖 → 频道默认 → 全局默认 → `verbose`。`/config set channels.<id>.replyMode` 是运行时热改路径；`xacpx channel set-reply-mode` 改盘后需 `xacpx restart` 生效。
+
 For the full field descriptions, see: [docs/config-reference.md](./config-reference.md).
 
 ### Feishu Multi-Bot (Multiple Accounts in One Channel)
