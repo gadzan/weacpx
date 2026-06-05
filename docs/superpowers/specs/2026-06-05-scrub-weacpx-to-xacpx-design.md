@@ -53,7 +53,8 @@
    - 在 `src/plugins/compatibility.ts` 定义规范名 `XACPX_PLUGIN_API_VERSION` / `XACPX_PLUGIN_API_SUPPORTED_VERSIONS` / `XACPX_PLUGIN_MIN_CORE_VERSION`，并保留 `WEACPX_PLUGIN_*` 作为指向同值的 **deprecated 别名**。
    - `src/plugins/types.ts` 与 `src/plugin-api.ts` 同时 re-export 新名与旧名。
    - 内部引用（`compatibility.ts:123-124`、`validate-plugin.ts:70`）改用 `XACPX_*`。
-   - 插件脚手架（`plugin-cli`）生成的示例改 `import { XACPX_PLUGIN_API_VERSION }`（对应 `plugin-cli.test.ts:146/149` 断言同步）。
+   - **无插件脚手架需要改**：`plugin-cli.ts` 不生成示例代码；`plugin-cli.test.ts:146` 里 `import { WEACPX_PLUGIN_API_VERSION } from "xacpx/plugin-api"` 是测试**夹具**（一个模拟老插件），**保持不变** —— 它正好充当「deprecated 别名仍可用」的回归测试。
+   - `tests/unit/plugins/plugin-compatibility.test.ts`（导入并断言这些常量，`:4-6/:116-122`）：保留现有 `WEACPX_*` 断言（验证别名），并新增对 `XACPX_*` 规范名的等值断言。
    - 插件内部统一引用 `XacpxPlugin` 类型；`WeacpxPlugin` 作为 deprecated 别名**保留**（已存在，老插件 `.d.ts` 仍引用）。
 
 6. **内部标识重命名**（确属内部、无公开 re-export）：
