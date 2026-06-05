@@ -4,7 +4,7 @@ import plugin, { FeishuChannel, feishuCliProvider } from "../../../../packages/c
 import { validateWeacpxPlugin } from "../../../../src/plugins/validate-plugin";
 
 test("@ganglion/xacpx-channel-feishu exports a valid plugin definition", () => {
-  const validated = validateWeacpxPlugin(plugin, "@ganglion/xacpx-channel-feishu", { currentWeacpxVersion: "0.8.0" });
+  const validated = validateWeacpxPlugin(plugin, "@ganglion/xacpx-channel-feishu", { currentXacpxVersion: "0.8.0" });
 
   expect(validated.name).toBe("@ganglion/xacpx-channel-feishu");
   expect(validated.channels?.map((channel) => channel.type)).toEqual(["feishu"]);

@@ -108,7 +108,7 @@ export interface PluginCompatibilityMetadata {
 
 export interface PluginCompatibilityContext {
   packageName: string;
-  currentWeacpxVersion: string;
+  currentXacpxVersion: string;
 }
 
 // Validates the compatibility envelope of a plugin. Throws an Error with a
@@ -120,7 +120,7 @@ export function validatePluginCompatibility(
   metadata: PluginCompatibilityMetadata,
   context: PluginCompatibilityContext,
 ): void {
-  const { packageName, currentWeacpxVersion } = context;
+  const { packageName, currentXacpxVersion } = context;
 
   const apiVersion = metadata.apiVersion;
   if (typeof apiVersion !== "number") {
@@ -131,11 +131,11 @@ export function validatePluginCompatibility(
     throw new Error(t().pluginCli.compatUnsupportedApiVersion(packageName, apiVersion, supported));
   }
 
-  if (!currentWeacpxVersion || currentWeacpxVersion === "unknown") {
+  if (!currentXacpxVersion || currentXacpxVersion === "unknown") {
     return; // can't decide core-version compatibility; skip rather than block on a guess.
   }
 
-  const normalizedCurrent = normalizeCoreVersionForCompat(currentWeacpxVersion);
+  const normalizedCurrent = normalizeCoreVersionForCompat(currentXacpxVersion);
 
   // weacpx→xacpx rename: prefer the new `*Xacpx*` fields, fall back to the
   // legacy `*Weacpx*` fields declared by already-published plugins.
@@ -153,7 +153,7 @@ export function validatePluginCompatibility(
       throw new Error(t().pluginCli.compatInvalidMinVersionDetail(packageName, minVersionField, detail));
     }
     if (!satisfied) {
-      throw new Error(t().pluginCli.compatMinVersionNotSatisfied(packageName, minVersion, currentWeacpxVersion));
+      throw new Error(t().pluginCli.compatMinVersionNotSatisfied(packageName, minVersion, currentXacpxVersion));
     }
   }
 
@@ -172,7 +172,7 @@ export function validatePluginCompatibility(
       throw new Error(t().pluginCli.compatInvalidCompatibleVersionsDetail(packageName, compatibleField, detail));
     }
     if (!satisfied) {
-      throw new Error(t().pluginCli.compatCompatibleVersionsNotSatisfied(packageName, compatibleVersions, currentWeacpxVersion));
+      throw new Error(t().pluginCli.compatCompatibleVersionsNotSatisfied(packageName, compatibleVersions, currentXacpxVersion));
     }
   }
 }

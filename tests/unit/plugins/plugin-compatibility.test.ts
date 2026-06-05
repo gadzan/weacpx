@@ -48,71 +48,71 @@ test("isVersionSatisfied rejects malformed range", () => {
 test("validatePluginCompatibility accepts current core matching minWeacpxVersion", () => {
   expect(() => validatePluginCompatibility(
     { apiVersion: 1, minWeacpxVersion: "0.3.3" },
-    { packageName: "weacpx-channel-demo", currentWeacpxVersion: "0.3.3" },
+    { packageName: "weacpx-channel-demo", currentXacpxVersion: "0.3.3" },
   )).not.toThrow();
 });
 
 test("validatePluginCompatibility accepts current core matching range", () => {
   expect(() => validatePluginCompatibility(
     { apiVersion: 1, compatibleWeacpxVersions: ">=0.3.3" },
-    { packageName: "weacpx-channel-demo", currentWeacpxVersion: "0.4.0" },
+    { packageName: "weacpx-channel-demo", currentXacpxVersion: "0.4.0" },
   )).not.toThrow();
 });
 
 test("validatePluginCompatibility rejects too-new plugin with upgrade-weacpx hint", () => {
   expect(() => validatePluginCompatibility(
     { apiVersion: 1, minWeacpxVersion: "0.4.0" },
-    { packageName: "weacpx-channel-demo", currentWeacpxVersion: "0.3.3" },
+    { packageName: "weacpx-channel-demo", currentXacpxVersion: "0.3.3" },
   )).toThrow(/weacpx-channel-demo.*requires xacpx >=?0\.4\.0.*current is 0\.3\.3.*upgrade xacpx/i);
 });
 
 test("validatePluginCompatibility rejects when range excludes current core", () => {
   expect(() => validatePluginCompatibility(
     { apiVersion: 1, compatibleWeacpxVersions: ">=0.5.0" },
-    { packageName: "weacpx-channel-demo", currentWeacpxVersion: "0.3.3" },
+    { packageName: "weacpx-channel-demo", currentXacpxVersion: "0.3.3" },
   )).toThrow(/upgrade xacpx/i);
 });
 
 test("validatePluginCompatibility rejects malformed compatibility metadata", () => {
   expect(() => validatePluginCompatibility(
     { apiVersion: 1, minWeacpxVersion: "not-a-version" },
-    { packageName: "weacpx-channel-demo", currentWeacpxVersion: "0.3.3" },
+    { packageName: "weacpx-channel-demo", currentXacpxVersion: "0.3.3" },
   )).toThrow(/插件元数据.*minWeacpxVersion|invalid plugin metadata/i);
   expect(() => validatePluginCompatibility(
     { apiVersion: 1, compatibleWeacpxVersions: "<2.0.0" },
-    { packageName: "weacpx-channel-demo", currentWeacpxVersion: "0.3.3" },
+    { packageName: "weacpx-channel-demo", currentXacpxVersion: "0.3.3" },
   )).toThrow(/插件元数据.*compatibleWeacpxVersions|invalid plugin metadata/i);
 });
 
 test("validatePluginCompatibility rejects unsupported apiVersion with upgrade-plugin hint", () => {
   expect(() => validatePluginCompatibility(
     { apiVersion: 2 },
-    { packageName: "weacpx-channel-demo", currentWeacpxVersion: "0.3.3" },
+    { packageName: "weacpx-channel-demo", currentXacpxVersion: "0.3.3" },
   )).toThrow(/apiVersion 2.*supported.*1.*(upgrade|降级|安装|install)/i);
 });
 
 test("validatePluginCompatibility rejects missing apiVersion", () => {
   expect(() => validatePluginCompatibility(
     {},
-    { packageName: "weacpx-channel-demo", currentWeacpxVersion: "0.3.3" },
+    { packageName: "weacpx-channel-demo", currentXacpxVersion: "0.3.3" },
   )).toThrow(/apiVersion/);
 });
 
 test("validatePluginCompatibility skips core-version checks when current version is unknown", () => {
   expect(() => validatePluginCompatibility(
     { apiVersion: 1, minWeacpxVersion: "0.4.0" },
-    { packageName: "weacpx-channel-demo", currentWeacpxVersion: "unknown" },
+    { packageName: "weacpx-channel-demo", currentXacpxVersion: "unknown" },
   )).not.toThrow();
 });
 
 test("validatePluginCompatibility tolerates prerelease tags on the running core", () => {
   expect(() => validatePluginCompatibility(
     { apiVersion: 1, minWeacpxVersion: "0.4.0" },
-    { packageName: "weacpx-channel-demo", currentWeacpxVersion: "0.4.0-beta.0" },
+    { packageName: "weacpx-channel-demo", currentXacpxVersion: "0.4.0-beta.0" },
   )).not.toThrow();
   expect(() => validatePluginCompatibility(
     { apiVersion: 1, compatibleWeacpxVersions: ">=0.4.0" },
-    { packageName: "weacpx-channel-demo", currentWeacpxVersion: "0.4.0-rc.1" },
+    { packageName: "weacpx-channel-demo", currentXacpxVersion: "0.4.0-rc.1" },
   )).not.toThrow();
 });
 

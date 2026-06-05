@@ -12,7 +12,7 @@ export interface ValidateWeacpxPluginOptions {
    * Use `"unknown"` to skip core-version compatibility (matches readVersion's
    * fallback when package.json is missing).
    */
-  currentWeacpxVersion?: string;
+  currentXacpxVersion?: string;
 }
 
 export function validateWeacpxPlugin(
@@ -25,7 +25,7 @@ export function validateWeacpxPlugin(
     throw new Error(t().pluginCli.pluginNoDefaultExport(packageName));
   }
 
-  const currentWeacpxVersion = options.currentWeacpxVersion ?? readVersion();
+  const currentXacpxVersion = options.currentXacpxVersion ?? readVersion();
   validatePluginCompatibility(
     {
       apiVersion: plugin.apiVersion,
@@ -34,7 +34,7 @@ export function validateWeacpxPlugin(
       minXacpxVersion: (plugin as Record<string, unknown>).minXacpxVersion,
       compatibleXacpxVersions: (plugin as Record<string, unknown>).compatibleXacpxVersions,
     },
-    { packageName, currentWeacpxVersion },
+    { packageName, currentXacpxVersion },
   );
 
   if ("name" in plugin && typeof plugin.name === "string" && plugin.name.trim() && plugin.name.trim() !== packageName) {
