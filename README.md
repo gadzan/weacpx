@@ -13,6 +13,8 @@ English · **[中文](./docs/zh/README_zh.md)**
 
 `xacpx` is a tool that lets you control ACP agents such as Codex / Claude Code / Gemini / OpenCode directly from WeChat, Feishu, or Yuanbao. It connects chat messages to your agent CLI sessions through `acpx`, so you can, right from your phone:
 
+[![xacpx.png](https://s41.ax1x.com/2026/06/05/pmZXIv6.png)](https://imgchr.com/i/pmZXIv6)
+
 - Create and switch between sessions
 - Have the agent keep working in a specific project directory
 - View streaming replies, final results, and tool-call summaries
