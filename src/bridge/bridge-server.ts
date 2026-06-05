@@ -33,6 +33,7 @@ const BRIDGE_METHODS = new Set<BridgeMethod>([
   "setMode",
   "cancel",
   "removeSession",
+  "getAgentSessionId",
 ]);
 
 const SESSION_SCOPED_METHODS = new Set<BridgeMethod>([
@@ -44,6 +45,7 @@ const SESSION_SCOPED_METHODS = new Set<BridgeMethod>([
   "setMode",
   "cancel",
   "removeSession",
+  "getAgentSessionId",
 ]);
 
 export class BridgeServer {
@@ -233,6 +235,13 @@ export class BridgeServer {
         });
       case "removeSession":
         return await this.runtime.removeSession({
+          agent: requireString(params, "agent"),
+          agentCommand: asOptionalString(params.agentCommand),
+          cwd: requireString(params, "cwd"),
+          name: requireString(params, "name"),
+        });
+      case "getAgentSessionId":
+        return await this.runtime.getAgentSessionId({
           agent: requireString(params, "agent"),
           agentCommand: asOptionalString(params.agentCommand),
           cwd: requireString(params, "cwd"),
