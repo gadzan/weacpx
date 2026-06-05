@@ -295,7 +295,7 @@ export function buildXacpxMcpToolRegistry(input: {
         await asToolResult(async () => {
           if (!sourceHandle || sourceHandle.trim().length === 0) {
             throw new Error(
-              "worker_raise_question requires a bound sourceHandle; start mcp-stdio with --source-handle or WEACPX_SOURCE_HANDLE",
+              "worker_raise_question requires a bound sourceHandle; start mcp-stdio with --source-handle or XACPX_SOURCE_HANDLE",
             );
           }
           const result = await transport.workerRaiseQuestion({

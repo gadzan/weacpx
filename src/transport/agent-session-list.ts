@@ -21,7 +21,7 @@ export interface AgentSessionListCommandResult {
  *   1. Run with `--filter-cwd`; if acpx rejects that option, retry without it
  *      and filter by cwd locally.
  *   2. If the agent doesn't advertise `sessionCapabilities.list`, return
- *      `undefined` so callers can fall back to weacpx logical sessions.
+ *      `undefined` so callers can fall back to xacpx logical sessions.
  *   3. Otherwise parse + validate the JSON payload.
  */
 export async function runAgentSessionList(options: {

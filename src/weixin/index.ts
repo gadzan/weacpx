@@ -2,7 +2,7 @@ export type { Agent, ChatRequest, ChatResponse } from "./agent/interface.js";
 export { login, start, logout, isLoggedIn } from "./bot.js";
 export type { LoginOptions, StartOptions } from "./bot.js";
 
-// Internal exports needed by weacpx for streaming reply
+// Internal exports needed by xacpx for streaming reply
 export { sendMessageWeixin, markdownToPlainText } from "./messaging/send.js";
 export {
   getContextToken,

@@ -361,7 +361,7 @@ test("worker_raise_question fails clearly when no host sourceHandle is bound", a
     content: [
       {
         type: "text",
-        text: "worker_raise_question requires a bound sourceHandle; start mcp-stdio with --source-handle or WEACPX_SOURCE_HANDLE",
+        text: "worker_raise_question requires a bound sourceHandle; start mcp-stdio with --source-handle or XACPX_SOURCE_HANDLE",
       },
     ],
   });

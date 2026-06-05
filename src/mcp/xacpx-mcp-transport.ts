@@ -172,7 +172,7 @@ export function createOrchestrationTransport(
       const sourceHandle = input.sourceHandle.trim();
       if (sourceHandle.length === 0) {
         throw new Error(
-          "worker_raise_question requires a bound sourceHandle; start mcp-stdio with --source-handle or WEACPX_SOURCE_HANDLE",
+          "worker_raise_question requires a bound sourceHandle; start mcp-stdio with --source-handle or XACPX_SOURCE_HANDLE",
         );
       }
       return await client.workerRaiseQuestion({
