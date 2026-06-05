@@ -129,7 +129,7 @@ Uses **Bun** for development scripts and builds. Dependencies are in `package.js
 
 - [weixin-agent-sdk](https://github.com/wong2/weixin-agent-sdk)
 - [acpx](https://github.com/openclaw/acpx)
-- 测试文档请参考 [docs\testing.md](docs\testing.md)
+- 测试文档请参考 [docs/testing.md](docs/testing.md)
 - 配置文件详解 [docs/config-reference.md](docs/config-reference.md)
 - `/config` 命令说明 [docs/config-command.md](docs/config-command.md)
 - `/later` 定时任务命令说明 [docs/later-command.md](docs/later-command.md)
