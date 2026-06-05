@@ -1117,3 +1117,69 @@ test("deduplicates legacy and canonical channel plugin package names", async () 
 
   await rm(dir, { recursive: true, force: true });
 });
+
+test("loads an explicit per-channel replyMode in channels[]", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-bridge" },
+      channel: { type: "weixin", replyMode: "verbose" },
+      channels: [
+        { id: "weixin", type: "weixin", enabled: true, replyMode: "final" },
+        { id: "feishu", type: "feishu", enabled: true },
+      ],
+      agents: { codex: { driver: "codex" } },
+      workspaces: {},
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.channels.find((c) => c.id === "weixin")?.replyMode).toBe("final");
+  expect(config.channels.find((c) => c.id === "feishu")?.replyMode).toBeUndefined();
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("omitting channels[].replyMode leaves it undefined (backward compatible)", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-bridge" },
+      channels: [{ id: "weixin", type: "weixin", enabled: true }],
+      agents: { codex: { driver: "codex" } },
+      workspaces: {},
+    }),
+  );
+
+  const config = await loadConfig(path);
+  expect(config.channels[0]?.replyMode).toBeUndefined();
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("throws when channels[].replyMode is invalid", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
+  const path = join(dir, "config.json");
+
+  await writeFile(
+    path,
+    JSON.stringify({
+      transport: { type: "acpx-bridge" },
+      channels: [{ id: "weixin", type: "weixin", enabled: true, replyMode: "loud" }],
+      agents: { codex: { driver: "codex" } },
+      workspaces: {},
+    }),
+  );
+
+  await expect(loadConfig(path)).rejects.toThrow(
+    "channels[0].replyMode must be stream, final, or verbose",
+  );
+
+  await rm(dir, { recursive: true, force: true });
+});
