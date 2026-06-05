@@ -1,7 +1,7 @@
 import { isRecord } from "../config/load-config.js";
 import { readVersion } from "../version.js";
 import type { WeacpxPlugin } from "./types.js";
-import { WEACPX_PLUGIN_API_VERSION } from "./types.js";
+import { XACPX_PLUGIN_API_VERSION } from "./types.js";
 import { validatePluginCompatibility } from "./compatibility.js";
 import { t } from "../i18n";
 
@@ -67,7 +67,7 @@ export function validateWeacpxPlugin(
   }
 
   const normalized: WeacpxPlugin = {
-    apiVersion: WEACPX_PLUGIN_API_VERSION,
+    apiVersion: XACPX_PLUGIN_API_VERSION,
     ...(typeof plugin.name === "string" && plugin.name.trim() ? { name: plugin.name.trim() } : { name: packageName }),
     channels: channels as WeacpxPlugin["channels"],
   };

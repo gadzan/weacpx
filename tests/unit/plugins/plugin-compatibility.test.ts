@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 
 import {
+  XACPX_PLUGIN_API_VERSION,
+  XACPX_PLUGIN_API_SUPPORTED_VERSIONS,
+  XACPX_PLUGIN_MIN_CORE_VERSION,
   WEACPX_PLUGIN_API_VERSION,
   WEACPX_PLUGIN_API_SUPPORTED_VERSIONS,
   WEACPX_PLUGIN_MIN_CORE_VERSION,
@@ -120,4 +123,12 @@ test("WEACPX_PLUGIN_API_SUPPORTED_VERSIONS includes the current API version", ()
 
 test("WEACPX_PLUGIN_MIN_CORE_VERSION is the first-party plugin minimum core", () => {
   expect(WEACPX_PLUGIN_MIN_CORE_VERSION).toBe("0.5.0");
+});
+
+test("XACPX_* plugin constants are the canonical names and equal the deprecated WEACPX_* aliases", () => {
+  expect(XACPX_PLUGIN_API_VERSION).toBe(WEACPX_PLUGIN_API_VERSION);
+  expect(XACPX_PLUGIN_API_SUPPORTED_VERSIONS).toEqual(WEACPX_PLUGIN_API_SUPPORTED_VERSIONS);
+  expect(XACPX_PLUGIN_MIN_CORE_VERSION).toBe(WEACPX_PLUGIN_MIN_CORE_VERSION);
+  expect(XACPX_PLUGIN_API_SUPPORTED_VERSIONS).toContain(XACPX_PLUGIN_API_VERSION);
+  expect(XACPX_PLUGIN_MIN_CORE_VERSION).toBe("0.5.0");
 });

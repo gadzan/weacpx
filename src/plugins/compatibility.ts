@@ -5,12 +5,18 @@
 
 import { t } from "../i18n";
 
-export const WEACPX_PLUGIN_API_VERSION = 1 as const;
-export const WEACPX_PLUGIN_API_SUPPORTED_VERSIONS: readonly number[] = [1];
+export const XACPX_PLUGIN_API_VERSION = 1 as const;
+export const XACPX_PLUGIN_API_SUPPORTED_VERSIONS: readonly number[] = [1];
 
 // Minimum core version that the current plugin API version corresponds to.
-// First-party plugins should declare `minWeacpxVersion` >= this value.
-export const WEACPX_PLUGIN_MIN_CORE_VERSION = "0.5.0" as const;
+// First-party plugins should declare `minXacpxVersion` >= this value.
+export const XACPX_PLUGIN_MIN_CORE_VERSION = "0.5.0" as const;
+
+// Deprecated weacpx→xacpx aliases — kept for already-published plugins that
+// import the old names from "xacpx/plugin-api".
+export const WEACPX_PLUGIN_API_VERSION = XACPX_PLUGIN_API_VERSION;
+export const WEACPX_PLUGIN_API_SUPPORTED_VERSIONS = XACPX_PLUGIN_API_SUPPORTED_VERSIONS;
+export const WEACPX_PLUGIN_MIN_CORE_VERSION = XACPX_PLUGIN_MIN_CORE_VERSION;
 
 const SEMVER_RE = /^(\d+)\.(\d+)\.(\d+)$/;
 
@@ -120,8 +126,8 @@ export function validatePluginCompatibility(
   if (typeof apiVersion !== "number") {
     throw new Error(t().pluginCli.compatMissingApiVersion(packageName));
   }
-  if (!WEACPX_PLUGIN_API_SUPPORTED_VERSIONS.includes(apiVersion)) {
-    const supported = WEACPX_PLUGIN_API_SUPPORTED_VERSIONS.join(", ");
+  if (!XACPX_PLUGIN_API_SUPPORTED_VERSIONS.includes(apiVersion)) {
+    const supported = XACPX_PLUGIN_API_SUPPORTED_VERSIONS.join(", ");
     throw new Error(t().pluginCli.compatUnsupportedApiVersion(packageName, apiVersion, supported));
   }
 
