@@ -9953,3 +9953,56 @@ test("requestTaskCancellation succeeds when task has legacy reset-suffixed coord
   expect(result.status).toBe("running");
   expect(result.cancelRequestedAt).toBeDefined();
 });
+
+test("requestDelegateFromRpc succeeds when session has reset-suffixed transport_session and sourceHandle is stable id", async () => {
+  // Regression test for Fix 1: after /clear, the session record carries
+  // `transport_session: "ws:alias:reset-<ts>"` but the MCP queue-owner
+  // (sourceHandle) is the stable id "ws:alias". resolveRpcSourceContext must
+  // normalize both sides of the find so the delegation does NOT throw
+  // "is not a registered coordinator or worker session".
+  const harness = makeDeps({
+    createId: () => "task-rpc-reset-fix",
+    reusableWorkerSession: "ws:claude:ws:alias",
+    initialState: {
+      ...createEmptyState(),
+      sessions: {
+        main: {
+          alias: "main",
+          agent: "claude",
+          workspace: "ws",
+          transport_session: "ws:alias:reset-1700000000000",
+          created_at: "2026-04-13T10:00:00.000Z",
+          last_used_at: "2026-04-13T10:00:00.000Z",
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  // sourceHandle is the stable id (no :reset- suffix) — as baked by the MCP
+  // queue-owner registration in command-router.ts
+  const result = await service.requestDelegateFromRpc({
+    sourceHandle: "ws:alias",
+    targetAgent: "claude",
+    task: "implement the feature",
+  });
+
+  expect(result.taskId).toBe("task-rpc-reset-fix");
+  expect(result.status).toBe("running");
+
+  // Wait for the async dispatch to fire
+  for (let attempt = 0; attempt < 20 && harness.dispatchCalls.length === 0; attempt += 1) {
+    await Bun.sleep(0);
+  }
+
+  const task = harness.getState().orchestration.tasks["task-rpc-reset-fix"];
+  // The task must record the stable coordinator session (not the reset-suffixed one)
+  expect(task).toMatchObject({
+    sourceHandle: "ws:alias",
+    sourceKind: "coordinator",
+    coordinatorSession: "ws:alias",
+    workspace: "ws",
+    targetAgent: "claude",
+    status: "running",
+  });
+});

@@ -3368,12 +3368,12 @@ export class OrchestrationService {
     }
 
     const coordinatorSession = Object.values(state.sessions).find(
-      (session) => session.transport_session === sourceHandle,
+      (session) => stableCoordinatorSession(session.transport_session) === stableCoordinatorSession(sourceHandle),
     );
     if (coordinatorSession) {
       return {
         sourceKind: "coordinator",
-        coordinatorSession: sourceHandle,
+        coordinatorSession: stableCoordinatorSession(sourceHandle),
         workspace: coordinatorSession.workspace,
       };
     }

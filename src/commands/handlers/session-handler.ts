@@ -12,6 +12,7 @@ import type { PerfSpan } from "../../perf/perf-tracer";
 import type { HelpTopicMetadata } from "../help/help-types";
 import type { ChatRequestMetadata } from "../../weixin/agent/interface";
 import { buildCoordinatorPrompt } from "../../orchestration/build-coordinator-prompt";
+import { stableCoordinatorSession } from "../../orchestration/coordinator-identity";
 import { toDisplaySessionAlias, getChannelIdFromChatKey, scopeDisplayAliasToInternal, resolveSessionAliasForInput } from "../../channels/channel-scope";
 import { resolveChannelDefaultReplyMode, resolveEffectiveReplyMode } from "./resolve-reply-mode";
 import { quoteWorkspaceNameIfNeeded } from "../workspace-name";
@@ -632,7 +633,7 @@ async function promptWithSession(
   if (context.orchestration) {
     try {
       await context.orchestration.recordCoordinatorRouteContext?.({
-        coordinatorSession: session.transportSession,
+        coordinatorSession: stableCoordinatorSession(session.transportSession),
         chatKey,
         sessionAlias: session.alias,
         ...(replyContextToken ? { replyContextToken } : {}),
@@ -810,7 +811,7 @@ async function preparePromptWithFallback(
   try {
     return await buildCoordinatorPrompt({
       orchestration,
-      coordinatorSession: session.transportSession,
+      coordinatorSession: stableCoordinatorSession(session.transportSession),
       chatKey,
       userText: text,
       ...(replyContextToken ? { replyContextToken } : {}),
