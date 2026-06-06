@@ -8345,6 +8345,129 @@ test("purgeSessionReferences leaves non-terminal tasks untouched", async () => {
   expect(await service.getTask("task-coord-running")).not.toBeNull();
 });
 
+test("listSessionBlockingTasks with post-/clear reset transport session finds tasks stored under stable coordinator id", async () => {
+  // Tasks are stored with coordinatorSession="ws:alias" (stable id).
+  // After /clear, transport session becomes "ws:alias:reset-1700000000000".
+  // The blocking guard must detect the active task so session remove is blocked.
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        tasks: {
+          "task-stable-running": {
+            taskId: "task-stable-running",
+            sourceHandle: "wx:user-1",
+            sourceKind: "human" as const,
+            coordinatorSession: "backend:main",
+            workerSession: "backend:claude:backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "some work",
+            status: "running",
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-13T10:00:00.000Z",
+            updatedAt: "2026-04-13T10:00:00.000Z",
+          },
+        },
+        workerBindings: {},
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  // Calling with post-/clear raw transport name — should still find the task
+  const blocking = await service.listSessionBlockingTasks("backend:main:reset-1700000000000");
+  expect(blocking.map((t) => t.taskId)).toEqual(["task-stable-running"]);
+});
+
+test("purgeSessionReferences with post-/clear reset transport session removes terminal task stored under stable coordinator id", async () => {
+  // Tasks are stored with coordinatorSession="ws:alias" (stable id).
+  // After /clear, transport session becomes "ws:alias:reset-1700000000000".
+  // purgeSessionReferences must clean up those records so no orphans are left.
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        tasks: {
+          "task-stable-done": {
+            taskId: "task-stable-done",
+            sourceHandle: "wx:user-1",
+            sourceKind: "human" as const,
+            coordinatorSession: "backend:main",
+            workerSession: "backend:claude:backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "finished work",
+            status: "completed",
+            summary: "done",
+            resultText: "ok",
+            createdAt: "2026-04-13T09:00:00.000Z",
+            updatedAt: "2026-04-13T09:05:00.000Z",
+          },
+        },
+        workerBindings: {
+          "backend:claude:backend:main": {
+            sourceHandle: "backend:claude:backend:main",
+            coordinatorSession: "backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  // Calling with post-/clear raw transport name — should remove the stable-id records
+  const result = await service.purgeSessionReferences("backend:main:reset-1700000000000");
+  expect(result.removedTasks).toBeGreaterThanOrEqual(1);
+  expect(await service.getTask("task-stable-done")).toBeNull();
+});
+
+test("purgeSessionReferences still removes a task whose workerSession matches the passed identifier (worker removal not regressed)", async () => {
+  // Worker session names never carry :reset- suffix; pass a plain name and
+  // confirm the worker-matching branch still works after the identity normalization.
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        tasks: {
+          "task-worker-done": {
+            taskId: "task-worker-done",
+            sourceHandle: "wx:user-2",
+            sourceKind: "human" as const,
+            coordinatorSession: "backend:other",
+            workerSession: "backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "worker task",
+            status: "completed",
+            summary: "done",
+            resultText: "ok",
+            createdAt: "2026-04-13T09:00:00.000Z",
+            updatedAt: "2026-04-13T09:05:00.000Z",
+          },
+        },
+        workerBindings: {
+          "backend:main": {
+            sourceHandle: "backend:main",
+            coordinatorSession: "backend:other",
+            workspace: "backend",
+            targetAgent: "claude",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const result = await service.purgeSessionReferences("backend:main");
+  expect(result.removedTasks).toBe(1);
+  expect(result.removedBindings).toBe(1);
+  expect(await service.getTask("task-worker-done")).toBeNull();
+});
+
 test("records task progress by updating lastProgressAt", async () => {
   const harness = makeDeps({
     initialState: {

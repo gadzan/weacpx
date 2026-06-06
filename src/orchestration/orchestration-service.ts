@@ -2316,11 +2316,13 @@ export class OrchestrationService {
 
   async listSessionBlockingTasks(transportSession: string): Promise<OrchestrationTaskRecord[]> {
     const state = await this.deps.loadState();
+    const sessionIdentity = stableCoordinatorSession(transportSession);
     return Object.values(state.orchestration.tasks)
       .filter(
         (task) =>
           (!this.isTerminalStatus(task.status) || task.reviewPending !== undefined) &&
-          (task.coordinatorSession === transportSession || task.workerSession === transportSession),
+          (stableCoordinatorSession(task.coordinatorSession) === sessionIdentity ||
+            task.workerSession === sessionIdentity),
       )
       .map((task) => ({ ...task }));
   }
@@ -2328,6 +2330,7 @@ export class OrchestrationService {
   async purgeSessionReferences(transportSession: string): Promise<CleanTasksResult> {
     return await this.mutate(async () => {
       const state = await this.deps.loadState();
+      const sessionIdentity = stableCoordinatorSession(transportSession);
       const tasks = state.orchestration.tasks;
       const bindings = state.orchestration.workerBindings;
 
@@ -2336,7 +2339,7 @@ export class OrchestrationService {
         if (
           this.isTerminalStatus(task.status) &&
           task.reviewPending === undefined &&
-          (task.coordinatorSession === transportSession || task.workerSession === transportSession)
+          (stableCoordinatorSession(task.coordinatorSession) === sessionIdentity || task.workerSession === sessionIdentity)
         ) {
           removedTaskIds.push(taskId);
         }
@@ -2351,15 +2354,15 @@ export class OrchestrationService {
 
       let removedBindings = 0;
       for (const [workerSession, binding] of Object.entries(bindings)) {
-        const shouldPurgeBinding = workerSession === transportSession || binding.coordinatorSession === transportSession;
+        const shouldPurgeBinding = workerSession === sessionIdentity || stableCoordinatorSession(binding.coordinatorSession) === sessionIdentity;
         if (shouldPurgeBinding && !remainingWorkerSessions.has(workerSession)) {
           delete bindings[workerSession];
           removedBindings += 1;
         }
       }
 
-      const removedEmptyGroups = this.removeEmptyGroupsForCoordinator(state, transportSession);
-      const removedCoordinatorMetadata = this.removeCoordinatorMetadataIfUnused(state, transportSession);
+      const removedEmptyGroups = this.removeEmptyGroupsForCoordinator(state, sessionIdentity);
+      const removedCoordinatorMetadata = this.removeCoordinatorMetadataIfUnused(state, sessionIdentity);
 
       if (removedTaskIds.length > 0 || removedBindings > 0 || removedEmptyGroups || removedCoordinatorMetadata) {
         await this.deps.saveState(state);
