@@ -34,6 +34,87 @@ function createRuntime() {
   };
 }
 
+test("registers and clears the heartbeat timer across daemon lifecycle", async () => {
+  const events: string[] = [];
+  let heartbeatTick: (() => void | Promise<void>) | null = null;
+  const intervalDelays: number[] = [];
+  const clearedTimers: unknown[] = [];
+
+  await runConsole(
+    {
+      configPath: "/cfg",
+      statePath: "/state",
+    },
+    {
+      buildApp: async () => ({
+        agent: {} as never,
+        router: {} as never,
+        sessions: {} as never,
+        stateStore: {} as never,
+        configStore: {} as never,
+        scheduled: createScheduledRuntime(),
+        logger: createNoopAppLogger(),
+        orchestration: {
+          server: {
+            start: async () => {
+              events.push("orchestration:start");
+            },
+            stop: async () => {
+              events.push("orchestration:stop");
+            },
+          },
+          service: {
+            reconcileParallelSlots: async () => {},
+          },
+        },
+        dispose: async () => {
+          events.push("dispose");
+        },
+      }),
+      channels: {
+        startAll: async () => {
+          events.push("channel:start");
+          await heartbeatTick?.();
+        },
+      },
+      daemonRuntime: {
+        start: async ({ configPath, statePath }) => {
+          events.push(`daemon:start:${configPath}:${statePath}`);
+        },
+        heartbeat: async () => {
+          events.push("daemon:heartbeat");
+        },
+        stop: async () => {
+          events.push("daemon:stop");
+        },
+      },
+      heartbeatIntervalMs: 5_000,
+      setInterval: (fn, delay) => {
+        intervalDelays.push(delay);
+        if (delay === 5_000) {
+          heartbeatTick = fn;
+        }
+        return `timer-${delay}`;
+      },
+      clearInterval: (timer) => {
+        clearedTimers.push(timer);
+      },
+    },
+  );
+
+  expect(events).toEqual([
+    "daemon:start:/cfg:/state",
+    "orchestration:start",
+    "channel:start",
+    "daemon:heartbeat",
+    "orchestration:stop",
+    "dispose",
+    "daemon:stop",
+  ]);
+  expect(intervalDelays).toEqual([5_000]);
+  expect(clearedTimers).toEqual(["timer-5000"]);
+});
+
 test("runs afterBuild before beforeReady and channel startup", async () => {
   const events: string[] = [];
   const runtime = createRuntime();
