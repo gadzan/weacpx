@@ -1,4 +1,5 @@
 import type { AppConfig } from "../config/types";
+import { stableCoordinatorSession } from "../orchestration/coordinator-identity";
 import type { AppState } from "../state/types";
 import type { ResolvedSession } from "../transport/types";
 import { parseLaterTime, type LaterTimeParseErrorCode } from "./parse-later-time";
@@ -64,7 +65,7 @@ export async function createScheduledTaskFromRoute(
   if (!session) {
     throw new Error(`session "${route.sessionAlias}" recorded for coordinator session "${coordinatorSession}" was not found`);
   }
-  if (session.transportSession !== coordinatorSession) {
+  if (stableCoordinatorSession(session.transportSession) !== stableCoordinatorSession(coordinatorSession)) {
     throw new Error(
       `session "${route.sessionAlias}" is no longer attached to coordinator session "${coordinatorSession}"`,
     );
