@@ -85,7 +85,7 @@ async function ensureCoreResolution(pluginHome: string): Promise<void> {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.warn(
-        `weacpx: skipped plugin-api resolution shim for "${name}" — could not copy ${srcJs} (${message}). ` +
+        `xacpx: skipped plugin-api resolution shim for "${name}" — could not copy ${srcJs} (${message}). ` +
           `Channel plugins importing "${name}/plugin-api" at runtime may fail to load.`,
       );
       continue;
