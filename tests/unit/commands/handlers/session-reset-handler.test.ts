@@ -78,7 +78,7 @@ test("native session stays native and closes the previous native session", async
   expect(reply.text).toBe(t().misc.sessionResetSuccess("review"));
 });
 
-test("falls back to a weacpx session when the fresh agent id is unavailable", async () => {
+test("falls back to a xacpx session when the fresh agent id is unavailable", async () => {
   const previous = resolved({ source: "agent-side", agentSessionId: "old-native" });
   const ctx = build({ current: previous, agentSessionId: undefined });
 
@@ -104,8 +104,8 @@ test("falls back when reading the fresh agent id throws", async () => {
   expect(reply.text).toBe(t().misc.sessionResetSuccess("review"));
 });
 
-test("a non-native session resets to weacpx and is left untouched", async () => {
-  const previous = resolved({ source: "weacpx" });
+test("a non-native session resets to xacpx and is left untouched", async () => {
+  const previous = resolved({ source: "xacpx" });
   const ctx = build({ current: previous, agentSessionId: "fresh-native-id" });
 
   const reply = await handleSessionResetCommand(ctx.context, ctx.ops, "wx:user");

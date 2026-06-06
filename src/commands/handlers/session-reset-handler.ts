@@ -37,7 +37,7 @@ export async function handleSessionResetCommand(
     // Keep a native (agent-side) session native across /clear: the fresh
     // transport session is itself backed by a brand-new agent rollout, so read
     // back its agentSessionId and re-mark the logical session as native. If the
-    // agent advertised none (or the read fails), fall back to a plain weacpx
+    // agent advertised none (or the read fails), fall back to a plain xacpx
     // session so /clear still succeeds.
     let freshAgentSessionId: string | undefined;
     if (wasNative) {
@@ -46,7 +46,7 @@ export async function handleSessionResetCommand(
       } catch (error) {
         await context.logger.info(
           "session.reset.native_id_unavailable",
-          "failed to read fresh agent session id; falling back to weacpx session",
+          "failed to read fresh agent session id; falling back to xacpx session",
           { alias: resetSession.alias, error: error instanceof Error ? error.message : String(error) },
         );
       }
