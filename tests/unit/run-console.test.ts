@@ -26,7 +26,6 @@ function createRuntime() {
     orchestration: {
       server: { start: async () => {}, stop: async () => {} },
       service: {
-        purgeExpiredResetCoordinators: async () => {},
         reconcileParallelSlots: async () => {},
       },
       endpoint: {} as never,
@@ -52,96 +51,6 @@ test("runs afterBuild before beforeReady and channel startup", async () => {
 
   expect(events).toEqual(["build", "afterBuild", "beforeReady", "startAll"]);
 });
-
-test("runs the foreground service with daemon lifecycle hooks", async () => {
-  const events: string[] = [];
-  let heartbeatTick: (() => void | Promise<void>) | null = null;
-  const intervalDelays: number[] = [];
-  const clearedTimers: unknown[] = [];
-  let purgeCalls = 0;
-  let purgeInput: unknown = null;
-
-  await runConsole(
-    {
-      configPath: "/cfg",
-      statePath: "/state",
-    },
-    {
-      buildApp: async () => ({
-        agent: {} as never,
-        router: {} as never,
-        sessions: {} as never,
-        stateStore: {} as never,
-        configStore: {} as never,
-        scheduled: createScheduledRuntime(),
-        logger: createNoopAppLogger(),
-        orchestration: {
-          server: {
-            start: async () => {
-              events.push("orchestration:start");
-            },
-            stop: async () => {
-              events.push("orchestration:stop");
-            },
-          },
-          service: {
-            purgeExpiredResetCoordinators: async (input) => {
-              purgeCalls += 1;
-              purgeInput = input;
-            },
-            reconcileParallelSlots: async () => {},
-          },
-        },
-        dispose: async () => {
-          events.push("dispose");
-        },
-      }),
-      channels: {
-        startAll: async () => {
-          events.push("channel:start");
-          await heartbeatTick?.();
-        },
-      },
-      daemonRuntime: {
-        start: async ({ configPath, statePath }) => {
-          events.push(`daemon:start:${configPath}:${statePath}`);
-        },
-        heartbeat: async () => {
-          events.push("daemon:heartbeat");
-        },
-        stop: async () => {
-          events.push("daemon:stop");
-        },
-      },
-      heartbeatIntervalMs: 5_000,
-      setInterval: (fn, delay) => {
-        intervalDelays.push(delay);
-        if (delay === 5_000) {
-          heartbeatTick = fn;
-        }
-        return `timer-${delay}`;
-      },
-      clearInterval: (timer) => {
-        clearedTimers.push(timer);
-      },
-    },
-  );
-
-  expect(events).toEqual([
-    "daemon:start:/cfg:/state",
-    "orchestration:start",
-    "channel:start",
-    "daemon:heartbeat",
-    "orchestration:stop",
-    "dispose",
-    "daemon:stop",
-  ]);
-  expect(intervalDelays).toEqual([5_000, 86_400_000]);
-  expect(clearedTimers).toEqual(["timer-5000", "timer-86400000"]);
-  expect(purgeCalls).toBe(1);
-  expect(purgeInput).toEqual({ cutoffDays: 7, trigger: "startup" });
-});
-
 
 test("starts the scheduler while channel startup is still running", async () => {
   const events: string[] = [];
@@ -240,7 +149,6 @@ test("best-effort channel startup keeps running when all channels fail until shu
             },
           },
           service: {
-            purgeExpiredResetCoordinators: async () => {},
             reconcileParallelSlots: async () => {},
           },
         },
@@ -325,7 +233,6 @@ test("require-one channel startup still rejects when all channels fail", async (
               },
             },
             service: {
-              purgeExpiredResetCoordinators: async () => {},
               reconcileParallelSlots: async () => {},
             },
           },
@@ -423,7 +330,6 @@ test("disposes runtime when loading the sdk fails before startup", async () => {
               },
             },
             service: {
-              purgeExpiredResetCoordinators: async () => {},
               reconcileParallelSlots: async () => {},
             },
           },
@@ -466,7 +372,6 @@ test("swallows heartbeat failures inside the timer callback", async () => {
             stop: async () => {},
           },
           service: {
-            purgeExpiredResetCoordinators: async () => {},
             reconcileParallelSlots: async () => {},
           },
         },
@@ -518,7 +423,6 @@ test("does not register gc interval in foreground mode", async () => {
             stop: async () => {},
           },
           service: {
-            purgeExpiredResetCoordinators: async () => {},
             reconcileParallelSlots: async () => {},
           },
         },
@@ -566,7 +470,6 @@ test("still stops daemon runtime when dispose fails", async () => {
               },
             },
             service: {
-              purgeExpiredResetCoordinators: async () => {},
               reconcileParallelSlots: async () => {},
             },
           },
@@ -624,7 +527,6 @@ test("handles SIGINT by aborting the sdk start and running cleanup", async () =>
             },
           },
           service: {
-            purgeExpiredResetCoordinators: async () => {},
             reconcileParallelSlots: async () => {},
           },
         },
