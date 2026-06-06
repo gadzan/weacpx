@@ -1917,3 +1917,32 @@ test("onThought: only the first handler error is surfaced", async () => {
     }),
   ).rejects.toThrow("thought error 1");
 });
+
+test("getAgentSessionId returns the agentSessionId from sessions show", async () => {
+  const run = mock(async () => ({
+    code: 0,
+    stdout: JSON.stringify({ acpxRecordId: "rec-1", agentSessionId: "agent-xyz" }),
+    stderr: "",
+  }));
+  const runPty = mock(async () => ({ code: 0, stdout: "", stderr: "" }));
+  const transport = new AcpxCliTransport({ command: "acpx" }, run, runPty);
+
+  const id = await transport.getAgentSessionId(session);
+
+  expect(id).toBe("agent-xyz");
+  expect(run).toHaveBeenCalledWith("acpx", expect.arrayContaining(["sessions", "show", "backend:api-fix"]));
+});
+
+test("getAgentSessionId returns undefined when the record has no agentSessionId", async () => {
+  const run = mock(async () => ({
+    code: 0,
+    stdout: JSON.stringify({ acpxRecordId: "rec-1" }),
+    stderr: "",
+  }));
+  const runPty = mock(async () => ({ code: 0, stdout: "", stderr: "" }));
+  const transport = new AcpxCliTransport({ command: "acpx" }, run, runPty);
+
+  const id = await transport.getAgentSessionId(session);
+
+  expect(id).toBeUndefined();
+});

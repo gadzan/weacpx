@@ -389,7 +389,7 @@ export class AcpxCliTransport implements SessionTransport {
     });
   }
 
-  private async readSessionRecord(session: ResolvedSession): Promise<{ acpxRecordId: string }> {
+  private async readSessionRecord(session: ResolvedSession): Promise<{ acpxRecordId: string; agentSessionId?: string }> {
     const result = await this.runCommand(this.command, this.buildArgs(session, [
       "sessions",
       "show",
@@ -400,14 +400,15 @@ export class AcpxCliTransport implements SessionTransport {
       throw new Error(detail);
     }
     try {
-      const parsed = JSON.parse(result.stdout) as { acpxRecordId?: unknown; id?: unknown };
+      const parsed = JSON.parse(result.stdout) as { acpxRecordId?: unknown; id?: unknown; agentSessionId?: unknown };
       const acpxRecordId = typeof parsed.acpxRecordId === "string"
         ? parsed.acpxRecordId
         : typeof parsed.id === "string"
           ? parsed.id
           : undefined;
+      const agentSessionId = typeof parsed.agentSessionId === "string" ? parsed.agentSessionId : undefined;
       if (acpxRecordId) {
-        return { acpxRecordId };
+        return { acpxRecordId, agentSessionId };
       }
     } catch {
       const firstLine = result.stdout.trim().split(/\r?\n/, 1)[0];
@@ -416,6 +417,11 @@ export class AcpxCliTransport implements SessionTransport {
       }
     }
     throw new Error("failed to resolve acpx session record id");
+  }
+
+  async getAgentSessionId(session: ResolvedSession): Promise<string | undefined> {
+    const record = await this.readSessionRecord(session);
+    return record.agentSessionId;
   }
 
   private async run(args: string[], options?: RunOptions): Promise<string> {

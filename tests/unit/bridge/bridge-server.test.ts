@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, mock, test } from "bun:test";
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1544,4 +1544,22 @@ test("handles native session bridge methods over ndjson", async () => {
     method: "resumeAgentSession",
     params: { agent: "codex", cwd: "/repo", name: "project:codex", agentSessionId: "thread-1" },
   }))).resolves.toBe('{"id":"native-resume-1","ok":true,"result":{}}\n' );
+});
+
+test("dispatches getAgentSessionId to the runtime", async () => {
+  const runtime = {
+    getAgentSessionId: mock(async () => ({ agentSessionId: "agent-xyz" })),
+  } as unknown as BridgeRuntime;
+  const server = new BridgeServer(runtime);
+
+  const line = await server.handleLine(
+    JSON.stringify({
+      id: "1",
+      method: "getAgentSessionId",
+      params: { agent: "codex", cwd: "/tmp/backend", name: "backend:review" },
+    }),
+  );
+
+  expect(JSON.parse(line)).toEqual({ id: "1", ok: true, result: { agentSessionId: "agent-xyz" } });
+  expect(runtime.getAgentSessionId).toHaveBeenCalledTimes(1);
 });

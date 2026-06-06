@@ -12,7 +12,8 @@ export type BridgeMethod =
   | "prompt"
   | "setMode"
   | "cancel"
-  | "removeSession";
+  | "removeSession"
+  | "getAgentSessionId";
 
 export interface BridgeRequest {
   id: string;

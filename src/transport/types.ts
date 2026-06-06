@@ -137,6 +137,14 @@ export interface SessionTransport {
   listAgentSessions?(query: AgentSessionListQuery): Promise<AgentSessionListResult | undefined>;
   resumeAgentSession?(session: ResolvedSession, agentSessionId: string): Promise<void>;
   removeSession?(session: ResolvedSession): Promise<void>;
+  /**
+   * Read the underlying agent-native session id for an existing transport
+   * session. Used by `/clear` to keep a native session native: the fresh
+   * post-clear session is itself backed by a new agent rollout, and this
+   * returns that rollout's resumable id. Returns undefined when the agent did
+   * not advertise one. Optional: transports that can't resolve it omit it.
+   */
+  getAgentSessionId?(session: ResolvedSession): Promise<string | undefined>;
   updatePermissionPolicy?(policy: PermissionPolicy): Promise<void>;
   dispose?(): Promise<void>;
 }

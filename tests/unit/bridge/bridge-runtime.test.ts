@@ -692,3 +692,38 @@ test("bridge runtime retries native session listing without --filter-cwd when un
   expect(calls[0]).toContain("--filter-cwd");
   expect(calls[1]).not.toContain("--filter-cwd");
 });
+
+test("getAgentSessionId returns the agentSessionId from sessions show", async () => {
+  const run = async (_command: string, _args: string[]) => ({
+    code: 0,
+    stdout: JSON.stringify({ acpxRecordId: "rec-1", agentSessionId: "agent-xyz" }),
+    stderr: "",
+  });
+  const runtime = new BridgeRuntime("acpx", run);
+
+  const result = await runtime.getAgentSessionId({
+    agent: "codex",
+    agentCommand: "codex",
+    cwd: "/tmp/backend",
+    name: "backend:review",
+  });
+
+  expect(result).toEqual({ agentSessionId: "agent-xyz" });
+});
+
+test("getAgentSessionId returns undefined agentSessionId when absent", async () => {
+  const run = async (_command: string, _args: string[]) => ({
+    code: 0,
+    stdout: JSON.stringify({ acpxRecordId: "rec-1" }),
+    stderr: "",
+  });
+  const runtime = new BridgeRuntime("acpx", run);
+
+  const result = await runtime.getAgentSessionId({
+    agent: "codex",
+    cwd: "/tmp/backend",
+    name: "backend:review",
+  });
+
+  expect(result).toEqual({ agentSessionId: undefined });
+});
