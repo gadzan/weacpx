@@ -1020,6 +1020,42 @@ test("mcp coordinator startup keeps existing xacpx sessions without workspace", 
   expect(registrations).toEqual([]);
 });
 
+test("mcp coordinator startup classifies internal coordinator as existing-session after /clear rotates transport name", async () => {
+  // After /clear, transport_session becomes "ws:alias:reset-<ts>" but the
+  // coordinator is launched with the stable id "ws:alias". The find must still
+  // match and return existing-session, not external-coordinator.
+  const registrations: unknown[] = [];
+
+  await expect(
+    prepareMcpCoordinatorStartup({
+      coordinatorSession: "ws:alias",
+      config: {
+        workspaces: { ws: { cwd: "/tmp/ws" } },
+      },
+      state: {
+        sessions: {
+          alias: {
+            alias: "alias",
+            agent: "codex",
+            workspace: "ws",
+            transport_session: "ws:alias:reset-1700000000000",
+            created_at: "2026-04-28T00:00:00.000Z",
+            last_used_at: "2026-04-28T00:00:00.000Z",
+          },
+        },
+      },
+      client: {
+        registerExternalCoordinator: async (input) => {
+          registrations.push(input);
+          return input as never;
+        },
+      },
+    }),
+  ).resolves.toEqual({ kind: "existing-session" });
+
+  expect(registrations).toEqual([]);
+});
+
 test("mcp coordinator startup registers unknown coordinators with workspace", async () => {
   const registrations: unknown[] = [];
 

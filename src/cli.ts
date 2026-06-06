@@ -22,6 +22,7 @@ import { runXacpxMcpServer } from "./mcp/xacpx-mcp-server";
 import {
   inferExternalCoordinatorSession,
 } from "./mcp/infer-coordinator-identity";
+import { stableCoordinatorSession } from "./orchestration/coordinator-identity";
 import { parseCoordinatorWorkspace } from "./mcp/parse-coordinator-workspace";
 import { parseCoordinatorSession } from "./mcp/parse-coordinator-session";
 import { parseInternalSessionToolsFlag } from "./mcp/parse-internal-session-tools";
@@ -73,7 +74,7 @@ export async function prepareMcpCoordinatorStartup(
 ): Promise<PrepareMcpCoordinatorStartupResult> {
   const coordinatorSession = input.coordinatorSession.trim();
   const existingSession = Object.values(input.state.sessions).find(
-    (session) => session.transport_session === coordinatorSession,
+    (session) => stableCoordinatorSession(session.transport_session) === stableCoordinatorSession(coordinatorSession),
   );
 
   const workspace = input.workspace?.trim();
