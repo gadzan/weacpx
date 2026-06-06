@@ -2,6 +2,7 @@ import { resolveAgentCommand } from "../config/resolve-agent-command";
 import type { AppConfig, WechatReplyMode } from "../config/types";
 import { t } from "../i18n/index.js";
 import { AsyncMutex } from "../orchestration/async-mutex";
+import { stableCoordinatorSession } from "../orchestration/coordinator-identity";
 import type { StateStore } from "../state/state-store";
 import type { AppState, BackgroundResult, LogicalSession } from "../state/types";
 import type { AgentSession, ResolvedSession } from "../transport/types";
@@ -182,12 +183,13 @@ export class SessionService {
   }
 
   async getPreferredSessionForTransport(transportSession: string): Promise<ResolvedSession | null> {
+    const target = stableCoordinatorSession(transportSession);
     const matches = Object.values(this.state.sessions)
-      .filter((session) => session.transport_session === transportSession)
+      .filter((session) => stableCoordinatorSession(session.transport_session) === target)
       .sort((left, right) => right.last_used_at.localeCompare(left.last_used_at));
 
-    const expectedAlias = transportSession.split(":").at(-1);
-    const expectedWorkspace = transportSession.split(":")[0];
+    const expectedAlias = target.split(":").at(-1);
+    const expectedWorkspace = target.split(":")[0];
     const preferred =
       matches.find(
         (session) => session.alias === expectedAlias && session.workspace === expectedWorkspace,

@@ -653,3 +653,24 @@ test("peekCurrentSessionAlias returns undefined for unknown chat", async () => {
   const service = new SessionService(createConfig(), store, createEmptyState());
   expect(service.peekCurrentSessionAlias("weixin:nope:nope")).toBeUndefined();
 });
+
+test("getPreferredSessionForTransport resolves a rotated transport session via stable id", async () => {
+  const state = createEmptyState();
+  state.sessions["alias"] = {
+    alias: "alias",
+    agent: "codex",
+    workspace: "ws",
+    transport_session: "ws:alias:reset-1700000000000",
+    created_at: "2026-01-01T00:00:00.000Z",
+    last_used_at: "2026-01-01T00:00:00.000Z",
+  };
+  const config = createConfig();
+  config.workspaces.ws = { cwd: "/tmp/ws" };
+  const service = new SessionService(config, new MemoryStateStore(), state);
+
+  const resolved = await service.getPreferredSessionForTransport("ws:alias");
+
+  expect(resolved).not.toBeNull();
+  expect(resolved!.alias).toBe("alias");
+  expect(resolved!.transportSession).toBe("ws:alias:reset-1700000000000");
+});
