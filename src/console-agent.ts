@@ -3,7 +3,7 @@ import type { ChatRequestMetadata } from "./weixin/agent/interface";
 import type { AppLogger } from "./logging/app-logger";
 import { createNoopAppLogger } from "./logging/app-logger";
 import { normalizeMediaArray } from "./channels/media-types.js";
-import { isKnownWeacpxCommandText } from "./commands/command-list";
+import { isKnownXacpxCommandText } from "./commands/command-list";
 import type { ToolUseEvent } from "./channels/types.js";
 import type { PerfSpan } from "./perf/perf-tracer";
 import { t } from "./i18n/index.js";
@@ -69,7 +69,7 @@ export class ConsoleAgent implements WechatAgent {
   }
 
   isKnownCommand(text: string): boolean {
-    return isKnownWeacpxCommandText(text);
+    return isKnownXacpxCommandText(text);
   }
 
   async clearSession(conversationId: string): Promise<void> {

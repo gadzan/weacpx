@@ -5,12 +5,18 @@
 
 import { t } from "../i18n";
 
-export const WEACPX_PLUGIN_API_VERSION = 1 as const;
-export const WEACPX_PLUGIN_API_SUPPORTED_VERSIONS: readonly number[] = [1];
+export const XACPX_PLUGIN_API_VERSION = 1 as const;
+export const XACPX_PLUGIN_API_SUPPORTED_VERSIONS: readonly number[] = [1];
 
 // Minimum core version that the current plugin API version corresponds to.
-// First-party plugins should declare `minWeacpxVersion` >= this value.
-export const WEACPX_PLUGIN_MIN_CORE_VERSION = "0.5.0" as const;
+// First-party plugins should declare `minXacpxVersion` >= this value.
+export const XACPX_PLUGIN_MIN_CORE_VERSION = "0.5.0" as const;
+
+// Deprecated weacpx→xacpx aliases — kept for already-published plugins that
+// import the old names from "xacpx/plugin-api".
+export const WEACPX_PLUGIN_API_VERSION = XACPX_PLUGIN_API_VERSION;
+export const WEACPX_PLUGIN_API_SUPPORTED_VERSIONS = XACPX_PLUGIN_API_SUPPORTED_VERSIONS;
+export const WEACPX_PLUGIN_MIN_CORE_VERSION = XACPX_PLUGIN_MIN_CORE_VERSION;
 
 const SEMVER_RE = /^(\d+)\.(\d+)\.(\d+)$/;
 
@@ -102,7 +108,7 @@ export interface PluginCompatibilityMetadata {
 
 export interface PluginCompatibilityContext {
   packageName: string;
-  currentWeacpxVersion: string;
+  currentXacpxVersion: string;
 }
 
 // Validates the compatibility envelope of a plugin. Throws an Error with a
@@ -114,22 +120,22 @@ export function validatePluginCompatibility(
   metadata: PluginCompatibilityMetadata,
   context: PluginCompatibilityContext,
 ): void {
-  const { packageName, currentWeacpxVersion } = context;
+  const { packageName, currentXacpxVersion } = context;
 
   const apiVersion = metadata.apiVersion;
   if (typeof apiVersion !== "number") {
     throw new Error(t().pluginCli.compatMissingApiVersion(packageName));
   }
-  if (!WEACPX_PLUGIN_API_SUPPORTED_VERSIONS.includes(apiVersion)) {
-    const supported = WEACPX_PLUGIN_API_SUPPORTED_VERSIONS.join(", ");
+  if (!XACPX_PLUGIN_API_SUPPORTED_VERSIONS.includes(apiVersion)) {
+    const supported = XACPX_PLUGIN_API_SUPPORTED_VERSIONS.join(", ");
     throw new Error(t().pluginCli.compatUnsupportedApiVersion(packageName, apiVersion, supported));
   }
 
-  if (!currentWeacpxVersion || currentWeacpxVersion === "unknown") {
+  if (!currentXacpxVersion || currentXacpxVersion === "unknown") {
     return; // can't decide core-version compatibility; skip rather than block on a guess.
   }
 
-  const normalizedCurrent = normalizeCoreVersionForCompat(currentWeacpxVersion);
+  const normalizedCurrent = normalizeCoreVersionForCompat(currentXacpxVersion);
 
   // weacpx→xacpx rename: prefer the new `*Xacpx*` fields, fall back to the
   // legacy `*Weacpx*` fields declared by already-published plugins.
@@ -147,7 +153,7 @@ export function validatePluginCompatibility(
       throw new Error(t().pluginCli.compatInvalidMinVersionDetail(packageName, minVersionField, detail));
     }
     if (!satisfied) {
-      throw new Error(t().pluginCli.compatMinVersionNotSatisfied(packageName, minVersion, currentWeacpxVersion));
+      throw new Error(t().pluginCli.compatMinVersionNotSatisfied(packageName, minVersion, currentXacpxVersion));
     }
   }
 
@@ -166,7 +172,7 @@ export function validatePluginCompatibility(
       throw new Error(t().pluginCli.compatInvalidCompatibleVersionsDetail(packageName, compatibleField, detail));
     }
     if (!satisfied) {
-      throw new Error(t().pluginCli.compatCompatibleVersionsNotSatisfied(packageName, compatibleVersions, currentWeacpxVersion));
+      throw new Error(t().pluginCli.compatCompatibleVersionsNotSatisfied(packageName, compatibleVersions, currentXacpxVersion));
     }
   }
 }

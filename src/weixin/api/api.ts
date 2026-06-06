@@ -57,7 +57,7 @@ const ILINK_APP_ID: string = (coreEnv("ILINK_APP_ID") ?? "").trim();
  * Default `bot_agent` value used when the upstream app does not declare one.
  * Mirrors the role of HTTP `User-Agent`'s implicit "no UA" fallback.
  */
-const DEFAULT_BOT_AGENT = "weacpx";
+const DEFAULT_BOT_AGENT = "xacpx";
 
 /** Maximum length (bytes) of the sanitized `bot_agent` string. */
 const BOT_AGENT_MAX_LEN = 256;

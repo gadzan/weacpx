@@ -174,7 +174,7 @@ interface SessionTransport {
 | `~/.xacpx/runtime/daemon.pid` | 当前守护进程 PID | `DaemonRuntime` |
 | `~/.xacpx/runtime/status.json` | 守护进程心跳 / start_at / 日志路径 | `DaemonRuntime` |
 | `~/.xacpx/runtime/app.log` | 有界应用日志（滚动） | `AppLogger` |
-| `~/.xacpx/runtime/orchestration.sock` | Unix socket（Windows 上为 `\\.\pipe\weacpx-orchestration-<hash>`） | `OrchestrationServer` |
+| `~/.xacpx/runtime/orchestration.sock` | Unix socket（Windows 上为 `\\.\pipe\xacpx-orchestration-<hash>`） | `OrchestrationServer` |
 | `~/.xacpx/plugins/` | 插件 npm 主目录（独立的 `package.json` + `node_modules`） | `xacpx plugin add/update` |
 
 `WEACPX_CONFIG` 和 `WEACPX_STATE` 环境变量分别覆盖配置和状态文件路径。
@@ -203,6 +203,6 @@ interface SessionTransport {
 
 `xacpx mcp-stdio` 启动一个 MCP stdio 服务器并暴露编排工具：
 - 身份解析（`coordinatorSession` / `sourceHandle` / `workspace`）和外部协调器注册：[`src/cli.ts`](https://github.com/gadzan/xacpx/blob/main/src/cli.ts)
-- MCP 服务器运行循环：[`src/mcp/weacpx-mcp-server.ts`](https://github.com/gadzan/xacpx/blob/main/src/mcp/weacpx-mcp-server.ts)（MCP 源文件有意保留 `weacpx-` 文件名以维持兼容性）
+- MCP 服务器运行循环：[`src/mcp/xacpx-mcp-server.ts`](https://github.com/gadzan/xacpx/blob/main/src/mcp/xacpx-mcp-server.ts)
 
-此模式要求守护进程正在运行（编排 IPC 端点必须可用）。暴露给外部宿主的 MCP 服务器名称有意保留为 `weacpx`（工具前缀 `mcp__weacpx__*`），以保持向后兼容。
+此模式要求守护进程正在运行（编排 IPC 端点必须可用）。暴露给外部宿主的 MCP 服务器名称为 `xacpx`（工具前缀 `mcp__xacpx__*`）。

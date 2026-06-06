@@ -1,18 +1,18 @@
 import { isRecord } from "../config/load-config.js";
 import { readVersion } from "../version.js";
 import type { WeacpxPlugin } from "./types.js";
-import { WEACPX_PLUGIN_API_VERSION } from "./types.js";
+import { XACPX_PLUGIN_API_VERSION } from "./types.js";
 import { validatePluginCompatibility } from "./compatibility.js";
 import { t } from "../i18n";
 
 export interface ValidateWeacpxPluginOptions {
   /**
-   * Current weacpx core version. Defaults to `readVersion()`. Pass an explicit
+   * Current xacpx core version. Defaults to `readVersion()`. Pass an explicit
    * value in tests so the result does not depend on the dev/install layout.
    * Use `"unknown"` to skip core-version compatibility (matches readVersion's
    * fallback when package.json is missing).
    */
-  currentWeacpxVersion?: string;
+  currentXacpxVersion?: string;
 }
 
 export function validateWeacpxPlugin(
@@ -25,7 +25,7 @@ export function validateWeacpxPlugin(
     throw new Error(t().pluginCli.pluginNoDefaultExport(packageName));
   }
 
-  const currentWeacpxVersion = options.currentWeacpxVersion ?? readVersion();
+  const currentXacpxVersion = options.currentXacpxVersion ?? readVersion();
   validatePluginCompatibility(
     {
       apiVersion: plugin.apiVersion,
@@ -34,7 +34,7 @@ export function validateWeacpxPlugin(
       minXacpxVersion: (plugin as Record<string, unknown>).minXacpxVersion,
       compatibleXacpxVersions: (plugin as Record<string, unknown>).compatibleXacpxVersions,
     },
-    { packageName, currentWeacpxVersion },
+    { packageName, currentXacpxVersion },
   );
 
   if ("name" in plugin && typeof plugin.name === "string" && plugin.name.trim() && plugin.name.trim() !== packageName) {
@@ -67,7 +67,7 @@ export function validateWeacpxPlugin(
   }
 
   const normalized: WeacpxPlugin = {
-    apiVersion: WEACPX_PLUGIN_API_VERSION,
+    apiVersion: XACPX_PLUGIN_API_VERSION,
     ...(typeof plugin.name === "string" && plugin.name.trim() ? { name: plugin.name.trim() } : { name: packageName }),
     channels: channels as WeacpxPlugin["channels"],
   };

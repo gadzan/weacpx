@@ -42,7 +42,7 @@ test("loadConfiguredPlugins skips a failing plugin and continues when onPluginEr
       { name: "broken-plugin", enabled: true },
       { name: "ok-plugin", enabled: true },
     ],
-    currentWeacpxVersion: "0.3.3",
+    currentXacpxVersion: "0.3.3",
     importPlugin: async (name) => {
       if (name === "broken-plugin") throw new Error("boom");
       return { default: { apiVersion: 1, name: "ok-plugin", channels: [] } };
@@ -68,7 +68,7 @@ test("loadConfiguredPlugins still throws on plugin failure when no onPluginError
 test("loadConfiguredPlugins surfaces upgrade-weacpx hint when plugin requires newer core", async () => {
   await expect(loadConfiguredPlugins({
     plugins: [{ name: "future-plugin", enabled: true }],
-    currentWeacpxVersion: "0.3.3",
+    currentXacpxVersion: "0.3.3",
     importPlugin: async () => ({
       default: {
         apiVersion: 1,
@@ -83,7 +83,7 @@ test("loadConfiguredPlugins surfaces upgrade-weacpx hint when plugin requires ne
 test("loadConfiguredPlugins surfaces unsupported-apiVersion hint when plugin built for newer plugin API", async () => {
   await expect(loadConfiguredPlugins({
     plugins: [{ name: "next-api-plugin", enabled: true }],
-    currentWeacpxVersion: "0.3.3",
+    currentXacpxVersion: "0.3.3",
     importPlugin: async () => ({
       default: {
         apiVersion: 2,

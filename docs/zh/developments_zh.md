@@ -27,13 +27,13 @@
 
 ## 项目快照
 
-`weacpx` 是 **"消息频道 ↔ 命令路由 ↔ acpx 会话驱动"** 的桥接系统：
+`xacpx` 是 **"消息频道 ↔ 命令路由 ↔ acpx 会话驱动"** 的桥接系统：
 
 - **频道**：内置 `weixin`；`feishu` / `yuanbao` 通过一方插件包分发；任何符合 `WeacpxPlugin` 契约的 npm 包都可以加进来。
 - **命令路由**：解析微信/飞书/元宝/CLI 收到的 `/ss`、`/agent`、`/group` 等 slash 命令，普通文本作为 prompt 喂给当前会话。
 - **Transport**：把"会话 ensure/prompt/cancel/setMode"统一为 `SessionTransport` 接口，具体实现两套——`acpx-cli`（直接 spawn `acpx`，可选 `node-pty` 分配 PTY）和 `acpx-bridge`（独立 bridge 子进程 + JSONL 协议）。
-- **Orchestration**（可选）：coordinator 会话下委派多个 worker，跟踪进度、问题、人类确认、分组汇总。可通过 `weacpx mcp-stdio` 暴露给外部 MCP host。
-- **Daemon**：`weacpx start` / `status` / `stop`，PID + status + log 落在 `~/.weacpx/runtime/`。
+- **Orchestration**（可选）：coordinator 会话下委派多个 worker，跟踪进度、问题、人类确认、分组汇总。可通过 `xacpx mcp-stdio` 暴露给外部 MCP host。
+- **Daemon**：`xacpx start` / `status` / `stop`，PID + status + log 落在 `~/.xacpx/runtime/`。
 - **Monorepo**：`packages/channel-feishu`、`packages/channel-yuanbao` 作为 npm workspaces 与主包同仓发布。
 
 ---
@@ -49,8 +49,8 @@
 ### 克隆与依赖
 
 ```bash
-git clone https://github.com/gadzan/weacpx
-cd weacpx
+git clone https://github.com/gadzan/xacpx
+cd xacpx
 bun install            # 同时装根包和 packages/* 的依赖（workspaces）
 ```
 
@@ -88,7 +88,7 @@ npm test                   # tsc --noEmit + tests/unit/**/*.test.ts
 ### 顶层
 
 ```
-weacpx/
+xacpx/
 ├── src/                # 主包源码
 ├── packages/           # 一方频道插件
 │   ├── channel-feishu/
@@ -116,7 +116,7 @@ weacpx/
 
 | 目录 | 职责 | 入口 / 关键文件 |
 | --- | --- | --- |
-| `src/cli.ts` | CLI 总入口，`weacpx <command>` 派发 | `runCli()` |
+| `src/cli.ts` | CLI 总入口，`xacpx <command>` 派发 | `runCli()` |
 | `src/main.ts` | `buildApp()` 装配运行时；`resolveRuntimePaths()` 路径解析 | `buildApp` |
 | `src/run-console.ts` | 启动序列：channel → daemon runtime → consumer lock → channel start | `runConsole()` |
 | `src/console-agent.ts` | 把入站消息桥接到 router | `ConsoleAgent` |
@@ -126,7 +126,7 @@ weacpx/
 | `src/transport/` | acpx 桥接抽象 + cli/bridge 两实现 | `transport/types.ts`、`acpx-cli/`、`acpx-bridge/` |
 | `src/bridge/` | acpx-bridge 子进程入口与 JSONL 协议 | `bridge-main.ts`、`bridge-server.ts`、`bridge-runtime.ts` |
 | `src/orchestration/` | 多 agent 编排服务 + IPC server/client + 状态机 | `orchestration-service.ts`、`orchestration-server.ts` |
-| `src/mcp/` | `weacpx mcp-stdio` 实现，把 orchestration 暴露成 MCP server | `weacpx-mcp-server.ts`、`weacpx-mcp-tools.ts` |
+| `src/mcp/` | `xacpx mcp-stdio` 实现，把 orchestration 暴露成 MCP server | `xacpx-mcp-server.ts`、`xacpx-mcp-tools.ts` |
 | `src/daemon/` | daemon 控制器、status/PID 文件、运行时元数据 | `daemon-controller.ts`、`daemon-runtime.ts` |
 | `src/plugins/` | 插件加载、CLI、doctor、包管理器抽象、签名校验 | `plugin-loader.ts`、`plugin-cli.ts`、`plugin-doctor.ts` |
 | `src/plugin-api.ts` | **公共**插件 API 类型再导出（编译产物 `dist/plugin-api.d.ts`） | — |
@@ -140,8 +140,8 @@ weacpx/
 | `src/weixin/` | 内置 weixin 频道 + 媒体管线 + consumer lock | `monitor/`、`messaging/` |
 | `src/weixin-sdk.ts` | weixin SDK 解析器，支持 `WEACPX_WEIXIN_SDK` 覆盖 | `loadWeixinSdk()` |
 | `src/dry-run.ts` | 不连 IM 跑 router 的入口 | `bun run dry-run` |
-| `src/login.ts` | 微信扫码登录流程 | `weacpx login` |
-| `src/doctor/` | `weacpx doctor` 诊断套件 | — |
+| `src/login.ts` | 微信扫码登录流程 | `xacpx login` |
+| `src/doctor/` | `xacpx doctor` 诊断套件 | — |
 
 ### `packages/` 子包
 
@@ -155,7 +155,7 @@ packages/channel-<name>/
 │   ├── <name>-provider.ts# implements ChannelCliProvider
 │   └── ...
 ├── dist/                  # bun build 产物 + tsc emit 的 .d.ts
-├── package.json           # peerDependencies.weacpx (optional)
+├── package.json           # peerDependencies.xacpx (optional)
 ├── tsconfig.json          # 继承根 tsconfig，emitDeclarationOnly
 └── README.md
 ```
@@ -182,8 +182,8 @@ packages/channel-<name>/
 
 要点：
 
-- `bun build --target node --external node-pty`：`node-pty` 不打进 bundle，运行时由 `node_modules` 解析。`packages/*` 同理 `--external weacpx`。
-- 主包对外只导出 `weacpx/plugin-api`；其它路径（`weacpx/dist/*`、`weacpx/src/*`）**不是稳定 API**，别在外部依赖。
+- `bun build --target node --external node-pty`：`node-pty` 不打进 bundle，运行时由 `node_modules` 解析。`packages/*` 同理 `--external xacpx`。
+- 主包对外只导出 `xacpx/plugin-api`；其它路径（`xacpx/dist/*`、`xacpx/src/*`）**不是稳定 API**，别在外部依赖。
 - 插件包用 `tsc -p packages/<name>/tsconfig.json` 单独 emit `.d.ts`，因为 bun build 目前不出 `.d.ts`。
 
 ---
@@ -210,7 +210,7 @@ node ./dist/cli.js status
 node ./dist/cli.js stop
 ```
 
-适合：复现"用户装好以后跑出来"的状态；测 `bin/weacpx` 入口；验证打包后 `node-pty` 解析等。
+适合：复现"用户装好以后跑出来"的状态；测 `bin/xacpx` 入口；验证打包后 `node-pty` 解析等。
 
 ### 3. `bun run dry-run` — 不连 IM
 
@@ -293,8 +293,8 @@ bun run dry-run --chat-key wx:test -- \
 
 旁路：
 
-- **Orchestration** 通过 `OrchestrationServer`（Unix socket / Named Pipe）把多 agent 编排能力对外暴露。`weacpx mcp-stdio` 是它的 MCP-over-stdio 客户端封装。
-- **Daemon** 把 `runConsole` + IPC server + heartbeat 包成后台进程；前台 `weacpx run` 跳过 daemon 包装。
+- **Orchestration** 通过 `OrchestrationServer`（Unix socket / Named Pipe）把多 agent 编排能力对外暴露。`xacpx mcp-stdio` 是它的 MCP-over-stdio 客户端封装。
+- **Daemon** 把 `runConsole` + IPC server + heartbeat 包成后台进程；前台 `xacpx run` 跳过 daemon 包装。
 - **State 持久化** 走 `DebouncedStateStore` → `StateStore` → `writePrivateFileAtomic`（`proper-lockfile` 跨进程互斥 + `write-file-atomic` 原子 rename + Windows EBUSY 兜底）。
 
 ---
@@ -312,7 +312,7 @@ bun run dry-run --chat-key wx:test -- \
 | 频道插件 SPI | `src/plugin-api.ts`、`src/plugins/` | [plugin-development.md](./plugin-development_zh.md) |
 | 配置 | `src/config/` | [config-reference.md](./config-reference_zh.md), [config-command.md](./config-command_zh.md) |
 | 测试 | `tests/`、`scripts/run-tests*` | [testing.md](./testing_zh.md) |
-| 发布 | `scripts/verify-publish.mjs` | [release.md](../release.md) |
+| 发布 | `scripts/verify-publish.mjs` | [发布章节](#发布) |
 
 ---
 
@@ -338,7 +338,7 @@ bun run dry-run --chat-key wx:test -- \
 `src/plugins/plugin-home.ts:resolvePluginHome`：
 
 1. `WEACPX_PLUGIN_HOME` 环境变量
-2. 默认 `~/.weacpx/plugins/`（独立 `package.json`，与全局 / 项目 `node_modules` 隔离）
+2. 默认 `~/.xacpx/plugins/`（独立 `package.json`，与全局 / 项目 `node_modules` 隔离）
 
 包管理器自动探测：能跑 `bun --version` 就用 `bun add/remove`，否则回退 `npm install/uninstall`（`src/plugins/package-manager.ts`）。
 
@@ -346,17 +346,17 @@ bun run dry-run --chat-key wx:test -- \
 
 ## 配置与运行时文件
 
-默认全在 `~/.weacpx/`：
+默认全在 `~/.xacpx/`：
 
 | 路径 | 内容 | 写入方 |
 | --- | --- | --- |
-| `~/.weacpx/config.json` | agents、workspaces、channels、plugins、transport 等静态配置 | `ConfigStore`，CLI |
-| `~/.weacpx/state.json` | sessions、chat_contexts、orchestration 状态 | `DebouncedStateStore`（50ms 合并）→ `StateStore` |
-| `~/.weacpx/runtime/daemon.pid` | 当前 daemon PID | `DaemonRuntime` |
-| `~/.weacpx/runtime/status.json` | daemon heartbeat / start_at / log paths | 同上 |
-| `~/.weacpx/runtime/app.log` | bounded 应用日志（轮转） | `AppLogger` |
-| `~/.weacpx/runtime/orchestration.sock` | Unix socket / `\\.\pipe\weacpx-orchestration-<hash>` | `OrchestrationServer` |
-| `~/.weacpx/plugins/` | 插件 npm home（独立 `package.json` + `node_modules`） | `weacpx plugin add/update` |
+| `~/.xacpx/config.json` | agents、workspaces、channels、plugins、transport 等静态配置 | `ConfigStore`，CLI |
+| `~/.xacpx/state.json` | sessions、chat_contexts、orchestration 状态 | `DebouncedStateStore`（50ms 合并）→ `StateStore` |
+| `~/.xacpx/runtime/daemon.pid` | 当前 daemon PID | `DaemonRuntime` |
+| `~/.xacpx/runtime/status.json` | daemon heartbeat / start_at / log paths | 同上 |
+| `~/.xacpx/runtime/app.log` | bounded 应用日志（轮转） | `AppLogger` |
+| `~/.xacpx/runtime/orchestration.sock` | Unix socket / `\\.\pipe\xacpx-orchestration-<hash>` | `OrchestrationServer` |
+| `~/.xacpx/plugins/` | 插件 npm home（独立 `package.json` + `node_modules`） | `xacpx plugin add/update` |
 
 字段细节：[docs/config-reference.md](./config-reference_zh.md)。
 
@@ -372,7 +372,7 @@ bun run dry-run --chat-key wx:test -- \
 - **不要为不可能发生的场景加 `try/catch` / fallback**：内部边界相信类型；只在系统边界（用户输入、外部 API）做校验。
 - **测试先行**：bug 修复要附 failing test → 修复 → test 转绿。修代码不写测试视为未完成。
 - **频道**：内置只有 `weixin`；非 weixin 频道**必须**作为插件包，在 `src/channels/` 写 product-specific 通道运行时一律不接受。
-- **避免破坏性变更**：`weacpx/plugin-api` 是公开类型；改它要慎重，必要时升 `WEACPX_PLUGIN_API_VERSION`。
+- **避免破坏性变更**：`xacpx/plugin-api` 是公开类型；改它要慎重，必要时升 `XACPX_PLUGIN_API_VERSION`。
 
 ---
 
@@ -388,8 +388,8 @@ bun run dry-run --chat-key wx:test -- \
 | 改 acpx 调用方式（命令行参数、PTY、超时） | `src/transport/acpx-cli/` 或 `src/transport/acpx-bridge/`，保持 `SessionTransport` 接口稳定 |
 | 加 / 改一项 orchestration 能力 | `src/orchestration/orchestration-service.ts` + `orchestration-ipc.ts` + `orchestration-server.ts`；测试在 `tests/unit/orchestration/` |
 | 改 daemon 启停行为 | `src/daemon/`；status 字段改了同步更 `daemon-status.ts` 与文档 |
-| 改 `weacpx doctor` | `src/doctor/index.ts` 与各 probe |
-| 改 `weacpx mcp-stdio` 暴露的工具 | `src/mcp/weacpx-mcp-tools.ts` |
+| 改 `xacpx doctor` | `src/doctor/index.ts` 与各 probe |
+| 改 `xacpx mcp-stdio` 暴露的工具 | `src/mcp/xacpx-mcp-tools.ts` |
 | 改 `state.json` schema | `src/state/types.ts` + `state-store.ts` 的解析；考虑迁移 |
 | 加可恢复的运行时错误 | `src/recovery/`；router 里 wire 进对应命令 |
 | 加 / 改全局公共类型 | `src/plugin-api.ts` 再导出 + `bun run build:plugin-api` |
@@ -428,11 +428,11 @@ bun run dry-run --chat-key wx:test -- \
 
 ### 发布
 
-完整流程：[release.md](../release.md)。一句话版：
+发布流程（一句话版）：
 
 ```bash
 bun run verify:publish      # build:packages + scripts/verify-publish.mjs
-bun run publish:weacpx
+bun run publish:xacpx
 bun run publish:plugins     # 升一方插件包时
 ```
 
@@ -453,7 +453,7 @@ bun run publish:plugins     # 升一方插件包时
 - 配置字段：[config-reference.md](./config-reference_zh.md)
 - 代码地图：[code-wiki.md](./code-wiki_zh.md)
 - 测试约定：[testing.md](./testing_zh.md)
-- 发版流程：[release.md](../release.md)
+- 发版流程：[发布章节](#发布)
 - 多 Agent 编排原理：[`2026-04-13-weacpx-orchestration-design.md`](../2026-04-13-weacpx-orchestration-design.md)
 - Acpx-Bridge 协议：[`2026-03-25-weacpx-acpx-bridge-design.md`](../2026-03-25-weacpx-acpx-bridge-design.md)
 - 项目规约（`AGENTS.md` / `CLAUDE.md`）：[../AGENTS.md](../../AGENTS.md)

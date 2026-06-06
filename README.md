@@ -13,6 +13,8 @@ English · **[中文](./docs/zh/README_zh.md)**
 
 `xacpx` is a tool that lets you control ACP agents such as Codex / Claude Code / Gemini / OpenCode directly from WeChat, Feishu, or Yuanbao. It connects chat messages to your agent CLI sessions through `acpx`, so you can, right from your phone:
 
+[![xacpx.png](https://s41.ax1x.com/2026/06/05/pmZXIv6.png)](https://imgchr.com/i/pmZXIv6)
+
 - Create and switch between sessions
 - Have the agent keep working in a specific project directory
 - View streaming replies, final results, and tool-call summaries
@@ -427,7 +429,7 @@ Notes:
 
 If you want to first understand when to delegate and when to dispatch multiple subtasks in parallel, see:
 
-- [docs/weacpx-group-usage-guide.md](./docs/weacpx-group-usage-guide.md)
+- [docs/xacpx-group-usage-guide.md](./docs/xacpx-group-usage-guide.md)
 
 
 ### MCP integration: external coordinator
@@ -579,7 +581,7 @@ If what you're about to do is one of the following, you can continue from here:
 
 - Want the full chat-command reference: [docs/commands.md](./docs/commands.md)
 - Want to schedule a one-time future message with scheduled tasks (`/later`): [docs/later-command.md](./docs/later-command.md)
-- Want to understand when to delegate and when to open a group: [docs/weacpx-group-usage-guide.md](./docs/weacpx-group-usage-guide.md)
+- Want to understand when to delegate and when to open a group: [docs/xacpx-group-usage-guide.md](./docs/xacpx-group-usage-guide.md)
 
 ### Troubleshooting and verification
 

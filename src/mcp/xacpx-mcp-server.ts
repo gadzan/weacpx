@@ -24,8 +24,8 @@ import { coreEnv } from "../runtime/core-env";
 import type { OrchestrationIpcEndpoint } from "../orchestration/orchestration-ipc";
 import type { OrchestrationTaskRecord } from "../orchestration/orchestration-types";
 import { resolveDefaultOrchestrationEndpoint } from "./resolve-endpoint";
-import { buildWeacpxMcpToolRegistry } from "./weacpx-mcp-tools";
-import { createOrchestrationTransport, type WeacpxMcpTransport } from "./weacpx-mcp-transport";
+import { buildXacpxMcpToolRegistry } from "./xacpx-mcp-tools";
+import { createOrchestrationTransport, type XacpxMcpTransport } from "./xacpx-mcp-transport";
 
 const TASK_OPTIONS_CACHE_LIMIT = 1_000;
 const TASKS_LIST_PAGE_SIZE = 100;
@@ -40,17 +40,17 @@ interface WatchMcpTaskRecord {
   result?: Result;
 }
 
-export interface WeacpxMcpServerOptions {
-  transport?: WeacpxMcpTransport;
+export interface XacpxMcpServerOptions {
+  transport?: XacpxMcpTransport;
   coordinatorSession?: string;
   sourceHandle?: string;
   isExternalCoordinator?: boolean;
   internalSessionTools?: boolean;
-  resolveIdentity?: (context: WeacpxMcpIdentityResolutionContext) => Promise<WeacpxMcpIdentity>;
+  resolveIdentity?: (context: XacpxMcpIdentityResolutionContext) => Promise<XacpxMcpIdentity>;
   availableAgents?: string[];
 }
 
-export interface WeacpxMcpIdentity {
+export interface XacpxMcpIdentity {
   coordinatorSession: string;
   sourceHandle?: string;
   // True when the coordinator session is registered as an external coordinator
@@ -61,12 +61,12 @@ export interface WeacpxMcpIdentity {
   internalSessionTools?: boolean;
 }
 
-export interface WeacpxMcpIdentityResolutionContext {
+export interface XacpxMcpIdentityResolutionContext {
   clientName?: string;
   listRoots: () => Promise<Root[]>;
 }
 
-export const WEACPX_MCP_SERVER_INSTRUCTIONS = [
+export const XACPX_MCP_SERVER_INSTRUCTIONS = [
   "Use these tools to orchestrate work across other agents under your coordinator session.",
   "",
   "Delegate with delegate_request (one task) or delegate_batch (several at once). Each returns a taskId and a status.",
@@ -77,13 +77,13 @@ export const WEACPX_MCP_SERVER_INSTRUCTIONS = [
   "worker_raise_question is worker-side only — call it from inside a delegated task when you are blocked, not from the coordinator waiting on a delegation.",
 ].join("\n");
 
-export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
+export function createXacpxMcpServer(options: XacpxMcpServerOptions): Server {
   let getToolState!: () => Promise<ReturnType<typeof buildToolState>>;
   const taskOptionsById = new Map<string, CreateTaskOptions>();
   const watchTasksById = new Map<string, WatchMcpTaskRecord>();
   const server = new Server(
     {
-      name: "weacpx",
+      name: "xacpx",
       version: readVersion(),
     },
     {
@@ -95,8 +95,8 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
           requests: { tools: { call: {} } },
         },
       },
-      instructions: WEACPX_MCP_SERVER_INSTRUCTIONS,
-      taskStore: createWeacpxTaskStore(async () => await getToolState(), taskOptionsById, watchTasksById),
+      instructions: XACPX_MCP_SERVER_INSTRUCTIONS,
+      taskStore: createXacpxTaskStore(async () => await getToolState(), taskOptionsById, watchTasksById),
     },
   );
 
@@ -112,7 +112,7 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
     toolStatePromise = resolveMcpIdentity(server, options)
       .then((identity) => {
         if (!options.transport) {
-          throw new Error("weacpx MCP transport is not configured");
+          throw new Error("xacpx MCP transport is not configured");
         }
         toolState = buildToolState({
           transport: options.transport,
@@ -182,7 +182,7 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
   });
 
   // The SDK's default tasks/result handler waits until a task is terminal.
-  // weacpx also uses input_required for external approval/blocker workflows,
+  // xacpx also uses input_required for external approval/blocker workflows,
   // where the coordinator must call another tool before the task can continue.
   // Return an actionable package immediately for input_required so task-aware
   // clients do not deadlock waiting for a result that depends on their action.
@@ -213,14 +213,14 @@ export function createWeacpxMcpServer(options: WeacpxMcpServerOptions): Server {
 }
 
 function buildToolState(options: {
-  transport: WeacpxMcpTransport;
+  transport: XacpxMcpTransport;
   coordinatorSession: string;
   sourceHandle?: string;
   isExternalCoordinator?: boolean;
   internalSessionTools?: boolean;
   availableAgents?: string[];
 }) {
-  const tools = buildWeacpxMcpToolRegistry(options);
+  const tools = buildXacpxMcpToolRegistry(options);
   return {
     tools,
     toolMap: new Map(tools.map((tool) => [tool.name, tool])),
@@ -440,14 +440,14 @@ function renderWatchMcpTaskResult(result: {
   } as CallToolResult;
 }
 
-function createWeacpxTaskStore(
+function createXacpxTaskStore(
   resolveState: () => Promise<ReturnType<typeof buildToolState>>,
   taskOptionsById: Map<string, CreateTaskOptions>,
   watchTasksById: Map<string, WatchMcpTaskRecord>,
 ): TaskStore {
   return {
     createTask: async () => {
-      throw new Error("weacpx native MCP tasks are created by delegate_request");
+      throw new Error("xacpx native MCP tasks are created by delegate_request");
     },
     getTask: async (taskId) => {
       const watchTask = watchTasksById.get(taskId);
@@ -461,7 +461,7 @@ function createWeacpxTaskStore(
       return task ? toMcpTask(task, taskOptionsById.get(taskId)) : null;
     },
     storeTaskResult: async () => {
-      throw new Error("weacpx native MCP task results are stored by orchestration");
+      throw new Error("xacpx native MCP task results are stored by orchestration");
     },
     getTaskResult: async (taskId) => {
       const watchTask = watchTasksById.get(taskId);
@@ -486,7 +486,7 @@ function createWeacpxTaskStore(
         await state.transport.cancelTask({ coordinatorSession: state.coordinatorSession, taskId });
         return;
       }
-      throw new Error(`weacpx MCP task status is read-only (${status}${statusMessage ? `: ${statusMessage}` : ""})`);
+      throw new Error(`xacpx MCP task status is read-only (${status}${statusMessage ? `: ${statusMessage}` : ""})`);
     },
     listTasks: async (cursor) => {
       const state = await resolveState();
@@ -679,7 +679,7 @@ function normalizeCreateTaskOptions(options: CreateTaskOptions): CreateTaskOptio
   };
 }
 
-async function resolveMcpIdentity(server: Server, options: WeacpxMcpServerOptions): Promise<WeacpxMcpIdentity> {
+async function resolveMcpIdentity(server: Server, options: XacpxMcpServerOptions): Promise<XacpxMcpIdentity> {
   if (options.resolveIdentity) {
     return await options.resolveIdentity({
       clientName: server.getClientVersion()?.name,
@@ -738,7 +738,7 @@ export function installMcpStdioShutdownHooks(options: McpStdioShutdownHookOption
     if (disposed || triggered) return;
     // Mark triggered (not disposed) before dispatching so concurrent events
     // (stdin.close + stdout.error in the same tick, redundant signal handlers)
-    // don't each re-enter and produce duplicate diagnostics. runWeacpxMcpServer
+    // don't each re-enter and produce duplicate diagnostics. runXacpxMcpServer
     // protects shutdown() itself via shuttingDown; this flag owns the
     // diagnostic stream only and leaves the cleanup function free to release
     // listeners and the parent timer.
@@ -813,20 +813,20 @@ function defaultIsProcessRunning(pid: number): boolean {
   }
 }
 
-export async function runWeacpxMcpServer(options: {
+export async function runXacpxMcpServer(options: {
   endpoint?: OrchestrationIpcEndpoint;
-  transport?: WeacpxMcpTransport;
+  transport?: XacpxMcpTransport;
   coordinatorSession?: string;
   sourceHandle?: string;
   internalSessionTools?: boolean;
-  resolveIdentity?: WeacpxMcpServerOptions["resolveIdentity"];
+  resolveIdentity?: XacpxMcpServerOptions["resolveIdentity"];
   availableAgents?: string[];
   onDiagnostic?: (event: string, context?: Record<string, unknown>) => void;
 }): Promise<void> {
   const transport = options.transport ?? createOrchestrationTransport(
     options.endpoint ?? resolveDefaultOrchestrationEndpoint(process.env, process.platform),
   );
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport,
     ...(options.coordinatorSession ? { coordinatorSession: options.coordinatorSession } : {}),
     ...(options.sourceHandle ? { sourceHandle: options.sourceHandle } : {}),

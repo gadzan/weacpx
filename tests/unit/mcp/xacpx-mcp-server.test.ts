@@ -8,12 +8,12 @@ import { CallToolResultSchema, ListRootsRequestSchema, RELATED_TASK_META_KEY } f
 import { z } from "zod";
 
 import {
-  createWeacpxMcpServer,
+  createXacpxMcpServer,
   installMcpStdioShutdownHooks,
   WATCH_TASKS_CACHE_LIMIT,
-  WEACPX_MCP_SERVER_INSTRUCTIONS,
-} from "../../../src/mcp/weacpx-mcp-server";
-import { createMemoryTransport } from "../../../src/mcp/weacpx-mcp-transport";
+  XACPX_MCP_SERVER_INSTRUCTIONS,
+} from "../../../src/mcp/xacpx-mcp-server";
+import { createMemoryTransport } from "../../../src/mcp/xacpx-mcp-transport";
 import type { OrchestrationTaskRecord } from "../../../src/orchestration/orchestration-types";
 
 test("lists 11 MCP tools and hides coordinator/source identity from input schemas", async () => {
@@ -40,7 +40,7 @@ test("lists 11 MCP tools and hides coordinator/source identity from input schema
       },
     },
   );
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport,
     coordinatorSession: "backend:main",
     sourceHandle: "backend:main:worker",
@@ -90,7 +90,7 @@ test("lists scheduled_create only when internal session tools are enabled", asyn
       }),
     },
   );
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport,
     coordinatorSession: "backend:main",
     internalSessionTools: true,
@@ -136,7 +136,7 @@ test("delegate_request supports native MCP task execution", async () => {
     updatedAt: "2026-05-16T00:00:01.000Z",
   };
   const calls: unknown[] = [];
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport: createMemoryTransport(
       async (input) => {
         calls.push(input);
@@ -243,7 +243,7 @@ test("native MCP tasks map input-required states and cancellation", async () => 
     },
   };
   let cancelTaskId: string | undefined;
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport: createMemoryTransport(
       async () => ({ taskId: "task-blocked", status: "running" }),
       {
@@ -347,7 +347,7 @@ test("native MCP tasks expose pending approval as input_required", async () => {
     createdAt: "2026-05-16T00:00:00.000Z",
     updatedAt: "2026-05-16T00:00:01.000Z",
   };
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport: createMemoryTransport(
       async () => ({ taskId: "task-approval", status: "needs_confirmation" }),
       {
@@ -421,7 +421,7 @@ test("native MCP tasks keep contested terminal results input_required", async ()
       resultText: "Looks good.",
     },
   };
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport: createMemoryTransport(
       async () => ({ taskId: "task-contested", status: "running" }),
       {
@@ -492,7 +492,7 @@ test("native MCP tasks list uses cursor pagination", async () => {
     createdAt: "2026-05-16T00:00:00.000Z",
     updatedAt: `2026-05-16T00:00:${String(index).padStart(2, "0")}.000Z`,
   }));
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport: createMemoryTransport(
       async () => ({ taskId: "task-0", status: "running" }),
       {
@@ -523,7 +523,7 @@ test("native MCP tasks list uses cursor pagination", async () => {
 });
 
 test("hides coordinator human-input package tools when resolveIdentity reports an external coordinator", async () => {
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport: createMemoryTransport(async () => ({ taskId: "task-1", status: "running" })),
     resolveIdentity: async () => ({
       coordinatorSession: "external_claude-code:backend",
@@ -551,7 +551,7 @@ test("hides coordinator human-input package tools when resolveIdentity reports a
 
 test("infers MCP identity from client roots before listing tools", async () => {
   const resolved: unknown[] = [];
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport: createMemoryTransport(async () => ({ taskId: "task-1", status: "needs_confirmation" })),
     resolveIdentity: async (context) => {
       const roots = await context.listRoots();
@@ -591,7 +591,7 @@ test("infers MCP identity from client roots before listing tools", async () => {
 
 test("uses resolveIdentity when both static and lazy MCP identities are configured", async () => {
   const resolved: unknown[] = [];
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport: createMemoryTransport(async () => ({ taskId: "task-1", status: "needs_confirmation" })),
     coordinatorSession: "static:session",
     resolveIdentity: async (context) => {
@@ -616,7 +616,7 @@ test("uses resolveIdentity when both static and lazy MCP identities are configur
 });
 
 test("exposes the orchestration lifecycle as server instructions to the client", async () => {
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport: createMemoryTransport(async () => ({ taskId: "task-1", status: "running" })),
     coordinatorSession: "backend:main",
   });
@@ -628,7 +628,7 @@ test("exposes the orchestration lifecycle as server instructions to the client",
     await client.connect(clientTransport);
 
     const instructions = client.getInstructions();
-    expect(instructions).toBe(WEACPX_MCP_SERVER_INSTRUCTIONS);
+    expect(instructions).toBe(XACPX_MCP_SERVER_INSTRUCTIONS);
     expect(instructions ?? "").toContain("delegate_request");
     expect(instructions ?? "").toContain("delegate_batch");
     // task_watch must be mentioned as the long-poll mechanism.
@@ -654,7 +654,7 @@ test("memoizes in-flight lazy MCP identity resolution across concurrent first re
   const resolveStarted = new Promise<void>((resolve) => {
     releaseResolve = resolve;
   });
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport: createMemoryTransport(async () => ({ taskId: "task-1", status: "needs_confirmation" })),
     resolveIdentity: async () => {
       resolveCalls += 1;
@@ -686,7 +686,7 @@ test("memoizes in-flight lazy MCP identity resolution across concurrent first re
 
 test("worker_raise_question uses host-bound sourceHandle and still rejects spoofed public identity fields", async () => {
   const calls: unknown[] = [];
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport: createMemoryTransport(
       async () => ({ taskId: "task-9", status: "needs_confirmation" }),
       {
@@ -759,7 +759,7 @@ test("worker_raise_question uses host-bound sourceHandle and still rejects spoof
 
 test("worker_raise_question fails clearly when the MCP host did not bind a sourceHandle", async () => {
   const calls: unknown[] = [];
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport: createMemoryTransport(
       async () => ({ taskId: "task-9", status: "needs_confirmation" }),
       {
@@ -802,7 +802,7 @@ test("worker_raise_question fails clearly when the MCP host did not bind a sourc
       content: [
         {
           type: "text",
-          text: "worker_raise_question requires a bound sourceHandle; start mcp-stdio with --source-handle or WEACPX_SOURCE_HANDLE",
+          text: "worker_raise_question requires a bound sourceHandle; start mcp-stdio with --source-handle or XACPX_SOURCE_HANDLE",
         },
       ],
     });
@@ -814,7 +814,7 @@ test("worker_raise_question fails clearly when the MCP host did not bind a sourc
 
 test("delegates through the MCP server and rejects spoofed sourceHandle params", async () => {
   const calls: unknown[] = [];
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport: createMemoryTransport(
       async (input) => {
         calls.push(input);
@@ -887,7 +887,7 @@ test("delegates through the MCP server and rejects spoofed sourceHandle params",
 });
 
 test("returns tool-level business errors as isError text results", async () => {
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport: createMemoryTransport(
       async () => {
         throw new Error("worker-originated delegation is disabled by orchestration policy");
@@ -1061,7 +1061,7 @@ test("task_watch native MCP task surfaces the watch result and is purged once co
     updatedAt: "2026-05-16T00:00:05.000Z",
   };
   const watchCalls: unknown[] = [];
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport: createMemoryTransport(
       async () => ({ taskId: "task-1", status: "running" }),
       {
@@ -1156,7 +1156,7 @@ test("task_watch native MCP task maps attention_required to input_required", asy
       status: "open",
     },
   };
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport: createMemoryTransport(
       async () => ({ taskId: "task-blocked", status: "running" }),
       {
@@ -1221,7 +1221,7 @@ test("task_watch native MCP task registry stays bounded for clients that never c
     createdAt: "2026-05-16T00:00:00.000Z",
     updatedAt: "2026-05-16T00:00:00.000Z",
   };
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport: createMemoryTransport(
       async () => ({ taskId: "task-1", status: "running" }),
       {
@@ -1301,7 +1301,7 @@ test("task_watch native MCP task evicted mid-flight is not resurrected past the 
   const firstWatchGate = new Promise<void>((resolve) => {
     releaseFirstWatch = resolve;
   });
-  const server = createWeacpxMcpServer({
+  const server = createXacpxMcpServer({
     transport: createMemoryTransport(
       async () => ({ taskId: "task-1", status: "running" }),
       {

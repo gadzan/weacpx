@@ -1,5 +1,5 @@
 import type { CallToolResult, ToolExecution } from "@modelcontextprotocol/sdk/types.js";
-import type { WeacpxMcpTransport } from "./weacpx-mcp-transport";
+import type { XacpxMcpTransport } from "./xacpx-mcp-transport";
 import {
   DEFAULT_TASK_WATCH_POLL_INTERVAL_MS,
   DEFAULT_TASK_WATCH_TIMEOUT_MS,
@@ -30,18 +30,18 @@ const taskQuestionSchema = z
   })
   .strict();
 
-export interface WeacpxMcpToolDefinition<Args> {
+export interface XacpxMcpToolDefinition<Args> {
   name: string;
   description: string;
   inputSchema: z.ZodType<Args>;
   execution?: ToolExecution;
-  handler: (args: Args) => Promise<WeacpxMcpToolResult>;
+  handler: (args: Args) => Promise<XacpxMcpToolResult>;
 }
 
-export type WeacpxMcpToolResult = CallToolResult;
+export type XacpxMcpToolResult = CallToolResult;
 
-export function buildWeacpxMcpToolRegistry(input: {
-  transport: WeacpxMcpTransport;
+export function buildXacpxMcpToolRegistry(input: {
+  transport: XacpxMcpTransport;
   coordinatorSession: string;
   sourceHandle?: string;
   // External coordinators (Claude Code / Codex / OpenCode connecting via mcp-stdio)
@@ -50,15 +50,15 @@ export function buildWeacpxMcpToolRegistry(input: {
   // coordinator_request_human_input. We filter that tool out of the registry
   // instead of advertising calls that would always fail.
   isExternalCoordinator?: boolean;
-  // Hidden, route-scoped tools for the current weacpx conversation session.
+  // Hidden, route-scoped tools for the current xacpx conversation session.
   // Queue owners opt in with --internal-session-tools; external mcp-stdio
   // clients and worker-bound tools must not see these tools.
   internalSessionTools?: boolean;
   availableAgents?: string[];
-}): WeacpxMcpToolDefinition<unknown>[] {
+}): XacpxMcpToolDefinition<unknown>[] {
   const { transport, coordinatorSession, sourceHandle, isExternalCoordinator, internalSessionTools, availableAgents } = input;
 
-  const tools: WeacpxMcpToolDefinition<unknown>[] = [
+  const tools: XacpxMcpToolDefinition<unknown>[] = [
     {
       name: "delegate_request",
       description: `Delegate a subtask to another agent under the current coordinator. Pass an absolute workingDirectory for the worker. Supports MCP Tasks when the client requests task execution: the tool can return a native task handle immediately, then clients can use tasks/get, tasks/result, tasks/list, and tasks/cancel.${availableAgents && availableAgents.length > 0 ? ` Available agents: ${availableAgents.join(", ")}.` : ""}`,
@@ -295,7 +295,7 @@ export function buildWeacpxMcpToolRegistry(input: {
         await asToolResult(async () => {
           if (!sourceHandle || sourceHandle.trim().length === 0) {
             throw new Error(
-              "worker_raise_question requires a bound sourceHandle; start mcp-stdio with --source-handle or WEACPX_SOURCE_HANDLE",
+              "worker_raise_question requires a bound sourceHandle; start mcp-stdio with --source-handle or XACPX_SOURCE_HANDLE",
             );
           }
           const result = await transport.workerRaiseQuestion({
@@ -383,7 +383,7 @@ export function buildWeacpxMcpToolRegistry(input: {
     tools.push({
       name: "scheduled_create",
       description:
-        "Schedule a one-shot task to run a natural-language message at a future time, using the recorded chat route. By default — and like /later — the task runs in a FRESH TEMPORARY session (it snapshots the current agent and workspace but starts with brand-new history and is destroyed after running, so it does not pollute this conversation); the reply is still pushed back to this chat. Provide only timeText and message and OMIT mode to get this default. Routing, session, and account are resolved by weacpx.",
+        "Schedule a one-shot task to run a natural-language message at a future time, using the recorded chat route. By default — and like /later — the task runs in a FRESH TEMPORARY session (it snapshots the current agent and workspace but starts with brand-new history and is destroyed after running, so it does not pollute this conversation); the reply is still pushed back to this chat. Provide only timeText and message and OMIT mode to get this default. Routing, session, and account are resolved by xacpx.",
       inputSchema: z
         .object({
           timeText: z
@@ -467,8 +467,8 @@ export function buildWeacpxMcpToolRegistry(input: {
 }
 
 async function asToolResult(
-  action: () => Promise<WeacpxMcpToolResult>,
-): Promise<WeacpxMcpToolResult> {
+  action: () => Promise<XacpxMcpToolResult>,
+): Promise<XacpxMcpToolResult> {
   try {
     return await action();
   } catch (error) {
@@ -556,14 +556,14 @@ function renderTaskWatchResult(result: {
 function createSuccessResult(
   text: string,
   structuredContent?: object,
-): WeacpxMcpToolResult {
+): XacpxMcpToolResult {
   return {
     content: [{ type: "text", text }],
     ...(structuredContent ? { structuredContent: structuredContent as Record<string, unknown> } : {}),
   };
 }
 
-function createErrorResult(message: string): WeacpxMcpToolResult {
+function createErrorResult(message: string): XacpxMcpToolResult {
   return {
     content: [{ type: "text", text: message }],
     isError: true,

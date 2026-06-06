@@ -305,7 +305,7 @@ Session 是你在微信里操作的逻辑会话。每个会话绑定一个 agent
 
 编排命令需要先有当前会话。当前会话会作为主控会话，子任务会派给其他 agent 会话执行。
 
-如果你还不确定什么时候该用 delegate、什么时候该开 group，先看 [weacpx-group-usage-guide.md](./weacpx-group-usage-guide_zh.md)。
+如果你还不确定什么时候该用 delegate、什么时候该开 group，先看 [xacpx-group-usage-guide.md](./xacpx-group-usage-guide_zh.md)。
 
 ### 委派单个子任务
 

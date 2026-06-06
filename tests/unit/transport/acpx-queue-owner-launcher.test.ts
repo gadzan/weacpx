@@ -1,7 +1,7 @@
 import { expect, mock, test } from "bun:test";
 
 import {
-  buildWeacpxMcpServerSpec,
+  buildXacpxMcpServerSpec,
   buildQueueOwnerPayload,
   AcpxQueueOwnerLauncher,
   type QueueOwnerSpawner,
@@ -9,11 +9,11 @@ import {
 } from "../../../src/transport/acpx-queue-owner-launcher";
 
 test("builds coordinator MCP server spec from a session identity", () => {
-  expect(buildWeacpxMcpServerSpec({
-    weacpxCommand: "node ./dist/cli.js",
+  expect(buildXacpxMcpServerSpec({
+    xacpxCommand: "node ./dist/cli.js",
     coordinatorSession: "backend:main",
   })).toEqual({
-    name: "weacpx",
+    name: "xacpx",
     type: "stdio",
     command: "node",
     args: ["./dist/cli.js", "mcp-stdio", "--coordinator-session", "backend:main", "--internal-session-tools"],
@@ -21,12 +21,12 @@ test("builds coordinator MCP server spec from a session identity", () => {
 });
 
 test("builds worker MCP server spec with source handle", () => {
-  expect(buildWeacpxMcpServerSpec({
-    weacpxCommand: "node ./dist/cli.js",
+  expect(buildXacpxMcpServerSpec({
+    xacpxCommand: "node ./dist/cli.js",
     coordinatorSession: "backend:main",
     sourceHandle: "backend:claude:backend:main",
   })).toEqual({
-    name: "weacpx",
+    name: "xacpx",
     type: "stdio",
     command: "node",
     args: [
@@ -45,14 +45,14 @@ test("builds queue owner payload with MCP servers", () => {
     sessionId: "acpx-record-1",
     permissionMode: "approve-all",
     nonInteractivePermissions: "deny",
-    mcpServers: [{ name: "weacpx", type: "stdio", command: "node", args: ["cli.js"] }],
+    mcpServers: [{ name: "xacpx", type: "stdio", command: "node", args: ["cli.js"] }],
   })).toEqual({
     sessionId: "acpx-record-1",
     permissionMode: "approve-all",
     nonInteractivePermissions: "deny",
     ttlMs: 300_000,
     maxQueueDepth: 16,
-    mcpServers: [{ name: "weacpx", type: "stdio", command: "node", args: ["cli.js"] }],
+    mcpServers: [{ name: "xacpx", type: "stdio", command: "node", args: ["cli.js"] }],
   });
 });
 
@@ -68,7 +68,7 @@ test("builds queue owner payload with prompt retries and session options", () =>
       maxTurns: 20,
       systemPrompt: { append: "You are a helpful assistant." },
     },
-    mcpServers: [{ name: "weacpx", type: "stdio", command: "node", args: ["cli.js"] }],
+    mcpServers: [{ name: "xacpx", type: "stdio", command: "node", args: ["cli.js"] }],
   })).toEqual({
     sessionId: "acpx-record-1",
     permissionMode: "approve-all",
@@ -82,7 +82,7 @@ test("builds queue owner payload with prompt retries and session options", () =>
       maxTurns: 20,
       systemPrompt: { append: "You are a helpful assistant." },
     },
-    mcpServers: [{ name: "weacpx", type: "stdio", command: "node", args: ["cli.js"] }],
+    mcpServers: [{ name: "xacpx", type: "stdio", command: "node", args: ["cli.js"] }],
   });
 });
 
@@ -97,7 +97,7 @@ test("terminates existing owner then starts acpx queue owner with payload", asyn
   });
   const launcher = new AcpxQueueOwnerLauncher({
     acpxCommand: "E:/node/acpx/dist/cli.js",
-    weacpxCommand: "node ./dist/cli.js",
+    xacpxCommand: "node ./dist/cli.js",
     spawnOwner,
     terminateOwner,
   });
@@ -116,7 +116,7 @@ test("terminates existing owner then starts acpx queue owner with payload", asyn
   const payload = JSON.parse(spawns[0].env.ACPX_QUEUE_OWNER_PAYLOAD);
   expect(payload.sessionId).toBe("acpx-record-1");
   expect(payload.mcpServers[0]).toMatchObject({
-    name: "weacpx",
+    name: "xacpx",
     command: "node",
     args: ["./dist/cli.js", "mcp-stdio", "--coordinator-session", "backend:main", "--internal-session-tools"],
   });
@@ -188,11 +188,11 @@ test("cleans per-record launch locks after launch settles", async () => {
 });
 
 test("parses quoted weacpx command paths with spaces", () => {
-  expect(buildWeacpxMcpServerSpec({
-    weacpxCommand: '"C:/Program Files/nodejs/node.exe" "E:/projects/weacpx/dist/cli.js"',
+  expect(buildXacpxMcpServerSpec({
+    xacpxCommand: '"C:/Program Files/nodejs/node.exe" "E:/projects/weacpx/dist/cli.js"',
     coordinatorSession: "backend:main",
   })).toEqual({
-    name: "weacpx",
+    name: "xacpx",
     type: "stdio",
     command: "C:/Program Files/nodejs/node.exe",
     args: ["E:/projects/weacpx/dist/cli.js", "mcp-stdio", "--coordinator-session", "backend:main", "--internal-session-tools"],

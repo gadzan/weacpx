@@ -24,7 +24,7 @@ export interface InspectPluginsInput {
   pluginHome: string;
   pluginName?: string;
   importPlugin?: (packageName: string, pluginHome: string) => Promise<unknown>;
-  currentWeacpxVersion?: string;
+  currentXacpxVersion?: string;
 }
 
 async function readDependencyEntries(pluginHome: string): Promise<Record<string, string>> {
@@ -83,7 +83,7 @@ export async function inspectPlugins(input: InspectPluginsInput): Promise<Plugin
 
     try {
       const plugin = validateWeacpxPlugin(moduleValue, configPlugin.name, {
-        ...(input.currentWeacpxVersion !== undefined ? { currentWeacpxVersion: input.currentWeacpxVersion } : {}),
+        ...(input.currentXacpxVersion !== undefined ? { currentXacpxVersion: input.currentXacpxVersion } : {}),
       });
       const channels = plugin.channels ?? [];
       const channelTypes = channels.map((channel) => channel.type);

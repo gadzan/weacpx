@@ -1,4 +1,4 @@
-export const WEACPX_KNOWN_COMMAND_PREFIXES = [
+export const XACPX_KNOWN_COMMAND_PREFIXES = [
   "/help",
   "/agents",
   "/workspaces",
@@ -29,13 +29,13 @@ export const WEACPX_KNOWN_COMMAND_PREFIXES = [
   "/lt",
 ] as const;
 
-const KNOWN_COMMAND_PREFIX_SET = new Set<string>(WEACPX_KNOWN_COMMAND_PREFIXES);
+const KNOWN_COMMAND_PREFIX_SET = new Set<string>(XACPX_KNOWN_COMMAND_PREFIXES);
 
-export function isKnownWeacpxCommandPrefix(prefix: string): boolean {
+export function isKnownXacpxCommandPrefix(prefix: string): boolean {
   return KNOWN_COMMAND_PREFIX_SET.has(prefix.toLowerCase());
 }
 
-export function isKnownWeacpxCommandText(text: string): boolean {
+export function isKnownXacpxCommandText(text: string): boolean {
   const firstToken = text.trim().split(/\s+/, 1)[0];
-  return Boolean(firstToken && isKnownWeacpxCommandPrefix(firstToken));
+  return Boolean(firstToken && isKnownXacpxCommandPrefix(firstToken));
 }
