@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.9.2] - 2026-06-06
+
+### Added
+
+- **Per-channel `replyMode`:** channels can now declare their own default reply mode (`stream` / `final` / `verbose`). The effective mode resolves through the per-channel default and is shown in `/replymode`; settable via `/config set channels.<id>.replyMode` or the channel CLI `set-reply-mode <id> <mode>`. (#14)
+- **`/clear` keeps agent-side native sessions native:** when the current session is an agent-side (native) session, `/clear` re-marks the fresh session as native by reading back the new rollout's `agentSessionId`, then best-effort closes the previous native session (guarded so a transport shared by another alias is never closed). Falls back to a plain xacpx session if the fresh agent id is unavailable, so `/clear` always succeeds. Backed by a new optional `getAgentSessionId` on `SessionTransport`, wired through both the acpx-cli and bridge transports. (#15)
+
+### Changed
+
+- **Internal `weacpx` → `xacpx` symbol scrub (no behavior change):** renamed the orchestration MCP server wire name (`weacpx` → `xacpx`, tool prefix `mcp__weacpx__*` → `mcp__xacpx__*`), the Windows pipe (`weacpx-orchestration` → `xacpx-orchestration`), the logical session source enum (`weacpx` → `xacpx`; loading still accepts the legacy value), internal command/version symbols, and the `weacpx-mcp-*.ts` files (→ `xacpx-mcp-*.ts`). The default Weixin bot agent name is now `xacpx`. All public back-compat (env vars, plugin-api aliases, persisted state) is preserved. (#16)
+
+### Fixed
+
+- **Stale `weacpx:` warning prefix:** the plugin-api resolution-shim copy-failure warning still prefixed itself `weacpx:`; corrected to `xacpx:` to match the rename.
+
+### Docs
+
+- Scrubbed the remaining `weacpx` product name from comments, env hints, and developer docs; synced runtime home-dir paths (`~/.weacpx` → `~/.xacpx`) and CLI examples; renamed `weacpx-group-usage-guide` → `xacpx-group-usage-guide`; and fixed dangling `release.md` doc links. (#16)
+
 ## [0.9.1] - 2026-06-04
 
 ### Fixed
