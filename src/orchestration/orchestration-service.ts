@@ -21,6 +21,7 @@ import type {
   OrchestrationTaskStatus,
 } from "./orchestration-types";
 import { AsyncMutex } from "./async-mutex";
+import { stableCoordinatorSession } from "./coordinator-identity";
 import { sanitizeProgressSummary, stripProgressLines } from "./progress-line-parser";
 import { isQuotaDeferredError } from "../weixin/messaging/quota-errors";
 import {
@@ -1972,7 +1973,7 @@ export class OrchestrationService {
       if (!packageRecord) {
         throw new Error(`package "${input.packageId}" does not exist`);
       }
-      if (packageRecord.coordinatorSession !== input.coordinatorSession) {
+      if (stableCoordinatorSession(packageRecord.coordinatorSession) !== stableCoordinatorSession(input.coordinatorSession)) {
         throw new Error(
           `package "${input.packageId}" belongs to coordinator "${packageRecord.coordinatorSession}", not "${input.coordinatorSession}"`,
         );
@@ -2807,7 +2808,10 @@ export class OrchestrationService {
         );
       }
 
-      if (input.coordinatorSession !== undefined && task.coordinatorSession !== input.coordinatorSession) {
+      if (
+        input.coordinatorSession !== undefined &&
+        stableCoordinatorSession(task.coordinatorSession) !== stableCoordinatorSession(input.coordinatorSession)
+      ) {
         throw new Error(
           `task "${input.taskId}" belongs to coordinator "${task.coordinatorSession}", not "${input.coordinatorSession}"`,
         );
@@ -3581,7 +3585,7 @@ export class OrchestrationService {
   }
 
   private assertCoordinatorOwnership(task: OrchestrationTaskRecord, coordinatorSession: string): void {
-    if (task.coordinatorSession !== coordinatorSession) {
+    if (stableCoordinatorSession(task.coordinatorSession) !== stableCoordinatorSession(coordinatorSession)) {
       throw new Error(
         `task "${task.taskId}" belongs to coordinator "${task.coordinatorSession}", not "${coordinatorSession}"`,
       );
@@ -3602,7 +3606,7 @@ export class OrchestrationService {
     if (!group) {
       throw new Error(`group "${groupId}" does not exist`);
     }
-    if (group.coordinatorSession !== coordinatorSession) {
+    if (stableCoordinatorSession(group.coordinatorSession) !== stableCoordinatorSession(coordinatorSession)) {
       throw new Error(
         `group "${groupId}" belongs to coordinator "${group.coordinatorSession}", not "${coordinatorSession}"`,
       );

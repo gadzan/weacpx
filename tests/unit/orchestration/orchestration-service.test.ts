@@ -9910,3 +9910,46 @@ test("I-3: cancelling a queued parallel task does NOT invoke closeWorkerSession 
   const task = await service.getTask("queued-task");
   expect(task?.status).toBe("cancelled");
 });
+
+test("requestTaskCancellation succeeds when task has legacy reset-suffixed coordinatorSession and caller uses stable id", async () => {
+  // A task stored with a `:reset-<digits>` suffix on its coordinatorSession (legacy state.json record)
+  // must be manageable by a coordinator presenting the stable (stripped) identity.
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        tasks: {
+          "task-reset-owner": {
+            taskId: "task-reset-owner",
+            sourceHandle: "wx:user-1",
+            sourceKind: "human" as const,
+            coordinatorSession: "ws:alias:reset-1700000000000",
+            workerSession: "backend:claude:worker-1",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "some delegated work",
+            status: "running" as const,
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-13T10:00:00.000Z",
+            updatedAt: "2026-04-13T10:00:00.000Z",
+            eventSeq: 1,
+            events: [],
+          },
+        },
+        workerBindings: {},
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  // Stable coordinator id (no :reset- suffix) must be accepted for a task
+  // whose stored coordinatorSession carries the legacy reset suffix.
+  const result = await service.requestTaskCancellation({
+    taskId: "task-reset-owner",
+    coordinatorSession: "ws:alias",
+  });
+
+  expect(result.status).toBe("running");
+  expect(result.cancelRequestedAt).toBeDefined();
+});
