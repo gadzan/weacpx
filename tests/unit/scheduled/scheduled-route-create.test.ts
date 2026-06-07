@@ -262,3 +262,47 @@ test("rejects slash-prefixed delayed messages", async () => {
 
   expect(creates).toEqual([]);
 });
+
+test("succeeds when session.transportSession has a :reset- suffix after /clear", async () => {
+  // Regression: after /clear the logical session's transportSession becomes
+  // "ws:alias:reset-<ts>" while the MCP tool sends the stable "ws:alias" as
+  // coordinatorSession. The guard must normalize both sides before comparing.
+  const state = createEmptyState();
+  state.orchestration.coordinatorRoutes["ws:alias"] = {
+    coordinatorSession: "ws:alias",
+    chatKey: "wx:user",
+    sessionAlias: "alias",
+    chatType: "direct",
+    updatedAt: now.toISOString(),
+  };
+  const creates: CreateScheduledTaskInput[] = [];
+
+  const task = await createScheduledTaskFromRoute(
+    {
+      coordinatorSession: "ws:alias",
+      timeText: "in 2h",
+      message: "do something",
+    },
+    {
+      state,
+      config: { later: { defaultMode: "temp" } },
+      sessions: {
+        getSession: async (alias) =>
+          session({ alias, workspace: "ws", transportSession: "ws:alias:reset-1700000000000" }),
+        getPreferredSessionForTransport: async () => null,
+      },
+      scheduled: {
+        createTask: async (input) => {
+          creates.push(input);
+          return taskFromInput(input);
+        },
+      },
+      supportsScheduledMessages: () => true,
+      now: () => now,
+    },
+  );
+
+  expect(creates).toHaveLength(1);
+  expect(creates[0]).toMatchObject({ chatKey: "wx:user", sessionAlias: "alias" });
+  expect(task).toMatchObject({ chat_key: "wx:user", session_alias: "alias" });
+});

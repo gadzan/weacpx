@@ -1,3 +1,4 @@
+import { stableCoordinatorSession } from "../orchestration/coordinator-identity";
 import type { OrchestrationCoordinatorRouteContextRecord } from "../orchestration/orchestration-types";
 import type { AppState } from "../state/types";
 import { normalizeId } from "./scheduled-service";
@@ -51,7 +52,7 @@ function resolveOwnedCoordinatorRoute(
   if (session.length === 0) {
     throw new Error("coordinatorSession must be a non-empty string");
   }
-  const route = state.orchestration.coordinatorRoutes[session];
+  const route = state.orchestration.coordinatorRoutes[stableCoordinatorSession(session)];
   if (!route) {
     throw new Error(`no chat route is recorded for coordinator session "${session}"`);
   }

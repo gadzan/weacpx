@@ -22,6 +22,7 @@ import { AsyncMutex } from "./orchestration/async-mutex";
 import { OrchestrationServer } from "./orchestration/orchestration-server";
 import { OrchestrationService } from "./orchestration/orchestration-service";
 import { buildCoordinatorPrompt } from "./orchestration/build-coordinator-prompt";
+import { sameCoordinatorSession } from "./orchestration/coordinator-identity";
 import { buildWorkerAnswerPrompt, buildWorkerTaskPrompt } from "./orchestration/worker-prompts";
 import { ScheduledTaskScheduler } from "./scheduled/scheduled-scheduler";
 import { ScheduledTaskService } from "./scheduled/scheduled-service";
@@ -635,7 +636,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
       const binding = Object.entries(state.orchestration.workerBindings).find(
         ([, current]) =>
           current.ephemeral !== true &&
-          current.coordinatorSession === coordinatorSession &&
+          sameCoordinatorSession(current.coordinatorSession, coordinatorSession) &&
           current.workspace === workspace &&
           current.cwd === cwd &&
           current.targetAgent === targetAgent &&

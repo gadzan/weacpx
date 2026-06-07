@@ -21,6 +21,7 @@ import type {
   OrchestrationTaskStatus,
 } from "./orchestration-types";
 import { AsyncMutex } from "./async-mutex";
+import { sameCoordinatorSession, stableCoordinatorSession } from "./coordinator-identity";
 import { sanitizeProgressSummary, stripProgressLines } from "./progress-line-parser";
 import { isQuotaDeferredError } from "../weixin/messaging/quota-errors";
 import {
@@ -269,26 +270,6 @@ export interface CleanTasksResult {
   removedBindings: number;
 }
 
-export type ResetGcTrigger = "startup" | "interval";
-
-export interface PurgeExpiredResetCoordinatorsInput {
-  cutoffDays: number;
-  trigger: ResetGcTrigger;
-}
-
-export interface PurgeExpiredResetCoordinatorsResult {
-  candidates: number;
-  purgedCoordinators: number;
-  removed: {
-    tasks: number;
-    workerBindings: number;
-    groups: number;
-    coordinatorRoutes: number;
-    humanQuestionPackages: number;
-    coordinatorQuestionState: number;
-  };
-}
-
 export interface OrchestrationTaskFilter {
   sourceHandle?: string;
   coordinatorSession?: string;
@@ -457,7 +438,7 @@ export class OrchestrationService {
   }): Promise<OrchestrationGroupSummary | null> {
     const state = await this.deps.loadState();
     const group = this.ensureGroups(state)[input.groupId];
-    if (!group || group.coordinatorSession !== input.coordinatorSession) {
+    if (!group || !sameCoordinatorSession(group.coordinatorSession, input.coordinatorSession)) {
       return null;
     }
 
@@ -476,7 +457,7 @@ export class OrchestrationService {
     const order = input.order ?? "desc";
 
     return Object.values(this.ensureGroups(state))
-      .filter((group) => group.coordinatorSession === input.coordinatorSession)
+      .filter((group) => sameCoordinatorSession(group.coordinatorSession, input.coordinatorSession))
       .map((group) => ({
         group,
         summary: this.buildGroupSummary(group, tasks.filter((task) => task.groupId === group.groupId)),
@@ -1111,7 +1092,7 @@ export class OrchestrationService {
         const currentBinding = state.orchestration.workerBindings[workerSession];
         const bindingStillBelongsToThisStartup =
           currentBinding?.sourceHandle === workerSession &&
-          currentBinding.coordinatorSession === task.coordinatorSession &&
+          sameCoordinatorSession(currentBinding.coordinatorSession, task.coordinatorSession) &&
           currentBinding.workspace === task.workspace &&
           currentBinding.cwd === task.cwd &&
           currentBinding.targetAgent === task.targetAgent &&
@@ -1196,7 +1177,7 @@ export class OrchestrationService {
       const currentBinding = state.orchestration.workerBindings[workerSession];
       const bindingStillBelongsToThisStartup =
         currentBinding?.sourceHandle === workerSession &&
-        currentBinding.coordinatorSession === task.coordinatorSession &&
+        sameCoordinatorSession(currentBinding.coordinatorSession, task.coordinatorSession) &&
         currentBinding.workspace === task.workspace &&
         currentBinding.cwd === task.cwd &&
         currentBinding.targetAgent === task.targetAgent &&
@@ -1229,7 +1210,7 @@ export class OrchestrationService {
       const currentBinding = state.orchestration.workerBindings[workerSession];
       const bindingStillBelongsToThisStartup =
         currentBinding?.sourceHandle === workerSession &&
-        currentBinding.coordinatorSession === task.coordinatorSession &&
+        sameCoordinatorSession(currentBinding.coordinatorSession, task.coordinatorSession) &&
         currentBinding.workspace === task.workspace &&
         currentBinding.cwd === task.cwd &&
         currentBinding.targetAgent === task.targetAgent &&
@@ -1441,7 +1422,7 @@ export class OrchestrationService {
     while (true) {
       const state = await this.deps.loadState();
       const task = state.orchestration.tasks[input.taskId];
-      if (!task || task.coordinatorSession !== input.coordinatorSession) {
+      if (!task || !sameCoordinatorSession(task.coordinatorSession, input.coordinatorSession)) {
         return { status: "not_found", task: null, events: [], nextAfterSeq: afterSeq };
       }
 
@@ -1518,7 +1499,10 @@ export class OrchestrationService {
     return await this.mutate(async () => {
       const state = await this.deps.loadState();
       const now = this.deps.now().toISOString();
-      const existing = this.ensureCoordinatorRoutes(state)[input.coordinatorSession];
+      // Key the route by the stable identity so a route recorded before `/clear`
+      // is still found when the coordinator resumes under its rotated transport.
+      const routeKey = stableCoordinatorSession(input.coordinatorSession);
+      const existing = this.ensureCoordinatorRoutes(state)[routeKey];
       const sameChat = existing?.chatKey === input.chatKey;
       const hasAccountId = input.accountId !== undefined;
       const hasReplyContextToken = input.replyContextToken !== undefined;
@@ -1540,14 +1524,14 @@ export class OrchestrationService {
               }
             : undefined;
       const route: OrchestrationCoordinatorRouteContextRecord = {
-        coordinatorSession: input.coordinatorSession,
+        coordinatorSession: routeKey,
         chatKey: input.chatKey,
         ...(input.sessionAlias ? { sessionAlias: input.sessionAlias } : {}),
         ...(replyRoute ? replyRoute : {}),
         ...buildCoordinatorRouteChatMetadata(input, sameChat ? existing : undefined),
         updatedAt: now,
       };
-      this.ensureCoordinatorRoutes(state)[input.coordinatorSession] = route;
+      this.ensureCoordinatorRoutes(state)[routeKey] = route;
       await this.deps.saveState(state);
       return { ...route };
     });
@@ -1854,7 +1838,9 @@ export class OrchestrationService {
       });
 
       const now = this.deps.now().toISOString();
-      const route = this.snapshotCoordinatorDeliveryRoute(this.ensureCoordinatorRoutes(state)[input.coordinatorSession]);
+      const route = this.snapshotCoordinatorDeliveryRoute(
+        this.ensureCoordinatorRoutes(state)[stableCoordinatorSession(input.coordinatorSession)],
+      );
       if (coordinatorState.activePackageId) {
         const activePackage = this.ensureHumanQuestionPackages(state)[coordinatorState.activePackageId];
         if (!activePackage) {
@@ -1972,7 +1958,7 @@ export class OrchestrationService {
       if (!packageRecord) {
         throw new Error(`package "${input.packageId}" does not exist`);
       }
-      if (packageRecord.coordinatorSession !== input.coordinatorSession) {
+      if (!sameCoordinatorSession(packageRecord.coordinatorSession, input.coordinatorSession)) {
         throw new Error(
           `package "${input.packageId}" belongs to coordinator "${packageRecord.coordinatorSession}", not "${input.coordinatorSession}"`,
         );
@@ -1992,7 +1978,7 @@ export class OrchestrationService {
       let route: FrozenCoordinatorDeliveryRoute | null = this.resolveFrozenPackageMessageRoute(message);
       if (!route) {
         route = this.snapshotCoordinatorDeliveryRoute(
-          this.ensureCoordinatorRoutes(state)[input.coordinatorSession],
+          this.ensureCoordinatorRoutes(state)[stableCoordinatorSession(input.coordinatorSession)],
         ) ?? null;
         if (route) {
           Object.assign(message, this.serializeFrozenDeliveryRoute(route));
@@ -2081,7 +2067,8 @@ export class OrchestrationService {
     if (this.isExternalCoordinatorSession(state, coordinatorSession)) {
       return null;
     }
-    const coordinatorState = state.orchestration.coordinatorQuestionState[coordinatorSession];
+    const coordinatorState =
+      state.orchestration.coordinatorQuestionState[stableCoordinatorSession(coordinatorSession)];
     const activePackageId = coordinatorState?.activePackageId;
     if (!activePackageId) {
       return null;
@@ -2273,7 +2260,7 @@ export class OrchestrationService {
       const terminalTaskIds: string[] = [];
       for (const [taskId, task] of Object.entries(tasks)) {
         if (
-          task.coordinatorSession === coordinatorSession &&
+          sameCoordinatorSession(task.coordinatorSession, coordinatorSession) &&
           this.isTerminalStatus(task.status) &&
           task.reviewPending === undefined
         ) {
@@ -2291,7 +2278,7 @@ export class OrchestrationService {
 
       let removedBindings = 0;
       for (const [workerSession, binding] of Object.entries(bindings)) {
-        if (binding.coordinatorSession !== coordinatorSession) {
+        if (!sameCoordinatorSession(binding.coordinatorSession, coordinatorSession)) {
           continue;
         }
         if (!remainingWorkerSessions.has(workerSession)) {
@@ -2319,7 +2306,9 @@ export class OrchestrationService {
       .filter(
         (task) =>
           (!this.isTerminalStatus(task.status) || task.reviewPending !== undefined) &&
-          (task.coordinatorSession === transportSession || task.workerSession === transportSession),
+          (sameCoordinatorSession(task.coordinatorSession, transportSession) ||
+            (task.workerSession !== undefined &&
+              sameCoordinatorSession(task.workerSession, transportSession))),
       )
       .map((task) => ({ ...task }));
   }
@@ -2327,6 +2316,7 @@ export class OrchestrationService {
   async purgeSessionReferences(transportSession: string): Promise<CleanTasksResult> {
     return await this.mutate(async () => {
       const state = await this.deps.loadState();
+      const sessionIdentity = stableCoordinatorSession(transportSession);
       const tasks = state.orchestration.tasks;
       const bindings = state.orchestration.workerBindings;
 
@@ -2335,7 +2325,9 @@ export class OrchestrationService {
         if (
           this.isTerminalStatus(task.status) &&
           task.reviewPending === undefined &&
-          (task.coordinatorSession === transportSession || task.workerSession === transportSession)
+          (sameCoordinatorSession(task.coordinatorSession, transportSession) ||
+            (task.workerSession !== undefined &&
+              sameCoordinatorSession(task.workerSession, transportSession)))
         ) {
           removedTaskIds.push(taskId);
         }
@@ -2350,15 +2342,17 @@ export class OrchestrationService {
 
       let removedBindings = 0;
       for (const [workerSession, binding] of Object.entries(bindings)) {
-        const shouldPurgeBinding = workerSession === transportSession || binding.coordinatorSession === transportSession;
+        const shouldPurgeBinding =
+          sameCoordinatorSession(workerSession, transportSession) ||
+          sameCoordinatorSession(binding.coordinatorSession, transportSession);
         if (shouldPurgeBinding && !remainingWorkerSessions.has(workerSession)) {
           delete bindings[workerSession];
           removedBindings += 1;
         }
       }
 
-      const removedEmptyGroups = this.removeEmptyGroupsForCoordinator(state, transportSession);
-      const removedCoordinatorMetadata = this.removeCoordinatorMetadataIfUnused(state, transportSession);
+      const removedEmptyGroups = this.removeEmptyGroupsForCoordinator(state, sessionIdentity);
+      const removedCoordinatorMetadata = this.removeCoordinatorMetadataIfUnused(state, sessionIdentity);
 
       if (removedTaskIds.length > 0 || removedBindings > 0 || removedEmptyGroups || removedCoordinatorMetadata) {
         await this.deps.saveState(state);
@@ -2371,115 +2365,6 @@ export class OrchestrationService {
     });
   }
 
-  async purgeExpiredResetCoordinators(
-    input: PurgeExpiredResetCoordinatorsInput,
-  ): Promise<PurgeExpiredResetCoordinatorsResult> {
-    try {
-      if (!Number.isFinite(input.cutoffDays) || input.cutoffDays < 0) {
-        throw new Error(`cutoffDays must be a non-negative number, got ${String(input.cutoffDays)}`);
-      }
-
-      const result = await this.mutate(async () => {
-        const state = await this.deps.loadState();
-        const candidates = this.collectResetCoordinatorCandidates(state);
-        const activeTransportSessions = new Set(
-          Object.values(state.sessions).map((session) => session.transport_session),
-        );
-
-        const MS_PER_DAY = 24 * 60 * 60 * 1000;
-        const cutoffMs = input.cutoffDays * MS_PER_DAY;
-        const nowMs = this.deps.now().getTime();
-
-        let purgedCoordinators = 0;
-        const removed: PurgeExpiredResetCoordinatorsResult["removed"] = {
-          tasks: 0,
-          workerBindings: 0,
-          groups: 0,
-          coordinatorRoutes: 0,
-          humanQuestionPackages: 0,
-          coordinatorQuestionState: 0,
-        };
-
-        for (const coordinatorSession of candidates) {
-          if (activeTransportSessions.has(coordinatorSession)) {
-            continue;
-          }
-
-          const activityAtMs = this.resolveResetCoordinatorActivityAtMs(state, coordinatorSession);
-          if (activityAtMs === null) {
-            continue;
-          }
-
-          if (nowMs - activityAtMs <= cutoffMs) {
-            continue;
-          }
-
-          const delta = this.cascadeRemoveCoordinatorRecords(state, coordinatorSession);
-          const changed =
-            delta.tasks > 0 ||
-            delta.workerBindings > 0 ||
-            delta.groups > 0 ||
-            delta.coordinatorRoutes > 0 ||
-            delta.humanQuestionPackages > 0 ||
-            delta.coordinatorQuestionState > 0;
-
-          if (!changed) {
-            continue;
-          }
-
-          purgedCoordinators += 1;
-          removed.tasks += delta.tasks;
-          removed.workerBindings += delta.workerBindings;
-          removed.groups += delta.groups;
-          removed.coordinatorRoutes += delta.coordinatorRoutes;
-          removed.humanQuestionPackages += delta.humanQuestionPackages;
-          removed.coordinatorQuestionState += delta.coordinatorQuestionState;
-        }
-
-        const removedAny =
-          removed.tasks > 0 ||
-          removed.workerBindings > 0 ||
-          removed.groups > 0 ||
-          removed.coordinatorRoutes > 0 ||
-          removed.humanQuestionPackages > 0 ||
-          removed.coordinatorQuestionState > 0;
-
-        if (removedAny) {
-          await this.deps.saveState(state);
-        }
-
-        return {
-          candidates: candidates.length,
-          purgedCoordinators,
-          removed,
-        };
-      });
-
-      if (this.deps.logger) {
-        void this.deps.logger.info("orchestration.reset_gc.completed", "reset coordinator gc completed", {
-          trigger: input.trigger,
-          cutoffDays: input.cutoffDays,
-          candidates: result.candidates,
-          purgedCoordinators: result.purgedCoordinators,
-          deletedCounts: result.removed,
-        });
-      }
-
-      return result;
-    } catch (error) {
-      const logger = this.deps.logger;
-      if (logger) {
-        const message = error instanceof Error ? error.message : String(error);
-        void logger.error("orchestration.reset_gc.failed", "reset coordinator gc failed", {
-          trigger: input.trigger,
-          cutoffDays: input.cutoffDays,
-          message,
-        });
-      }
-      throw error;
-    }
-  }
-
   async listPendingCoordinatorResults(coordinatorSession: string): Promise<OrchestrationTaskRecord[]> {
     const state = await this.deps.loadState();
     if (this.isExternalCoordinatorSession(state, coordinatorSession)) {
@@ -2488,7 +2373,7 @@ export class OrchestrationService {
     return Object.values(state.orchestration.tasks)
       .filter(
         (task) =>
-          task.coordinatorSession === coordinatorSession &&
+          sameCoordinatorSession(task.coordinatorSession, coordinatorSession) &&
           this.canInjectTaskIntoCoordinator(state, task) &&
           (task.injectionPending === true || task.coordinatorInjectedAt === undefined),
       )
@@ -2501,14 +2386,15 @@ export class OrchestrationService {
     if (this.isExternalCoordinatorSession(state, coordinatorSession)) {
       return [];
     }
-    const coordinatorState = state.orchestration.coordinatorQuestionState[coordinatorSession];
+    const coordinatorState =
+      state.orchestration.coordinatorQuestionState[stableCoordinatorSession(coordinatorSession)];
     const hiddenQueuedQuestionKeys = coordinatorState?.activePackageId
       ? new Set((coordinatorState.queuedQuestions ?? []).map((entry) => `${entry.taskId}:${entry.questionId}`))
       : null;
     return Object.values(state.orchestration.tasks)
       .filter(
         (task) =>
-          task.coordinatorSession === coordinatorSession &&
+          sameCoordinatorSession(task.coordinatorSession, coordinatorSession) &&
           task.status === "blocked" &&
           task.openQuestion?.status === "open" &&
           !hiddenQueuedQuestionKeys?.has(`${task.taskId}:${task.openQuestion.questionId}`),
@@ -2523,7 +2409,7 @@ export class OrchestrationService {
       return [];
     }
     return Object.values(state.orchestration.tasks)
-      .filter((task) => task.coordinatorSession === coordinatorSession && task.reviewPending !== undefined)
+      .filter((task) => sameCoordinatorSession(task.coordinatorSession, coordinatorSession) && task.reviewPending !== undefined)
       .sort((left, right) => left.updatedAt.localeCompare(right.updatedAt))
       .map((task) => ({ ...task }));
   }
@@ -2537,7 +2423,7 @@ export class OrchestrationService {
     const tasks = Object.values(state.orchestration.tasks);
 
     return Object.values(groups)
-      .filter((group) => group.coordinatorSession === coordinatorSession)
+      .filter((group) => sameCoordinatorSession(group.coordinatorSession, coordinatorSession))
       .filter((group) => {
         const groupTasks = tasks.filter((task) => task.groupId === group.groupId);
         return this.canInjectGroupIntoCoordinator(state, group.groupId, groupTasks);
@@ -2807,7 +2693,10 @@ export class OrchestrationService {
         );
       }
 
-      if (input.coordinatorSession !== undefined && task.coordinatorSession !== input.coordinatorSession) {
+      if (
+        input.coordinatorSession !== undefined &&
+        !sameCoordinatorSession(task.coordinatorSession, input.coordinatorSession)
+      ) {
         throw new Error(
           `task "${input.taskId}" belongs to coordinator "${task.coordinatorSession}", not "${input.coordinatorSession}"`,
         );
@@ -3363,13 +3252,13 @@ export class OrchestrationService {
       };
     }
 
-    const coordinatorSession = Object.values(state.sessions).find(
-      (session) => session.transport_session === sourceHandle,
+    const coordinatorSession = Object.values(state.sessions).find((session) =>
+      sameCoordinatorSession(session.transport_session, sourceHandle),
     );
     if (coordinatorSession) {
       return {
         sourceKind: "coordinator",
-        coordinatorSession: sourceHandle,
+        coordinatorSession: stableCoordinatorSession(sourceHandle),
         workspace: coordinatorSession.workspace,
       };
     }
@@ -3426,7 +3315,7 @@ export class OrchestrationService {
 
     const outstandingRequests = Object.values(state.orchestration.tasks).filter(
       (task) =>
-        task.coordinatorSession === coordinatorSession &&
+        sameCoordinatorSession(task.coordinatorSession, coordinatorSession) &&
         task.sourceKind !== "human" &&
         // `queued` counts: an accepted, persisted, pending delegation. Omitting it
         // would let a coordinator accumulate unbounded queued tasks at a capped
@@ -3568,7 +3457,8 @@ export class OrchestrationService {
 
     return (
       (filter.sourceHandle === undefined || task.sourceHandle === filter.sourceHandle) &&
-      (filter.coordinatorSession === undefined || task.coordinatorSession === filter.coordinatorSession) &&
+      (filter.coordinatorSession === undefined ||
+        sameCoordinatorSession(task.coordinatorSession, filter.coordinatorSession)) &&
       (filter.workspace === undefined || task.workspace === filter.workspace) &&
       (filter.targetAgent === undefined || task.targetAgent === filter.targetAgent) &&
       (filter.role === undefined || task.role === filter.role) &&
@@ -3581,7 +3471,7 @@ export class OrchestrationService {
   }
 
   private assertCoordinatorOwnership(task: OrchestrationTaskRecord, coordinatorSession: string): void {
-    if (task.coordinatorSession !== coordinatorSession) {
+    if (!sameCoordinatorSession(task.coordinatorSession, coordinatorSession)) {
       throw new Error(
         `task "${task.taskId}" belongs to coordinator "${task.coordinatorSession}", not "${coordinatorSession}"`,
       );
@@ -3602,7 +3492,7 @@ export class OrchestrationService {
     if (!group) {
       throw new Error(`group "${groupId}" does not exist`);
     }
-    if (group.coordinatorSession !== coordinatorSession) {
+    if (!sameCoordinatorSession(group.coordinatorSession, coordinatorSession)) {
       throw new Error(
         `group "${groupId}" belongs to coordinator "${group.coordinatorSession}", not "${coordinatorSession}"`,
       );
@@ -3624,6 +3514,9 @@ export class OrchestrationService {
     state: AppState,
     coordinatorSession: string,
   ): OrchestrationCoordinatorQuestionStateRecord {
+    // Key the question-state map by the stable identity so a coordinator that
+    // delegated before `/clear` and asks/answers after it lands in the same slot.
+    const key = stableCoordinatorSession(coordinatorSession);
     if (!("coordinatorQuestionState" in state.orchestration) || !state.orchestration.coordinatorQuestionState) {
       (
         state.orchestration as AppState["orchestration"] & {
@@ -3632,11 +3525,11 @@ export class OrchestrationService {
       ).coordinatorQuestionState = {};
     }
 
-    state.orchestration.coordinatorQuestionState[coordinatorSession] ??= {
+    state.orchestration.coordinatorQuestionState[key] ??= {
       queuedQuestions: [],
     };
 
-    return state.orchestration.coordinatorQuestionState[coordinatorSession]!;
+    return state.orchestration.coordinatorQuestionState[key]!;
   }
 
   private ensureCoordinatorRoutes(state: AppState): Record<string, OrchestrationCoordinatorRouteContextRecord> {
@@ -3921,7 +3814,7 @@ export class OrchestrationService {
     );
     let removedAny = false;
     for (const [groupId, group] of Object.entries(groups)) {
-      if (group.coordinatorSession !== coordinatorSession) {
+      if (!sameCoordinatorSession(group.coordinatorSession, coordinatorSession)) {
         continue;
       }
       if (!referencedGroupIds.has(groupId)) {
@@ -3933,11 +3826,12 @@ export class OrchestrationService {
   }
 
   private removeCoordinatorMetadataIfUnused(state: AppState, coordinatorSession: string): boolean {
-    const hasCoordinatorTasks = Object.values(state.orchestration.tasks).some(
-      (task) => task.coordinatorSession === coordinatorSession,
+    const key = stableCoordinatorSession(coordinatorSession);
+    const hasCoordinatorTasks = Object.values(state.orchestration.tasks).some((task) =>
+      sameCoordinatorSession(task.coordinatorSession, coordinatorSession),
     );
-    const hasCoordinatorBindings = Object.values(state.orchestration.workerBindings).some(
-      (binding) => binding.coordinatorSession === coordinatorSession,
+    const hasCoordinatorBindings = Object.values(state.orchestration.workerBindings).some((binding) =>
+      sameCoordinatorSession(binding.coordinatorSession, coordinatorSession),
     );
     if (hasCoordinatorTasks || hasCoordinatorBindings) {
       return false;
@@ -3947,139 +3841,23 @@ export class OrchestrationService {
 
     const packages = this.ensureHumanQuestionPackages(state);
     for (const [packageId, packageRecord] of Object.entries(packages)) {
-      if (packageRecord.coordinatorSession === coordinatorSession) {
+      if (sameCoordinatorSession(packageRecord.coordinatorSession, coordinatorSession)) {
         delete packages[packageId];
         removedAny = true;
       }
     }
 
-    if (state.orchestration.coordinatorQuestionState?.[coordinatorSession] !== undefined) {
-      delete state.orchestration.coordinatorQuestionState[coordinatorSession];
+    if (state.orchestration.coordinatorQuestionState?.[key] !== undefined) {
+      delete state.orchestration.coordinatorQuestionState[key];
       removedAny = true;
     }
 
-    if (state.orchestration.coordinatorRoutes?.[coordinatorSession] !== undefined) {
-      delete state.orchestration.coordinatorRoutes[coordinatorSession];
+    if (state.orchestration.coordinatorRoutes?.[key] !== undefined) {
+      delete state.orchestration.coordinatorRoutes[key];
       removedAny = true;
     }
 
     return removedAny;
-  }
-
-  private isResetCoordinatorSession(coordinatorSession: string): boolean {
-    return coordinatorSession.includes(":reset-");
-  }
-
-  private collectResetCoordinatorCandidates(state: AppState): string[] {
-    const candidates = new Set<string>();
-
-    for (const coordinatorSession of Object.keys(state.orchestration.coordinatorRoutes ?? {})) {
-      if (this.isResetCoordinatorSession(coordinatorSession)) {
-        candidates.add(coordinatorSession);
-      }
-    }
-
-    for (const task of Object.values(state.orchestration.tasks ?? {})) {
-      if (this.isResetCoordinatorSession(task.coordinatorSession)) {
-        candidates.add(task.coordinatorSession);
-      }
-    }
-
-    return [...candidates];
-  }
-
-  private parseDateMs(value: string | undefined): number | null {
-    if (!value) {
-      return null;
-    }
-    const ms = new Date(value).getTime();
-    return Number.isFinite(ms) ? ms : null;
-  }
-
-  private resolveResetCoordinatorActivityAtMs(state: AppState, coordinatorSession: string): number | null {
-    const routeUpdatedAt = state.orchestration.coordinatorRoutes?.[coordinatorSession]?.updatedAt;
-    const routeMs = this.parseDateMs(routeUpdatedAt);
-
-    let tasksMs: number | null = null;
-    for (const task of Object.values(state.orchestration.tasks ?? {})) {
-      if (task.coordinatorSession !== coordinatorSession) {
-        continue;
-      }
-      const candidate = this.parseDateMs(task.updatedAt);
-      if (candidate === null) {
-        continue;
-      }
-      tasksMs = tasksMs === null ? candidate : Math.max(tasksMs, candidate);
-    }
-
-    if (routeMs === null && tasksMs === null) {
-      return null;
-    }
-    if (routeMs === null) {
-      return tasksMs;
-    }
-    if (tasksMs === null) {
-      return routeMs;
-    }
-    return Math.max(routeMs, tasksMs);
-  }
-
-  private cascadeRemoveCoordinatorRecords(
-    state: AppState,
-    coordinatorSession: string,
-  ): PurgeExpiredResetCoordinatorsResult["removed"] {
-    const removed: PurgeExpiredResetCoordinatorsResult["removed"] = {
-      tasks: 0,
-      workerBindings: 0,
-      groups: 0,
-      coordinatorRoutes: 0,
-      humanQuestionPackages: 0,
-      coordinatorQuestionState: 0,
-    };
-
-    const tasks = state.orchestration.tasks;
-    for (const [taskId, task] of Object.entries(tasks ?? {})) {
-      if (task.coordinatorSession === coordinatorSession) {
-        delete tasks[taskId];
-        removed.tasks += 1;
-      }
-    }
-
-    const workerBindings = state.orchestration.workerBindings;
-    for (const [workerSession, binding] of Object.entries(workerBindings ?? {})) {
-      if (binding.coordinatorSession === coordinatorSession) {
-        delete workerBindings[workerSession];
-        removed.workerBindings += 1;
-      }
-    }
-
-    const groups = this.ensureGroups(state);
-    for (const [groupId, group] of Object.entries(groups ?? {})) {
-      if (group.coordinatorSession === coordinatorSession) {
-        delete groups[groupId];
-        removed.groups += 1;
-      }
-    }
-
-    if (state.orchestration.coordinatorRoutes?.[coordinatorSession] !== undefined) {
-      delete state.orchestration.coordinatorRoutes[coordinatorSession];
-      removed.coordinatorRoutes += 1;
-    }
-
-    const packages = this.ensureHumanQuestionPackages(state);
-    for (const [packageId, packageRecord] of Object.entries(packages ?? {})) {
-      if (packageRecord.coordinatorSession === coordinatorSession) {
-        delete packages[packageId];
-        removed.humanQuestionPackages += 1;
-      }
-    }
-
-    if (state.orchestration.coordinatorQuestionState?.[coordinatorSession] !== undefined) {
-      delete state.orchestration.coordinatorQuestionState[coordinatorSession];
-      removed.coordinatorQuestionState += 1;
-    }
-
-    return removed;
   }
 
   private bumpGroupUpdated(state: AppState, groupId: string | undefined, now: string): void {
@@ -4332,7 +4110,8 @@ export class OrchestrationService {
       const validQueuedQuestions = coordinatorState.queuedQuestions.filter((entry) => {
         const task = state.orchestration.tasks[entry.taskId];
         return (
-          task?.coordinatorSession === coordinatorSession &&
+          task !== undefined &&
+          sameCoordinatorSession(task.coordinatorSession, coordinatorSession) &&
           task.status === "blocked" &&
           task.openQuestion?.status === "open" &&
           task.openQuestion.questionId === entry.questionId

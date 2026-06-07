@@ -18,6 +18,7 @@ import type { ResolvedSession } from "../../transport/types";
 import type { HelpTopicMetadata } from "../help/help-types";
 import type { CommandRouterContext, OrchestrationRouterOps, RouterResponse } from "../router-types";
 import { t } from "../../i18n";
+import { sameCoordinatorSession, stableCoordinatorSession } from "../../orchestration/coordinator-identity";
 
 export function orchestrationHelp(): HelpTopicMetadata {
   const o = t().orchestration;
@@ -75,6 +76,8 @@ export async function handleDelegateRequest(
     return { text: t().orchestration.noCurrentSession };
   }
 
+  const coordinatorSession = stableCoordinatorSession(session.transportSession);
+
   const orchestration = getOrchestration(context);
   if (!orchestration) {
     return { text: renderOrchestrationUnavailable() };
@@ -83,7 +86,7 @@ export async function handleDelegateRequest(
   const result = await orchestration.requestDelegate({
     sourceHandle: session.transportSession,
     sourceKind: "coordinator",
-    coordinatorSession: session.transportSession,
+    coordinatorSession,
     workspace: session.workspace,
     targetAgent,
     task,
@@ -107,13 +110,15 @@ export async function handleGroupCreate(
     return { text: t().orchestration.noCurrentSession };
   }
 
+  const coordinatorSession = stableCoordinatorSession(session.transportSession);
+
   const orchestration = getOrchestration(context);
   if (!orchestration) {
     return { text: renderOrchestrationUnavailable() };
   }
 
   const group = await orchestration.createGroup({
-    coordinatorSession: session.transportSession,
+    coordinatorSession,
     title,
   });
   return { text: renderGroupCreated(group) };
@@ -129,13 +134,15 @@ export async function handleGroupList(
     return { text: t().orchestration.noCurrentSession };
   }
 
+  const coordinatorSession = stableCoordinatorSession(session.transportSession);
+
   const orchestration = getOrchestration(context);
   if (!orchestration) {
     return { text: renderOrchestrationUnavailable() };
   }
 
   const groups = await orchestration.listGroupSummaries({
-    coordinatorSession: session.transportSession,
+    coordinatorSession,
     ...(filter ?? {}),
   });
   return { text: renderGroupList(groups) };
@@ -151,6 +158,8 @@ export async function handleGroupGet(
     return { text: t().orchestration.noCurrentSession };
   }
 
+  const coordinatorSession = stableCoordinatorSession(session.transportSession);
+
   const orchestration = getOrchestration(context);
   if (!orchestration) {
     return { text: renderOrchestrationUnavailable() };
@@ -158,7 +167,7 @@ export async function handleGroupGet(
 
   const group = await orchestration.getGroupSummary({
     groupId,
-    coordinatorSession: session.transportSession,
+    coordinatorSession,
   });
   if (!group) {
     return { text: t().orchestration.groupNotFound };
@@ -176,6 +185,8 @@ export async function handleGroupCancel(
     return { text: t().orchestration.noCurrentSession };
   }
 
+  const coordinatorSession = stableCoordinatorSession(session.transportSession);
+
   const orchestration = getOrchestration(context);
   if (!orchestration) {
     return { text: renderOrchestrationUnavailable() };
@@ -183,7 +194,7 @@ export async function handleGroupCancel(
 
   const group = await orchestration.getGroupSummary({
     groupId,
-    coordinatorSession: session.transportSession,
+    coordinatorSession,
   });
   if (!group) {
     return { text: t().orchestration.groupNotFound };
@@ -191,7 +202,7 @@ export async function handleGroupCancel(
 
   const cancelled = await orchestration.cancelGroup({
     groupId,
-    coordinatorSession: session.transportSession,
+    coordinatorSession,
   });
   return { text: renderGroupCancelSuccess(cancelled) };
 }
@@ -211,6 +222,8 @@ export async function handleGroupDelegate(
     return { text: t().orchestration.noCurrentSession };
   }
 
+  const coordinatorSession = stableCoordinatorSession(session.transportSession);
+
   const orchestration = getOrchestration(context);
   if (!orchestration) {
     return { text: renderOrchestrationUnavailable() };
@@ -218,7 +231,7 @@ export async function handleGroupDelegate(
 
   const group = await orchestration.getGroupSummary({
     groupId,
-    coordinatorSession: session.transportSession,
+    coordinatorSession,
   });
   if (!group) {
     return { text: t().orchestration.groupNotFound };
@@ -246,13 +259,15 @@ export async function handleTaskList(
     return { text: t().orchestration.noCurrentSession };
   }
 
+  const coordinatorSession = stableCoordinatorSession(session.transportSession);
+
   const orchestration = getOrchestration(context);
   if (!orchestration) {
     return { text: renderOrchestrationUnavailable() };
   }
 
   const tasks = await orchestration.listTasks({
-    coordinatorSession: session.transportSession,
+    coordinatorSession,
     ...(filter ?? {}),
   });
   return { text: renderTaskList(tasks) };
@@ -264,13 +279,15 @@ export async function handleTaskGet(context: CommandRouterContext, chatKey: stri
     return { text: t().orchestration.noCurrentSession };
   }
 
+  const coordinatorSession = stableCoordinatorSession(session.transportSession);
+
   const orchestration = getOrchestration(context);
   if (!orchestration) {
     return { text: renderOrchestrationUnavailable() };
   }
 
   const task = await orchestration.getTask(taskId);
-  if (!task || task.coordinatorSession !== session.transportSession) {
+  if (!task || !sameCoordinatorSession(task.coordinatorSession, coordinatorSession)) {
     return { text: t().orchestration.taskNotFound };
   }
 
@@ -287,13 +304,15 @@ export async function handleTaskApprove(
     return { text: t().orchestration.noCurrentSession };
   }
 
+  const coordinatorSession = stableCoordinatorSession(session.transportSession);
+
   const orchestration = getOrchestration(context);
   if (!orchestration) {
     return { text: renderOrchestrationUnavailable() };
   }
 
   const task = await orchestration.getTask(taskId);
-  if (!task || task.coordinatorSession !== session.transportSession) {
+  if (!task || !sameCoordinatorSession(task.coordinatorSession, coordinatorSession)) {
     return { text: t().orchestration.taskNotFound };
   }
   if (task.status !== "needs_confirmation") {
@@ -302,7 +321,7 @@ export async function handleTaskApprove(
 
   const approved = await orchestration.approveTask({
     taskId,
-    coordinatorSession: session.transportSession,
+    coordinatorSession,
   });
 
   return { text: renderTaskApprovalSuccess(approved) };
@@ -318,13 +337,15 @@ export async function handleTaskReject(
     return { text: t().orchestration.noCurrentSession };
   }
 
+  const coordinatorSession = stableCoordinatorSession(session.transportSession);
+
   const orchestration = getOrchestration(context);
   if (!orchestration) {
     return { text: renderOrchestrationUnavailable() };
   }
 
   const task = await orchestration.getTask(taskId);
-  if (!task || task.coordinatorSession !== session.transportSession) {
+  if (!task || !sameCoordinatorSession(task.coordinatorSession, coordinatorSession)) {
     return { text: t().orchestration.taskNotFound };
   }
   if (task.status !== "needs_confirmation") {
@@ -333,7 +354,7 @@ export async function handleTaskReject(
 
   const rejected = await orchestration.cancelTask({
     taskId,
-    coordinatorSession: session.transportSession,
+    coordinatorSession,
   });
 
   return { text: renderTaskRejectSuccess(rejected) };
@@ -349,19 +370,21 @@ export async function handleTaskCancel(
     return { text: t().orchestration.noCurrentSession };
   }
 
+  const coordinatorSession = stableCoordinatorSession(session.transportSession);
+
   const orchestration = getOrchestration(context);
   if (!orchestration) {
     return { text: renderOrchestrationUnavailable() };
   }
 
   const task = await orchestration.getTask(taskId);
-  if (!task || task.coordinatorSession !== session.transportSession) {
+  if (!task || !sameCoordinatorSession(task.coordinatorSession, coordinatorSession)) {
     return { text: t().orchestration.taskNotFound };
   }
 
   const cancelled = await orchestration.requestTaskCancellation({
     taskId,
-    coordinatorSession: session.transportSession,
+    coordinatorSession,
   });
 
   return { text: renderTaskCancelSuccess(cancelled) };
@@ -373,12 +396,14 @@ export async function handleTasksClean(context: CommandRouterContext, chatKey: s
     return { text: t().orchestration.noCurrentSession };
   }
 
+  const coordinatorSession = stableCoordinatorSession(session.transportSession);
+
   const orchestration = getOrchestration(context);
   if (!orchestration) {
     return { text: renderOrchestrationUnavailable() };
   }
 
-  const result = await orchestration.cleanTasks(session.transportSession);
+  const result = await orchestration.cleanTasks(coordinatorSession);
   return { text: renderTasksCleanResult(result.removedTasks, result.removedBindings) };
 }
 

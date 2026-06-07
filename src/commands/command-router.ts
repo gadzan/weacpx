@@ -87,6 +87,7 @@ import type {
   WritableConfigStore,
 } from "./router-types";
 import { renderLaterUnsupportedChannel } from "../scheduled/scheduled-render";
+import { stableCoordinatorSession } from "../orchestration/coordinator-identity";
 
 type AutoInstallFn = typeof defaultAutoInstall;
 type DiscoverPathsFn = typeof defaultDiscoverPaths;
@@ -678,7 +679,7 @@ export class CommandRouter {
     onThought?: (chunk: string) => void | Promise<void>,
     perfSpan?: PerfSpan,
   ) {
-    session.mcpCoordinatorSession ??= session.transportSession;
+    session.mcpCoordinatorSession ??= stableCoordinatorSession(session.transportSession);
     // `done` closes the race window between prompt resolving and the abort
     // listener firing: once we're in finally we suppress any late abort so
     // it can't cancel a *follow-up* prompt that happens to reuse this session.

@@ -42,7 +42,6 @@ interface RunCleanupSequenceInput {
   signalHandler: () => void;
   clearIntervalFn: (timer: unknown) => void;
   heartbeatTimer: unknown;
-  gcResetTimer: unknown;
   daemonRuntime?: DaemonLifecycle;
   daemonRuntimeStarted: boolean;
   runtime: AppRuntime | null;
@@ -65,7 +64,6 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
   let runtime: AppRuntime | null = null;
   let consumerLock: ConsumerLock | undefined;
   let heartbeatTimer: unknown = null;
-  let gcResetTimer: unknown = null;
   let consumerLockAcquired = false;
   let daemonRuntimeStarted = false;
   const shutdownController = new AbortController();
@@ -80,12 +78,6 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
     if (deps.afterBuild) {
       await deps.afterBuild(runtime);
     }
-    try {
-      await runtime.orchestration.service.purgeExpiredResetCoordinators({
-        cutoffDays: 7,
-        trigger: "startup",
-      });
-    } catch {}
     // Drain any tasks that were queued at shutdown and close stale ephemeral
     // worker sessions left over from a previous run.
     try {
@@ -166,15 +158,6 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
         },
         deps.heartbeatIntervalMs ?? 30_000,
       );
-      const runtimeForGc = runtime;
-      gcResetTimer = setIntervalFn(
-        () => {
-          void runtimeForGc.orchestration.service
-            .purgeExpiredResetCoordinators({ cutoffDays: 7, trigger: "interval" })
-            .catch(() => {});
-        },
-        86_400_000,
-      );
     }
 
     const channelStartPromise = deps.channels.startAll({
@@ -250,7 +233,6 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
       signalHandler,
       clearIntervalFn,
       heartbeatTimer,
-      gcResetTimer,
       ...(deps.daemonRuntime ? { daemonRuntime: deps.daemonRuntime } : {}),
       runtime,
       consumerLock,
@@ -278,10 +260,6 @@ async function runCleanupSequence(input: RunCleanupSequenceInput): Promise<void>
   if (input.heartbeatTimer !== null) {
     input.clearIntervalFn(input.heartbeatTimer);
   }
-  if (input.gcResetTimer !== null) {
-    input.clearIntervalFn(input.gcResetTimer);
-  }
-
   if (input.daemonRuntime && input.runtime) {
     try {
       await input.runtime.orchestration.server.stop();

@@ -149,13 +149,6 @@ function makeDeps(
   };
 }
 
-/**
- * 构造 reset coordinator 的 transport session 名称（用于 :reset- 识别规则）。
- */
-function makeResetCoordinatorSession(ts: string) {
-  return `weacpx:weacpx:claude:reset-${ts}`;
-}
-
 function makeBlockedTask(taskId: string, questionId: string) {
   return {
     taskId,
@@ -7643,344 +7636,6 @@ test("cleanTasks leaves bindings owned by other coordinators alone even when unr
   expect(state.orchestration.workerBindings["backend:claude:backend:other"]).toBeDefined();
 });
 
-test("purgeExpiredResetCoordinators uses max(route.updatedAt, tasks.updatedAt) as activityAt", async () => {
-  const coordinator = makeResetCoordinatorSession("activity-max");
-  const harness = makeDeps({
-    now: () => new Date("2026-04-13T10:00:00.000Z"),
-    initialState: {
-      ...createEmptyState(),
-      orchestration: {
-        ...createEmptyState().orchestration,
-        coordinatorRoutes: {
-          [coordinator]: {
-            coordinatorSession: coordinator,
-            chatKey: "weixin:u",
-            updatedAt: "2026-04-12T00:00:00.000Z",
-          },
-        },
-        tasks: {
-          "task-1": {
-            taskId: "task-1",
-            sourceHandle: "wx:user-1",
-            sourceKind: "human",
-            coordinatorSession: coordinator,
-            workerSession: "w:1",
-            workspace: "weacpx",
-            targetAgent: "claude",
-            task: "t1",
-            status: "completed",
-            summary: "",
-            resultText: "",
-            createdAt: "2026-04-01T00:00:00.000Z",
-            updatedAt: "2026-04-01T00:00:00.000Z",
-          },
-        },
-      },
-    },
-  });
-  const service = new OrchestrationService(harness.deps);
-
-  const result = await service.purgeExpiredResetCoordinators({ cutoffDays: 7, trigger: "startup" });
-
-  expect(result).toEqual({
-    candidates: 1,
-    purgedCoordinators: 0,
-    removed: {
-      tasks: 0,
-      workerBindings: 0,
-      groups: 0,
-      coordinatorRoutes: 0,
-      humanQuestionPackages: 0,
-      coordinatorQuestionState: 0,
-    },
-  });
-  expect(harness.savedStates.length).toBe(0);
-});
-
-test("purgeExpiredResetCoordinators considers route-only and task-only reset coordinators as candidates", async () => {
-  const routeOnly = makeResetCoordinatorSession("route-only");
-  const taskOnly = makeResetCoordinatorSession("task-only");
-  const harness = makeDeps({
-    now: () => new Date("2026-04-13T10:00:00.000Z"),
-    initialState: {
-      ...createEmptyState(),
-      orchestration: {
-        ...createEmptyState().orchestration,
-        coordinatorRoutes: {
-          [routeOnly]: {
-            coordinatorSession: routeOnly,
-            chatKey: "weixin:u",
-            updatedAt: "2026-03-01T00:00:00.000Z",
-          },
-        },
-        tasks: {
-          "task-1": {
-            taskId: "task-1",
-            sourceHandle: "wx:user-1",
-            sourceKind: "human",
-            coordinatorSession: taskOnly,
-            workerSession: "w:1",
-            workspace: "weacpx",
-            targetAgent: "claude",
-            task: "t1",
-            status: "completed",
-            summary: "",
-            resultText: "",
-            createdAt: "2026-03-01T00:00:00.000Z",
-            updatedAt: "2026-03-01T00:00:00.000Z",
-          },
-        },
-      },
-    },
-  });
-  const service = new OrchestrationService(harness.deps);
-
-  const result = await service.purgeExpiredResetCoordinators({ cutoffDays: 7, trigger: "startup" });
-
-  expect(result.candidates).toBe(2);
-  expect(result.purgedCoordinators).toBe(2);
-});
-
-test("purgeExpiredResetCoordinators skips reset coordinators with unparseable activityAt", async () => {
-  const coordinator = makeResetCoordinatorSession("bad-date");
-  const harness = makeDeps({
-    now: () => new Date("2026-04-13T10:00:00.000Z"),
-    initialState: {
-      ...createEmptyState(),
-      orchestration: {
-        ...createEmptyState().orchestration,
-        coordinatorRoutes: {
-          [coordinator]: {
-            coordinatorSession: coordinator,
-            chatKey: "weixin:u",
-            updatedAt: "not-a-date",
-          },
-        },
-      },
-    },
-  });
-  const service = new OrchestrationService(harness.deps);
-
-  const result = await service.purgeExpiredResetCoordinators({ cutoffDays: 7, trigger: "startup" });
-
-  expect(result).toEqual({
-    candidates: 1,
-    purgedCoordinators: 0,
-    removed: {
-      tasks: 0,
-      workerBindings: 0,
-      groups: 0,
-      coordinatorRoutes: 0,
-      humanQuestionPackages: 0,
-      coordinatorQuestionState: 0,
-    },
-  });
-  expect(harness.savedStates.length).toBe(0);
-});
-
-test("purgeExpiredResetCoordinators does not purge reset coordinators referenced by logical sessions", async () => {
-  const coordinator = makeResetCoordinatorSession("active");
-  const harness = makeDeps({
-    now: () => new Date("2026-04-13T10:00:00.000Z"),
-    initialState: {
-      ...createEmptyState(),
-      sessions: {
-        "weacpx:claude": {
-          alias: "weacpx:claude",
-          agent: "claude",
-          workspace: "weacpx",
-          transport_session: coordinator,
-          created_at: "2026-04-01T00:00:00.000Z",
-          last_used_at: "2026-04-01T00:00:00.000Z",
-        },
-      },
-      orchestration: {
-        ...createEmptyState().orchestration,
-        coordinatorRoutes: {
-          [coordinator]: {
-            coordinatorSession: coordinator,
-            chatKey: "weixin:u",
-            updatedAt: "2026-03-01T00:00:00.000Z",
-          },
-        },
-      },
-    },
-  });
-  const service = new OrchestrationService(harness.deps);
-
-  const result = await service.purgeExpiredResetCoordinators({ cutoffDays: 7, trigger: "startup" });
-
-  expect(result.purgedCoordinators).toBe(0);
-  expect(harness.getState().orchestration.coordinatorRoutes[coordinator]).toBeDefined();
-});
-
-test("purgeExpiredResetCoordinators cascades deletion across orchestration state maps", async () => {
-  const coordinator = makeResetCoordinatorSession("cascade");
-  const harness = makeDeps({
-    now: () => new Date("2026-04-13T10:00:00.000Z"),
-    initialState: {
-      ...createEmptyState(),
-      orchestration: {
-        ...createEmptyState().orchestration,
-        coordinatorRoutes: {
-          [coordinator]: {
-            coordinatorSession: coordinator,
-            chatKey: "weixin:u",
-            updatedAt: "2026-03-01T00:00:00.000Z",
-          },
-          "backend:main": {
-            coordinatorSession: "backend:main",
-            chatKey: "wx:keep",
-            updatedAt: "2026-04-12T00:00:00.000Z",
-          },
-        },
-        coordinatorQuestionState: {
-          [coordinator]: {
-            activePackageId: "package-1",
-            queuedQuestions: [],
-          },
-          "backend:main": {
-            queuedQuestions: [],
-          },
-        },
-        humanQuestionPackages: {
-          "package-1": {
-            packageId: "package-1",
-            coordinatorSession: coordinator,
-            status: "active",
-            createdAt: "2026-03-01T00:00:00.000Z",
-            updatedAt: "2026-03-01T00:00:00.000Z",
-            initialTaskIds: [],
-            openTaskIds: [],
-            resolvedTaskIds: [],
-            awaitingReplyMessageId: "message-1",
-            messages: [
-              {
-                messageId: "message-1",
-                kind: "initial",
-                promptText: "x",
-                createdAt: "2026-03-01T00:00:00.000Z",
-              },
-            ],
-          },
-          "package-keep": {
-            packageId: "package-keep",
-            coordinatorSession: "backend:main",
-            status: "active",
-            createdAt: "2026-04-12T00:00:00.000Z",
-            updatedAt: "2026-04-12T00:00:00.000Z",
-            initialTaskIds: [],
-            openTaskIds: [],
-            resolvedTaskIds: [],
-            awaitingReplyMessageId: "message-keep",
-            messages: [
-              {
-                messageId: "message-keep",
-                kind: "initial",
-                promptText: "y",
-                createdAt: "2026-04-12T00:00:00.000Z",
-              },
-            ],
-          },
-        },
-        groups: {
-          "group-1": {
-            groupId: "group-1",
-            coordinatorSession: coordinator,
-            title: "gc",
-            createdAt: "2026-03-01T00:00:00.000Z",
-            updatedAt: "2026-03-01T00:00:00.000Z",
-          },
-          "group-keep": {
-            groupId: "group-keep",
-            coordinatorSession: "backend:main",
-            title: "keep",
-            createdAt: "2026-04-12T00:00:00.000Z",
-            updatedAt: "2026-04-12T00:00:00.000Z",
-          },
-        },
-        workerBindings: {
-          "w:gc": {
-            sourceHandle: "w:gc",
-            coordinatorSession: coordinator,
-            workspace: "weacpx",
-            targetAgent: "claude",
-          },
-          "w:keep": {
-            sourceHandle: "w:keep",
-            coordinatorSession: "backend:main",
-            workspace: "weacpx",
-            targetAgent: "claude",
-          },
-        },
-        tasks: {
-          "task-gc": {
-            taskId: "task-gc",
-            sourceHandle: "wx:user-1",
-            sourceKind: "human",
-            coordinatorSession: coordinator,
-            workerSession: "w:gc",
-            workspace: "weacpx",
-            targetAgent: "claude",
-            task: "t",
-            status: "completed",
-            summary: "",
-            resultText: "",
-            createdAt: "2026-03-01T00:00:00.000Z",
-            updatedAt: "2026-03-01T00:00:00.000Z",
-          },
-          "task-keep": {
-            taskId: "task-keep",
-            sourceHandle: "wx:user-1",
-            sourceKind: "human",
-            coordinatorSession: "backend:main",
-            workerSession: "w:keep",
-            workspace: "weacpx",
-            targetAgent: "claude",
-            task: "t",
-            status: "completed",
-            summary: "",
-            resultText: "",
-            createdAt: "2026-04-12T00:00:00.000Z",
-            updatedAt: "2026-04-12T00:00:00.000Z",
-          },
-        },
-      },
-    },
-  });
-  const service = new OrchestrationService(harness.deps);
-
-  const result = await service.purgeExpiredResetCoordinators({ cutoffDays: 7, trigger: "startup" });
-
-  expect(result).toEqual({
-    candidates: 1,
-    purgedCoordinators: 1,
-    removed: {
-      tasks: 1,
-      workerBindings: 1,
-      groups: 1,
-      coordinatorRoutes: 1,
-      humanQuestionPackages: 1,
-      coordinatorQuestionState: 1,
-    },
-  });
-
-  const next = harness.getState();
-  expect(next.orchestration.tasks["task-gc"]).toBeUndefined();
-  expect(next.orchestration.workerBindings["w:gc"]).toBeUndefined();
-  expect(next.orchestration.groups["group-1"]).toBeUndefined();
-  expect(next.orchestration.coordinatorRoutes[coordinator]).toBeUndefined();
-  expect(next.orchestration.humanQuestionPackages["package-1"]).toBeUndefined();
-  expect(next.orchestration.coordinatorQuestionState[coordinator]).toBeUndefined();
-
-  expect(next.orchestration.tasks["task-keep"]).toBeDefined();
-  expect(next.orchestration.workerBindings["w:keep"]).toBeDefined();
-  expect(next.orchestration.groups["group-keep"]).toBeDefined();
-  expect(next.orchestration.coordinatorRoutes["backend:main"]).toBeDefined();
-  expect(next.orchestration.humanQuestionPackages["package-keep"]).toBeDefined();
-  expect(next.orchestration.coordinatorQuestionState["backend:main"]).toBeDefined();
-});
-
 test("listSessionBlockingTasks returns non-terminal tasks touching the transport session as coord or worker", async () => {
   const harness = makeDeps({
     initialState: {
@@ -8343,6 +7998,129 @@ test("purgeSessionReferences leaves non-terminal tasks untouched", async () => {
   expect(result.removedTasks).toBe(0);
   expect(result.removedBindings).toBe(0);
   expect(await service.getTask("task-coord-running")).not.toBeNull();
+});
+
+test("listSessionBlockingTasks with post-/clear reset transport session finds tasks stored under stable coordinator id", async () => {
+  // Tasks are stored with coordinatorSession="ws:alias" (stable id).
+  // After /clear, transport session becomes "ws:alias:reset-1700000000000".
+  // The blocking guard must detect the active task so session remove is blocked.
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        tasks: {
+          "task-stable-running": {
+            taskId: "task-stable-running",
+            sourceHandle: "wx:user-1",
+            sourceKind: "human" as const,
+            coordinatorSession: "backend:main",
+            workerSession: "backend:claude:backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "some work",
+            status: "running",
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-13T10:00:00.000Z",
+            updatedAt: "2026-04-13T10:00:00.000Z",
+          },
+        },
+        workerBindings: {},
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  // Calling with post-/clear raw transport name — should still find the task
+  const blocking = await service.listSessionBlockingTasks("backend:main:reset-1700000000000");
+  expect(blocking.map((t) => t.taskId)).toEqual(["task-stable-running"]);
+});
+
+test("purgeSessionReferences with post-/clear reset transport session removes terminal task stored under stable coordinator id", async () => {
+  // Tasks are stored with coordinatorSession="ws:alias" (stable id).
+  // After /clear, transport session becomes "ws:alias:reset-1700000000000".
+  // purgeSessionReferences must clean up those records so no orphans are left.
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        tasks: {
+          "task-stable-done": {
+            taskId: "task-stable-done",
+            sourceHandle: "wx:user-1",
+            sourceKind: "human" as const,
+            coordinatorSession: "backend:main",
+            workerSession: "backend:claude:backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "finished work",
+            status: "completed",
+            summary: "done",
+            resultText: "ok",
+            createdAt: "2026-04-13T09:00:00.000Z",
+            updatedAt: "2026-04-13T09:05:00.000Z",
+          },
+        },
+        workerBindings: {
+          "backend:claude:backend:main": {
+            sourceHandle: "backend:claude:backend:main",
+            coordinatorSession: "backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  // Calling with post-/clear raw transport name — should remove the stable-id records
+  const result = await service.purgeSessionReferences("backend:main:reset-1700000000000");
+  expect(result.removedTasks).toBeGreaterThanOrEqual(1);
+  expect(await service.getTask("task-stable-done")).toBeNull();
+});
+
+test("purgeSessionReferences still removes a task whose workerSession matches the passed identifier (worker removal not regressed)", async () => {
+  // Worker session names never carry :reset- suffix; pass a plain name and
+  // confirm the worker-matching branch still works after the identity normalization.
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        tasks: {
+          "task-worker-done": {
+            taskId: "task-worker-done",
+            sourceHandle: "wx:user-2",
+            sourceKind: "human" as const,
+            coordinatorSession: "backend:other",
+            workerSession: "backend:main",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "worker task",
+            status: "completed",
+            summary: "done",
+            resultText: "ok",
+            createdAt: "2026-04-13T09:00:00.000Z",
+            updatedAt: "2026-04-13T09:05:00.000Z",
+          },
+        },
+        workerBindings: {
+          "backend:main": {
+            sourceHandle: "backend:main",
+            coordinatorSession: "backend:other",
+            workspace: "backend",
+            targetAgent: "claude",
+          },
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  const result = await service.purgeSessionReferences("backend:main");
+  expect(result.removedTasks).toBe(1);
+  expect(result.removedBindings).toBe(1);
+  expect(await service.getTask("task-worker-done")).toBeNull();
 });
 
 test("records task progress by updating lastProgressAt", async () => {
@@ -9909,4 +9687,202 @@ test("I-3: cancelling a queued parallel task does NOT invoke closeWorkerSession 
   // The queued task must be cancelled
   const task = await service.getTask("queued-task");
   expect(task?.status).toBe("cancelled");
+});
+
+test("requestTaskCancellation succeeds when task has legacy reset-suffixed coordinatorSession and caller uses stable id", async () => {
+  // A task stored with a `:reset-<digits>` suffix on its coordinatorSession (legacy state.json record)
+  // must be manageable by a coordinator presenting the stable (stripped) identity.
+  const harness = makeDeps({
+    initialState: {
+      ...createEmptyState(),
+      orchestration: {
+        tasks: {
+          "task-reset-owner": {
+            taskId: "task-reset-owner",
+            sourceHandle: "wx:user-1",
+            sourceKind: "human" as const,
+            coordinatorSession: "ws:alias:reset-1700000000000",
+            workerSession: "backend:claude:worker-1",
+            workspace: "backend",
+            targetAgent: "claude",
+            task: "some delegated work",
+            status: "running" as const,
+            summary: "",
+            resultText: "",
+            createdAt: "2026-04-13T10:00:00.000Z",
+            updatedAt: "2026-04-13T10:00:00.000Z",
+            eventSeq: 1,
+            events: [],
+          },
+        },
+        workerBindings: {},
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  // Stable coordinator id (no :reset- suffix) must be accepted for a task
+  // whose stored coordinatorSession carries the legacy reset suffix.
+  const result = await service.requestTaskCancellation({
+    taskId: "task-reset-owner",
+    coordinatorSession: "ws:alias",
+  });
+
+  expect(result.status).toBe("running");
+  expect(result.cancelRequestedAt).toBeDefined();
+});
+
+test("requestDelegateFromRpc succeeds when session has reset-suffixed transport_session and sourceHandle is stable id", async () => {
+  // Regression test for Fix 1: after /clear, the session record carries
+  // `transport_session: "ws:alias:reset-<ts>"` but the MCP queue-owner
+  // (sourceHandle) is the stable id "ws:alias". resolveRpcSourceContext must
+  // normalize both sides of the find so the delegation does NOT throw
+  // "is not a registered coordinator or worker session".
+  const harness = makeDeps({
+    createId: () => "task-rpc-reset-fix",
+    reusableWorkerSession: "ws:claude:ws:alias",
+    initialState: {
+      ...createEmptyState(),
+      sessions: {
+        main: {
+          alias: "main",
+          agent: "claude",
+          workspace: "ws",
+          transport_session: "ws:alias:reset-1700000000000",
+          created_at: "2026-04-13T10:00:00.000Z",
+          last_used_at: "2026-04-13T10:00:00.000Z",
+        },
+      },
+    },
+  });
+  const service = new OrchestrationService(harness.deps);
+
+  // sourceHandle is the stable id (no :reset- suffix) — as baked by the MCP
+  // queue-owner registration in command-router.ts
+  const result = await service.requestDelegateFromRpc({
+    sourceHandle: "ws:alias",
+    targetAgent: "claude",
+    task: "implement the feature",
+  });
+
+  expect(result.taskId).toBe("task-rpc-reset-fix");
+  expect(result.status).toBe("running");
+
+  // Wait for the async dispatch to fire
+  for (let attempt = 0; attempt < 20 && harness.dispatchCalls.length === 0; attempt += 1) {
+    await Bun.sleep(0);
+  }
+
+  const task = harness.getState().orchestration.tasks["task-rpc-reset-fix"];
+  // The task must record the stable coordinator session (not the reset-suffixed one)
+  expect(task).toMatchObject({
+    sourceHandle: "ws:alias",
+    sourceKind: "coordinator",
+    coordinatorSession: "ws:alias",
+    workspace: "ws",
+    targetAgent: "claude",
+    status: "running",
+  });
+});
+
+// Boundary-normalization regressions: every coordinator-ownership read must
+// recognize a task/group whose stored coordinatorSession carries a legacy
+// `:reset-<digits>` suffix when queried with the stable id, exactly like the
+// blocking/cancellation paths already do. Before centralizing comparisons on
+// sameCoordinatorSession these readers used a raw `===` and silently dropped
+// such records, producing "blocked but unlistable / uncancellable" deadlocks.
+function makeResetOwnedTaskState() {
+  return {
+    ...createEmptyState(),
+    orchestration: {
+      tasks: {
+        "legacy-running": {
+          taskId: "legacy-running",
+          sourceHandle: "wx:user-1",
+          sourceKind: "human" as const,
+          coordinatorSession: "ws:alias:reset-1700000000000",
+          workerSession: "backend:claude:worker-1",
+          workspace: "backend",
+          targetAgent: "claude",
+          task: "in flight",
+          status: "running" as const,
+          summary: "",
+          resultText: "",
+          createdAt: "2026-04-13T10:00:00.000Z",
+          updatedAt: "2026-04-13T10:00:00.000Z",
+          eventSeq: 1,
+          events: [],
+        },
+        "legacy-terminal": {
+          taskId: "legacy-terminal",
+          sourceHandle: "wx:user-1",
+          sourceKind: "human" as const,
+          coordinatorSession: "ws:alias:reset-1700000000000",
+          workerSession: "backend:claude:worker-2",
+          workspace: "backend",
+          targetAgent: "claude",
+          task: "done work",
+          status: "completed" as const,
+          summary: "done",
+          resultText: "result",
+          createdAt: "2026-04-13T10:00:00.000Z",
+          updatedAt: "2026-04-13T10:05:00.000Z",
+          injectionPending: true,
+        },
+      },
+      workerBindings: {},
+      groups: {
+        "legacy-group": {
+          groupId: "legacy-group",
+          coordinatorSession: "ws:alias:reset-1700000000000",
+          title: "legacy",
+          createdAt: "2026-04-13T10:00:00.000Z",
+          updatedAt: "2026-04-13T10:00:00.000Z",
+        },
+      },
+    },
+  } as AppState;
+}
+
+test("listTasks with stable id returns a task stored under a legacy reset-suffixed coordinatorSession", async () => {
+  const harness = makeDeps({ initialState: makeResetOwnedTaskState() });
+  const service = new OrchestrationService(harness.deps);
+
+  const tasks = await service.listTasks({ coordinatorSession: "ws:alias" });
+
+  expect(tasks.map((task) => task.taskId).sort()).toEqual(["legacy-running", "legacy-terminal"]);
+});
+
+test("cleanTasks with stable id removes a terminal task stored under a legacy reset-suffixed coordinatorSession", async () => {
+  const harness = makeDeps({ initialState: makeResetOwnedTaskState() });
+  const service = new OrchestrationService(harness.deps);
+
+  const result = await service.cleanTasks("ws:alias");
+
+  expect(result.removedTasks).toBe(1);
+  expect(harness.getState().orchestration.tasks["legacy-terminal"]).toBeUndefined();
+  expect(harness.getState().orchestration.tasks["legacy-running"]).toBeDefined();
+});
+
+test("listPendingCoordinatorResults with stable id returns a result stored under a legacy reset-suffixed coordinatorSession", async () => {
+  const harness = makeDeps({ initialState: makeResetOwnedTaskState() });
+  const service = new OrchestrationService(harness.deps);
+
+  const pending = await service.listPendingCoordinatorResults("ws:alias");
+
+  expect(pending.map((task) => task.taskId)).toEqual(["legacy-terminal"]);
+});
+
+test("getGroupSummary/listGroupSummaries with stable id find a group stored under a legacy reset-suffixed coordinatorSession", async () => {
+  const harness = makeDeps({ initialState: makeResetOwnedTaskState() });
+  const service = new OrchestrationService(harness.deps);
+
+  const summary = await service.getGroupSummary({
+    groupId: "legacy-group",
+    coordinatorSession: "ws:alias",
+  });
+  expect(summary).not.toBeNull();
+
+  const summaries = await service.listGroupSummaries({ coordinatorSession: "ws:alias" });
+  expect(summaries.map((summary) => summary.group.groupId)).toEqual(["legacy-group"]);
 });

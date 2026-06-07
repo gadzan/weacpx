@@ -22,6 +22,7 @@ import { runXacpxMcpServer } from "./mcp/xacpx-mcp-server";
 import {
   inferExternalCoordinatorSession,
 } from "./mcp/infer-coordinator-identity";
+import { stableCoordinatorSession } from "./orchestration/coordinator-identity";
 import { parseCoordinatorWorkspace } from "./mcp/parse-coordinator-workspace";
 import { parseCoordinatorSession } from "./mcp/parse-coordinator-session";
 import { parseInternalSessionToolsFlag } from "./mcp/parse-internal-session-tools";
@@ -73,7 +74,7 @@ export async function prepareMcpCoordinatorStartup(
 ): Promise<PrepareMcpCoordinatorStartupResult> {
   const coordinatorSession = input.coordinatorSession.trim();
   const existingSession = Object.values(input.state.sessions).find(
-    (session) => session.transport_session === coordinatorSession,
+    (session) => stableCoordinatorSession(session.transport_session) === stableCoordinatorSession(coordinatorSession),
   );
 
   const workspace = input.workspace?.trim();
@@ -143,10 +144,17 @@ export function createMcpStdioIdentityResolver(input: {
     const sourceHandle = input.sourceHandle?.trim() || null;
 
     const resolvedWorkspace = workspace;
-    const resolvedCoordinatorSession = parsedCoordinatorSession ?? inferExternalCoordinatorSession({
-      clientName: context.clientName,
-      ...(resolvedWorkspace ? { workspace: resolvedWorkspace } : { instanceId }),
-    });
+    // Normalize at this ingress boundary: a coordinator launched while its
+    // session carries a post-`/clear` `:reset-<ts>` suffix must present the
+    // stable identity to the orchestration service, so every downstream tool
+    // call (delegate, task_*, scheduled_*) shares one identity with the
+    // WeChat-side handlers. External coordinators have no suffix to strip.
+    const resolvedCoordinatorSession = stableCoordinatorSession(
+      parsedCoordinatorSession ?? inferExternalCoordinatorSession({
+        clientName: context.clientName,
+        ...(resolvedWorkspace ? { workspace: resolvedWorkspace } : { instanceId }),
+      }),
+    );
     const startup = await prepareMcpCoordinatorStartup({
       coordinatorSession: resolvedCoordinatorSession,
       ...(resolvedWorkspace ? { workspace: resolvedWorkspace } : {}),
