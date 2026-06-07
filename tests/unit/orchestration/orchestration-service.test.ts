@@ -9784,3 +9784,105 @@ test("requestDelegateFromRpc succeeds when session has reset-suffixed transport_
     status: "running",
   });
 });
+
+// Boundary-normalization regressions: every coordinator-ownership read must
+// recognize a task/group whose stored coordinatorSession carries a legacy
+// `:reset-<digits>` suffix when queried with the stable id, exactly like the
+// blocking/cancellation paths already do. Before centralizing comparisons on
+// sameCoordinatorSession these readers used a raw `===` and silently dropped
+// such records, producing "blocked but unlistable / uncancellable" deadlocks.
+function makeResetOwnedTaskState() {
+  return {
+    ...createEmptyState(),
+    orchestration: {
+      tasks: {
+        "legacy-running": {
+          taskId: "legacy-running",
+          sourceHandle: "wx:user-1",
+          sourceKind: "human" as const,
+          coordinatorSession: "ws:alias:reset-1700000000000",
+          workerSession: "backend:claude:worker-1",
+          workspace: "backend",
+          targetAgent: "claude",
+          task: "in flight",
+          status: "running" as const,
+          summary: "",
+          resultText: "",
+          createdAt: "2026-04-13T10:00:00.000Z",
+          updatedAt: "2026-04-13T10:00:00.000Z",
+          eventSeq: 1,
+          events: [],
+        },
+        "legacy-terminal": {
+          taskId: "legacy-terminal",
+          sourceHandle: "wx:user-1",
+          sourceKind: "human" as const,
+          coordinatorSession: "ws:alias:reset-1700000000000",
+          workerSession: "backend:claude:worker-2",
+          workspace: "backend",
+          targetAgent: "claude",
+          task: "done work",
+          status: "completed" as const,
+          summary: "done",
+          resultText: "result",
+          createdAt: "2026-04-13T10:00:00.000Z",
+          updatedAt: "2026-04-13T10:05:00.000Z",
+          injectionPending: true,
+        },
+      },
+      workerBindings: {},
+      groups: {
+        "legacy-group": {
+          groupId: "legacy-group",
+          coordinatorSession: "ws:alias:reset-1700000000000",
+          title: "legacy",
+          createdAt: "2026-04-13T10:00:00.000Z",
+          updatedAt: "2026-04-13T10:00:00.000Z",
+        },
+      },
+    },
+  } as AppState;
+}
+
+test("listTasks with stable id returns a task stored under a legacy reset-suffixed coordinatorSession", async () => {
+  const harness = makeDeps({ initialState: makeResetOwnedTaskState() });
+  const service = new OrchestrationService(harness.deps);
+
+  const tasks = await service.listTasks({ coordinatorSession: "ws:alias" });
+
+  expect(tasks.map((task) => task.taskId).sort()).toEqual(["legacy-running", "legacy-terminal"]);
+});
+
+test("cleanTasks with stable id removes a terminal task stored under a legacy reset-suffixed coordinatorSession", async () => {
+  const harness = makeDeps({ initialState: makeResetOwnedTaskState() });
+  const service = new OrchestrationService(harness.deps);
+
+  const result = await service.cleanTasks("ws:alias");
+
+  expect(result.removedTasks).toBe(1);
+  expect(harness.getState().orchestration.tasks["legacy-terminal"]).toBeUndefined();
+  expect(harness.getState().orchestration.tasks["legacy-running"]).toBeDefined();
+});
+
+test("listPendingCoordinatorResults with stable id returns a result stored under a legacy reset-suffixed coordinatorSession", async () => {
+  const harness = makeDeps({ initialState: makeResetOwnedTaskState() });
+  const service = new OrchestrationService(harness.deps);
+
+  const pending = await service.listPendingCoordinatorResults("ws:alias");
+
+  expect(pending.map((task) => task.taskId)).toEqual(["legacy-terminal"]);
+});
+
+test("getGroupSummary/listGroupSummaries with stable id find a group stored under a legacy reset-suffixed coordinatorSession", async () => {
+  const harness = makeDeps({ initialState: makeResetOwnedTaskState() });
+  const service = new OrchestrationService(harness.deps);
+
+  const summary = await service.getGroupSummary({
+    groupId: "legacy-group",
+    coordinatorSession: "ws:alias",
+  });
+  expect(summary).not.toBeNull();
+
+  const summaries = await service.listGroupSummaries({ coordinatorSession: "ws:alias" });
+  expect(summaries.map((summary) => summary.group.groupId)).toEqual(["legacy-group"]);
+});

@@ -22,6 +22,7 @@ import {
   MAX_TASK_WATCH_POLL_INTERVAL_MS,
   MAX_TASK_WATCH_TIMEOUT_MS,
 } from "./task-watch-timeouts";
+import { sameCoordinatorSession } from "./coordinator-identity";
 import type { ScheduledCreateFromRouteInput } from "../scheduled/scheduled-route-create";
 import type {
   ScheduledCancelFromRouteInput,
@@ -311,7 +312,7 @@ export class OrchestrationServer {
     if (!task) {
       return null;
     }
-    if (task.coordinatorSession !== coordinatorSession) {
+    if (!sameCoordinatorSession(task.coordinatorSession, coordinatorSession)) {
       return null;
     }
     return task;

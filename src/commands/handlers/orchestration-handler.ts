@@ -18,7 +18,7 @@ import type { ResolvedSession } from "../../transport/types";
 import type { HelpTopicMetadata } from "../help/help-types";
 import type { CommandRouterContext, OrchestrationRouterOps, RouterResponse } from "../router-types";
 import { t } from "../../i18n";
-import { stableCoordinatorSession } from "../../orchestration/coordinator-identity";
+import { sameCoordinatorSession, stableCoordinatorSession } from "../../orchestration/coordinator-identity";
 
 export function orchestrationHelp(): HelpTopicMetadata {
   const o = t().orchestration;
@@ -287,7 +287,7 @@ export async function handleTaskGet(context: CommandRouterContext, chatKey: stri
   }
 
   const task = await orchestration.getTask(taskId);
-  if (!task || task.coordinatorSession !== coordinatorSession) {
+  if (!task || !sameCoordinatorSession(task.coordinatorSession, coordinatorSession)) {
     return { text: t().orchestration.taskNotFound };
   }
 
@@ -312,7 +312,7 @@ export async function handleTaskApprove(
   }
 
   const task = await orchestration.getTask(taskId);
-  if (!task || task.coordinatorSession !== coordinatorSession) {
+  if (!task || !sameCoordinatorSession(task.coordinatorSession, coordinatorSession)) {
     return { text: t().orchestration.taskNotFound };
   }
   if (task.status !== "needs_confirmation") {
@@ -345,7 +345,7 @@ export async function handleTaskReject(
   }
 
   const task = await orchestration.getTask(taskId);
-  if (!task || task.coordinatorSession !== coordinatorSession) {
+  if (!task || !sameCoordinatorSession(task.coordinatorSession, coordinatorSession)) {
     return { text: t().orchestration.taskNotFound };
   }
   if (task.status !== "needs_confirmation") {
@@ -378,7 +378,7 @@ export async function handleTaskCancel(
   }
 
   const task = await orchestration.getTask(taskId);
-  if (!task || task.coordinatorSession !== coordinatorSession) {
+  if (!task || !sameCoordinatorSession(task.coordinatorSession, coordinatorSession)) {
     return { text: t().orchestration.taskNotFound };
   }
 
