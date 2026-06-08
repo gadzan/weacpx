@@ -1044,6 +1044,84 @@ test("MCP stdio shutdown hooks poll parent process liveness", () => {
   expect(cleared).toBe(true);
 });
 
+test("MCP stdio endpoint watchdog shuts down after consecutive no-listener probes", async () => {
+  const stdin = new EventEmitter();
+  const stdout = new EventEmitter();
+  const signals = new EventEmitter();
+  let intervalCallback: (() => void | Promise<void>) | undefined;
+  let cleared = false;
+  const intervalHandle = { unref() {} } as ReturnType<typeof setInterval>;
+  let calls = 0;
+  const diagnostics: unknown[] = [];
+
+  const cleanup = installMcpStdioShutdownHooks({
+    stdin,
+    stdout,
+    platform: "win32",
+    parentPid: 0,
+    signalSource: signals as never,
+    probeEndpoint: async () => false,
+    endpointCheckIntervalMs: 10,
+    endpointFailureThreshold: 3,
+    setIntervalFn: (callback) => {
+      intervalCallback = callback;
+      return intervalHandle;
+    },
+    clearIntervalFn: (handle) => {
+      expect(handle).toBe(intervalHandle);
+      cleared = true;
+    },
+    onDiagnostic: (event, context) => diagnostics.push({ event, context }),
+    shutdown: () => { calls += 1; },
+  });
+
+  expect(intervalCallback).toBeDefined();
+  await intervalCallback!();
+  expect(calls).toBe(0);
+  await intervalCallback!();
+  expect(calls).toBe(0);
+  await intervalCallback!();
+  expect(calls).toBe(1);
+  expect(diagnostics).toEqual([
+    { event: "mcp.stdio.shutdown", context: { reason: "daemon_endpoint_dead", consecutiveFailures: 3 } },
+  ]);
+  cleanup();
+  expect(cleared).toBe(true);
+});
+
+test("MCP stdio endpoint watchdog resets its counter when a probe reaches the daemon", async () => {
+  const stdin = new EventEmitter();
+  const stdout = new EventEmitter();
+  const signals = new EventEmitter();
+  let intervalCallback: (() => void | Promise<void>) | undefined;
+  let calls = 0;
+
+  // dead, dead, ALIVE, dead, dead — never 3 consecutive failures, so no shutdown.
+  const results = [false, false, true, false, false];
+  let index = 0;
+
+  installMcpStdioShutdownHooks({
+    stdin,
+    stdout,
+    platform: "win32",
+    parentPid: 0,
+    signalSource: signals as never,
+    probeEndpoint: async () => results[index++]!,
+    endpointCheckIntervalMs: 10,
+    endpointFailureThreshold: 3,
+    setIntervalFn: (callback) => {
+      intervalCallback = callback;
+      return { unref() {} } as ReturnType<typeof setInterval>;
+    },
+    shutdown: () => { calls += 1; },
+  });
+
+  for (let i = 0; i < results.length; i += 1) {
+    await intervalCallback!();
+  }
+  expect(calls).toBe(0);
+});
+
 test("task_watch native MCP task surfaces the watch result and is purged once consumed", async () => {
   const baseTask: OrchestrationTaskRecord = {
     taskId: "task-1",

@@ -24,6 +24,7 @@ import { coreEnv } from "../runtime/core-env";
 import type { OrchestrationIpcEndpoint } from "../orchestration/orchestration-ipc";
 import type { OrchestrationTaskRecord } from "../orchestration/orchestration-types";
 import { resolveDefaultOrchestrationEndpoint } from "./resolve-endpoint";
+import { canConnectToEndpoint } from "../orchestration/endpoint-probe";
 import { buildXacpxMcpToolRegistry } from "./xacpx-mcp-tools";
 import { createOrchestrationTransport, type XacpxMcpTransport } from "./xacpx-mcp-transport";
 
@@ -718,6 +719,20 @@ export interface McpStdioShutdownHookOptions {
   parentCheckIntervalMs?: number;
   signalSource?: McpShutdownSignalSource;
   isProcessRunning?: (pid: number) => boolean;
+  /**
+   * Liveness probe for the orchestration daemon this bridge proxies to. Returns
+   * false ONLY when the endpoint definitively has no listener (ECONNREFUSED /
+   * ENOENT); a successful connect or any ambiguous error returns true. The bridge
+   * is useless once the daemon is gone, so a sustained run of false results means
+   * it should exit. Targets the daemon directly — unlike the parent-pid poll,
+   * which on Windows watches the cmd/.cmd shim wrapper (alive as long as the
+   * bridge itself), so it can never fire there.
+   */
+  probeEndpoint?: () => Promise<boolean>;
+  endpointCheckIntervalMs?: number;
+  /** Consecutive no-listener probes required before shutting down. Conservative
+   * debounce against transient blips: a live daemon resets the counter. */
+  endpointFailureThreshold?: number;
   setIntervalFn?: (callback: () => void, ms: number) => McpIntervalHandle;
   clearIntervalFn?: (handle: McpIntervalHandle) => void;
   onDiagnostic?: (event: string, context?: Record<string, unknown>) => void;
@@ -730,7 +745,9 @@ export function installMcpStdioShutdownHooks(options: McpStdioShutdownHookOption
   const setIntervalFn = options.setIntervalFn ?? ((callback, ms) => setInterval(callback, ms));
   const clearIntervalFn = options.clearIntervalFn ?? ((handle) => clearInterval(handle));
   const parentPid = options.parentPid ?? process.ppid;
-  const parentCheckIntervalMs = options.parentCheckIntervalMs ?? parseParentCheckIntervalMs(coreEnv("MCP_PARENT_CHECK_INTERVAL_MS"));
+  const parentCheckIntervalMs = options.parentCheckIntervalMs ?? parseIntervalMs(coreEnv("MCP_PARENT_CHECK_INTERVAL_MS"), 5_000);
+  const endpointCheckIntervalMs = options.endpointCheckIntervalMs ?? parseIntervalMs(coreEnv("MCP_ENDPOINT_CHECK_INTERVAL_MS"), 10_000);
+  const endpointFailureThreshold = options.endpointFailureThreshold ?? 3;
 
   let disposed = false;
   let triggered = false;
@@ -773,6 +790,37 @@ export function installMcpStdioShutdownHooks(options: McpStdioShutdownHookOption
     parentTimer.unref?.();
   }
 
+  let endpointTimer: McpIntervalHandle | undefined;
+  const probeEndpoint = options.probeEndpoint;
+  if (probeEndpoint && endpointCheckIntervalMs > 0 && endpointFailureThreshold > 0) {
+    let consecutiveDead = 0;
+    let probing = false;
+    const runEndpointCheck = async (): Promise<void> => {
+      // Skip while shutting down, or if a prior probe is still in flight (a slow
+      // connect must not let checks pile up or fire concurrently).
+      if (disposed || triggered || probing) return;
+      probing = true;
+      try {
+        if (await probeEndpoint()) {
+          consecutiveDead = 0;
+          return;
+        }
+        consecutiveDead += 1;
+        if (consecutiveDead >= endpointFailureThreshold) {
+          triggerShutdown("daemon_endpoint_dead", { consecutiveFailures: consecutiveDead });
+        }
+      } catch {
+        // Probe threw unexpectedly: treat as inconclusive (neither a live daemon
+        // nor a definitive no-listener), so it can never by itself cause a
+        // shutdown. The counter is left unchanged.
+      } finally {
+        probing = false;
+      }
+    };
+    endpointTimer = setIntervalFn(runEndpointCheck, endpointCheckIntervalMs);
+    endpointTimer.unref?.();
+  }
+
   return () => {
     if (disposed) return;
     disposed = true;
@@ -786,13 +834,16 @@ export function installMcpStdioShutdownHooks(options: McpStdioShutdownHookOption
     if (parentTimer) {
       clearIntervalFn(parentTimer);
     }
+    if (endpointTimer) {
+      clearIntervalFn(endpointTimer);
+    }
   };
 }
 
-function parseParentCheckIntervalMs(raw: string | undefined): number {
-  if (raw === undefined || raw.trim().length === 0) return 5_000;
+function parseIntervalMs(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim().length === 0) return fallback;
   const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 5_000;
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
 function errorContext(error: unknown): Record<string, unknown> {
@@ -823,9 +874,8 @@ export async function runXacpxMcpServer(options: {
   availableAgents?: string[];
   onDiagnostic?: (event: string, context?: Record<string, unknown>) => void;
 }): Promise<void> {
-  const transport = options.transport ?? createOrchestrationTransport(
-    options.endpoint ?? resolveDefaultOrchestrationEndpoint(process.env, process.platform),
-  );
+  const endpoint = options.endpoint ?? resolveDefaultOrchestrationEndpoint(process.env, process.platform);
+  const transport = options.transport ?? createOrchestrationTransport(endpoint);
   const server = createXacpxMcpServer({
     transport,
     ...(options.coordinatorSession ? { coordinatorSession: options.coordinatorSession } : {}),
@@ -864,6 +914,7 @@ export async function runXacpxMcpServer(options: {
     stdin,
     stdout,
     shutdown,
+    probeEndpoint: () => canConnectToEndpoint(endpoint.path, 4_000),
     onDiagnostic: options.onDiagnostic,
   });
 

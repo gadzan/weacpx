@@ -1,5 +1,5 @@
 import { rm } from "node:fs/promises";
-import { createConnection, createServer, type Server, type Socket } from "node:net";
+import { createServer, type Server, type Socket } from "node:net";
 
 import {
   encodeOrchestrationRpcResponse,
@@ -23,6 +23,7 @@ import {
   MAX_TASK_WATCH_TIMEOUT_MS,
 } from "./task-watch-timeouts";
 import { sameCoordinatorSession } from "./coordinator-identity";
+import { canConnectToEndpoint } from "./endpoint-probe";
 import type { ScheduledCreateFromRouteInput } from "../scheduled/scheduled-route-create";
 import type {
   ScheduledCancelFromRouteInput,
@@ -632,33 +633,6 @@ function requireTaskQuestions(
       taskId: requireString(entry as Record<string, unknown>, "taskId"),
       questionId: requireString(entry as Record<string, unknown>, "questionId"),
     };
-  });
-}
-
-async function canConnectToEndpoint(path: string): Promise<boolean> {
-  return await new Promise<boolean>((resolve) => {
-    const socket = createConnection(path);
-    let settled = false;
-
-    const finish = (result: boolean) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      socket.destroy();
-      resolve(result);
-    };
-
-    socket.once("connect", () => finish(true));
-    socket.once("error", (error) => {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ENOENT" || code === "ECONNREFUSED") {
-        finish(false);
-        return;
-      }
-
-      finish(true);
-    });
   });
 }
 
