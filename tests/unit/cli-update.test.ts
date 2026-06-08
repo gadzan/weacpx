@@ -307,26 +307,51 @@ test("implicit rename migration requires confirmation in interactive mode", asyn
   expect(lines.some((line) => line === t().cliUpdate.renameCancelled("xacpx"))).toBe(true);
 });
 
-test("update --all refuses unpinned plugins because current version is unknown", async () => {
+test("update --all updates unpinned plugins to latest and pins the result", async () => {
   setLocale("zh");
   const updated: string[] = [];
-  const lines: string[] = [];
+  let saved: AppConfig | null = null;
   const code = await handleUpdateCli(["--all"], {
     loadConfig: async () => config([{ name: "p1", enabled: true }]),
-    saveConfig: async () => {},
+    saveConfig: async (next) => { saved = next; },
     readCurrentVersion: () => "0.8.0",
     packageName: "xacpx",
-    print: (line) => lines.push(line),
+    print: () => {},
     isInteractive: () => false,
     promptText: async () => "",
-    // self (xacpx) is at latest so it is neither a candidate nor unavailable;
-    // the unpinned plugin p1 is what gets refused.
+    // self (xacpx) is at latest; the unpinned plugin p1 still gets updated.
     getLatestVersion: async (name) => name === "xacpx" ? "0.8.0" : "9.0.0",
     updateSelf: async (name) => { updated.push(name); },
     updatePlugin: async ({ packageName }) => { updated.push(packageName); },
+    validatePlugin: async () => {},
   });
 
-  expect(code).toBe(1);
-  expect(updated).toEqual([]);
-  expect(lines).toContain(t().cliUpdate.unavailableAborted("p1"));
+  expect(code).toBe(0);
+  expect(updated).toEqual(["p1"]);
+  // After updating, the previously-unpinned plugin is pinned to the new version.
+  expect(saved?.plugins[0]?.version).toBe("9.0.0");
+});
+
+test("interactive 'a' updates unpinned plugins (the reported regression)", async () => {
+  setLocale("en");
+  const updated: string[] = [];
+  let saved: AppConfig | null = null;
+  const code = await handleUpdateCli([], {
+    loadConfig: async () => config([{ name: "p1", enabled: true }]),
+    saveConfig: async (next) => { saved = next; },
+    readCurrentVersion: () => "0.9.1",
+    packageName: "xacpx",
+    print: () => {},
+    isInteractive: () => true,
+    // selectionPrompt -> "a" (all); self-update confirm -> "y".
+    promptText: async (message) => message.includes("[y/N]") ? "y" : "a",
+    getLatestVersion: async (name) => name === "xacpx" ? "0.9.2" : "0.5.0",
+    updateSelf: async (name) => { updated.push(name); },
+    updatePlugin: async ({ packageName }) => { updated.push(packageName); },
+    validatePlugin: async () => {},
+  });
+
+  expect(code).toBe(0);
+  expect(updated).toEqual(["xacpx", "p1"]);
+  expect(saved?.plugins[0]?.version).toBe("0.5.0");
 });

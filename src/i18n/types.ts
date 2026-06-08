@@ -940,7 +940,6 @@ export interface CliUpdateMessages {
   // selectTargets — no target found
   targetNotFound: (name: string) => string;
   targetVersionUnknown: (name: string) => string;
-  targetNotPinned: (name: string) => string;
 
   // selectTargets — non-interactive multi-target
   multiTargetNonInteractive: string;
