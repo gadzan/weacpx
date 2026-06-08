@@ -30,6 +30,7 @@ function createRuntime() {
       },
       endpoint: {} as never,
     },
+    reapStaleQueueOwners: async () => {},
     dispose: async () => {},
   };
 }
@@ -67,6 +68,7 @@ test("registers and clears the heartbeat timer across daemon lifecycle", async (
             reconcileParallelSlots: async () => {},
           },
         },
+        reapStaleQueueOwners: async () => {},
         dispose: async () => {
           events.push("dispose");
         },
@@ -113,6 +115,28 @@ test("registers and clears the heartbeat timer across daemon lifecycle", async (
   ]);
   expect(intervalDelays).toEqual([5_000]);
   expect(clearedTimers).toEqual(["timer-5000"]);
+});
+
+test("reaps stale queue owners at startup after the consumer lock, before channels start", async () => {
+  const events: string[] = [];
+
+  await runConsole({ configPath: "/cfg", statePath: "/state" }, {
+    buildApp: async () => ({
+      ...createRuntime(),
+      reapStaleQueueOwners: async () => { events.push("reap"); },
+    }),
+    consumerLock: {
+      acquire: async () => { events.push("lock:acquire"); },
+      release: async () => { events.push("lock:release"); },
+    } as never,
+    channels: {
+      startAll: async () => { events.push("channel:start"); },
+    },
+    addProcessListener: () => {},
+    removeProcessListener: () => {},
+  });
+
+  expect(events).toEqual(["lock:acquire", "reap", "channel:start", "lock:release"]);
 });
 
 test("runs afterBuild before beforeReady and channel startup", async () => {
@@ -233,6 +257,7 @@ test("best-effort channel startup keeps running when all channels fail until shu
             reconcileParallelSlots: async () => {},
           },
         },
+        reapStaleQueueOwners: async () => {},
         dispose: async () => {
           events.push("dispose");
         },
@@ -317,6 +342,7 @@ test("require-one channel startup still rejects when all channels fail", async (
               reconcileParallelSlots: async () => {},
             },
           },
+          reapStaleQueueOwners: async () => {},
           dispose: async () => {
             events.push("dispose");
           },
@@ -414,6 +440,7 @@ test("disposes runtime when loading the sdk fails before startup", async () => {
               reconcileParallelSlots: async () => {},
             },
           },
+          reapStaleQueueOwners: async () => {},
           dispose: async () => {
             events.push("dispose");
           },
@@ -456,6 +483,7 @@ test("swallows heartbeat failures inside the timer callback", async () => {
             reconcileParallelSlots: async () => {},
           },
         },
+        reapStaleQueueOwners: async () => {},
         dispose: async () => {},
       }),
       channels: {
@@ -507,6 +535,7 @@ test("does not register gc interval in foreground mode", async () => {
             reconcileParallelSlots: async () => {},
           },
         },
+        reapStaleQueueOwners: async () => {},
         dispose: async () => {},
       }),
       channels: {
@@ -554,6 +583,7 @@ test("still stops daemon runtime when dispose fails", async () => {
               reconcileParallelSlots: async () => {},
             },
           },
+          reapStaleQueueOwners: async () => {},
           dispose: async () => {
             events.push("dispose");
             throw new Error("dispose failed");
@@ -611,6 +641,7 @@ test("handles SIGINT by aborting the sdk start and running cleanup", async () =>
             reconcileParallelSlots: async () => {},
           },
         },
+        reapStaleQueueOwners: async () => {},
         dispose: async () => {
           events.push("dispose");
         },

@@ -40,7 +40,7 @@ import { AcpxBridgeTransport } from "./transport/acpx-bridge/acpx-bridge-transpo
 import { AcpxCliTransport } from "./transport/acpx-cli/acpx-cli-transport";
 import type { ResolvedSession, SessionTransport } from "./transport/types";
 import { reapQueueOwners } from "./transport/queue-owner-reaper";
-import { workerBindingReapTargets } from "./transport/collect-reap-targets";
+import { collectReapTargets } from "./transport/collect-reap-targets";
 import type { MessageChannelRuntime, CoordinatorMessageInput } from "./channels/types.js";
 import { MessageChannelRegistry } from "./channels/channel-registry.js";
 import { RuntimeMediaStore } from "./channels/media-store.js";
@@ -77,6 +77,13 @@ export interface AppRuntime {
     service: ScheduledTaskService;
     scheduler: ScheduledTaskScheduler;
   };
+  /**
+   * Terminate warm acpx queue owners orphaned by a previous daemon that exited
+   * without a clean shutdown (Windows `stop` force-kills via taskkill /F, crashes,
+   * machine reboot). Run once at startup before serving: this daemon has not launched
+   * any owners yet, so every owner recorded for a known session is stale. Best-effort.
+   */
+  reapStaleQueueOwners: () => Promise<void>;
   dispose: () => Promise<void>;
 }
 
@@ -722,6 +729,40 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     logger,
   });
 
+  // Terminate warm acpx queue owners for our sessions. At shutdown this stops them
+  // lingering until their --ttl expires (or forever, when ttl=0). At startup it sweeps
+  // owners orphaned by a previous daemon that died without a clean shutdown (Windows
+  // `stop` force-kills via taskkill /F, crashes, reboots) — safe because this daemon has
+  // not launched any owners yet, so every recorded owner is stale. Best-effort and
+  // bounded: failures/timeouts just leave owners to expire on TTL.
+  const reapWarmQueueOwners = async (phase: "startup" | "shutdown"): Promise<void> => {
+    try {
+      const targets = collectReapTargets(sessions, state.orchestration, config);
+      if (targets.length === 0) {
+        return;
+      }
+      const { terminated, attempted } = await reapQueueOwners(acpxCommand, targets, {
+        onError: (target, error) => {
+          void logger.info("transport.queue_owner_reap.failed", "failed to reap queue owner", {
+            phase,
+            transport_session: target.transportSession,
+            error: error instanceof Error ? error.message : String(error),
+          }).catch(() => {});
+        },
+      });
+      await logger.info("transport.queue_owner_reap.completed", "reaped warm queue owners", {
+        phase,
+        terminated,
+        attempted,
+      }).catch(() => {});
+    } catch (err) {
+      await logger.error("transport.queue_owner_reap.error", "queue owner reap failed", {
+        phase,
+        error: err instanceof Error ? err.message : String(err),
+      }).catch(() => {});
+    }
+  };
+
   return {
     agent,
     router,
@@ -742,45 +783,14 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
       service: scheduledService,
       scheduler: scheduledScheduler,
     },
+    reapStaleQueueOwners: () => reapWarmQueueOwners("startup"),
     dispose: async () => {
       scheduledScheduler.stop();
       if (progressHeartbeatInterval !== undefined) {
         clearInterval(progressHeartbeatInterval);
       }
       await Promise.allSettled([...pendingWorkerDispatches]);
-      // Terminate warm acpx queue owners for our sessions so they don't linger
-      // until their --ttl expires (or forever, when ttl=0) after the daemon exits.
-      // Best-effort and bounded: failures/timeouts just leave owners to expire on TTL.
-      try {
-        const targets = [
-          ...sessions.listAllResolvedSessions().map((session) => ({
-            agent: session.agent,
-            ...(session.agentCommand ? { agentCommand: session.agentCommand } : {}),
-            cwd: session.cwd,
-            transportSession: session.transportSession,
-          })),
-          // Orchestration worker sessions also spawn warm owners (with the same TTL).
-          ...workerBindingReapTargets(state.orchestration, config),
-        ];
-        if (targets.length > 0) {
-          const { terminated, attempted } = await reapQueueOwners(acpxCommand, targets, {
-            onError: (target, error) => {
-              void logger.info("transport.queue_owner_reap.failed", "failed to reap queue owner on shutdown", {
-                transport_session: target.transportSession,
-                error: error instanceof Error ? error.message : String(error),
-              }).catch(() => {});
-            },
-          });
-          await logger.info("transport.queue_owner_reap.completed", "reaped warm queue owners on shutdown", {
-            terminated,
-            attempted,
-          }).catch(() => {});
-        }
-      } catch (err) {
-        await logger.error("transport.queue_owner_reap.error", "queue owner reap failed during shutdown", {
-          error: err instanceof Error ? err.message : String(err),
-        }).catch(() => {});
-      }
+      await reapWarmQueueOwners("shutdown");
       await debouncedStateStore.dispose();
       if ("dispose" in transport && typeof transport.dispose === "function") {
         await transport.dispose();
