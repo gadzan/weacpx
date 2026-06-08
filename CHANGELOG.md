@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.3] - 2026-06-08
+
+### Fixed
+
+- **Orphaned warm queue-owner process trees are now cleaned up (#19):** warm `acpx __queue-owner` process trees (owner → agent → `xacpx mcp-stdio` bridges) used to leak as orphans when a daemon exited without a clean shutdown — Windows `xacpx stop` force-kills via `taskkill /T /F` before `dispose()` can run, and crashes/reboots skip it entirely. The daemon now reaps stale warm queue owners at startup (after the consumer lock is held, so no peer owns them, and before channels start, so it never kills an owner from the current run). Additionally, the `mcp-stdio` bridge self-terminates when the orchestration endpoint is gone, via an endpoint-liveness watchdog that shuts down only after 3 consecutive definitive no-listener results (`ECONNREFUSED` / `ENOENT`) — needed because on Windows the `cmd`/`.cmd` shim keeps the parent-pid watchdog from ever firing. Tunable via `XACPX_MCP_ENDPOINT_CHECK_INTERVAL_MS` (default 10s); emits a `daemon_endpoint_dead` shutdown reason.
+- **`update` all/interactive now upgrades unpinned plugins (#18):** `xacpx update` previously skipped plugins with no recorded version in config — silently in interactive `a`/all mode, and with a loud error in `--all` mode — even though `xacpx plugin update <name>` handled them fine. Unpinned plugins are now upgraded to latest and pinned to the installed version, matching `xacpx plugin update`. Removed the now-unused `targetNotPinned` message.
+- **Stable coordinator identity across `/clear` (#17):** orchestration ownership guards, coordinator wake, purge/block on session removal, the `scheduled_create` attach guard, and MCP queue-owner classification now key off a stable coordinator identity that survives `/clear`, instead of the volatile session id that `/clear` rotates. This prevents a coordinator from losing ownership of its in-flight orchestration tasks after a `/clear`.
+
+### Changed
+
+- **Coordinator identity normalized at boundaries (#17):** coordinator identity is normalized at RPC source, route/result-injection, and WeChat slash-handler sites via a shared `stableCoordinatorSession` helper, and the dormant reset-coordinator GC machinery was removed.
+
 ## [0.9.2] - 2026-06-06
 
 ### Added
