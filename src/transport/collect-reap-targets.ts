@@ -1,7 +1,32 @@
 import { resolveAgentCommand } from "../config/resolve-agent-command";
 import type { AppConfig } from "../config/types";
 import type { OrchestrationState } from "../orchestration/orchestration-types";
+import type { ResolvedSession } from "./types";
 import type { ReapTarget } from "./queue-owner-reaper";
+
+/**
+ * Full reap-target set for a daemon: every known logical (user) session plus the
+ * orchestration worker sessions. Both spawn warm acpx queue owners honoring `--ttl`,
+ * so both must be swept at shutdown (so they don't linger) and at startup (so owners
+ * orphaned by a previously crashed/force-killed daemon get cleaned up). Sessions whose
+ * agent/workspace are de-registered are already filtered by listAllResolvedSessions and
+ * workerBindingReapTargets respectively.
+ */
+export function collectReapTargets(
+  sessions: { listAllResolvedSessions(): ResolvedSession[] },
+  orchestration: OrchestrationState,
+  config: AppConfig,
+): ReapTarget[] {
+  return [
+    ...sessions.listAllResolvedSessions().map((session) => ({
+      agent: session.agent,
+      ...(session.agentCommand ? { agentCommand: session.agentCommand } : {}),
+      cwd: session.cwd,
+      transportSession: session.transportSession,
+    })),
+    ...workerBindingReapTargets(orchestration, config),
+  ];
+}
 
 /**
  * Reap targets for orchestration worker sessions. These are acpx sessions xacpx

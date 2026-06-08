@@ -141,6 +141,13 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
       }
     }
 
+    // Sweep warm acpx queue owners orphaned by a previous daemon that exited without a
+    // clean shutdown (Windows `stop` force-kills the daemon via taskkill /F before
+    // dispose() can reap; crashes and reboots skip dispose entirely). Runs after the
+    // consumer lock is held — so no peer instance owns these — and before channels start
+    // serving, so it cannot kill an owner this run just launched. Best-effort.
+    await runtime.reapStaleQueueOwners();
+
     if (deps.beforeReady) {
       await deps.beforeReady(runtime);
     }

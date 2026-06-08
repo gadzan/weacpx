@@ -31,6 +31,7 @@ test("acquires and releases the weixin consumer lock around sdk.start", async ()
         configStore: {} as never,
         scheduled: createScheduledRuntime(),
         logger: createNoopAppLogger(),
+        reapStaleQueueOwners: async () => {},
         dispose: async () => {
           events.push("dispose");
         },
@@ -72,6 +73,7 @@ test("releases the weixin consumer lock when sdk.start fails", async () => {
           configStore: {} as never,
           scheduled: createScheduledRuntime(),
           logger: createNoopAppLogger(),
+          reapStaleQueueOwners: async () => {},
           dispose: async () => {
             events.push("dispose");
           },
@@ -114,6 +116,7 @@ test("does not release the lock if acquisition fails before startup", async () =
           configStore: {} as never,
           scheduled: createScheduledRuntime(),
           logger: createNoopAppLogger(),
+          reapStaleQueueOwners: async () => {},
           dispose: async () => {
             events.push("dispose");
           },
@@ -166,6 +169,7 @@ test("logs active lock holder diagnostics when another consumer already owns the
             cleanup: async () => {},
             flush: async () => {},
           },
+          reapStaleQueueOwners: async () => {},
           dispose: async () => {},
         }),
         channels: {
