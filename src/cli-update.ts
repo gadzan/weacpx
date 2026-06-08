@@ -46,7 +46,6 @@ interface UpdateTarget {
   name: string;
   currentVersion?: string;
   latestVersion?: string | null;
-  pinned?: boolean;
   // When set on the self target, this update is a rename migration to the named
   // successor package (e.g. "xacpx") rather than an in-place version bump.
   successorPackage?: string;
@@ -86,7 +85,6 @@ export async function handleUpdateCli(args: string[], deps: UpdateCliDeps): Prom
       kind: "plugin",
       name: plugin.name,
       currentVersion: plugin.version,
-      pinned: Boolean(plugin.version),
       latestVersion: await latestOf(plugin.name),
     });
   }
@@ -97,12 +95,16 @@ export async function handleUpdateCli(args: string[], deps: UpdateCliDeps): Prom
     deps.print(`${index + 1}. ${formatTarget(target)}`);
   }
 
-  const unavailable = targets.filter((target) => !target.latestVersion || (target.kind === "plugin" && !target.pinned));
+  const unavailable = targets.filter((target) => !target.latestVersion);
   if (all && unavailable.length > 0) {
     deps.print(t().cliUpdate.unavailableAborted(unavailable.map((target) => target.name).join(", ")));
     return 1;
   }
-  const candidates = targets.filter((target) => target.latestVersion && (target.kind !== "plugin" || target.pinned) && (target.successorPackage ? true : target.currentVersion !== target.latestVersion));
+  // An unpinned plugin (no recorded version) has currentVersion === undefined,
+  // so it is always considered a candidate as long as its latest version is
+  // known — `update` installs latest and pins the result, matching the
+  // behavior of `xacpx plugin update`.
+  const candidates = targets.filter((target) => target.latestVersion && (target.successorPackage ? true : target.currentVersion !== target.latestVersion));
   const selected = await selectTargets(targets, candidates, { all, explicitTarget: explicitTargets[0], deps });
   if (!selected.ok) {
     deps.print(selected.message);
@@ -211,7 +213,6 @@ async function selectTargets(
       || (entry.kind === "self" && (input.explicitTarget === "weacpx" || input.explicitTarget === entry.successorPackage)));
     if (!target) return { ok: false, message: t().cliUpdate.targetNotFound(input.explicitTarget), exitCode: 1 };
     if (!target.latestVersion) return { ok: false, message: t().cliUpdate.targetVersionUnknown(target.name), exitCode: 1 };
-    if (target.kind === "plugin" && !target.pinned) return { ok: false, message: t().cliUpdate.targetNotPinned(target.name), exitCode: 1 };
     if (!target.successorPackage && target.currentVersion === target.latestVersion) return { ok: true, targets: [] };
     return { ok: true, targets: [target] };
   }
@@ -234,7 +235,6 @@ async function selectTargets(
     }
     const target = targets[index - 1]!;
     if (!target.latestVersion) return { ok: false, message: t().cliUpdate.targetVersionUnknown(target.name), exitCode: 1 };
-    if (target.kind === "plugin" && !target.pinned) return { ok: false, message: t().cliUpdate.targetNotPinned(target.name), exitCode: 1 };
     if (!target.successorPackage && target.currentVersion === target.latestVersion) continue;
     if (!selected.includes(target)) selected.push(target);
   }

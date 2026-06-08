@@ -36,8 +36,6 @@ export const cliUpdate: CliUpdateMessages = {
   // selectTargets — no target found
   targetNotFound: (name) => `没有找到更新项：${name}`,
   targetVersionUnknown: (name) => `${name} 无法检查最新版本，已跳过。`,
-  targetNotPinned: (name) =>
-    `${name} 未记录当前版本；请先使用 \`xacpx plugin update ${name}\` 或显式选择版本。`,
 
   // selectTargets — non-interactive multi-target
   multiTargetNonInteractive: "检测到已安装插件；非交互模式请使用 `xacpx update --all` 或 `xacpx update <name>`。",

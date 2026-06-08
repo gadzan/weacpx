@@ -36,8 +36,6 @@ export const cliUpdate: CliUpdateMessages = {
   // selectTargets — no target found
   targetNotFound: (name) => `Update target not found: ${name}`,
   targetVersionUnknown: (name) => `${name}: cannot check latest version; skipped.`,
-  targetNotPinned: (name) =>
-    `${name} has no recorded version; use \`xacpx plugin update ${name}\` or specify a version explicitly.`,
 
   // selectTargets — non-interactive multi-target
   multiTargetNonInteractive: "Installed plugins detected; in non-interactive mode use `xacpx update --all` or `xacpx update <name>`.",
