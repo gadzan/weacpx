@@ -14,12 +14,6 @@ export const weixin: WeixinMessages = {
   // /clear
   sessionCleared: "✅ 会话已清除，重新开始对话",
 
-  // /logout — no accounts
-  noAccountsLoggedIn: "当前没有已登录的账号",
-
-  // /logout — success
-  logoutSuccess: "✅ 已退出登录，清除所有账号凭证",
-
   // handleSlashCommand — command execution error
   commandFailed: (detail: string) => `❌ 指令执行失败: ${detail}`,
 };

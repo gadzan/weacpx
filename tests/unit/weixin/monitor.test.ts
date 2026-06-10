@@ -154,9 +154,9 @@ describe("v1.4: monitor drops pending final on non-/jx inbound", () => {
     expect(echo.configCalls).toEqual([]);
     expect(echo.typingTickets).toEqual([""]);
 
-    const logout = await runOneInbound("/logout");
-    expect(logout.configCalls).toEqual([]);
-    expect(logout.typingTickets).toEqual([""]);
+    const jx = await runOneInbound("/jx");
+    expect(jx.configCalls).toEqual([]);
+    expect(jx.typingTickets).toEqual([""]);
   });
 });
 

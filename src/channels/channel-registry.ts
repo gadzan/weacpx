@@ -41,9 +41,19 @@ export class MessageChannelRegistry {
     }
   }
 
-  stopAll(): void {
+  /**
+   * Shutdown path (signal handlers, startup-error cleanup). Prefers the
+   * non-destructive `stop()` and falls back to `logout()` only for channels
+   * that predate `stop()` (published plugins whose logout is a benign client
+   * stop). Never an intentional credential wipe — that is `xacpx logout`.
+   */
+  async stopAll(): Promise<void> {
     for (const channel of this.channels.values()) {
-      channel.logout();
+      if (channel.stop) {
+        await channel.stop();
+      } else {
+        channel.logout();
+      }
     }
   }
 

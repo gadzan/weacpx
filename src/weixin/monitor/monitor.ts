@@ -93,7 +93,7 @@ function shouldFetchTypingConfig(textBody: string): boolean {
   //
   // /clear is deliberately NOT listed here: resetting/recreating a session can
   // take noticeable time, so handleWeixinMessageTurn wraps /clear with typing.
-  return !["/cancel", "/stop", "/jx", "/echo", "/toggle-debug", "/logout"].includes(command);
+  return !["/cancel", "/stop", "/jx", "/echo", "/toggle-debug"].includes(command);
 }
 
 /**

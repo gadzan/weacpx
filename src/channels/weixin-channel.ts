@@ -59,6 +59,19 @@ export class WeixinChannel implements MessageChannelRuntime {
     weixinLogout();
   }
 
+  /**
+   * Non-destructive shutdown. The monitor loop is already stopped via the
+   * abort signal passed to start(); this only drops runtime references and
+   * MUST NOT touch the credential files on disk (a graceful daemon stop or
+   * restart must not force a QR re-login). Destructive credential removal
+   * happens only through logout() (the explicit `xacpx logout` CLI path).
+   */
+  stop(): void {
+    this.agent = null;
+    this.quota = null;
+    this.logger = null;
+  }
+
   createConsumerLock(options?: ConsumerLockOptions): ConsumerLock {
     return createWeixinConsumerLock({
       ...(options?.lockFilePath ? { lockFilePath: options.lockFilePath } : {}),

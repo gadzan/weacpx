@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { createMessageChannel } from "../../../src/channels/create-channel.js";
 
 test("createMessageChannel('weixin') returns a channel with id 'weixin'", () => {
@@ -71,6 +74,39 @@ test("sendCoordinatorMessage throws before start is called", async () => {
       text: "hello",
     }),
   ).rejects.toThrow("WeixinChannel.start() must be called before orchestration delivery");
+});
+
+test("stop() is non-destructive: keeps account credentials; logout() still clears them", async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "xacpx-weixin-stop-"));
+  const prevStateDir = process.env.OPENCLAW_STATE_DIR;
+  process.env.OPENCLAW_STATE_DIR = stateDir;
+  try {
+    const { saveWeixinAccount, registerWeixinAccountId, listWeixinAccountIds } = await import(
+      "../../../src/weixin/auth/accounts.js"
+    );
+    saveWeixinAccount("acct-1", { token: "tok-1", baseUrl: "https://example.com" });
+    registerWeixinAccountId("acct-1");
+    expect(listWeixinAccountIds()).toEqual(["acct-1"]);
+    const accountFile = path.join(stateDir, "openclaw-weixin", "accounts", "acct-1.json");
+    expect(fs.existsSync(accountFile)).toBe(true);
+
+    const channel = createMessageChannel("weixin");
+    expect(typeof channel.stop).toBe("function");
+
+    // Graceful shutdown path: must not delete credentials from disk.
+    await channel.stop!();
+    expect(fs.existsSync(accountFile)).toBe(true);
+    expect(listWeixinAccountIds()).toEqual(["acct-1"]);
+
+    // Explicit logout (xacpx logout) remains the destructive surface.
+    channel.logout();
+    expect(fs.existsSync(accountFile)).toBe(false);
+    expect(listWeixinAccountIds()).toEqual([]);
+  } finally {
+    if (prevStateDir === undefined) delete process.env.OPENCLAW_STATE_DIR;
+    else process.env.OPENCLAW_STATE_DIR = prevStateDir;
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
 });
 
 test("createConsumerLock returns a lock with acquire and release methods", () => {

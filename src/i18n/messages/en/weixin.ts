@@ -14,12 +14,6 @@ export const weixin: WeixinMessages = {
   // /clear
   sessionCleared: "✅ Session cleared. Starting a fresh conversation.",
 
-  // /logout — no accounts
-  noAccountsLoggedIn: "No accounts are currently logged in.",
-
-  // /logout — success
-  logoutSuccess: "✅ Logged out. All account credentials cleared.",
-
   // handleSlashCommand — command execution error
   commandFailed: (detail: string) => `❌ Command failed: ${detail}`,
 };

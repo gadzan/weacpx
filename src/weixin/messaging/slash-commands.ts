@@ -5,10 +5,11 @@
  * - /echo <message>         直接回复消息（不经过 AI），并附带通道耗时统计
  * - /toggle-debug           开关 debug 模式，启用后每条 AI 回复追加全链路耗时
  * - /clear                  清除当前会话，重新开始对话
- * - /logout                 清除已保存的登录凭证
+ *
+ * 注意：聊天侧不提供 /logout —— 任何能给 bot 发消息的用户都不应有清除
+ * 凭证的权限；退出登录只能通过 CLI（`xacpx logout`）。
  */
 import type { WeixinApiOptions } from "../api/api.js";
-import { clearAllWeixinAccounts, listWeixinAccountIds } from "../auth/accounts.js";
 import { logger } from "../util/logger.js";
 import { t } from "../../i18n/index.js";
 
@@ -204,15 +205,6 @@ export async function handleSlashCommand(
         // send it now. If pending is empty, this remains a pure no-op (no
         // reply burned on an ack).
         await drainPendingFinalForJx(ctx);
-        return { handled: true };
-      }
-      case "/logout": {
-        if (listWeixinAccountIds().length === 0) {
-          await sendReply(ctx, t().weixin.noAccountsLoggedIn);
-          return { handled: true };
-        }
-        clearAllWeixinAccounts();
-        await sendReply(ctx, t().weixin.logoutSuccess);
         return { handled: true };
       }
       default:

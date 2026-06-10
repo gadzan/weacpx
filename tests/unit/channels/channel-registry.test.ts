@@ -158,14 +158,54 @@ test("startAll rejects when ALL channels fail", async () => {
   expect(logErrors.length).toBeGreaterThanOrEqual(2);
 });
 
-test("starts and stops all channels", async () => {
+test("stopAll falls back to logout() only for channels without stop()", async () => {
   const events: string[] = [];
   const registry = new MessageChannelRegistry([fakeChannel("weixin", events), fakeChannel("feishu", events)]);
 
   await registry.startAll(startInput);
-  registry.stopAll();
+  await registry.stopAll();
 
   expect(events).toEqual(["weixin:start", "feishu:start", "weixin:logout", "feishu:logout"]);
+});
+
+test("stopAll prefers non-destructive stop() over logout()", async () => {
+  const events: string[] = [];
+  const withStop: MessageChannelRuntime = {
+    ...fakeChannel("weixin", events),
+    stop: () => {
+      events.push("weixin:stop");
+    },
+  };
+  const withAsyncStop: MessageChannelRuntime = {
+    ...fakeChannel("feishu", events),
+    stop: async () => {
+      events.push("feishu:stop");
+    },
+  };
+  const registry = new MessageChannelRegistry([withStop, withAsyncStop]);
+
+  await registry.startAll(startInput);
+  await registry.stopAll();
+
+  expect(events).toEqual(["weixin:start", "feishu:start", "weixin:stop", "feishu:stop"]);
+  expect(events).not.toContain("weixin:logout");
+  expect(events).not.toContain("feishu:logout");
+});
+
+test("stopAll mixes stop() and logout() per channel capability", async () => {
+  const events: string[] = [];
+  const withStop: MessageChannelRuntime = {
+    ...fakeChannel("weixin", events),
+    stop: () => {
+      events.push("weixin:stop");
+    },
+  };
+  const legacy = fakeChannel("feishu", events); // plugin without stop()
+  const registry = new MessageChannelRegistry([withStop, legacy]);
+
+  await registry.stopAll();
+
+  expect(events).toEqual(["weixin:stop", "feishu:logout"]);
 });
 
 test("routes legacy chat keys to weixin and prefixed keys to matching channel", async () => {

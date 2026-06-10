@@ -1197,12 +1197,6 @@ export interface WeixinMessages {
   // /clear
   sessionCleared: string;
 
-  // /logout — no accounts
-  noAccountsLoggedIn: string;
-
-  // /logout — success
-  logoutSuccess: string;
-
   // handleSlashCommand — command execution error
   commandFailed: (detail: string) => string;
 }
