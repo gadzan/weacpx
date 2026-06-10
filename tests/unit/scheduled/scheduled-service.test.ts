@@ -77,6 +77,34 @@ test("claims due tasks and marks old pending tasks missed", async () => {
   expect(state.scheduled_tasks.due1?.status).toBe("triggering");
 });
 
+test("rolls back the in-memory claim when save fails so the next tick can retry", async () => {
+  const state = createEmptyState();
+  state.scheduled_tasks.due1 = {
+    id: "due1", chat_key: "c", session_alias: "s", execute_at: "2026-05-23T09:59:00.000Z", message: "due", status: "pending", created_at: "2026-05-23T09:00:00.000Z",
+  };
+  let failNextSave = true;
+  const store = {
+    save: async (_s: AppState): Promise<void> => {
+      if (failNextSave) {
+        failNextSave = false;
+        throw new Error("disk full");
+      }
+    },
+  };
+  const service = new ScheduledTaskService(state, store, { now: () => new Date("2026-05-23T10:00:00.000Z") });
+
+  await expect(service.claimDueTasks()).rejects.toThrow("disk full");
+  // Without rollback the task stays "triggering" in memory, disappears from
+  // listPending, and silently never fires until a daemon restart.
+  expect(state.scheduled_tasks.due1?.status).toBe("pending");
+  expect(state.scheduled_tasks.due1?.triggered_at).toBeUndefined();
+  expect(service.listPending().map((task) => task.id)).toEqual(["due1"]);
+
+  // The next tick retries and claims the task normally.
+  expect((await service.claimDueTasks()).map((task) => task.id)).toEqual(["due1"]);
+  expect(state.scheduled_tasks.due1?.status).toBe("triggering");
+});
+
 test("scheduled writes serialize with the shared state mutex so an interleaved clone-save cannot drop a task", async () => {
   const mutex = new AsyncMutex();
   const state = createEmptyState();

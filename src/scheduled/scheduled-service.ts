@@ -118,7 +118,19 @@ export class ScheduledTaskService {
         task.triggered_at = at;
         this.claimedInThisSession.add(task.id);
       }
-      await this.save();
+      try {
+        await this.save();
+      } catch (error) {
+        // Roll back the claim: a task left "triggering" in memory drops out of
+        // listPending and would silently never fire until a daemon restart.
+        // Restoring "pending" lets the next scheduler tick retry the claim.
+        for (const task of due) {
+          task.status = "pending";
+          delete task.triggered_at;
+          this.claimedInThisSession.delete(task.id);
+        }
+        throw error;
+      }
       return due.map((task) => ({ ...task }));
     });
   }
