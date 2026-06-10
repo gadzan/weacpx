@@ -219,6 +219,28 @@ Notes:
 - `/replymode reset` clears the current session override, falling back to the channel default (`channels[].replyMode`) if set, otherwise `channel.replyMode`
 - `final` only affects whether text is sent in real time; it does not change how the acpx transport generates output
 
+### `channel.ownerIds`
+
+| Field | Type | Required | Description |
+|------|------|------|------|
+| `ownerIds` | `string[]` | No | Sender ids the operator trusts as channel owners. Group turns from these senders pass owner-gated command authorization (control commands, `/later`, in-session `scheduled_*` tools) even when the channel protocol carries no group-role information. |
+
+Notes:
+
+- WeChat carries **no group-role information** at the protocol level, so without `ownerIds` every privileged command in a WeChat group is denied for everyone — including the operator. Add your own sender id here to authorize yourself.
+- The same field is available per channel as `channels[].ownerIds` (use the sender id format of that channel: WeChat `from_user_id`, Feishu `open_id`, Yuanbao account id).
+- A sender in `ownerIds` is treated as owner in addition to whatever the channel itself reports (e.g. Yuanbao's `bot_owner_id` detection still works).
+- **How to find your sender id**: send any privileged command (e.g. `/clear`) in the group; the denial is logged to `~/.xacpx/runtime/app.log` as a `command.blocked` entry whose `senderId` field is the id to put into `ownerIds`.
+
+```json
+{
+  "channel": {
+    "type": "weixin",
+    "ownerIds": ["wxid_xxxxxxxx"]
+  }
+}
+```
+
 ### Backward Compatibility
 
 The `wechat.replyMode` in old configuration files still works; it is automatically mapped to `channel.replyMode` on load. After saving, it is written in the `channel` format.
@@ -248,6 +270,7 @@ See full operation instructions in: [docs/channel-management.md](./channel-manag
 | `type` | `string` | Yes | Channel type. The only built-in channel type is `"weixin"`. `"feishu"` is provided by `@ganglion/xacpx-channel-feishu`, `"yuanbao"` is provided by `@ganglion/xacpx-channel-yuanbao`; other types are provided by installed plugins |
 | `enabled` | `boolean` | No | Whether to enable. Defaults to `true` |
 | `replyMode` | `"stream"` \| `"final"` \| `"verbose"` | No | Per-channel default reply mode. When set, it overrides the global `channel.replyMode` for this channel; when omitted, the channel falls back to `channel.replyMode`. The per-session `/replymode` override still takes precedence over this. |
+| `ownerIds` | `string[]` | No | Per-channel trusted owner sender ids; see [`channel.ownerIds`](#channelownerids). Group turns from these senders pass owner-gated command authorization. |
 | `options` | `object` | Depends on the channel | Channel configuration (see Feishu/Yuanbao fields below) |
 
 ### Feishu Channel Configuration (`options`)

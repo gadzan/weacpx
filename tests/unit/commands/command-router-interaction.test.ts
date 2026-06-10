@@ -5,6 +5,7 @@ import type { SessionAgentCommandResolver } from "./command-router-test-support"
 import {
   MemoryStateStore,
   SessionService,
+  createLogger,
   createOrchestrationService,
   createConfig,
   createEmptyState,
@@ -1913,4 +1914,119 @@ test("/group add rejects when no current session is selected", async () => {
 
   expect(reply.text).toContain("当前还没有选中的会话");
   expect(getRequestDelegateMock(orchestration).mock.calls).toHaveLength(0);
+});
+
+test("ownerIds: a configured group sender may run privileged commands", async () => {
+  const config = createConfig();
+  config.channel.ownerIds = ["wx-op"];
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config);
+
+  const reply = await router.handle(
+    "wx:group",
+    "/session new api-fix --agent codex --ws backend",
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { channel: "weixin", chatType: "group", groupId: "g-1", senderId: "wx-op" },
+  );
+
+  expect(reply.text).not.toContain("仅限群创建者");
+  expect(reply.text).toContain("api-fix");
+});
+
+test("ownerIds: a group sender outside the list is still denied privileged commands", async () => {
+  const config = createConfig();
+  config.channel.ownerIds = ["wx-op"];
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config);
+
+  const reply = await router.handle(
+    "wx:group",
+    "/session new api-fix --agent codex --ws backend",
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { channel: "weixin", chatType: "group", groupId: "g-1", senderId: "wx-stranger" },
+  );
+
+  expect(reply.text).toContain("仅限群创建者");
+});
+
+test("channel turn without chatType denies privileged commands and logs a contract violation", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const events: string[] = [];
+  const router = new CommandRouter(sessions, transport, config, undefined, createLogger(events));
+
+  const reply = await router.handle(
+    "wx:somewhere",
+    "/clear",
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { channel: "weixin", senderId: "wx-1" },
+  );
+
+  expect(reply.text).toContain("会话类型");
+  expect(events.some((line) => line.includes("channel.chat_type_missing"))).toBe(true);
+  expect(events.some((line) => line.includes("command.blocked"))).toBe(true);
+});
+
+test("ownerIds: effective isOwner is recorded on the coordinator route", async () => {
+  const config = createConfig();
+  config.channel.ownerIds = ["wx-op"];
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const orchestration = createOrchestrationService();
+  const router = new CommandRouter(sessions, transport, config, undefined, undefined, undefined, orchestration);
+
+  await router.handle("wx:group", "/session new api-fix --agent codex --ws backend");
+  await router.handle(
+    "wx:group",
+    "提醒我明天看 CI",
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { channel: "weixin", chatType: "group", groupId: "g-1", senderId: "wx-op" },
+  );
+
+  expect(getRecordCoordinatorRouteContextMock(orchestration).mock.calls.at(-1)?.[0]).toMatchObject({
+    chatKey: "wx:group",
+    chatType: "group",
+    senderId: "wx-op",
+    isOwner: true,
+  });
+});
+
+test("ownerIds: non-listed sender records an explicit isOwner=false on the route", async () => {
+  const config = createConfig();
+  config.channel.ownerIds = ["wx-op"];
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const orchestration = createOrchestrationService();
+  const router = new CommandRouter(sessions, transport, config, undefined, undefined, undefined, orchestration);
+
+  await router.handle("wx:group", "/session new api-fix --agent codex --ws backend");
+  await router.handle(
+    "wx:group",
+    "你好",
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { channel: "weixin", chatType: "group", groupId: "g-1", senderId: "wx-other" },
+  );
+
+  expect(getRecordCoordinatorRouteContextMock(orchestration).mock.calls.at(-1)?.[0]).toMatchObject({
+    senderId: "wx-other",
+    isOwner: false,
+  });
 });

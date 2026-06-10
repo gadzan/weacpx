@@ -1290,6 +1290,8 @@ export interface MiscMessages {
   // commands/command-policy
   commandAccessDeniedSuffix: string;
   commandAccessDeniedHint: string;
+  commandAccessDeniedChatTypeMissingSuffix: string;
+  commandAccessDeniedChatTypeMissingHint: string;
   commandLabelThisMessage: string;
 
   // commands/handlers/session-reset-handler

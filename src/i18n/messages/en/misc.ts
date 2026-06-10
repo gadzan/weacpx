@@ -88,6 +88,10 @@ export const misc: MiscMessages = {
   // commands/command-policy
   commandAccessDeniedSuffix: " is restricted to group owner only.",
   commandAccessDeniedHint: "To perform control operations, have the owner send them in the group, or use a private chat.",
+  commandAccessDeniedChatTypeMissingSuffix:
+    " was blocked: this channel did not report the chat type (direct or group), so control commands are disabled here.",
+  commandAccessDeniedChatTypeMissingHint:
+    "Read-only commands and prompts still work. This is a channel metadata issue — update or report the channel plugin.",
   commandLabelThisMessage: "This message",
 
   // commands/handlers/session-reset-handler

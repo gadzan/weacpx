@@ -52,6 +52,9 @@ export async function runDryRun(agent: WechatAgent, options: DryRunOptions): Pro
       accountId: "dry-run",
       conversationId: turn.chatKey,
       text: turn.input,
+      // Declare the chat type explicitly: channel turns without chatType fail
+      // closed for privileged commands, and dry-run is always a direct chat.
+      metadata: { chatType: "direct" },
     });
 
     transcript.push({

@@ -452,6 +452,14 @@ More examples:
 /help later
 ```
 
+## Group Permissions
+
+In group chats, only read-only commands (`/help`, `/status`, `/sessions`, `/config`, ...) and plain prompts are open to every member. Control commands (`/clear`, `/use`, `/session new`, `/mode`, `/permission`, `/later` control, ...) are restricted to the chat owner:
+
+- Channels that report group roles grant owner automatically (e.g. Yuanbao recognizes the bot owner).
+- WeChat carries **no group-role information**, so configure your own sender id in `channel.ownerIds` (or `channels[].ownerIds`) to authorize yourself; see [config-reference.md — `channel.ownerIds`](./config-reference.md#channelownerids). Your sender id appears as `senderId` in the `command.blocked` entry written to `~/.xacpx/runtime/app.log` when a command is denied.
+- If a channel fails to report whether a chat is direct or group, control commands are denied (fail closed) and a `channel.chat_type_missing` warning is logged.
+
 ## Common Errors
 
 ### Command Treated as a Plain Message

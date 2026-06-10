@@ -9,6 +9,12 @@ export type WechatReplyMode = ReplyMode;
 export interface ChannelConfig {
   type: string;
   replyMode: ReplyMode;
+  /**
+   * Sender ids the operator trusts as channel owners. Group turns from these
+   * senders pass owner-gated command authorization even when the channel
+   * protocol carries no group-role information (e.g. WeChat).
+   */
+  ownerIds?: string[];
   options?: Record<string, unknown>;
 }
 
@@ -80,6 +86,8 @@ export interface ChannelRuntimeConfig {
   type: string;
   enabled: boolean;
   replyMode?: ReplyMode;
+  /** See ChannelConfig.ownerIds — per-channel trusted owner sender ids. */
+  ownerIds?: string[];
   options?: Record<string, unknown>;
 }
 

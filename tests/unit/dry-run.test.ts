@@ -60,9 +60,11 @@ test("replays a transcript through the shared agent interface", async () => {
     ],
   });
 
+  // Dry-run turns declare chatType explicitly so command authorization treats
+  // them as direct chats (channel turns without chatType fail closed).
   expect(seen).toEqual([
-    { accountId: "dry-run", conversationId: "wx:test", text: "/help" },
-    { accountId: "dry-run", conversationId: "wx:other", text: "hello" },
+    { accountId: "dry-run", conversationId: "wx:test", text: "/help", metadata: { chatType: "direct" } },
+    { accountId: "dry-run", conversationId: "wx:other", text: "hello", metadata: { chatType: "direct" } },
   ]);
   expect(transcript).toEqual([
     { input: "/help", output: "reply:/help" },

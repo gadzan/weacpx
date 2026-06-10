@@ -1183,3 +1183,68 @@ test("throws when channels[].replyMode is invalid", async () => {
 
   await rm(dir, { recursive: true, force: true });
 });
+
+test("parses channel.ownerIds and propagates it to the legacy runtime channel", async () => {
+  const config = parseConfig({
+    transport: { type: "acpx-bridge" },
+    channel: { type: "weixin", ownerIds: ["wx-op", " wx-op-2 "] },
+    agents: { codex: { driver: "codex" } },
+    workspaces: {},
+  });
+
+  expect(config.channel.ownerIds).toEqual(["wx-op", "wx-op-2"]);
+  expect(config.channels).toEqual([
+    { id: "weixin", type: "weixin", enabled: true, ownerIds: ["wx-op", "wx-op-2"] },
+  ]);
+});
+
+test("parses channels[].ownerIds", async () => {
+  const config = parseConfig({
+    transport: { type: "acpx-bridge" },
+    channels: [
+      { id: "weixin", type: "weixin", enabled: true },
+      { id: "feishu", type: "feishu", enabled: true, ownerIds: ["ou-op"] },
+    ],
+    agents: { codex: { driver: "codex" } },
+    workspaces: {},
+  });
+
+  expect(config.channels[0]?.ownerIds).toBeUndefined();
+  expect(config.channels[1]?.ownerIds).toEqual(["ou-op"]);
+});
+
+test("leaves ownerIds undefined when omitted", async () => {
+  const config = parseConfig({
+    transport: { type: "acpx-bridge" },
+    channel: { type: "weixin" },
+    agents: { codex: { driver: "codex" } },
+    workspaces: {},
+  });
+
+  expect(config.channel.ownerIds).toBeUndefined();
+  expect(config.channels[0]?.ownerIds).toBeUndefined();
+});
+
+test("throws on invalid ownerIds shapes", async () => {
+  const base = {
+    transport: { type: "acpx-bridge" },
+    agents: { codex: { driver: "codex" } },
+    workspaces: {},
+  };
+
+  expect(() => parseConfig({ ...base, channel: { type: "weixin", ownerIds: "wx-op" } })).toThrow(
+    "channel.ownerIds must be an array of non-empty strings",
+  );
+  expect(() => parseConfig({ ...base, channel: { type: "weixin", ownerIds: [1, 2] } })).toThrow(
+    "channel.ownerIds must be an array of non-empty strings",
+  );
+  expect(() => parseConfig({ ...base, channel: { type: "weixin", ownerIds: ["", "wx"] } })).toThrow(
+    "channel.ownerIds must be an array of non-empty strings",
+  );
+  expect(() =>
+    parseConfig({
+      ...base,
+      channels: [{ id: "feishu", type: "feishu", enabled: true, ownerIds: [null] }],
+    }),
+  ).toThrow("channels[0].ownerIds must be an array of non-empty strings");
+});
