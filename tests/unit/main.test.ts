@@ -1712,13 +1712,9 @@ test("creates a default config on first run when the config file is missing", as
     workspaces: Record<string, unknown>;
   };
 
-  expect(saved.transport).toEqual({
-    type: "acpx-bridge",
-    sessionInitTimeoutMs: 120000,
-    permissionMode: "approve-all",
-    nonInteractivePermissions: "deny",
-    queueOwnerTtlSeconds: 1800,
-  });
+  // The seed stays slim: defaults (timeouts, permission modes, TTLs) are
+  // materialized at load time, never pinned into the file.
+  expect(saved.transport).toEqual({ type: "acpx-bridge" });
   expect(saved.agents).toEqual({
     codex: {
       driver: "codex",
