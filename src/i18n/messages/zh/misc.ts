@@ -39,6 +39,10 @@ export const misc: MiscMessages = {
   finalHeadsUp: (total: number, sentSoFar: number, remaining: number) =>
     `—\n📄 结果共 ${total} 段，已发 ${sentSoFar} 段。回复 /jx 续看后 ${remaining} 段。`,
 
+  // weixin/messaging/handle-weixin-message-turn: all pages parked
+  finalAllParked: (count: number) =>
+    `📄 已达消息上限：结果共 ${count} 段已暂存。回复 /jx 接收。`,
+
   // weixin/messaging/inbound: quoted message prefix
   quotedMessagePrefix: (parts: string) => `[引用: ${parts}]`,
 

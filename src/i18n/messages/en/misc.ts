@@ -39,6 +39,10 @@ export const misc: MiscMessages = {
   finalHeadsUp: (total: number, sentSoFar: number, remaining: number) =>
     `—\n📄 Result: ${total} parts total, ${sentSoFar} sent. Reply /jx to see the next ${remaining} parts.`,
 
+  // weixin/messaging/handle-weixin-message-turn: all pages parked
+  finalAllParked: (count: number) =>
+    `📄 Message limit reached: the result (${count} parts) is parked. Reply /jx to receive it.`,
+
   // weixin/messaging/inbound: quoted message prefix
   quotedMessagePrefix: (parts: string) => `[Quote: ${parts}]`,
 

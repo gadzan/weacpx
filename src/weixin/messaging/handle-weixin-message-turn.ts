@@ -483,15 +483,48 @@ export async function handleWeixinMessageTurn(
           deps.errLog(`weixin.final.dropped reason=backgrounded_no_store kind=text chatKey=${to}`);
         } else {
           const rawChunks = chunkFinalText(finalText, MAX_FINAL_CHUNK_BYTES);
+          // v1.5: when the final quota is exhausted and the whole answer ends
+          // up parked (zero pages sent), tell the user once that /jx drains
+          // it. The notice is a fixed-size system message, not model output,
+          // so it deliberately bypasses the final-quota counter — with the
+          // quota at zero it would be unsendable by construction otherwise.
+          const sendAllParkedNotice = async (count: number): Promise<void> => {
+            try {
+              await sendMessageWeixin({
+                to,
+                text: t().misc.finalAllParked(count),
+                opts: { baseUrl: deps.baseUrl, token: deps.token, contextToken },
+              });
+            } catch (noticeErr) {
+              deps.errLog(`weixin.final.parked_notice_failed chatKey=${to} err=${String(noticeErr)}`);
+            }
+          };
+          const buildPendingChunk = (text: string, seq: number, total: number): PendingFinalChunk => {
+            const entry: PendingFinalChunk = { text, seq, total };
+            if (contextToken !== undefined) entry.contextToken = contextToken;
+            if (deps.accountId !== undefined) entry.accountId = deps.accountId;
+            return entry;
+          };
           if (rawChunks.length > 0) {
             const total = rawChunks.length;
             if (total === 1) {
               const reserved = deps.reserveFinal ? deps.reserveFinal(to) : true;
               if (!reserved) {
-                finalDropped = true;
-                deps.errLog(
-                  `weixin.final.dropped reason=quota_exhausted kind=text chatKey=${to}`,
-                );
+                if (deps.enqueuePendingFinal) {
+                  // Park the answer instead of dropping it; /jx drains it on
+                  // the next inbound window.
+                  deps.enqueuePendingFinal(to, [buildPendingChunk(rawChunks[0]!, 1, 1)]);
+                  finalChunksPending = 1;
+                  deps.errLog(
+                    `weixin.final.parked reason=quota_exhausted kind=text chatKey=${to}`,
+                  );
+                  await sendAllParkedNotice(1);
+                } else {
+                  finalDropped = true;
+                  deps.errLog(
+                    `weixin.final.dropped reason=quota_exhausted kind=text chatKey=${to}`,
+                  );
+                }
               } else {
                 await sendMessageWeixin({
                   to,
@@ -554,14 +587,15 @@ export async function handleWeixinMessageTurn(
               const restToPark = prefixed.slice(sent);
               finalChunksPending = restToPark.length;
               if (restToPark.length > 0 && deps.enqueuePendingFinal) {
-                const pending: PendingFinalChunk[] = restToPark.map((text, idx) => {
-                  const seq = sent + idx + 1;
-                  const entry: PendingFinalChunk = { text, seq, total };
-                  if (contextToken !== undefined) entry.contextToken = contextToken;
-                  if (deps.accountId !== undefined) entry.accountId = deps.accountId;
-                  return entry;
-                });
+                const pending: PendingFinalChunk[] = restToPark.map((text, idx) =>
+                  buildPendingChunk(text, sent + idx + 1, total),
+                );
                 deps.enqueuePendingFinal(to, pending);
+                if (sent === 0) {
+                  // Zero pages went out, so the in-band heads-up tail never
+                  // attached anywhere — send the standalone notice instead.
+                  await sendAllParkedNotice(restToPark.length);
+                }
               }
             }
           }

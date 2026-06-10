@@ -1252,6 +1252,10 @@ export interface MiscMessages {
   // weixin/messaging/final-heads-up
   finalHeadsUp: (total: number, sentSoFar: number, remaining: number) => string;
 
+  // weixin/messaging/handle-weixin-message-turn: standalone notice when the
+  // final quota is exhausted and every page had to be parked
+  finalAllParked: (count: number) => string;
+
   // weixin/messaging/inbound
   quotedMessagePrefix: (parts: string) => string;
 
