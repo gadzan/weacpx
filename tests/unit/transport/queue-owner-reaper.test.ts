@@ -38,6 +38,74 @@ test("deduplicates targets that share a transport session", async () => {
   expect(resolved.sort()).toEqual(["backend:api", "backend:docs"]);
 });
 
+test("reaps BOTH targets when session name is the same but cwd differs", async () => {
+  const terminated: string[] = [];
+  // Two logical sessions share the name "backend:main" but live in different workspaces.
+  // They map to different acpx records and must both be reaped.
+  const result = await reapQueueOwners(
+    "acpx",
+    [
+      { agent: "codex", cwd: "/workspace/alpha", transportSession: "backend:main" },
+      { agent: "codex", cwd: "/workspace/beta", transportSession: "backend:main" },
+    ],
+    {
+      resolveRecordId: async (_cmd, t) => `record-${t.transportSession}-${t.cwd}`,
+      terminate: async (recordId) => {
+        terminated.push(recordId);
+      },
+    },
+  );
+
+  expect(terminated.sort()).toEqual([
+    "record-backend:main-/workspace/alpha",
+    "record-backend:main-/workspace/beta",
+  ]);
+  expect(result.terminated).toBe(2);
+  expect(result.attempted).toBe(2);
+});
+
+test("reaps BOTH targets when session name is the same but agent differs", async () => {
+  const terminated: string[] = [];
+  const result = await reapQueueOwners(
+    "acpx",
+    [
+      { agent: "codex", cwd: "/workspace/proj", transportSession: "main" },
+      { agent: "opus", cwd: "/workspace/proj", transportSession: "main" },
+    ],
+    {
+      resolveRecordId: async (_cmd, t) => `record-${t.transportSession}-${t.agent}`,
+      terminate: async (recordId) => {
+        terminated.push(recordId);
+      },
+    },
+  );
+
+  expect(terminated.sort()).toEqual(["record-main-codex", "record-main-opus"]);
+  expect(result.terminated).toBe(2);
+});
+
+test("still deduplicates truly identical targets (same name + same cwd + same agent)", async () => {
+  const resolved: string[] = [];
+  await reapQueueOwners(
+    "acpx",
+    [
+      { agent: "codex", cwd: "/workspace/alpha", transportSession: "backend:main" },
+      { agent: "codex", cwd: "/workspace/alpha", transportSession: "backend:main" },
+      { agent: "codex", cwd: "/workspace/beta", transportSession: "backend:main" },
+    ],
+    {
+      resolveRecordId: async (_cmd, t) => {
+        resolved.push(`${t.transportSession}|${t.cwd}`);
+        return `record-${t.transportSession}-${t.cwd}`;
+      },
+      terminate: async () => {},
+    },
+  );
+
+  // The alpha duplicate collapses; beta is distinct → 2 resolves total.
+  expect(resolved.sort()).toEqual(["backend:main|/workspace/alpha", "backend:main|/workspace/beta"]);
+});
+
 test("skips targets whose record id resolves to null", async () => {
   const terminated: string[] = [];
   const result = await reapQueueOwners("acpx", [target("backend:api"), target("backend:docs")], {
