@@ -2,7 +2,7 @@ import { expect, mock, test, beforeEach, afterAll } from "bun:test";
 
 import { executeScheduledTurn } from "../../../src/weixin/messaging/scheduled-turn";
 import type { Agent } from "../../../src/weixin/agent/interface";
-import { setLocale } from "../../../src/i18n";
+import { setLocale, t } from "../../../src/i18n";
 
 beforeEach(() => { setLocale("zh"); });
 afterAll(() => { setLocale("en"); });
@@ -255,4 +255,125 @@ test("executeScheduledTurn paginates long final responses and parks remaining ch
   expect(parked.map((chunk) => chunk.seq)).toEqual([2, 3]);
   expect(parked.every((chunk) => chunk.total === 3)).toBe(true);
   expect(parked.every((chunk) => chunk.accountId === "acct" && chunk.contextToken === "ctx")).toBe(true);
+});
+
+test("zero final quota parks every page of a scheduled final and sends one uncharged parked notice", async () => {
+  const sent: string[] = [];
+  const parked: Array<{ text: string; seq: number; total: number }> = [];
+  const reserveFinal = mock(() => false);
+  const agent: Agent = {
+    chat: async () => ({ text: "a".repeat(4000) }),
+  };
+
+  await executeScheduledTurn(
+    {
+      chatKey: "weixin:acct:user1",
+      sessionAlias: "weixin:backend-codex",
+      accountId: "acct",
+      replyContextToken: "ctx",
+      noticeText: "notice",
+      promptText: "prompt",
+    },
+    {
+      agent,
+      listAccountIds: () => ["acct"],
+      resolveAccount: () => ({ accountId: "acct", baseUrl: "https://example.test", token: "token" }),
+      getContextToken: () => "ctx",
+      reserveMidSegment: mock(() => true),
+      reserveFinal,
+      finalRemaining: mock(() => 0),
+      enqueuePendingFinal: mock((_chatKey, chunks) => {
+        parked.push(...chunks.map((c) => ({ text: c.text, seq: c.seq, total: c.total })));
+      }),
+      sendMessage: mock(async ({ text }) => {
+        sent.push(text);
+        return { messageId: `msg-${sent.length}` };
+      }),
+      logger: createLogger(),
+    },
+  );
+
+  // All 3 pages parked with continuous numbering.
+  expect(parked.map((chunk) => chunk.seq)).toEqual([1, 2, 3]);
+  expect(parked.every((chunk) => chunk.total === 3)).toBe(true);
+  expect(parked[0]!.text).toStartWith("(1/3) ");
+  // Trigger notice + exactly one parked notice; the parked notice bypasses
+  // the final quota counter entirely.
+  expect(sent).toEqual(["notice", t().misc.finalAllParked(3)]);
+  expect(reserveFinal).not.toHaveBeenCalled();
+});
+
+test("single-chunk scheduled final with zero quota is parked (not dropped) and the notice is sent", async () => {
+  const sent: string[] = [];
+  const parked: Array<{ text: string; seq: number; total: number }> = [];
+  const agent: Agent = {
+    chat: async () => ({ text: "short final answer" }),
+  };
+
+  await executeScheduledTurn(
+    {
+      chatKey: "weixin:acct:user1",
+      sessionAlias: "weixin:backend-codex",
+      accountId: "acct",
+      replyContextToken: "ctx",
+      noticeText: "notice",
+      promptText: "prompt",
+    },
+    {
+      agent,
+      listAccountIds: () => ["acct"],
+      resolveAccount: () => ({ accountId: "acct", baseUrl: "https://example.test", token: "token" }),
+      getContextToken: () => "ctx",
+      reserveMidSegment: mock(() => true),
+      reserveFinal: mock(() => false),
+      finalRemaining: mock(() => 0),
+      enqueuePendingFinal: mock((_chatKey, chunks) => {
+        parked.push(...chunks.map((c) => ({ text: c.text, seq: c.seq, total: c.total })));
+      }),
+      sendMessage: mock(async ({ text }) => {
+        sent.push(text);
+        return { messageId: `msg-${sent.length}` };
+      }),
+      logger: createLogger(),
+    },
+  );
+
+  expect(parked).toEqual([{ text: "short final answer", seq: 1, total: 1 }]);
+  expect(sent).toEqual(["notice", t().misc.finalAllParked(1)]);
+});
+
+test("single-chunk scheduled final with zero quota and no pending queue keeps the drop behavior", async () => {
+  const sent: string[] = [];
+  const logger = createLogger();
+  const agent: Agent = {
+    chat: async () => ({ text: "short final answer" }),
+  };
+
+  await executeScheduledTurn(
+    {
+      chatKey: "weixin:acct:user1",
+      sessionAlias: "weixin:backend-codex",
+      accountId: "acct",
+      replyContextToken: "ctx",
+      noticeText: "notice",
+      promptText: "prompt",
+    },
+    {
+      agent,
+      listAccountIds: () => ["acct"],
+      resolveAccount: () => ({ accountId: "acct", baseUrl: "https://example.test", token: "token" }),
+      getContextToken: () => "ctx",
+      reserveMidSegment: mock(() => true),
+      reserveFinal: mock(() => false),
+      sendMessage: mock(async ({ text }) => {
+        sent.push(text);
+        return { messageId: `msg-${sent.length}` };
+      }),
+      logger,
+    },
+  );
+
+  expect(sent).toEqual(["notice"]);
+  const infoEvents = (logger as { info: ReturnType<typeof mock> }).info.mock.calls.map((c: unknown[]) => c[0]);
+  expect(infoEvents).toContain("scheduled.final_dropped");
 });

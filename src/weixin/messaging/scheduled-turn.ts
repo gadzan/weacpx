@@ -204,7 +204,9 @@ export async function executeScheduledTurn(
     }
 
     const restToPark = chunks.slice(sent);
-    if (total > 1 && restToPark.length > 0 && deps.enqueuePendingFinal) {
+    if (restToPark.length > 0 && deps.enqueuePendingFinal) {
+      // Single-chunk finals park too (seq 1/1) instead of being dropped —
+      // the /jx drain path handles them like any other pending chunk.
       const pending: PendingFinalChunk[] = restToPark.map((text, index) => {
         const entry: PendingFinalChunk = { text, seq: sent + index + 1, total };
         if (deliveryContextToken) entry.contextToken = deliveryContextToken;
@@ -212,6 +214,25 @@ export async function executeScheduledTurn(
         return entry;
       });
       deps.enqueuePendingFinal(quotaKey, pending);
+      if (sent === 0) {
+        // Zero pages went out, so the in-band heads-up tail never attached
+        // anywhere — send ONE standalone parked notice. It is a fixed-size
+        // system message, not model output, so it bypasses the final-quota
+        // counter (at zero quota it would be unsendable by construction).
+        // Sent only after a successful park so it never promises a result
+        // that /jx cannot deliver.
+        const noticeDelivered = await sendTextViaAvailableAccount(
+          t().misc.finalAllParked(restToPark.length),
+          "scheduled.final_parked_notice_failed",
+        );
+        if (!noticeDelivered) {
+          await deps.logger.info(
+            "scheduled.final_parked_notice_failed",
+            "scheduled parked-final notice could not be delivered",
+            { chatKey: input.chatKey, parked: restToPark.length },
+          );
+        }
+      }
     }
   }
 
