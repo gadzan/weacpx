@@ -320,10 +320,11 @@ export class OrchestrationServer {
   }
 
   private parseRequestDelegateRpcInput(params: Record<string, unknown>): RequestDelegateRpcInput {
-    requireOnlyKeys(params, ["sourceHandle", "targetAgent", "task", "cwd", "role", "groupId"], "params");
+    requireOnlyKeys(params, ["sourceHandle", "targetAgent", "task", "cwd", "role", "groupId", "parallel"], "params");
     const cwd = requireOptionalString(params, "cwd");
     const role = requireOptionalString(params, "role");
     const groupId = requireOptionalString(params, "groupId");
+    const parallel = requireOptionalBoolean(params, "parallel");
     return {
       sourceHandle: requireString(params, "sourceHandle"),
       targetAgent: requireString(params, "targetAgent"),
@@ -331,6 +332,7 @@ export class OrchestrationServer {
       ...(cwd !== undefined ? { cwd } : {}),
       ...(role !== undefined ? { role } : {}),
       ...(groupId !== undefined ? { groupId } : {}),
+      ...(parallel !== undefined ? { parallel } : {}),
     };
   }
 
