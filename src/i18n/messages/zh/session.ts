@@ -70,6 +70,8 @@ export const session: SessionMessages = {
   sessionBlockedByTasksHint: "使用 /tasks 查看任务列表，或 /task cancel <id> 取消任务。",
   sessionRemoved: (alias) => `已删除会话「${alias}」。`,
   sessionRemovedWasActive: "该会话是当前活跃会话，已自动清除相关聊天上下文。",
+  sessionRemovedWasActivePromoted: (alias) =>
+    `该会话是当前活跃会话，已切换回上一个会话「${alias}」。`,
   sessionTransportShared: (transportSession, count) =>
     `提示：后端会话「${transportSession}」仍被其他 ${count} 个会话引用，未关闭。`,
   sessionOrchestrationPurgeFailed: (warning) =>

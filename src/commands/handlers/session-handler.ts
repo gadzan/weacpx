@@ -555,7 +555,14 @@ export async function handleSessionRemove(
   }
 
   const sharedAliasCount = context.sessions.countAliasesSharingTransport(session.transportSession, internalAlias);
+  const wasCurrentInThisChat = context.sessions.peekCurrentSessionAlias(chatKey) === internalAlias;
   const { wasActive } = await context.sessions.removeSession(internalAlias);
+  // removeSession promotes previous_session to current_session; if that
+  // happened for this chat, the next plain message routes to the promoted
+  // session, so the reply must name it instead of claiming a cleared context.
+  const promotedAlias = wasCurrentInThisChat
+    ? context.sessions.peekCurrentSessionAlias(chatKey) || undefined
+    : undefined;
 
   let orchestrationPurgeWarning: string | undefined;
   if (context.orchestration) {
@@ -596,7 +603,11 @@ export async function handleSessionRemove(
   const s = t().session;
   const lines = [s.sessionRemoved(alias)];
   if (wasActive) {
-    lines.push(s.sessionRemovedWasActive);
+    lines.push(
+      promotedAlias
+        ? s.sessionRemovedWasActivePromoted(toDisplaySessionAlias(promotedAlias))
+        : s.sessionRemovedWasActive,
+    );
   }
   if (!shouldTeardownTransport) {
     lines.push(s.sessionTransportShared(session.transportSession, sharedAliasCount));

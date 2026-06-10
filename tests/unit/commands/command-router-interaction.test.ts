@@ -1505,6 +1505,41 @@ test("removes a session and clears its chat context", async () => {
   expect(statusReply.text).toContain("other");
 });
 
+test("removing the current session names the promoted previous session in the reply", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config);
+
+  await router.handle("wx:user", "/session new main --agent codex --ws backend");
+  await router.handle("wx:user", "/session new other --agent codex --ws backend");
+
+  // current=other, previous=main → removing "other" promotes "main".
+  const reply = await router.handle("wx:user", "/session rm other");
+
+  expect(reply.text).toContain("已删除会话「other」");
+  // The next plain message routes to the promoted session — the reply must say
+  // so instead of claiming the chat context was cleared.
+  expect(reply.text).toContain("已切换回上一个会话「main」");
+  expect(reply.text).not.toContain("已自动清除");
+  const statusReply = await router.handle("wx:user", "/status");
+  expect(statusReply.text).toContain("main");
+});
+
+test("removing the current session without a previous one still reports a cleared context", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config);
+
+  await router.handle("wx:user", "/session new main --agent codex --ws backend");
+  const reply = await router.handle("wx:user", "/session rm main");
+
+  expect(reply.text).toContain("已删除会话「main」");
+  expect(reply.text).toContain("已自动清除相关聊天上下文");
+  expect(reply.text).not.toContain("已切换回上一个会话");
+});
+
 test("tears down the transport session when removing a logical session", async () => {
   const config = createConfig();
   const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
