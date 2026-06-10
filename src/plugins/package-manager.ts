@@ -13,9 +13,28 @@ export interface RunCommandOptions {
 
 export type RunCommand = (command: string, args: string[], options: RunCommandOptions) => Promise<void>;
 
+// defaultRunCommand/silentRun only ever run package managers (npm/bun). On
+// Windows those resolve to .cmd shims, which Node refuses to spawn without a
+// shell since the batch-file security change (EINVAL), so spawn through a
+// shell there — same pattern as src/cli-update.ts and src/recovery/*. Going
+// through cmd.exe means cmd metacharacters in args would be interpreted, and
+// unlike cli-update the specs here may carry semver range characters from the
+// owner-writable config (e.g. "pkg@^1.2.0" — `^` is cmd's escape char), so on
+// the shell path each arg is additionally wrapped in double quotes, inside
+// which cmd treats ^ & < > | literally. Args are npm package names/specs and
+// fixed flags — they never contain `"` or spaces themselves. The cwd (plugin
+// home, which CAN contain spaces) is passed as a spawn option, not through
+// the command line, so it needs no quoting. Do NOT reuse these helpers for
+// commands whose args may contain quotes or spaces.
+function shellSpawnPlan(args: string[]): { shell: boolean; args: string[] } {
+  const shell = process.platform === "win32";
+  return { shell, args: shell ? args.map((arg) => `"${arg}"`) : args };
+}
+
 async function defaultRunCommand(command: string, args: string[], options: RunCommandOptions): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, args, { cwd: options.cwd, stdio: "inherit" });
+    const plan = shellSpawnPlan(args);
+    const child = spawn(command, plan.args, { cwd: options.cwd, stdio: "inherit", shell: plan.shell });
     child.on("error", reject);
     child.on("exit", (code) => {
       if (code === 0) resolve();
@@ -26,7 +45,8 @@ async function defaultRunCommand(command: string, args: string[], options: RunCo
 
 async function silentRun(command: string, args: string[], options: RunCommandOptions): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, args, { cwd: options.cwd, stdio: "ignore" });
+    const plan = shellSpawnPlan(args);
+    const child = spawn(command, plan.args, { cwd: options.cwd, stdio: "ignore", shell: plan.shell });
     child.on("error", reject);
     child.on("exit", (code) => {
       if (code === 0) resolve();
