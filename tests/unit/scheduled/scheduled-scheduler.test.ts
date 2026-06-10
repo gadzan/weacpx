@@ -357,7 +357,8 @@ test("tick does not wedge when a dispatch ignores its abort signal", async () =>
   expect(state.scheduled_tasks.stuck?.status).toBe("failed");
 });
 
-// ---- Bug A robustness tests ----
+// tick() resilience: state-store errors must never escape tick() — an escaped
+// rejection from the interval callback would terminate the daemon process.
 
 test("tick survives claimDueTasks throwing — no unhandled rejection", async () => {
   // Build a fake service whose claimDueTasks always throws.
@@ -407,7 +408,6 @@ test("tick survives dispatch failure AND markFailed throwing — no unhandled re
 
   const saveCalls: number[] = [];
   const store = {
-    saves: 0,
     async save(): Promise<void> {
       saveCalls.push(Date.now());
       // First save (claimDueTasks) succeeds; second save (markFailed) throws.

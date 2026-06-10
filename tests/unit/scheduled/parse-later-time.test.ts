@@ -112,7 +112,9 @@ test("parses various weekday names", () => {
   expect(r4.executeAt.getDay()).toBe(0);
 });
 
-// ---- Bug B: Invalid Date from huge digit count ----
+// Overflow guard: durations large enough to overflow the Date range produce a
+// NaN timestamp; validation must reject them as out_of_range, never return
+// ok:true with an Invalid Date (which throws downstream on toISOString()).
 
 test("rejects astronomically large day count (overflow → Invalid Date)", () => {
   // 99999999999999d overflows Date range → getTime() is NaN.

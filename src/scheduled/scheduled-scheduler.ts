@@ -90,7 +90,7 @@ export class ScheduledTaskScheduler {
             // one bad task's error-recording write cannot escape tick() and
             // crash the daemon or prevent subsequent tasks from being processed.
             await this.logger?.error(
-              "scheduled.markFailed.failed",
+              "scheduled.dispatch.mark_failed",
               "markFailed threw; task state may be stale",
               {
                 taskId: task.id,
