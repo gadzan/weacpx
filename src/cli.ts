@@ -546,6 +546,33 @@ async function defaultUpdate(
   return await handleUpdateCli(args, deps);
 }
 
+/**
+ * Non-daemon CLI paths have no AppLogger; surface state.json load repairs on
+ * stderr so a quarantine never happens silently. The daemon path logs the same
+ * report through the app logger in buildApp.
+ */
+function warnStateLoadReport(
+  store: StateStore,
+  writeStderr: (text: string) => void = (text) => process.stderr.write(text),
+): void {
+  const report = store.lastLoadReport;
+  if (!report) return;
+  for (const record of report.dropped) {
+    writeStderr(
+      `[xacpx] state.record_quarantined section=${record.section}${record.key ? ` key=${record.key}` : ""} reason=${record.reason}\n`,
+    );
+  }
+  if (report.corruptPath) {
+    writeStderr(`[xacpx] state.file_corrupt unreadable state.json renamed to ${report.corruptPath}\n`);
+  }
+  if (report.quarantinePath) {
+    writeStderr(`[xacpx] state.file_quarantined original state.json backed up to ${report.quarantinePath}\n`);
+  }
+  if (report.backupError) {
+    writeStderr(`[xacpx] state.quarantine_backup_failed ${report.backupError}\n`);
+  }
+}
+
 async function runOnboardingBeforeStart(input: {
   print: (line: string) => void;
   cwd: () => string;
@@ -558,6 +585,7 @@ async function runOnboardingBeforeStart(input: {
   const stateStore = new StateStore(runtimePaths.statePath);
   const config = await configStore.load();
   const state = await stateStore.load();
+  warnStateLoadReport(stateStore);
   const result = await maybeRunFirstUseOnboarding({
     config,
     state,
@@ -847,6 +875,7 @@ async function createCliScheduledTaskService(): Promise<ScheduledTaskService> {
   const runtimePaths = (await import("./main")).resolveRuntimePaths();
   const stateStore = new StateStore(runtimePaths.statePath);
   const state = await stateStore.load();
+  warnStateLoadReport(stateStore);
   return new ScheduledTaskService(state, stateStore);
 }
 
@@ -1017,7 +1046,9 @@ async function defaultMcpStdio(
     await ensureConfigExists(runtimePaths.configPath);
     const config = await loadConfig(runtimePaths.configPath);
     availableAgents = Object.keys(config.agents);
-    const state = await new StateStore(runtimePaths.statePath).load();
+    const stateStore = new StateStore(runtimePaths.statePath);
+    const state = await stateStore.load();
+    warnStateLoadReport(stateStore, deps.stderr ?? ((text: string) => process.stderr.write(text)));
     const resolveIdentity = createMcpStdioIdentityResolver({
       parsedCoordinatorSession,
       sourceHandle,

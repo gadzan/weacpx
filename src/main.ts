@@ -192,6 +192,37 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
   const acpxCommand = resolveAcpxCommand({ configuredCommand: config.transport.command });
   const stateStore = new StateStore(paths.statePath);
   const state = await stateStore.load();
+  const stateLoadReport = stateStore.lastLoadReport;
+  if (stateLoadReport) {
+    // Loud by design: a quarantined record means data was dropped to keep the
+    // daemon bootable; operators must be able to find what was lost and where.
+    for (const record of stateLoadReport.dropped) {
+      await logger.error("state.record_quarantined", "dropped malformed state.json record", {
+        statePath: paths.statePath,
+        section: record.section,
+        key: record.key,
+        reason: record.reason,
+      });
+    }
+    if (stateLoadReport.corruptPath) {
+      await logger.error("state.file_corrupt", "state.json was unreadable; renamed aside and starting empty", {
+        statePath: paths.statePath,
+        corruptPath: stateLoadReport.corruptPath,
+      });
+    }
+    if (stateLoadReport.quarantinePath) {
+      await logger.error("state.file_quarantined", "original state.json backed up before dropping records", {
+        statePath: paths.statePath,
+        quarantinePath: stateLoadReport.quarantinePath,
+      });
+    }
+    if (stateLoadReport.backupError) {
+      await logger.error("state.quarantine_backup_failed", "failed to back up the original state.json", {
+        statePath: paths.statePath,
+        message: stateLoadReport.backupError,
+      });
+    }
+  }
   const stateMutex = new AsyncMutex();
   const debouncedStateStore = new DebouncedStateStore({
     delegate: stateStore,

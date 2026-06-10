@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -1558,7 +1558,7 @@ test("mcp-stdio without coordinator session starts with a process-scoped externa
   expect(stderr.join("")).toContain("[xacpx:mcp] mcp.stdio.start");
 });
 
-test("mcp-stdio returns a controlled startup error when local state is malformed", async () => {
+test("mcp-stdio survives malformed local state by quarantining it instead of bricking startup", async () => {
   await withTempHome(async (home) => {
     const root = join(home, ".xacpx");
     await mkdir(root, { recursive: true });
@@ -1578,6 +1578,8 @@ test("mcp-stdio returns a controlled startup error when local state is malformed
     await writeFile(join(root, "state.json"), "{not-json");
     const stderr: string[] = [];
 
+    // State loading no longer aborts startup; the run proceeds and fails later
+    // on the (absent) daemon orchestration IPC instead.
     await expect(
       runCli(["mcp-stdio", "--coordinator-session", "codex:backend", "--workspace", "backend"], {
         stderr: (text) => {
@@ -1586,8 +1588,12 @@ test("mcp-stdio returns a controlled startup error when local state is malformed
       }),
     ).resolves.toBe(2);
 
-    const expectedStatePath = join(root, "state.json").replaceAll("\\", "/");
-    expect(stderr.join("").replaceAll("\\", "/")).toContain(`failed to parse state file "${expectedStatePath}"`);
+    const stderrText = stderr.join("");
+    expect(stderrText).toContain("state.file_corrupt");
+    expect(stderrText).toContain("daemon orchestration IPC is unavailable");
+    const rootFiles = await readdir(root);
+    expect(rootFiles.some((name) => name.startsWith("state.json.corrupt-"))).toBe(true);
+    expect(rootFiles).not.toContain("state.json");
   });
 });
 

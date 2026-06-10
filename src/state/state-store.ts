@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, rename, writeFile } from "node:fs/promises";
 
 import { writePrivateFileAtomic } from "../util/private-file.js";
 import { createEmptyState, type AppState } from "./types";
@@ -25,6 +25,53 @@ import {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Format version written on every save. The parser tolerates files without it
+ * (older releases) and ignores it on load; no migration chain exists yet.
+ */
+export const STATE_FILE_VERSION = 1;
+
+/** A record or section that was skipped/repaired while loading state.json. */
+export interface StateLoadDroppedRecord {
+  section: string;
+  key: string;
+  reason: string;
+}
+
+export interface StateLoadReport {
+  dropped: StateLoadDroppedRecord[];
+  /** Backup copy of the original file, written because records were dropped. */
+  quarantinePath?: string;
+  /** Unreadable original renamed aside (whole-file JSON corruption). */
+  corruptPath?: string;
+  /** Best-effort backup/rename failure; load still returned the cleaned state. */
+  backupError?: string;
+}
+
+/**
+ * A section that must be an object map. A wrong-typed section degrades to an
+ * empty map (and is reported) instead of bricking the whole load; a missing
+ * section is simply empty (older files legitimately omit newer sections).
+ */
+function sectionRecord(
+  value: unknown,
+  section: string,
+  dropped: StateLoadDroppedRecord[],
+): Record<string, unknown> {
+  if (value === undefined) {
+    return {};
+  }
+  if (!isRecord(value)) {
+    dropped.push({
+      section,
+      key: "",
+      reason: `field "${section}" is not an object; reset to empty`,
+    });
+    return {};
+  }
+  return value;
 }
 
 function isString(value: unknown): value is string {
@@ -308,90 +355,104 @@ function isHumanQuestionPackageRecord(value: unknown): value is OrchestrationHum
   );
 }
 
-function parseOrchestrationState(raw: unknown, path: string): OrchestrationState {
+function parseOrchestrationState(
+  raw: unknown,
+  dropped: StateLoadDroppedRecord[],
+): OrchestrationState {
   if (raw === undefined) {
     return createEmptyOrchestrationState();
   }
 
   if (!isRecord(raw)) {
-    throw new Error(`state file "${path}" must contain an object field "orchestration"`);
+    dropped.push({
+      section: "orchestration",
+      key: "",
+      reason: 'field "orchestration" is not an object; reset to empty',
+    });
+    return createEmptyOrchestrationState();
   }
 
-  const tasks = raw.tasks;
-  if (tasks !== undefined && !isRecord(tasks)) {
-    throw new Error(`state file "${path}" must contain an object field "orchestration.tasks"`);
-  }
-
-  const workerBindings = raw.workerBindings;
-  if (workerBindings !== undefined && !isRecord(workerBindings)) {
-    throw new Error(`state file "${path}" must contain an object field "orchestration.workerBindings"`);
-  }
-
-  const groups = raw.groups;
-  if (groups !== undefined && !isRecord(groups)) {
-    throw new Error(`state file "${path}" must contain an object field "orchestration.groups"`);
-  }
-
-  const humanQuestionPackages = raw.humanQuestionPackages;
-  if (humanQuestionPackages !== undefined && !isRecord(humanQuestionPackages)) {
-    throw new Error(`state file "${path}" must contain an object field "orchestration.humanQuestionPackages"`);
-  }
-
-  const coordinatorQuestionState = raw.coordinatorQuestionState;
-  if (coordinatorQuestionState !== undefined && !isRecord(coordinatorQuestionState)) {
-    throw new Error(`state file "${path}" must contain an object field "orchestration.coordinatorQuestionState"`);
-  }
-
-  const coordinatorRoutes = raw.coordinatorRoutes;
-  if (coordinatorRoutes !== undefined && !isRecord(coordinatorRoutes)) {
-    throw new Error(`state file "${path}" must contain an object field "orchestration.coordinatorRoutes"`);
-  }
-
-  const externalCoordinators = raw.externalCoordinators;
-  if (externalCoordinators !== undefined && !isRecord(externalCoordinators)) {
-    throw new Error(`state file "${path}" must contain an object field "orchestration.externalCoordinators"`);
-  }
+  const tasks = sectionRecord(raw.tasks, "orchestration.tasks", dropped);
+  const workerBindings = sectionRecord(raw.workerBindings, "orchestration.workerBindings", dropped);
+  const groups = sectionRecord(raw.groups, "orchestration.groups", dropped);
+  const humanQuestionPackages = sectionRecord(
+    raw.humanQuestionPackages,
+    "orchestration.humanQuestionPackages",
+    dropped,
+  );
+  const coordinatorQuestionState = sectionRecord(
+    raw.coordinatorQuestionState,
+    "orchestration.coordinatorQuestionState",
+    dropped,
+  );
+  const coordinatorRoutes = sectionRecord(raw.coordinatorRoutes, "orchestration.coordinatorRoutes", dropped);
+  const externalCoordinators = sectionRecord(
+    raw.externalCoordinators,
+    "orchestration.externalCoordinators",
+    dropped,
+  );
 
   const parsedTasks: OrchestrationState["tasks"] = {};
-  for (const [taskId, task] of Object.entries(tasks ?? {})) {
+  for (const [taskId, task] of Object.entries(tasks)) {
     if (!isTaskRecord(task)) {
-      throw new Error(`state file "${path}" contains an invalid orchestration task at "${taskId}"`);
+      dropped.push({
+        section: "orchestration.tasks",
+        key: taskId,
+        reason: "malformed orchestration task record",
+      });
+      continue;
     }
     parsedTasks[taskId] = task;
   }
 
   const parsedWorkerBindings: OrchestrationState["workerBindings"] = {};
-  for (const [workerSession, binding] of Object.entries(workerBindings ?? {})) {
+  for (const [workerSession, binding] of Object.entries(workerBindings)) {
     if (!isWorkerBindingRecord(binding)) {
-      throw new Error(
-        `state file "${path}" contains an invalid orchestration worker binding at "${workerSession}"`,
-      );
+      dropped.push({
+        section: "orchestration.workerBindings",
+        key: workerSession,
+        reason: "malformed orchestration worker binding record",
+      });
+      continue;
     }
     parsedWorkerBindings[workerSession] = binding;
   }
 
   const parsedGroups: OrchestrationState["groups"] = {};
-  for (const [groupId, group] of Object.entries(groups ?? {})) {
+  for (const [groupId, group] of Object.entries(groups)) {
     if (!isGroupRecord(group)) {
-      throw new Error(`state file "${path}" contains an invalid orchestration group at "${groupId}"`);
+      dropped.push({
+        section: "orchestration.groups",
+        key: groupId,
+        reason: "malformed orchestration group record",
+      });
+      continue;
     }
     parsedGroups[groupId] = group;
   }
 
   const parsedHumanQuestionPackages: OrchestrationState["humanQuestionPackages"] = {};
-  for (const [packageId, packageRecord] of Object.entries(humanQuestionPackages ?? {})) {
+  for (const [packageId, packageRecord] of Object.entries(humanQuestionPackages)) {
     if (!isHumanQuestionPackageRecord(packageRecord)) {
-      throw new Error(`state file "${path}" contains an invalid human question package at "${packageId}"`);
+      dropped.push({
+        section: "orchestration.humanQuestionPackages",
+        key: packageId,
+        reason: "malformed human question package record",
+      });
+      continue;
     }
     parsedHumanQuestionPackages[packageId] = packageRecord;
   }
 
   const parsedCoordinatorQuestionState: OrchestrationState["coordinatorQuestionState"] = {};
-  for (const [coordinatorSession, questionState] of Object.entries(coordinatorQuestionState ?? {})) {
+  for (const [coordinatorSession, questionState] of Object.entries(coordinatorQuestionState)) {
     if (!isCoordinatorQuestionStateRecord(questionState)) {
-      throw new Error(
-        `state file "${path}" contains an invalid coordinator question state at "${coordinatorSession}"`,
-      );
+      dropped.push({
+        section: "orchestration.coordinatorQuestionState",
+        key: coordinatorSession,
+        reason: "malformed coordinator question state record",
+      });
+      continue;
     }
     parsedCoordinatorQuestionState[coordinatorSession] = {
       activePackageId: questionState.activePackageId,
@@ -400,20 +461,35 @@ function parseOrchestrationState(raw: unknown, path: string): OrchestrationState
   }
 
   const parsedCoordinatorRoutes: OrchestrationState["coordinatorRoutes"] = {};
-  for (const [coordinatorSession, route] of Object.entries(coordinatorRoutes ?? {})) {
+  for (const [coordinatorSession, route] of Object.entries(coordinatorRoutes)) {
     if (!isCoordinatorRouteContextRecord(route)) {
-      throw new Error(`state file "${path}" contains an invalid coordinator route at "${coordinatorSession}"`);
+      dropped.push({
+        section: "orchestration.coordinatorRoutes",
+        key: coordinatorSession,
+        reason: "malformed coordinator route record",
+      });
+      continue;
     }
     parsedCoordinatorRoutes[coordinatorSession] = route;
   }
 
   const parsedExternalCoordinators: OrchestrationState["externalCoordinators"] = {};
-  for (const [coordinatorSession, externalCoordinator] of Object.entries(externalCoordinators ?? {})) {
+  for (const [coordinatorSession, externalCoordinator] of Object.entries(externalCoordinators)) {
     if (!isExternalCoordinatorRecord(externalCoordinator)) {
-      throw new Error(`state file "${path}" contains an invalid external coordinator at "${coordinatorSession}"`);
+      dropped.push({
+        section: "orchestration.externalCoordinators",
+        key: coordinatorSession,
+        reason: "malformed external coordinator record",
+      });
+      continue;
     }
     if (externalCoordinator.coordinatorSession !== coordinatorSession) {
-      throw new Error(`state file "${path}" contains an external coordinator key mismatch at "${coordinatorSession}"`);
+      dropped.push({
+        section: "orchestration.externalCoordinators",
+        key: coordinatorSession,
+        reason: `coordinatorSession "${externalCoordinator.coordinatorSession}" does not match map key`,
+      });
+      continue;
     }
     parsedExternalCoordinators[coordinatorSession] = externalCoordinator;
   }
@@ -460,11 +536,15 @@ function isSessionRecord(value: unknown): value is AppState["sessions"][string] 
   );
 }
 
-function parseSessions(raw: Record<string, unknown>, path: string): AppState["sessions"] {
+function parseSessions(
+  raw: Record<string, unknown>,
+  dropped: StateLoadDroppedRecord[],
+): AppState["sessions"] {
   const sessions: AppState["sessions"] = {};
   for (const [alias, value] of Object.entries(raw)) {
     if (!isSessionRecord(value)) {
-      throw new Error(`state file "${path}" contains malformed session record "${alias}"`);
+      dropped.push({ section: "sessions", key: alias, reason: "malformed session record" });
+      continue;
     }
     sessions[alias] = value;
   }
@@ -475,11 +555,15 @@ function isChatContextRecord(value: unknown): value is AppState["chat_contexts"]
   return isRecord(value) && isString(value.current_session);
 }
 
-function parseChatContexts(raw: Record<string, unknown>, path: string): AppState["chat_contexts"] {
+function parseChatContexts(
+  raw: Record<string, unknown>,
+  dropped: StateLoadDroppedRecord[],
+): AppState["chat_contexts"] {
   const chatContexts: AppState["chat_contexts"] = {};
   for (const [chatKey, value] of Object.entries(raw)) {
     if (!isChatContextRecord(value)) {
-      throw new Error(`state file "${path}" contains malformed chat context record "${chatKey}"`);
+      dropped.push({ section: "chat_contexts", key: chatKey, reason: "malformed chat context record" });
+      continue;
     }
     chatContexts[chatKey] = value;
   }
@@ -575,110 +659,212 @@ function isScheduledTaskRecord(value: unknown): value is ScheduledTaskRecord {
   );
 }
 
-function parseScheduledTasks(raw: unknown, path: string): Record<string, ScheduledTaskRecord> {
-  if (raw === undefined) return {};
-  if (!isRecord(raw)) {
-    throw new Error(`state file "${path}" must contain an object field "scheduled_tasks"`);
-  }
+function parseScheduledTasks(
+  raw: unknown,
+  dropped: StateLoadDroppedRecord[],
+): Record<string, ScheduledTaskRecord> {
+  const source = sectionRecord(raw, "scheduled_tasks", dropped);
   const tasks: Record<string, ScheduledTaskRecord> = {};
-  for (const [id, value] of Object.entries(raw)) {
+  for (const [id, value] of Object.entries(source)) {
     if (!isScheduledTaskRecord(value) || value.id !== id) {
-      throw new Error(`state file "${path}" contains malformed scheduled task record "${id}"`);
+      dropped.push({ section: "scheduled_tasks", key: id, reason: "malformed scheduled task record" });
+      continue;
     }
     tasks[id] = value;
   }
   return tasks;
 }
 
-export function parseState(raw: unknown, path: string): AppState {
+/**
+ * Lenient state parser: a malformed record (or wrong-typed section) is skipped
+ * and collected in `dropped` instead of throwing, so one bad record can never
+ * brick daemon startup. The per-record shape checks themselves stay strict — an
+ * invalid record is quarantined, it never flows into dispatch logic. Only a
+ * non-object top level still throws (StateStore.load treats that as a corrupt
+ * file and renames it aside).
+ */
+export function parseState(
+  raw: unknown,
+  path: string,
+  dropped: StateLoadDroppedRecord[] = [],
+): AppState {
   if (!isRecord(raw)) {
     throw new Error(`state file "${path}" must contain a JSON object`);
   }
 
-  const sessions = raw.sessions;
-  if (!isRecord(sessions)) {
-    throw new Error(`state file "${path}" must contain an object field "sessions"`);
-  }
-
-  const chatContexts = raw.chat_contexts;
-  if (!isRecord(chatContexts)) {
-    throw new Error(`state file "${path}" must contain an object field "chat_contexts"`);
-  }
-
-  const parsedSessions = parseSessions(sessions, path);
-  const orchestration = parseOrchestrationState(raw.orchestration, path);
-  validateExternalCoordinatorIdentityCollisions(parsedSessions, orchestration, path);
+  const parsedSessions = parseSessions(sectionRecord(raw.sessions, "sessions", dropped), dropped);
+  const orchestration = parseOrchestrationState(raw.orchestration, dropped);
+  repairExternalCoordinatorIdentityCollisions(parsedSessions, orchestration, dropped);
 
   return {
     sessions: parsedSessions,
-    chat_contexts: parseChatContexts(chatContexts, path),
+    chat_contexts: parseChatContexts(sectionRecord(raw.chat_contexts, "chat_contexts", dropped), dropped),
     native_session_lists: parseNativeSessionLists(raw.native_session_lists),
     orchestration,
-    scheduled_tasks: parseScheduledTasks(raw.scheduled_tasks, path),
+    scheduled_tasks: parseScheduledTasks(raw.scheduled_tasks, dropped),
   };
 }
 
-function validateExternalCoordinatorIdentityCollisions(
+/**
+ * Cross-record repair: an external coordinator handle that collides with a
+ * logical session, worker binding, or active task worker session is dropped
+ * (the coordinator record is the regenerable side — it is re-registered the
+ * next time the coordinator connects) instead of failing the whole load.
+ */
+function repairExternalCoordinatorIdentityCollisions(
   sessions: AppState["sessions"],
   orchestration: OrchestrationState,
-  path: string,
+  dropped: StateLoadDroppedRecord[],
 ): void {
   for (const coordinatorSession of Object.keys(orchestration.externalCoordinators)) {
-    if (Object.values(sessions).some((session) => session.transport_session === coordinatorSession)) {
-      throw new Error(
-        `state file "${path}" contains external coordinator "${coordinatorSession}" that conflicts with a logical session`,
-      );
+    const conflict = findExternalCoordinatorConflict(coordinatorSession, sessions, orchestration);
+    if (!conflict) {
+      continue;
     }
-    if (orchestration.workerBindings[coordinatorSession]) {
-      throw new Error(
-        `state file "${path}" contains external coordinator "${coordinatorSession}" that conflicts with a worker binding`,
-      );
-    }
-    if (Object.values(orchestration.tasks).some(
-      (task) =>
-        task.workerSession === coordinatorSession &&
-        (!isTerminalTaskStatus(task.status) || task.reviewPending !== undefined),
-    )) {
-      throw new Error(
-        `state file "${path}" contains external coordinator "${coordinatorSession}" that conflicts with an active task worker session`,
-      );
-    }
+    delete orchestration.externalCoordinators[coordinatorSession];
+    dropped.push({
+      section: "orchestration.externalCoordinators",
+      key: coordinatorSession,
+      reason: `conflicts with ${conflict}; dropped (re-registered on next coordinator connect)`,
+    });
   }
+}
+
+function findExternalCoordinatorConflict(
+  coordinatorSession: string,
+  sessions: AppState["sessions"],
+  orchestration: OrchestrationState,
+): string | null {
+  if (Object.values(sessions).some((session) => session.transport_session === coordinatorSession)) {
+    return "a logical session";
+  }
+  if (orchestration.workerBindings[coordinatorSession]) {
+    return "a worker binding";
+  }
+  if (Object.values(orchestration.tasks).some(
+    (task) =>
+      task.workerSession === coordinatorSession &&
+      (!isTerminalTaskStatus(task.status) || task.reviewPending !== undefined),
+  )) {
+    return "an active task worker session";
+  }
+  return null;
 }
 
 function isTerminalTaskStatus(status: OrchestrationTaskStatus): boolean {
   return status === "completed" || status === "failed" || status === "cancelled";
 }
 
+export interface StateStoreOptions {
+  /** Injectable clock used for quarantine/corrupt backup file names. */
+  now?: () => Date;
+  /** Injectable backup writer (tests simulate backup failures). */
+  writeBackup?: (targetPath: string, content: string) => Promise<void>;
+}
+
 export class StateStore {
-  constructor(private readonly path: string) {}
+  private loadReport: StateLoadReport | null = null;
+
+  constructor(
+    private readonly path: string,
+    private readonly options: StateStoreOptions = {},
+  ) {}
+
+  /**
+   * Report of the most recent load(): null when the file was fully valid (or
+   * missing/empty), otherwise the dropped/repaired records plus the quarantine
+   * or corrupt backup path. Callers log/print this so silent repair is visible.
+   */
+  get lastLoadReport(): StateLoadReport | null {
+    return this.loadReport;
+  }
 
   async load(): Promise<AppState> {
+    this.loadReport = null;
+
+    let content: string;
     try {
-      const content = await readFile(this.path, "utf8");
-      if (content.trim() === "") {
-        return createEmptyState();
-      }
-
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(content) as unknown;
-      } catch (error) {
-        throw new Error(`failed to parse state file "${this.path}"`, {
-          cause: error,
-        });
-      }
-
-      return parseState(parsed, this.path);
+      content = await readFile(this.path, "utf8");
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         return createEmptyState();
       }
       throw error;
     }
+    if (content.trim() === "") {
+      return createEmptyState();
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content) as unknown;
+    } catch (error) {
+      return await this.recoverFromCorruptFile(
+        `invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (!isRecord(parsed)) {
+      return await this.recoverFromCorruptFile("top-level value is not an object");
+    }
+
+    const dropped: StateLoadDroppedRecord[] = [];
+    const state = parseState(parsed, this.path, dropped);
+    if (dropped.length === 0) {
+      // Happy path: no report, no backup I/O.
+      return state;
+    }
+
+    // Something was dropped/repaired. Back up the ORIGINAL bytes before
+    // returning: debounced saves fire shortly after load and would otherwise
+    // overwrite the only copy of the quarantined records.
+    const report: StateLoadReport = { dropped };
+    const quarantinePath = `${this.path}.quarantine-${this.fileTimestamp()}`;
+    try {
+      await (this.options.writeBackup ?? defaultWriteBackup)(quarantinePath, content);
+      report.quarantinePath = quarantinePath;
+    } catch (error) {
+      // Best-effort: losing the backup must not re-introduce the startup brick.
+      report.backupError = error instanceof Error ? error.message : String(error);
+    }
+    this.loadReport = report;
+    return state;
   }
 
   async save(state: AppState): Promise<void> {
-    await writePrivateFileAtomic(this.path, JSON.stringify(state, null, 2));
+    await writePrivateFileAtomic(
+      this.path,
+      JSON.stringify({ version: STATE_FILE_VERSION, ...state }, null, 2),
+    );
   }
+
+  private fileTimestamp(): string {
+    const now = this.options.now?.() ?? new Date();
+    // Filesystem-safe ISO timestamp (":" and "." are not portable in names).
+    return now.toISOString().replace(/[:.]/g, "-");
+  }
+
+  /**
+   * Whole-file corruption (JSON syntax error / non-object top level): rename
+   * the file aside — not copy — so the next save does not fight the corrupt
+   * bytes, then start from an empty state.
+   */
+  private async recoverFromCorruptFile(reason: string): Promise<AppState> {
+    const corruptPath = `${this.path}.corrupt-${this.fileTimestamp()}`;
+    const report: StateLoadReport = {
+      dropped: [{ section: "file", key: this.path, reason }],
+    };
+    try {
+      await rename(this.path, corruptPath);
+      report.corruptPath = corruptPath;
+    } catch (error) {
+      report.backupError = error instanceof Error ? error.message : String(error);
+    }
+    this.loadReport = report;
+    return createEmptyState();
+  }
+}
+
+async function defaultWriteBackup(targetPath: string, content: string): Promise<void> {
+  // state.json is 0600 (it can reference private chat keys); keep backups private too.
+  await writeFile(targetPath, content, { encoding: "utf8", mode: 0o600 });
 }
