@@ -258,7 +258,8 @@ export interface BridgeChildProcess {
     on(event: "error", listener: (error: Error) => void): unknown;
   };
   stdout: NodeJS.ReadableStream;
-  on(event: "exit" | "error", listener: (...args: never[]) => void): unknown;
+  on(event: "exit", listener: () => void): unknown;
+  on(event: "error", listener: (error: Error) => void): unknown;
 }
 
 /** Wire a spawned bridge child process into a managed bridge client. */
