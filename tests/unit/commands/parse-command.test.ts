@@ -800,3 +800,61 @@ test("parses later commands", () => {
     tokens: ["in", "2h", "检查", "CI"],
   });
 });
+
+test("command names are case-insensitive", () => {
+  expect(parseCommand("/Status")).toEqual({ kind: "status" });
+  expect(parseCommand("/CLEAR")).toEqual({ kind: "session.reset" });
+  expect(parseCommand("/SS")).toEqual({ kind: "sessions" });
+  expect(parseCommand("/Sessions")).toEqual({ kind: "sessions" });
+});
+
+test("arguments keep their case when the command name is mixed-case", () => {
+  expect(parseCommand("/USE MyAlias")).toEqual({ kind: "session.use", alias: "MyAlias" });
+  expect(parseCommand("/Session new Api-Fix --agent codex --ws Backend")).toEqual({
+    kind: "session.new",
+    alias: "Api-Fix",
+    agent: "codex",
+    workspace: "Backend",
+  });
+});
+
+test("tokenizes curly double quotes from mobile keyboards", () => {
+  expect(parseCommand("/session new api-fix --agent codex --ws “my dir”")).toEqual({
+    kind: "session.new",
+    alias: "api-fix",
+    agent: "codex",
+    workspace: "my dir",
+  });
+});
+
+test("tokenizes curly single and full-width quotes", () => {
+  expect(parseCommand("/ws new backend -d ‘E:\\My Projects\\repo’")).toEqual({
+    kind: "workspace.new",
+    name: "backend",
+    cwd: "E:\\My Projects\\repo",
+  });
+  expect(parseCommand("/ws new backend -d ＂E:\\My Projects\\repo＂")).toEqual({
+    kind: "workspace.new",
+    name: "backend",
+    cwd: "E:\\My Projects\\repo",
+  });
+});
+
+test("a straight quote does not close a curly quote and vice versa", () => {
+  // straight " inside curly quotes stays literal
+  expect(parseCommand("/ws new backend -d “ab\"cd ef”")).toEqual({
+    kind: "workspace.new",
+    name: "backend",
+    cwd: 'ab"cd ef',
+  });
+  // curly apostrophe inside straight quotes stays literal
+  expect(parseCommand('/ws new backend -d "don’t stop"')).toEqual({
+    kind: "workspace.new",
+    name: "backend",
+    cwd: "don’t stop",
+  });
+});
+
+test("a stray closing curly quote is treated as a literal character", () => {
+  expect(parseCommand("/use ali’as")).toEqual({ kind: "session.use", alias: "ali’as" });
+});
