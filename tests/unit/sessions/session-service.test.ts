@@ -381,22 +381,31 @@ test("resolves display alias to internal alias per channel", async () => {
   expect(await service.resolveAliasForChat("feishu:default:oc_chat", "backend:codex")).toBe("feishu:backend:codex");
 });
 
-test("listAllResolvedSessions resolves all sessions, dedups by transport session, and skips de-registered ones", async () => {
+test("listAllResolvedSessions resolves all sessions, dedups by composite identity, and skips de-registered ones", async () => {
+  const config = createConfig();
+  config.workspaces.frontend = { cwd: "/tmp/frontend" };
   const state = createEmptyState();
   const baseTimes = { created_at: "2026-05-03T00:00:00.000Z", last_used_at: "2026-05-03T00:00:00.000Z" };
   state.sessions["api-fix"] = { alias: "api-fix", agent: "codex", workspace: "backend", transport_session: "backend:api-fix", ...baseTimes };
   state.sessions["docs"] = { alias: "docs", agent: "claude", workspace: "backend", transport_session: "backend:docs", ...baseTimes };
   // Second alias bound to the same transport session as api-fix → must dedup.
   state.sessions["api-fix-mirror"] = { alias: "api-fix-mirror", agent: "codex", workspace: "backend", transport_session: "backend:api-fix", ...baseTimes };
+  // Same transport-session NAME but a different workspace (possible via
+  // /session attach) resolves to a different acpx record with its own warm
+  // queue owner → must NOT collapse with backend's api-fix.
+  state.sessions["api-fix-frontend"] = { alias: "api-fix-frontend", agent: "codex", workspace: "frontend", transport_session: "backend:api-fix", ...baseTimes };
   // Workspace de-registered after the session was created → must be skipped (no throw).
   state.sessions["orphan"] = { alias: "orphan", agent: "codex", workspace: "ghost-workspace", transport_session: "ghost-workspace:orphan", ...baseTimes };
-  const service = new SessionService(createConfig(), new MemoryStateStore(), state);
+  const service = new SessionService(config, new MemoryStateStore(), state);
 
   const resolved = service.listAllResolvedSessions();
-  const transportSessions = resolved.map((s) => s.transportSession).sort();
+  const identities = resolved.map((s) => `${s.transportSession}@${s.cwd}`).sort();
 
-  expect(transportSessions).toEqual(["backend:api-fix", "backend:docs"]);
-  expect(resolved.every((s) => s.cwd === "/tmp/backend")).toBe(true);
+  expect(identities).toEqual([
+    "backend:api-fix@/tmp/backend",
+    "backend:api-fix@/tmp/frontend",
+    "backend:docs@/tmp/backend",
+  ]);
 });
 
 test("stores native metadata when attaching a native session", async () => {

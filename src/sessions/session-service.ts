@@ -86,23 +86,38 @@ export class SessionService {
 
   /**
    * All currently-known logical sessions resolved to transport sessions, deduped by
-   * transport session. Sessions whose agent or workspace is no longer registered are
-   * skipped (toResolvedSession would throw). Used by shutdown cleanup to reap warm
-   * acpx queue owners; never throws.
+   * the composite identity acpx keys its session records on (agent + agent command +
+   * cwd + transport session name). Two aliases sharing a transport-session *name*
+   * but differing in agent/cwd (possible via /session attach) resolve to different
+   * acpx records with their own warm queue owners, so both must survive. Sessions
+   * whose agent or workspace is no longer registered are skipped (toResolvedSession
+   * would throw). Used by startup/shutdown cleanup to reap warm acpx queue owners;
+   * never throws.
    */
   listAllResolvedSessions(): ResolvedSession[] {
     const seen = new Set<string>();
     const resolved: ResolvedSession[] = [];
     for (const session of Object.values(this.state.sessions)) {
-      if (seen.has(session.transport_session)) {
-        continue;
-      }
-      seen.add(session.transport_session);
+      let candidate: ResolvedSession;
       try {
-        resolved.push(this.toResolvedSession(session));
+        candidate = this.toResolvedSession(session);
       } catch {
         // Agent/workspace de-registered since this session was created — skip it.
+        continue;
       }
+      // Same composite key as reapQueueOwners/defaultResolveRecordId; JSON.stringify
+      // so cwd values with arbitrary characters cannot collide.
+      const key = JSON.stringify([
+        candidate.agent,
+        candidate.agentCommand ?? null,
+        candidate.cwd,
+        candidate.transportSession,
+      ]);
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      resolved.push(candidate);
     }
     return resolved;
   }
