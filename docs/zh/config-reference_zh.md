@@ -219,6 +219,7 @@ rejects the prompt with the first observed error.
 - 微信协议**不携带任何群角色信息**，所以不配置 `ownerIds` 时，微信群里所有人（包括操作者自己）的特权命令都会被拒绝。把自己的发送者 id 加进来即可给自己授权。
 - 同名字段也可以按频道配置在 `channels[].ownerIds`（使用对应频道的发送者 id 格式：微信 `from_user_id`、飞书 `open_id`、元宝账号 id）。
 - `ownerIds` 中的发送者在频道自身上报的 owner 判定（如元宝的 `bot_owner_id`）之外**额外**被视为 owner，两者叠加生效。
+- 把 `ownerIds` 设为空数组（`[]`）是显式撤销授权：该频道的回合会按 owner = false 记录（除非频道自身上报了 owner），并覆盖此前记录的 owner 状态。整个删掉该字段则表示「未配置」，不影响频道自身上报的 owner 判定。
 - **如何找到自己的发送者 id**：在群里发送任意特权命令（如 `/clear`），拒绝记录会写入 `~/.xacpx/runtime/app.log` 的 `command.blocked` 日志条目，其中的 `senderId` 字段就是要填进 `ownerIds` 的 id。
 
 ```json

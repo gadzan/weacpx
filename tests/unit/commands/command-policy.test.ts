@@ -176,6 +176,33 @@ test("withEffectiveOwner leaves metadata unchanged when ownerIds is not configur
   expect(withEffectiveOwner(noChannel, ownerConfig)).toBe(noChannel);
 });
 
+test("withEffectiveOwner passes internal scheduled dispatch turns through untouched", () => {
+  // Scheduled dispatch metadata carries no senderId/isOwner; injecting an
+  // explicit isOwner: false here would flow into the recorded coordinator
+  // route and overwrite a previously recorded true (input.isOwner ?? existing).
+  const aliasTurn = { channel: "weixin", scheduledSessionAlias: "demo" };
+  expect(withEffectiveOwner(aliasTurn, ownerConfig)).toBe(aliasTurn);
+  const descriptorTurn = {
+    channel: "weixin",
+    scheduledSessionDescriptor: { alias: "tmp", agent: "codex", workspace: "backend", transportSession: "t" },
+  };
+  expect(withEffectiveOwner(descriptorTurn, ownerConfig)).toBe(descriptorTurn);
+});
+
+test("withEffectiveOwner treats an empty ownerIds list as configured (explicit revocation)", () => {
+  const config = {
+    channel: { type: "weixin", replyMode: "verbose" as const, ownerIds: [] },
+    channels: [{ id: "weixin", type: "weixin", enabled: true }],
+  };
+  expect(
+    withEffectiveOwner({ channel: "weixin", chatType: "group", senderId: "wx-op" }, config),
+  ).toEqual({ channel: "weixin", chatType: "group", senderId: "wx-op", isOwner: false });
+  // A channel-asserted owner still wins over an empty list.
+  expect(
+    withEffectiveOwner({ channel: "weixin", chatType: "group", senderId: "wx-op", isOwner: true }, config),
+  ).toEqual({ channel: "weixin", chatType: "group", senderId: "wx-op", isOwner: true });
+});
+
 test("withEffectiveOwner matches runtime channel entries by id as well as type", () => {
   const config = {
     channel: { type: "weixin", replyMode: "verbose" as const },

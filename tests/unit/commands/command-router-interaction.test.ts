@@ -2030,3 +2030,27 @@ test("ownerIds: non-listed sender records an explicit isOwner=false on the route
     isOwner: false,
   });
 });
+
+test("ownerIds: scheduled dispatch turns do not clobber the route isOwner", async () => {
+  const config = createConfig();
+  config.channel.ownerIds = ["wx-op"];
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const orchestration = createOrchestrationService();
+  const router = new CommandRouter(sessions, transport, config, undefined, undefined, undefined, orchestration);
+
+  await router.handle("wx:group", "/session new api-fix --agent codex --ws backend");
+  // Internal scheduled dispatch: channel + scheduledSessionAlias, no senderId.
+  await router.handle(
+    "wx:group",
+    "到点了，检查 CI",
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { channel: "weixin", scheduledSessionAlias: "api-fix" },
+  );
+
+  const recorded = getRecordCoordinatorRouteContextMock(orchestration).mock.calls.at(-1)?.[0];
+  expect(recorded?.isOwner).toBeUndefined();
+});

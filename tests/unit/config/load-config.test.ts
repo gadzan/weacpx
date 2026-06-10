@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { loadConfig, parseConfig } from "../../../src/config/load-config";
+import { resolveChannelOwnerIds, withEffectiveOwner } from "../../../src/commands/command-policy";
 
 test("loads a valid config file", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
@@ -1184,7 +1185,7 @@ test("throws when channels[].replyMode is invalid", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-test("parses channel.ownerIds and propagates it to the legacy runtime channel", async () => {
+test("parses channel.ownerIds without copying it into the synthesized runtime channel", async () => {
   const config = parseConfig({
     transport: { type: "acpx-bridge" },
     channel: { type: "weixin", ownerIds: ["wx-op", " wx-op-2 "] },
@@ -1193,9 +1194,32 @@ test("parses channel.ownerIds and propagates it to the legacy runtime channel", 
   });
 
   expect(config.channel.ownerIds).toEqual(["wx-op", "wx-op-2"]);
-  expect(config.channels).toEqual([
-    { id: "weixin", type: "weixin", enabled: true, ownerIds: ["wx-op", "wx-op-2"] },
-  ]);
+  // No parse-time copy: the policy resolver unions channel.ownerIds and
+  // channels[].ownerIds live, and a baked copy would survive saves and make
+  // a later revocation via channel.ownerIds silently ineffective.
+  expect(config.channels).toEqual([{ id: "weixin", type: "weixin", enabled: true }]);
+});
+
+test("save/reload round-trip keeps ownerIds revocable via channel.ownerIds", async () => {
+  const first = parseConfig({
+    transport: { type: "acpx-bridge" },
+    channel: { type: "weixin", ownerIds: ["wx-op"] },
+    agents: { codex: { driver: "codex" } },
+    workspaces: {},
+  });
+
+  // ConfigStore.save persists the parsed object verbatim.
+  const persisted = JSON.parse(JSON.stringify(first)) as Record<string, unknown>;
+  expect((persisted.channels as Array<Record<string, unknown>>)[0]?.ownerIds).toBeUndefined();
+
+  // Operator revokes by editing channel.ownerIds in the saved file.
+  (persisted.channel as Record<string, unknown>).ownerIds = [];
+  const reloaded = parseConfig(persisted);
+
+  expect(resolveChannelOwnerIds(reloaded, "weixin")).toEqual([]);
+  expect(
+    withEffectiveOwner({ channel: "weixin", chatType: "group", senderId: "wx-op" }, reloaded),
+  ).toMatchObject({ isOwner: false });
 });
 
 test("parses channels[].ownerIds", async () => {

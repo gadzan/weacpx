@@ -230,6 +230,7 @@ Notes:
 - WeChat carries **no group-role information** at the protocol level, so without `ownerIds` every privileged command in a WeChat group is denied for everyone — including the operator. Add your own sender id here to authorize yourself.
 - The same field is available per channel as `channels[].ownerIds` (use the sender id format of that channel: WeChat `from_user_id`, Feishu `open_id`, Yuanbao account id).
 - A sender in `ownerIds` is treated as owner in addition to whatever the channel itself reports (e.g. Yuanbao's `bot_owner_id` detection still works).
+- Setting `ownerIds` to an empty array (`[]`) is an explicit revocation: turns on this channel are recorded with owner = false (unless the channel itself reports an owner), which also clears any previously recorded owner state. Removing the field entirely means "not configured" and leaves channel-reported ownership untouched.
 - **How to find your sender id**: send any privileged command (e.g. `/clear`) in the group; the denial is logged to `~/.xacpx/runtime/app.log` as a `command.blocked` entry whose `senderId` field is the id to put into `ownerIds`.
 
 ```json
