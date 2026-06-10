@@ -811,7 +811,8 @@ async function handleLaterCli(
 
 async function laterList(print: (line: string) => void): Promise<number> {
   const scheduled = await createCliScheduledTaskService();
-  print(renderLaterList(scheduled.listPending(), (alias) => toDisplaySessionAlias(alias)));
+  // Local operator surface: the machine owner sees tasks from every chat.
+  print(renderLaterList(scheduled.listPendingAllChats(), (alias) => toDisplaySessionAlias(alias)));
   return 0;
 }
 
@@ -823,7 +824,8 @@ async function laterCancel(rawId: string, print: (line: string) => void): Promis
   }
 
   const scheduled = await createCliScheduledTaskService();
-  const ok = await scheduled.cancelPending(id);
+  // Local operator surface: the machine owner may cancel any chat's task.
+  const ok = await scheduled.cancelPendingAnyChat(id);
   if (!ok) {
     print(t().cli.laterNotFound(id));
     print(t().cli.laterNotFoundHint);

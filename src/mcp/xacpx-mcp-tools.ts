@@ -422,7 +422,7 @@ export function buildXacpxMcpToolRegistry(input: {
     tools.push({
       name: "scheduled_list",
       description:
-        "List pending one-shot scheduled tasks (global). Use to recover task ids before cancelling, or to see what is scheduled. Owner-only in group chats. Routing and account are resolved from the current session; pass no other arguments.",
+        "List pending one-shot scheduled tasks created in the current chat. Use to recover task ids before cancelling, or to see what is scheduled. Owner-only in group chats. Routing and account are resolved from the current session; pass no other arguments.",
       inputSchema: z.object({}).strict(),
       handler: async () =>
         await asToolResult(async () => {
@@ -442,7 +442,7 @@ export function buildXacpxMcpToolRegistry(input: {
     tools.push({
       name: "scheduled_cancel",
       description:
-        "Cancel a pending scheduled task by id. Owner-only in group chats. Returns whether a pending task with that id was found and cancelled. Routing is resolved from the current session.",
+        "Cancel a pending scheduled task by id (only tasks created in the current chat). Owner-only in group chats. Returns whether a pending task with that id was found and cancelled. Routing is resolved from the current session.",
       inputSchema: z
         .object({
           id: z.string().min(1).describe("The scheduled task id, e.g. 'k8f2' (a leading # is allowed)."),

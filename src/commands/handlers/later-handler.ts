@@ -109,13 +109,15 @@ export async function handleLaterCreate(
   return { text: renderTaskCreated(task, toDisplaySessionAlias(currentSession.alias)) };
 }
 
-export function handleLaterList(scheduled: ScheduledRouterOps): RouterResponse {
-  const tasks = scheduled.listPending();
+export function handleLaterList(scheduled: ScheduledRouterOps, chatKey: string): RouterResponse {
+  // Scoped to the requesting chat: another chat's tasks (and their message
+  // text) must never be visible here.
+  const tasks = scheduled.listPending(chatKey);
   return { text: renderLaterList(tasks, (alias) => toDisplaySessionAlias(alias)) };
 }
 
-export async function handleLaterCancel(id: string, scheduled: ScheduledRouterOps): Promise<RouterResponse> {
-  const ok = await scheduled.cancelPending(id);
+export async function handleLaterCancel(id: string, scheduled: ScheduledRouterOps, chatKey: string): Promise<RouterResponse> {
+  const ok = await scheduled.cancelPending(id, chatKey);
   const displayId = id.replace(/^#/, "").toLowerCase();
   if (ok) {
     return { text: t().later.cancelSuccess(displayId) };

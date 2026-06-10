@@ -37,7 +37,7 @@ When a scheduled task comes due, there are two execution-session modes:
 ```text
 /later                  # show help
 /later <time> <message> # create a one-off scheduled task
-/later list             # view global pending tasks
+/later list             # view this chat's pending tasks
 /later cancel <id>      # cancel a pending task
 ```
 
@@ -58,7 +58,7 @@ In addition to the `/lt` command, an agent in ordinary conversation can also cre
 - The time syntax, the 10-second–7-day limit, the default temporary session, `later.defaultMode`, and the channel delivery-capability check are all consistent with `/lt`.
 - Group-chat permissions are also consistent with `/lt`: in group chats, only the group owner can create scheduled tasks, to prevent bypassing channel command permissions via natural language.
 - If the current session's routing or the chat type / group-owner metadata cannot be recorded reliably, xacpx refuses to create (or cancels this send), to avoid creating a task by mistake using stale routing.
-- Besides creating, the agent can also use `scheduled_list` to view pending tasks and `scheduled_cancel <id>` to cancel tasks. `scheduled_list` returns the **global** pending list (consistent with `/lt list`), and `scheduled_cancel` cancels by task id (the leading `#` is optional); in group chats both can likewise only be called by the group owner.
+- Besides creating, the agent can also use `scheduled_list` to view pending tasks and `scheduled_cancel <id>` to cancel tasks. `scheduled_list` returns only the pending tasks created in the **current chat** (consistent with `/lt list`), and `scheduled_cancel` cancels by task id (the leading `#` is optional) and only matches tasks created in the current chat; in group chats both can likewise only be called by the group owner.
 
 ## Time Syntax
 
@@ -193,7 +193,7 @@ This kind of failure occurs at the creation stage; it is not written to `state.j
 ## View and Cancel
 
 ```text
-/lt list          # global pending tasks, not limited to the current chat/session, and shows the execution session (temporary session or bound session)
+/lt list          # pending tasks created in this chat, showing the execution session (temporary session or bound session)
 /lt cancel k8f2   # cancel; the id works with or without #, case-insensitive
 /lt cancel #k8f2
 ```
@@ -263,7 +263,7 @@ The first version assumes a "trusted channel / personal tool":
 
 - In private chat, all of `/later` is available.
 - In group chat, `/later` (creation), `/lt list`, and `/lt cancel` are control-type commands available **only to the group owner**; `/later` (help with no arguments) is available to everyone.
-- Anyone who can run `/lt list` can cancel any pending task. `/lt list` is **global** and will show summaries of tasks created in other chats along with their execution sessions—this is a deliberate v1 trade-off.
+- `/lt list` and `/lt cancel` are scoped to the **originating chat**: a chat can only see and cancel the tasks it created, and cancelling another chat's task id behaves exactly like an unknown id. The local CLI (`xacpx later list/cancel`) remains an operator surface that works across all chats.
 
 ## Non-Goals (Not in the First Version)
 

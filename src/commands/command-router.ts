@@ -296,7 +296,7 @@ export class CommandRouter {
           return handleLaterHelp();
         case "later.list":
           if (!this.scheduled) return { text: t().later.serviceNotEnabled };
-          return handleLaterList(this.scheduled);
+          return handleLaterList(this.scheduled, chatKey);
         case "later.create": {
           if (!this.scheduled) return { text: t().later.serviceNotEnabled };
           if (this.scheduledDelivery && !this.scheduledDelivery.supportsScheduledMessages(chatKey)) {
@@ -320,7 +320,7 @@ export class CommandRouter {
         }
         case "later.cancel":
           if (!this.scheduled) return { text: t().later.serviceNotEnabled };
-          return await handleLaterCancel(command.id, this.scheduled);
+          return await handleLaterCancel(command.id, this.scheduled, chatKey);
         case "prompt": {
           const sessionContext = this.createSessionHandlerContext(undefined, perfSpan);
           if (metadata?.scheduledSessionDescriptor) {

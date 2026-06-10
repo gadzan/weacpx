@@ -441,7 +441,7 @@ More examples:
 - Only **one-off** tasks are supported; repeated execution is not supported.
 - The scheduled time must be **at least 10 seconds from now and within 7 days**.
 - By default it runs in a temporary session; add `--bind` to run it bound to the current session; the default mode can be configured via `later.defaultMode`.
-- `/lt list` shows **global** pending tasks, not limited to the current session.
+- `/lt list` shows pending tasks created in the **current chat** only; other chats' tasks are never visible, and their ids cannot be cancelled from here.
 - Cancellation follows the **trusted channel model**: in group chats, only the group owner can cancel.
 - Delaying execution of xacpx commands that start with `/` is **not supported** (e.g. `/lt in 1h /status` will be rejected). If you need the agent to discuss a command, describe it in a plain sentence.
 - The trigger notification and the agent reply reuse the existing **channel routing**; WeChat reply quotas are controlled by the existing routing.

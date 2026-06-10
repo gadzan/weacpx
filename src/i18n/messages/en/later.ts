@@ -58,7 +58,7 @@ export const later: LaterMessages = {
   helpNote2: "Time must be at least 10 seconds and at most 7 days away",
   helpNote3: "By default runs in a new temporary session that is destroyed after completion",
   helpNote4: "Use --bind to send to the session that was current when the task was created (configurable via later.defaultMode)",
-  helpNote5: "/lt list shows all pending tasks globally; in group chats only the owner can cancel",
+  helpNote5: "/lt list shows only this chat's pending tasks; in group chats only the owner can cancel",
   helpNote6: "Scheduling slash-prefixed xacpx commands is not supported",
   helpNote7: "Full time format reference: docs/later-command.md",
 };
