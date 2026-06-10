@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, open, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { PassThrough } from "node:stream";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -51,6 +51,37 @@ test("spawns a detached run command and records the child pid", async () => {
   await expect(readFile(paths.pidFile, "utf8")).resolves.toBe("43210\n");
 
   await rm(runtimeDir, { recursive: true, force: true });
+});
+
+test("spawn repairs a loose pre-existing runtime dir to user-private (0700)", async () => {
+  if (process.platform === "win32") return;
+  const base = await mkdtemp(join(tmpdir(), "weacpx-daemon-factory-"));
+  const runtimeDir = join(base, "runtime");
+  const paths = createPaths(runtimeDir);
+  // Simulate an install whose runtime dir predates the 0700 hardening.
+  await mkdir(runtimeDir, { recursive: true });
+  await chmod(runtimeDir, 0o755);
+
+  const controller = createDaemonController(paths, {
+    processExecPath: "/usr/local/bin/node",
+    cliEntryPath: "/app/dist/cli.js",
+    cwd: "/app",
+    env: {},
+    platform: "linux",
+    spawnProcess: async () => {
+      await writeReadyStatus(paths.statusFile, 13579);
+      return 13579;
+    },
+    isProcessRunning: (pid) => pid === 13579,
+    terminateProcess: async () => {},
+  });
+
+  try {
+    await controller.start();
+    expect(((await stat(runtimeDir)).mode & 0o777)).toBe(0o700);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
 });
 
 test("appends daemon stdout and stderr to runtime log files", async () => {

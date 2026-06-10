@@ -76,6 +76,17 @@ export function parsePositiveOptionalNumber(value: unknown, path: string, defaul
   return value;
 }
 
+function parseOwnerIds(value: unknown, path: string): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !Array.isArray(value) ||
+    value.some((entry) => typeof entry !== "string" || entry.trim().length === 0)
+  ) {
+    throw new Error(`${path} must be an array of non-empty strings`);
+  }
+  return value.map((entry) => entry.trim());
+}
+
 function parseChannelConfig(channel: unknown, legacyWechat: unknown): ChannelConfig {
   if (channel !== undefined) {
     if (!isRecord(channel)) {
@@ -88,6 +99,7 @@ function parseChannelConfig(channel: unknown, legacyWechat: unknown): ChannelCon
       throw new Error("channel.replyMode must be stream, final, or verbose");
     }
     const type = typeof channel.type === "string" ? channel.type : "weixin";
+    const ownerIds = parseOwnerIds(channel.ownerIds, "channel.ownerIds");
     let options: Record<string, unknown> | undefined = undefined;
     if ("feishu" in channel && isRecord(channel.feishu)) {
       options = channel.feishu;
@@ -97,6 +109,7 @@ function parseChannelConfig(channel: unknown, legacyWechat: unknown): ChannelCon
     return {
       type,
       replyMode: isReplyMode(channel.replyMode) ? channel.replyMode : DEFAULT_CHANNEL_CONFIG.replyMode,
+      ...(ownerIds ? { ownerIds } : {}),
       ...(options ? { options } : {}),
     };
   }
@@ -426,6 +439,7 @@ function parseRuntimeChannelConfig(raw: unknown, index: number): ChannelRuntimeC
   if ("replyMode" in raw && !isReplyMode(raw.replyMode)) {
     throw new Error(`channels[${index}].replyMode must be stream, final, or verbose`);
   }
+  const ownerIds = parseOwnerIds(raw.ownerIds, `channels[${index}].ownerIds`);
   let options: Record<string, unknown> | undefined = undefined;
   if ("feishu" in raw && isRecord(raw.feishu)) {
     options = raw.feishu;
@@ -437,6 +451,7 @@ function parseRuntimeChannelConfig(raw: unknown, index: number): ChannelRuntimeC
     type: raw.type,
     enabled,
     ...(isReplyMode(raw.replyMode) ? { replyMode: raw.replyMode } : {}),
+    ...(ownerIds ? { ownerIds } : {}),
     ...(options ? { options } : {}),
   };
 }
@@ -458,6 +473,11 @@ function parseRuntimeChannels(rawChannels: unknown, channel: ChannelConfig): Cha
   }
 
   const legacyType = channel.type ?? "weixin";
+  // Deliberately NOT copying channel.ownerIds here: the policy resolver
+  // (resolveChannelOwnerIds) unions channel.ownerIds and channels[].ownerIds
+  // at evaluation time, and channel mutations (ConfigStore.replaceChannels)
+  // persist parsed runtime entries — a baked copy would survive those writes
+  // and make a later revocation edit of channel.ownerIds silently ineffective.
   return [
     {
       id: legacyType,

@@ -1,7 +1,7 @@
 import { basenameForWorkspacePath, normalizeWorkspacePath } from "./commands/workspace-path.js";
 import { allocateWorkspaceName, sanitizeWorkspaceName } from "./commands/workspace-name.js";
 import { DEFAULT_HOME_WORKSPACE_NAME } from "./config/default-workspace.js";
-import type { AppConfig } from "./config/types.js";
+import type { AgentConfig, AppConfig } from "./config/types.js";
 import type { AppState } from "./state/types.js";
 import { listAgentTemplates, getAgentTemplate } from "./config/agent-templates.js";
 import { t } from "./i18n/index.js";
@@ -40,10 +40,19 @@ export function isFirstUse(config: Pick<AppConfig, "workspaces" | "plugins">, st
     (config.plugins ?? []).length === 0;
 }
 
+export interface FirstRunConfigEntries {
+  workspace: { name: string; cwd: string };
+  agent: { name: string; config: AgentConfig };
+}
+
 export async function maybeRunFirstUseOnboarding(input: {
   config: AppConfig;
   state: AppState;
-  saveConfig: (config: AppConfig) => Promise<void>;
+  /**
+   * Persists only the onboarding-created workspace and agent entries (targeted
+   * config patches) — never the whole parsed config object.
+   */
+  saveFirstRunConfig: (entries: FirstRunConfigEntries) => Promise<void>;
   deps: OnboardingDeps;
 }): Promise<OnboardingResult> {
   if (!isFirstUse(input.config, input.state)) return { created: false };
@@ -77,7 +86,10 @@ export async function maybeRunFirstUseOnboarding(input: {
 
   input.config.workspaces[workspaceName] = { cwd };
   input.config.agents[agentName] = template;
-  await input.saveConfig(input.config);
+  await input.saveFirstRunConfig({
+    workspace: { name: workspaceName, cwd },
+    agent: { name: agentName, config: template },
+  });
 
   const alias = `${workspaceName}:${agentName}`;
   input.deps.print(t().misc.onboardingCreatedWorkspace(workspaceName, alias));

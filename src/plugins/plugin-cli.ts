@@ -73,7 +73,8 @@ type DaemonStatusForPluginCli =
 
 export interface PluginCliDeps {
   loadConfig: () => Promise<AppConfig>;
-  saveConfig: (config: AppConfig) => Promise<void>;
+  /** Persists only the plugins[] subtree — never the whole parsed config. */
+  savePlugins: (plugins: PluginConfig[]) => Promise<void>;
   getDaemonStatus: () => Promise<DaemonStatusForPluginCli>;
   restartDaemon: () => Promise<number>;
   print: (line: string) => void;
@@ -285,7 +286,7 @@ async function addPlugin(packageSpec: string, rawArgs: string[], deps: PluginCli
   } else {
     config.plugins = [...config.plugins, next];
   }
-  await deps.saveConfig(config);
+  await deps.savePlugins(config.plugins);
 
   deps.print(t().pluginCli.pluginInstalled(recordedName));
   if (summary.channels.length > 0) {
@@ -335,7 +336,7 @@ async function removePlugin(packageName: string, rawArgs: string[], deps: Plugin
   }
 
   config.plugins = config.plugins.filter((entry) => entry.name !== existing.name);
-  await deps.saveConfig(config);
+  await deps.savePlugins(config.plugins);
   deps.print(t().pluginCli.pluginRemoved(packageName));
   return await maybeRestartAfterMutation(flags.restart, deps);
 }
@@ -423,7 +424,7 @@ async function updatePlugins(args: string[], deps: PluginCliDeps): Promise<numbe
     }
   }
 
-  await deps.saveConfig(config);
+  await deps.savePlugins(config.plugins);
   return await maybeRestartAfterMutation(flags.restart, deps);
 }
 
@@ -456,7 +457,7 @@ async function setPluginEnabled(packageName: string, enabled: boolean, rawArgs: 
   }
 
   existing.enabled = enabled;
-  await deps.saveConfig(config);
+  await deps.savePlugins(config.plugins);
   deps.print(t().pluginCli.pluginEnabledToggled(packageName, enabled));
   return await maybeRestartAfterMutation(flags.restart, deps);
 }

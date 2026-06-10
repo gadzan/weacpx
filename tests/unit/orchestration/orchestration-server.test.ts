@@ -1,8 +1,9 @@
 import { expect, mock, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createConnection } from "node:net";
+import { EventEmitter } from "node:events";
+import { createConnection, type createServer } from "node:net";
 
 import { resolveOrchestrationEndpoint } from "../../../src/orchestration/orchestration-ipc";
 import { OrchestrationServer } from "../../../src/orchestration/orchestration-server";
@@ -837,6 +838,78 @@ test("rejects malformed task.list filters instead of widening the request", asyn
         message: "filter must be an object when provided",
       },
     });
+  } finally {
+    await server.stop();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+class FakeNetServer extends EventEmitter {
+  listen(_path: string): this {
+    queueMicrotask(() => this.emit("listening"));
+    return this;
+  }
+
+  close(callback?: (error?: Error) => void): void {
+    callback?.();
+  }
+}
+
+test("hardens the unix socket to owner-only (0600) after listen", async () => {
+  // Requires node:net listen; sandboxed runners may deny local IPC with EPERM.
+  if (await skipIfLocalIpcUnavailable("orchestration-server socket integration tests")) return;
+
+  if (process.platform === "win32") {
+    return;
+  }
+
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-orch-server-"));
+  const endpoint = resolveOrchestrationEndpoint(dir);
+  const server = new OrchestrationServer(endpoint, makeServerHandlers());
+
+  try {
+    await server.start();
+    expect(((await stat(endpoint.path)).mode & 0o777)).toBe(0o600);
+  } finally {
+    await server.stop();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("skips socket chmod for windows named-pipe endpoints", async () => {
+  const chmodCalls: Array<{ path: string; mode: number }> = [];
+  const endpoint = { kind: "named-pipe" as const, path: "\\\\.\\pipe\\xacpx-orchestration-test" };
+  const server = new OrchestrationServer(endpoint, makeServerHandlers(), {
+    createServer: (() => new FakeNetServer()) as unknown as typeof createServer,
+    chmodFile: async (path, mode) => {
+      chmodCalls.push({ path, mode });
+    },
+  });
+
+  await server.start();
+  await server.stop();
+
+  expect(chmodCalls).toEqual([]);
+});
+
+test("socket chmod failure is non-fatal and reported", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-orch-server-"));
+  const endpoint = resolveOrchestrationEndpoint(dir);
+  const hardenErrors: unknown[] = [];
+  const server = new OrchestrationServer(endpoint, makeServerHandlers(), {
+    createServer: (() => new FakeNetServer()) as unknown as typeof createServer,
+    chmodFile: async () => {
+      throw new Error("chmod denied");
+    },
+    onSocketHardenError: (error) => {
+      hardenErrors.push(error);
+    },
+  });
+
+  try {
+    await expect(server.start()).resolves.toBeUndefined();
+    expect(hardenErrors).toHaveLength(1);
+    expect((hardenErrors[0] as Error).message).toBe("chmod denied");
   } finally {
     await server.stop();
     await rm(dir, { recursive: true, force: true });

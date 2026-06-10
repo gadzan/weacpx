@@ -16,6 +16,11 @@ export const session: SessionMessages = {
 
   // handleSessionNew / handleSessionAttach
   sessionCreated: (alias) => `会话「${alias}」已创建并切换`,
+  sessionAlreadyExists: (alias, agent, workspace) =>
+    [
+      `会话「${alias}」已存在（${agent} @ ${workspace}）。`,
+      `发送 /use ${alias} 切换到它，或先执行 /session rm ${alias} 删除后再创建。`,
+    ].join("\n"),
   sessionAttachNotFound: (alias, agent, workspace) =>
     [
       "没有找到可绑定的已有会话。",

@@ -10,7 +10,7 @@ export interface ScheduledListFromRouteInput {
 
 export interface ScheduledListFromRouteDeps {
   state: Pick<AppState, "orchestration">;
-  scheduled: { listPending: () => ScheduledTaskRecord[] };
+  scheduled: { listPending: (chatKey: string) => ScheduledTaskRecord[] };
 }
 
 export interface ScheduledCancelFromRouteInput {
@@ -20,23 +20,25 @@ export interface ScheduledCancelFromRouteInput {
 
 export interface ScheduledCancelFromRouteDeps {
   state: Pick<AppState, "orchestration">;
-  scheduled: { cancelPending: (id: string) => Promise<boolean> };
+  scheduled: { cancelPending: (id: string, chatKey: string) => Promise<boolean> };
 }
 
 export async function listScheduledTasksFromRoute(
   input: ScheduledListFromRouteInput,
   deps: ScheduledListFromRouteDeps,
 ): Promise<ScheduledTaskRecord[]> {
-  resolveOwnedCoordinatorRoute(input.coordinatorSession, deps.state, "scheduled_list");
-  return deps.scheduled.listPending();
+  const route = resolveOwnedCoordinatorRoute(input.coordinatorSession, deps.state, "scheduled_list");
+  // Scope to the route's own chat: a coordinator must never see (or probe)
+  // scheduled tasks that originated in other chats.
+  return deps.scheduled.listPending(route.chatKey);
 }
 
 export async function cancelScheduledTaskFromRoute(
   input: ScheduledCancelFromRouteInput,
   deps: ScheduledCancelFromRouteDeps,
 ): Promise<{ id: string; cancelled: boolean }> {
-  resolveOwnedCoordinatorRoute(input.coordinatorSession, deps.state, "scheduled_cancel");
-  const cancelled = await deps.scheduled.cancelPending(input.id);
+  const route = resolveOwnedCoordinatorRoute(input.coordinatorSession, deps.state, "scheduled_cancel");
+  const cancelled = await deps.scheduled.cancelPending(input.id, route.chatKey);
   return { id: normalizeId(input.id), cancelled };
 }
 

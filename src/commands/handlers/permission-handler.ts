@@ -34,13 +34,19 @@ export async function handlePermissionModeSet(
   }
 
   const previous = cloneAppConfig(context.config);
+  const previousRaw = await context.configStore.getRawValue(["transport", "permissionMode"]);
   const updated = await context.configStore.updateTransport({
     permissionMode: mode,
   });
   try {
     await context.transport.updatePermissionPolicy?.(updated.transport);
   } catch (error) {
-    await context.configStore.save(previous);
+    // Restore the operator's exact previous raw value (or its absence).
+    if (previousRaw.present) {
+      await context.configStore.setRawValue(["transport", "permissionMode"], previousRaw.value);
+    } else {
+      await context.configStore.unsetRawValue(["transport", "permissionMode"]);
+    }
     context.replaceConfig(previous);
     throw error;
   }
@@ -62,13 +68,19 @@ export async function handlePermissionAutoSet(
   }
 
   const previous = cloneAppConfig(context.config);
+  const previousRaw = await context.configStore.getRawValue(["transport", "nonInteractivePermissions"]);
   const updated = await context.configStore.updateTransport({
     nonInteractivePermissions: policy,
   });
   try {
     await context.transport.updatePermissionPolicy?.(updated.transport);
   } catch (error) {
-    await context.configStore.save(previous);
+    // Restore the operator's exact previous raw value (or its absence).
+    if (previousRaw.present) {
+      await context.configStore.setRawValue(["transport", "nonInteractivePermissions"], previousRaw.value);
+    } else {
+      await context.configStore.unsetRawValue(["transport", "nonInteractivePermissions"]);
+    }
     context.replaceConfig(previous);
     throw error;
   }

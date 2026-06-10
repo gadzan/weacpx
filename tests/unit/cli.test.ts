@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -7,6 +7,7 @@ import { expect, test } from "bun:test";
 import { createMcpStdioIdentityResolver, prepareMcpCoordinatorStartup, resolveLoginChannelForCli, runCli } from "../../src/cli";
 import { normalizeWorkspacePath } from "../../src/commands/workspace-path";
 import { listAgentTemplates } from "../../src/config/agent-templates";
+import { loadConfig } from "../../src/config/load-config";
 import { createEmptyState } from "../../src/state/types";
 import { setLocale, t } from "../../src/i18n";
 
@@ -1557,7 +1558,7 @@ test("mcp-stdio without coordinator session starts with a process-scoped externa
   expect(stderr.join("")).toContain("[xacpx:mcp] mcp.stdio.start");
 });
 
-test("mcp-stdio returns a controlled startup error when local state is malformed", async () => {
+test("mcp-stdio survives malformed local state by quarantining it instead of bricking startup", async () => {
   await withTempHome(async (home) => {
     const root = join(home, ".xacpx");
     await mkdir(root, { recursive: true });
@@ -1577,6 +1578,8 @@ test("mcp-stdio returns a controlled startup error when local state is malformed
     await writeFile(join(root, "state.json"), "{not-json");
     const stderr: string[] = [];
 
+    // State loading no longer aborts startup; the run proceeds and fails later
+    // on the (absent) daemon orchestration IPC instead.
     await expect(
       runCli(["mcp-stdio", "--coordinator-session", "codex:backend", "--workspace", "backend"], {
         stderr: (text) => {
@@ -1585,8 +1588,12 @@ test("mcp-stdio returns a controlled startup error when local state is malformed
       }),
     ).resolves.toBe(2);
 
-    const expectedStatePath = join(root, "state.json").replaceAll("\\", "/");
-    expect(stderr.join("").replaceAll("\\", "/")).toContain(`failed to parse state file "${expectedStatePath}"`);
+    const stderrText = stderr.join("");
+    expect(stderrText).toContain("state.file_corrupt");
+    expect(stderrText).toContain("daemon orchestration IPC is unavailable");
+    const rootFiles = await readdir(root);
+    expect(rootFiles.some((name) => name.startsWith("state.json.corrupt-"))).toBe(true);
+    expect(rootFiles).not.toContain("state.json");
   });
 });
 
@@ -1627,8 +1634,12 @@ test("dispatches channel alias to channel CLI", async () => {
     await expect(runCli(["ch", "list"], { print: (line) => lines.push(line) })).resolves.toBe(0);
 
     expect(lines.some((line) => line.includes("weixin"))).toBe(true);
+    // The slimmed first-run seed no longer writes channels[] to disk — it is a
+    // load-time default. Assert the file omits it, but loading materializes it.
     const config = await readConfigJson(home);
-    expect(config.channels).toEqual([{ id: "weixin", type: "weixin", enabled: true }]);
+    expect(config.channels).toBeUndefined();
+    const loaded = await loadConfig(join(home, ".xacpx", "config.json"));
+    expect(loaded.channels).toEqual([{ id: "weixin", type: "weixin", enabled: true }]);
   });
 });
 
@@ -1783,7 +1794,7 @@ test("runCli routes plugin command", async () => {
           progressHeartbeatSeconds: 300,
         },
       }),
-      saveConfig: async () => {},
+      savePlugins: async () => {},
       getDaemonStatus: async () => ({ state: "stopped" }),
       restartDaemon: async () => 0,
     },

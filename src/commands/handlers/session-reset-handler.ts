@@ -81,12 +81,13 @@ export async function handleSessionResetCommand(
       native: wasNative && Boolean(freshAgentSessionId),
     });
 
-    // Best-effort: close the previous native session (acpx sessions close) to
-    // stop its warm owner while keeping its rollout on disk (still reattachable
-    // via /ssn, prunable later). Guarded so we never close a transport another
-    // logical alias still uses. Failure must never fail /clear.
+    // Best-effort: close the previous transport session (acpx sessions close)
+    // to stop its warm owner while keeping its rollout on disk (still
+    // reattachable via /ssn, prunable later). Applies to native and plain
+    // sessions alike — both orphan a warm owner otherwise. Guarded so we never
+    // close a transport another logical alias still uses. Failure must never
+    // fail /clear.
     if (
-      wasNative &&
       context.transport.removeSession &&
       context.sessions.countAliasesSharingTransport(previous.transportSession) === 0
     ) {
@@ -95,7 +96,7 @@ export async function handleSessionResetCommand(
       } catch (error) {
         await context.logger.info(
           "session.reset.close_previous_failed",
-          "failed to close previous native session after reset",
+          "failed to close previous session after reset",
           {
             transportSession: previous.transportSession,
             error: error instanceof Error ? error.message : String(error),

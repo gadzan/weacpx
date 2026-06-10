@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { createEmptyState } from "../../../src/state/types";
-import { parseState } from "../../../src/state/state-store";
+import { parseState, type StateLoadDroppedRecord } from "../../../src/state/state-store";
 
 test("empty state includes scheduled_tasks", () => {
   expect(createEmptyState().scheduled_tasks).toEqual({});
@@ -30,8 +30,9 @@ test("parseState accepts scheduled task records", () => {
   expect(state.scheduled_tasks.k8f2?.status).toBe("pending");
 });
 
-test("parseState rejects malformed scheduled task records", () => {
-  expect(() => parseState({
+test("parseState skips malformed scheduled task records and reports them", () => {
+  const dropped: StateLoadDroppedRecord[] = [];
+  const state = parseState({
     sessions: {},
     chat_contexts: {},
     orchestration: undefined,
@@ -46,5 +47,10 @@ test("parseState rejects malformed scheduled task records", () => {
         created_at: "2026-05-23T10:00:00.000Z",
       },
     },
-  }, "state.json")).toThrow(/malformed scheduled task record/);
+  }, "state.json", dropped);
+
+  expect(state.scheduled_tasks).toEqual({});
+  expect(dropped).toEqual([
+    { section: "scheduled_tasks", key: "bad", reason: "malformed scheduled task record" },
+  ]);
 });

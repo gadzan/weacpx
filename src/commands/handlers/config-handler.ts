@@ -5,6 +5,7 @@ import type {
   PermissionMode,
   ReplyMode,
 } from "../../config/types";
+import type { RawConfigPath } from "../../config/config-store";
 import { isLocale } from "../../i18n/resolve-locale";
 import type { HelpTopicMetadata } from "../help/help-types";
 import type { CommandRouterContext, RouterResponse } from "../router-types";
@@ -73,108 +74,103 @@ export async function handleConfigSet(
     return { text: c.noWritableConfig };
   }
 
-  const previous = cloneAppConfig(context.config);
-  const updated = cloneAppConfig(context.config);
-  const result = applySupportedConfigUpdate(updated, path, rawValue);
-  if ("error" in result) {
-    return { text: result.error };
+  const plan = planSupportedConfigUpdate(context.config, path, rawValue);
+  if ("error" in plan) {
+    return { text: plan.error };
   }
 
-  await context.configStore.save(updated);
+  const previousConfig = cloneAppConfig(context.config);
+  // Capture the raw (file) value before patching so a rollback restores the
+  // operator's exact previous state, not a parse-normalized copy of it.
+  const previousRaw = await context.configStore.getRawValue(plan.rawPath);
+  const updated = await context.configStore.setRawValue(plan.rawPath, plan.value);
+
   if (path === "transport.permissionMode" || path === "transport.nonInteractivePermissions" || path === "transport.permissionPolicy") {
     try {
       await context.transport.updatePermissionPolicy?.(updated.transport);
     } catch (error) {
-      await context.configStore.save(previous);
-      context.replaceConfig(previous);
+      if (previousRaw.present) {
+        await context.configStore.setRawValue(plan.rawPath, previousRaw.value);
+      } else {
+        await context.configStore.unsetRawValue(plan.rawPath);
+      }
+      context.replaceConfig(previousConfig);
       throw error;
     }
   }
   context.replaceConfig(updated);
-  return { text: c.updated(path, result.renderedValue) };
+  return { text: c.updated(path, plan.renderedValue) };
 }
 
-function applySupportedConfigUpdate(
+interface PlannedConfigUpdate {
+  rawPath: RawConfigPath;
+  value: unknown;
+  renderedValue: string;
+}
+
+function planSupportedConfigUpdate(
   config: AppConfig,
   path: string,
   rawValue: string,
-): { renderedValue: string } | { error: string } {
+): PlannedConfigUpdate | { error: string } {
   const c = t().config;
   switch (path) {
     case "language": {
       if (!isLocale(rawValue)) return { error: c.languageInvalid };
-      config.language = rawValue;
-      return { renderedValue: rawValue };
+      return { rawPath: ["language"], value: rawValue, renderedValue: rawValue };
     }
     case "transport.type": {
       const parsed = parseEnum(rawValue, ["acpx-cli", "acpx-bridge"]);
       if (!parsed) return { error: c.transportTypeInvalid };
-      config.transport.type = parsed;
-      return { renderedValue: parsed };
+      return { rawPath: ["transport", "type"], value: parsed, renderedValue: parsed };
     }
     case "transport.command":
       if (!rawValue.trim()) return { error: c.transportCommandEmpty };
-      config.transport.command = rawValue;
-      return { renderedValue: rawValue };
+      return { rawPath: ["transport", "command"], value: rawValue, renderedValue: rawValue };
     case "transport.sessionInitTimeoutMs": {
       const parsed = parsePositiveNumber(rawValue, "transport.sessionInitTimeoutMs");
       if ("error" in parsed) return parsed;
-      config.transport.sessionInitTimeoutMs = parsed.value;
-      return { renderedValue: String(parsed.value) };
+      return { rawPath: ["transport", "sessionInitTimeoutMs"], value: parsed.value, renderedValue: String(parsed.value) };
     }
     case "transport.permissionMode": {
       const parsed = parseEnum<PermissionMode>(rawValue, ["approve-all", "approve-reads", "deny-all"]);
       if (!parsed) return { error: c.transportPermissionModeInvalid };
-      config.transport.permissionMode = parsed;
-      return { renderedValue: parsed };
+      return { rawPath: ["transport", "permissionMode"], value: parsed, renderedValue: parsed };
     }
     case "transport.nonInteractivePermissions": {
       const parsed = parseEnum<NonInteractivePermissions>(rawValue, ["deny", "fail"]);
       if (!parsed) return { error: c.transportNonInteractiveInvalid };
-      config.transport.nonInteractivePermissions = parsed;
-      return { renderedValue: parsed };
+      return { rawPath: ["transport", "nonInteractivePermissions"], value: parsed, renderedValue: parsed };
     }
     case "transport.permissionPolicy":
       if (!rawValue.trim()) return { error: c.transportPermissionPolicyEmpty };
-      config.transport.permissionPolicy = rawValue;
-      return { renderedValue: rawValue };
+      return { rawPath: ["transport", "permissionPolicy"], value: rawValue, renderedValue: rawValue };
     case "logging.level": {
       const parsed = parseEnum<LoggingLevel>(rawValue, ["error", "info", "debug"]);
       if (!parsed) return { error: c.loggingLevelInvalid };
-      config.logging.level = parsed;
-      return { renderedValue: parsed };
+      return { rawPath: ["logging", "level"], value: parsed, renderedValue: parsed };
     }
-    case "logging.maxSizeBytes": {
-      const parsed = parsePositiveNumber(rawValue, "logging.maxSizeBytes");
-      if ("error" in parsed) return parsed;
-      config.logging.maxSizeBytes = parsed.value;
-      return { renderedValue: String(parsed.value) };
-    }
-    case "logging.maxFiles": {
-      const parsed = parsePositiveNumber(rawValue, "logging.maxFiles");
-      if ("error" in parsed) return parsed;
-      config.logging.maxFiles = parsed.value;
-      return { renderedValue: String(parsed.value) };
-    }
+    case "logging.maxSizeBytes":
+    case "logging.maxFiles":
     case "logging.retentionDays": {
-      const parsed = parsePositiveNumber(rawValue, "logging.retentionDays");
+      const field = path.slice("logging.".length);
+      const parsed = parsePositiveNumber(rawValue, path);
       if ("error" in parsed) return parsed;
-      config.logging.retentionDays = parsed.value;
-      return { renderedValue: String(parsed.value) };
+      return { rawPath: ["logging", field], value: parsed.value, renderedValue: String(parsed.value) };
     }
     case "channel.type":
       return { error: c.channelTypeDisabled };
     case "channel.replyMode": {
       const parsed = parseEnum<ReplyMode>(rawValue, ["stream", "final", "verbose"]);
       if (!parsed) return { error: c.channelReplyModeInvalid };
-      config.channel.replyMode = parsed;
-      return { renderedValue: parsed };
+      return { rawPath: ["channel", "replyMode"], value: parsed, renderedValue: parsed };
     }
     case "wechat.replyMode": {
       const parsed = parseEnum<ReplyMode>(rawValue, ["stream", "final", "verbose"]);
       if (!parsed) return { error: c.wechatReplyModeInvalid };
-      config.channel.replyMode = parsed;
       return {
+        rawPath: ["channel", "replyMode"],
+        value: parsed,
         renderedValue: c.wechatReplyModeMapped(parsed),
       };
     }
@@ -183,43 +179,34 @@ function applySupportedConfigUpdate(
   const agentMatch = path.match(/^agents\.([^.]+)\.(driver|command)$/);
   if (agentMatch) {
     const [, name, field] = agentMatch;
-    if (!name || !field) {
+    if (!name || !field || isPrototypePollutingKey(name)) {
       return { error: c.pathNotSupported(path) };
     }
-    const agent = config.agents[name];
-    if (!agent) {
+    // hasOwn (not truthy access): `config.agents["__proto__"]` resolves to
+    // Object.prototype and would pass a `!config.agents[name]` guard.
+    if (!Object.hasOwn(config.agents, name)) {
       return { error: c.agentNotFound(name) };
     }
     if (!rawValue.trim()) {
       return { error: c.fieldEmpty(path) };
     }
-    if (field === "driver") {
-      agent.driver = rawValue;
-    } else {
-      agent.command = rawValue;
-    }
-    return { renderedValue: rawValue };
+    return { rawPath: ["agents", name, field], value: rawValue, renderedValue: rawValue };
   }
 
   const workspaceMatch = path.match(/^workspaces\.([^.]+)\.(cwd|description)$/);
   if (workspaceMatch) {
     const [, name, field] = workspaceMatch;
-    if (!name || !field) {
+    if (!name || !field || isPrototypePollutingKey(name)) {
       return { error: c.pathNotSupported(path) };
     }
-    const workspace = config.workspaces[name];
-    if (!workspace) {
+    if (!Object.hasOwn(config.workspaces, name)) {
       return { error: c.workspaceNotFound(name) };
     }
     if (!rawValue.trim()) {
       return { error: c.fieldEmpty(path) };
     }
-    if (field === "cwd") {
-      workspace.cwd = rawValue;
-    } else {
-      workspace.description = rawValue;
-    }
-    return { renderedValue: rawValue };
+    // Stored verbatim: a `~` cwd stays literal in the file and is expanded at load.
+    return { rawPath: ["workspaces", name, field], value: rawValue, renderedValue: rawValue };
   }
 
   const channelMatch = path.match(/^channels\.([^.]+)\.replyMode$/);
@@ -236,11 +223,24 @@ function applySupportedConfigUpdate(
     if (!parsed) {
       return { error: c.channelRuntimeReplyModeInvalid(id) };
     }
-    channel.replyMode = parsed;
-    return { renderedValue: parsed };
+    return {
+      rawPath: [
+        "channels",
+        // The runtime channel may be synthesized from `channel` (no channels[]
+        // in the file yet); materialize a minimal entry — never ownerIds.
+        { id, createWith: { id: channel.id, type: channel.type, enabled: channel.enabled } },
+        "replyMode",
+      ],
+      value: parsed,
+      renderedValue: parsed,
+    };
   }
 
   return { error: c.pathNotSupported(path) };
+}
+
+function isPrototypePollutingKey(key: string): boolean {
+  return key === "__proto__" || key === "constructor" || key === "prototype";
 }
 
 function parseEnum<T extends string>(value: string, allowed: readonly T[]): T | null {

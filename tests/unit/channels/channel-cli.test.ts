@@ -1,6 +1,6 @@
 import { expect, test, beforeAll, afterAll } from "bun:test";
 
-import type { AppConfig } from "../../../src/config/types";
+import type { AppConfig, ChannelRuntimeConfig } from "../../../src/config/types";
 import { handleChannelCli } from "../../../src/channels/cli/channel-cli";
 import { getChannelCliProvider, hasChannelCliProvider, listChannelCliProviders } from "../../../src/channels/cli/registry";
 import { hasChannelFactory } from "../../../src/channels/create-channel";
@@ -54,8 +54,8 @@ function createHarness(initial: AppConfig) {
     getConfig: () => config,
     deps: {
       loadConfig: async () => structuredClone(config) as AppConfig,
-      saveConfig: async (next: AppConfig) => {
-        config = structuredClone(next) as AppConfig;
+      saveChannels: async (next: ChannelRuntimeConfig[]) => {
+        config = { ...config, channels: structuredClone(next) as ChannelRuntimeConfig[] };
       },
       print: (line: string) => lines.push(line),
       stderr: (text: string) => stderr.push(text),
@@ -542,8 +542,8 @@ test("channel add normalizes legacy single-channel config", async () => {
   const deps = {
     ...harness.deps,
     loadConfig: async () => config as AppConfig,
-    saveConfig: async (next: AppConfig) => {
-      config = next;
+    saveChannels: async (next: ChannelRuntimeConfig[]) => {
+      config = { ...config, channels: next };
     },
   };
 

@@ -534,7 +534,9 @@ async function defaultUpdate(
   const store = await createCliConfigStore();
   const deps: UpdateCliDeps = {
     loadConfig: async () => await store.load(),
-    saveConfig: async (config) => await store.save(config),
+    savePlugins: async (plugins) => {
+      await store.replacePlugins(plugins);
+    },
     readCurrentVersion: readVersion,
     print: input.print,
     isInteractive: input.isInteractive ?? defaultIsInteractive,
@@ -542,6 +544,33 @@ async function defaultUpdate(
     ...input.overrides,
   };
   return await handleUpdateCli(args, deps);
+}
+
+/**
+ * Non-daemon CLI paths have no AppLogger; surface state.json load repairs on
+ * stderr so a quarantine never happens silently. The daemon path logs the same
+ * report through the app logger in buildApp.
+ */
+function warnStateLoadReport(
+  store: StateStore,
+  writeStderr: (text: string) => void = (text) => process.stderr.write(text),
+): void {
+  const report = store.lastLoadReport;
+  if (!report) return;
+  for (const record of report.dropped) {
+    writeStderr(
+      `[xacpx] state.record_quarantined section=${record.section}${record.key ? ` key=${record.key}` : ""} reason=${record.reason}\n`,
+    );
+  }
+  if (report.corruptPath) {
+    writeStderr(`[xacpx] state.file_corrupt unreadable state.json renamed to ${report.corruptPath}\n`);
+  }
+  if (report.quarantinePath) {
+    writeStderr(`[xacpx] state.file_quarantined original state.json backed up to ${report.quarantinePath}\n`);
+  }
+  if (report.backupError) {
+    writeStderr(`[xacpx] state.quarantine_backup_failed ${report.backupError}\n`);
+  }
 }
 
 async function runOnboardingBeforeStart(input: {
@@ -556,10 +585,14 @@ async function runOnboardingBeforeStart(input: {
   const stateStore = new StateStore(runtimePaths.statePath);
   const config = await configStore.load();
   const state = await stateStore.load();
+  warnStateLoadReport(stateStore);
   const result = await maybeRunFirstUseOnboarding({
     config,
     state,
-    saveConfig: async (next) => await configStore.save(next),
+    saveFirstRunConfig: async ({ workspace, agent }) => {
+      await configStore.upsertWorkspace(workspace.name, workspace.cwd);
+      await configStore.upsertAgent(agent.name, agent.config);
+    },
     deps: {
       print: input.print,
       cwd: input.cwd,
@@ -811,7 +844,8 @@ async function handleLaterCli(
 
 async function laterList(print: (line: string) => void): Promise<number> {
   const scheduled = await createCliScheduledTaskService();
-  print(renderLaterList(scheduled.listPending(), (alias) => toDisplaySessionAlias(alias)));
+  // Local operator surface: the machine owner sees tasks from every chat.
+  print(renderLaterList(scheduled.listPendingAllChats(), (alias) => toDisplaySessionAlias(alias)));
   return 0;
 }
 
@@ -823,7 +857,8 @@ async function laterCancel(rawId: string, print: (line: string) => void): Promis
   }
 
   const scheduled = await createCliScheduledTaskService();
-  const ok = await scheduled.cancelPending(id);
+  // Local operator surface: the machine owner may cancel any chat's task.
+  const ok = await scheduled.cancelPendingAnyChat(id);
   if (!ok) {
     print(t().cli.laterNotFound(id));
     print(t().cli.laterNotFoundHint);
@@ -840,6 +875,7 @@ async function createCliScheduledTaskService(): Promise<ScheduledTaskService> {
   const runtimePaths = (await import("./main")).resolveRuntimePaths();
   const stateStore = new StateStore(runtimePaths.statePath);
   const state = await stateStore.load();
+  warnStateLoadReport(stateStore);
   return new ScheduledTaskService(state, stateStore);
 }
 
@@ -968,14 +1004,12 @@ async function rollbackFirstRunConfig(
   plan: FirstRunOnboardingPlan,
 ): Promise<void> {
   try {
-    const config = await runtime.configStore.load();
-    if (!plan.rollback.workspaceExisted && config.workspaces[plan.workspace]) {
-      delete config.workspaces[plan.workspace];
+    if (!plan.rollback.workspaceExisted) {
+      await runtime.configStore.removeWorkspace(plan.workspace);
     }
-    if (!plan.rollback.agentExisted && config.agents[plan.agent]) {
-      delete config.agents[plan.agent];
+    if (!plan.rollback.agentExisted) {
+      await runtime.configStore.removeAgent(plan.agent);
     }
-    await runtime.configStore.save(config);
   } catch (error) {
     await runtime.logger.error("onboarding.rollback_failed", "failed to roll back first-run config", {
       alias: plan.alias,
@@ -1012,7 +1046,9 @@ async function defaultMcpStdio(
     await ensureConfigExists(runtimePaths.configPath);
     const config = await loadConfig(runtimePaths.configPath);
     availableAgents = Object.keys(config.agents);
-    const state = await new StateStore(runtimePaths.statePath).load();
+    const stateStore = new StateStore(runtimePaths.statePath);
+    const state = await stateStore.load();
+    warnStateLoadReport(stateStore, deps.stderr ?? ((text: string) => process.stderr.write(text)));
     const resolveIdentity = createMcpStdioIdentityResolver({
       parsedCoordinatorSession,
       sourceHandle,
@@ -1100,7 +1136,9 @@ async function createChannelCliDeps(input: {
   const controller = input.controller ?? createDefaultController();
   const base: ChannelCliDeps = {
     loadConfig: async () => await store.load(),
-    saveConfig: async (config) => await store.save(config),
+    saveChannels: async (channels) => {
+      await store.replaceChannels(channels);
+    },
     print: input.print,
     stderr: input.stderr ?? ((text: string) => process.stderr.write(text)),
     isInteractive: input.isInteractive ?? defaultIsInteractive,
@@ -1128,7 +1166,9 @@ async function createPluginCliDeps(input: {
   const controller = input.controller ?? createDefaultController();
   const base: PluginCliDeps = {
     loadConfig: async () => await store.load(),
-    saveConfig: async (config) => await store.save(config),
+    savePlugins: async (plugins) => {
+      await store.replacePlugins(plugins);
+    },
     print: input.print,
     isInteractive: input.isInteractive ?? defaultIsInteractive,
     promptText: input.promptText ?? defaultPromptText,

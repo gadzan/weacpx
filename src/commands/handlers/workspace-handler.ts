@@ -49,7 +49,9 @@ export async function handleWorkspaceCreate(
     notice = w.nameSanitized(workspaceName, name);
   }
 
-  const updated = await context.configStore.upsertWorkspace(name, normalizedCwd);
+  // Persist the user's raw input (a `~` stays literal in the file and is
+  // expanded at config-load time), but validate the expanded path above.
+  const updated = await context.configStore.upsertWorkspace(name, cwd);
   context.replaceConfig(updated);
   const savedLine = w.saved(name);
   return { text: notice ? `${notice}\n${savedLine}` : savedLine };

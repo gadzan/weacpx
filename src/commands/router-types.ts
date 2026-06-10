@@ -48,7 +48,16 @@ export interface ActiveHumanQuestionPackageContext {
 
 export type WritableConfigStore = Pick<
   ConfigStore,
-  "load" | "save" | "upsertWorkspace" | "removeWorkspace" | "upsertAgent" | "removeAgent" | "updateTransport" | "updateChannel"
+  | "load"
+  | "upsertWorkspace"
+  | "removeWorkspace"
+  | "upsertAgent"
+  | "removeAgent"
+  | "updateTransport"
+  | "updateChannel"
+  | "getRawValue"
+  | "setRawValue"
+  | "unsetRawValue"
 >;
 
 export interface CommandRouterContext {

@@ -15,7 +15,8 @@ type DaemonStatusForChannelCli =
 
 export interface ChannelCliDeps extends ChannelCliIo {
   loadConfig: () => Promise<AppConfig>;
-  saveConfig: (config: AppConfig) => Promise<void>;
+  /** Persists only the channels[] subtree — never the whole parsed config. */
+  saveChannels: (channels: ChannelRuntimeConfig[]) => Promise<void>;
   getDaemonStatus: () => Promise<DaemonStatusForChannelCli>;
   restartDaemon: () => Promise<number>;
 }
@@ -238,7 +239,7 @@ async function addChannel(type: string, rawArgs: string[], deps: ChannelCliDeps)
   }
 
   config.channels = [...(config.channels ?? []), candidate];
-  await deps.saveConfig(config);
+  await deps.saveChannels(config.channels);
   deps.print(t().channelCli.channelAdded(type));
   for (const line of provider.renderSummary(candidate)) deps.print(line);
   return await maybeRestartAfterMutation(restartFlags.restart, deps);
@@ -343,7 +344,7 @@ async function removeChannel(type: string, rawArgs: string[], deps: ChannelCliDe
     return 1;
   }
   config.channels = config.channels.filter((entry) => entry.id !== channel.id);
-  await deps.saveConfig(config);
+  await deps.saveChannels(config.channels);
   deps.print(t().channelCli.channelRemoved(channel.id));
   return await maybeRestartAfterMutation(restartFlags.restart, deps);
 }
@@ -366,7 +367,7 @@ async function setChannelEnabled(type: string, enabled: boolean, rawArgs: string
     return 1;
   }
   channel.enabled = enabled;
-  await deps.saveConfig(config);
+  await deps.saveChannels(config.channels);
   deps.print(t().channelCli.channelEnabledToggled(channel.id, enabled));
   return await maybeRestartAfterMutation(restartFlags.restart, deps);
 }
@@ -391,7 +392,7 @@ async function setChannelReplyMode(type: string, mode: string, rawArgs: string[]
     return 1;
   }
   channel.replyMode = mode;
-  await deps.saveConfig(config);
+  await deps.saveChannels(config.channels);
   deps.print(t().channelCli.channelReplyModeSet(channel.id, mode));
   return await maybeRestartAfterMutation(restartFlags.restart, deps);
 }
@@ -552,7 +553,7 @@ async function addChannelAccount(type: string, accountId: string, rawArgs: strin
     return 1;
   }
 
-  await deps.saveConfig(config);
+  await deps.saveChannels(config.channels);
   deps.print(t().channelCli.channelAccountAdded(type, accountId));
   if (reEnabledChannel) deps.print(t().channelCli.channelReEnabled(type));
   const summary = provider.renderAccountSummary?.(result, accountId);
@@ -591,7 +592,7 @@ async function removeChannelAccount(type: string, accountId: string, rawArgs: st
       return 1;
     }
     config.channels = config.channels.filter((channel) => channel.id !== existing.id);
-    await deps.saveConfig(config);
+    await deps.saveChannels(config.channels);
     deps.print(t().channelCli.channelAccountRemovedWithChannel(type, accountId));
     return await maybeRestartAfterMutation(restartFlags.restart, deps);
   }
@@ -612,7 +613,7 @@ async function removeChannelAccount(type: string, accountId: string, rawArgs: st
     deps.print(t().channelCli.channelAccountDefaultSwitched(options.defaultAccount as string));
   }
   existing.options = options;
-  await deps.saveConfig(config);
+  await deps.saveChannels(config.channels);
   deps.print(t().channelCli.channelAccountRemoved(type, accountId));
   return await maybeRestartAfterMutation(restartFlags.restart, deps);
 }
@@ -673,7 +674,7 @@ async function setChannelAccountEnabled(type: string, accountId: string, enabled
     return 1;
   }
   existing.options = options;
-  await deps.saveConfig(config);
+  await deps.saveChannels(config.channels);
   deps.print(t().channelCli.channelAccountEnabledToggled(type, accountId, enabled));
   return await maybeRestartAfterMutation(restartFlags.restart, deps);
 }

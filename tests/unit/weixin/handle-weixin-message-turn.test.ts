@@ -792,6 +792,163 @@ test("v1.4: short final (≤4 segments) sends all without heads-up and without e
   mock.restore();
 });
 
+test("v1.5: zero final quota parks every page and sends exactly one uncharged parked notice", async () => {
+  const sentTexts: string[] = [];
+  const reserveCalls: string[] = [];
+  const enqueued: { chatKey: string; chunks: { text: string; seq: number; total: number }[] }[] = [];
+
+  mock.module("../../../src/weixin/messaging/send.ts", () => ({
+    markdownToPlainText: (text: string) => text,
+    sendMessageWeixin: async ({ text }: { text: string }) => {
+      sentTexts.push(text);
+      return { messageId: `m-${sentTexts.length}` };
+    },
+  }));
+
+  const { handleWeixinMessageTurn: h } = await import(
+    "../../../src/weixin/messaging/handle-weixin-message-turn"
+  );
+  const { t: tt } = await import("../../../src/i18n");
+
+  // 8 paragraphs ~1800 bytes each → 8 raw chunks.
+  const para = "字".repeat(600);
+  const massiveFinal = Array.from({ length: 8 }, () => para).join("\n\n");
+
+  const agent: Agent = {
+    async chat(): Promise<ChatResponse> {
+      return { text: massiveFinal };
+    },
+  };
+
+  const deps: HandleWeixinMessageTurnDeps = {
+    accountId: "test-account",
+    agent,
+    baseUrl: "https://example.com",
+    cdnBaseUrl: "https://cdn.example.com",
+    token: "test-token",
+    log: () => {},
+    errLog: () => {},
+    reserveFinal: (chatKey) => {
+      reserveCalls.push(chatKey);
+      return false;
+    },
+    finalRemaining: () => 0,
+    enqueuePendingFinal: (chatKey, chunks) => {
+      enqueued.push({
+        chatKey,
+        chunks: chunks.map((c) => ({ text: c.text, seq: c.seq, total: c.total })),
+      });
+    },
+  };
+
+  await h(makeMessage("review"), deps);
+
+  // All 8 pages parked with continuous numbering 1..8.
+  expect(enqueued.length).toBe(1);
+  const parked = enqueued[0]!.chunks;
+  expect(parked.length).toBe(8);
+  expect(parked.map((c) => c.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  expect(parked[0]!.text.startsWith("(1/8) ")).toBe(true);
+  // Exactly one notice sent, and it bypasses the final quota counter.
+  expect(sentTexts.length).toBe(1);
+  expect(sentTexts[0]!).toBe(tt().misc.finalAllParked(8));
+  expect(sentTexts[0]!).toContain("/jx");
+  expect(reserveCalls.length).toBe(0);
+  mock.restore();
+});
+
+test("v1.5: single-chunk final with zero quota is parked (not dropped) and the notice is sent", async () => {
+  const sentTexts: string[] = [];
+  const errLogs: string[] = [];
+  const enqueued: { chatKey: string; chunks: { text: string; seq: number; total: number }[] }[] = [];
+
+  mock.module("../../../src/weixin/messaging/send.ts", () => ({
+    markdownToPlainText: (text: string) => text,
+    sendMessageWeixin: async ({ text }: { text: string }) => {
+      sentTexts.push(text);
+      return { messageId: `m-${sentTexts.length}` };
+    },
+  }));
+
+  const { handleWeixinMessageTurn: h } = await import(
+    "../../../src/weixin/messaging/handle-weixin-message-turn"
+  );
+  const { t: tt } = await import("../../../src/i18n");
+
+  const agent: Agent = {
+    async chat(): Promise<ChatResponse> {
+      return { text: "short final answer" };
+    },
+  };
+
+  const deps: HandleWeixinMessageTurnDeps = {
+    accountId: "test-account",
+    agent,
+    baseUrl: "https://example.com",
+    cdnBaseUrl: "https://cdn.example.com",
+    token: "test-token",
+    log: () => {},
+    errLog: (m) => errLogs.push(m),
+    reserveFinal: () => false,
+    finalRemaining: () => 0,
+    enqueuePendingFinal: (chatKey, chunks) => {
+      enqueued.push({
+        chatKey,
+        chunks: chunks.map((c) => ({ text: c.text, seq: c.seq, total: c.total })),
+      });
+    },
+  };
+
+  await h(makeMessage("hi"), deps);
+
+  expect(enqueued.length).toBe(1);
+  expect(enqueued[0]!.chunks).toEqual([{ text: "short final answer", seq: 1, total: 1 }]);
+  expect(sentTexts.length).toBe(1);
+  expect(sentTexts[0]!).toBe(tt().misc.finalAllParked(1));
+  expect(errLogs.some((m) => m.includes("weixin.final.dropped"))).toBe(false);
+  mock.restore();
+});
+
+test("v1.5: single-chunk final with zero quota and no pending queue keeps the drop behavior", async () => {
+  const sentTexts: string[] = [];
+  const errLogs: string[] = [];
+
+  mock.module("../../../src/weixin/messaging/send.ts", () => ({
+    markdownToPlainText: (text: string) => text,
+    sendMessageWeixin: async ({ text }: { text: string }) => {
+      sentTexts.push(text);
+      return { messageId: `m-${sentTexts.length}` };
+    },
+  }));
+
+  const { handleWeixinMessageTurn: h } = await import(
+    "../../../src/weixin/messaging/handle-weixin-message-turn"
+  );
+
+  const agent: Agent = {
+    async chat(): Promise<ChatResponse> {
+      return { text: "short final answer" };
+    },
+  };
+
+  const deps: HandleWeixinMessageTurnDeps = {
+    accountId: "test-account",
+    agent,
+    baseUrl: "https://example.com",
+    cdnBaseUrl: "https://cdn.example.com",
+    token: "test-token",
+    log: () => {},
+    errLog: (m) => errLogs.push(m),
+    reserveFinal: () => false,
+  };
+
+  await h(makeMessage("hi"), deps);
+
+  expect(sentTexts.length).toBe(0);
+  expect(errLogs.some((m) => m.includes("weixin.final.dropped"))).toBe(true);
+  mock.restore();
+});
+
 test("handleWeixinMessageTurn forwards a distinct final text through reply when reply was used for progress", async () => {
   // A handler that uses reply() for progress messages and returns a distinct final
   // message (e.g. session creation with ensureSession progress + error renderer)

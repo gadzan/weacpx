@@ -1,9 +1,9 @@
-import { mkdir, open, readFile, rm } from "node:fs/promises";
+import { open, readFile, rm } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
-import { dirname } from "node:path";
 
 import type { DaemonPaths } from "./daemon-files";
 import { DaemonStatusStore, type DaemonStatus } from "./daemon-status";
+import { ensurePrivateRuntimeDir } from "./private-runtime-dir";
 
 export interface DaemonStartupWaitPoll {
   elapsedMs: number;
@@ -161,7 +161,9 @@ export class DaemonController {
   }
 
   private async openPidFileExclusive(): Promise<FileHandle> {
-    await mkdir(dirname(this.paths.pidFile), { recursive: true });
+    // User-private (0700): the runtime dir holds the orchestration socket,
+    // whose only access control is filesystem permissions.
+    await ensurePrivateRuntimeDir(this.paths.runtimeDir);
     try {
       return await open(this.paths.pidFile, "wx", 0o600);
     } catch (error) {

@@ -17,6 +17,7 @@ export interface SessionMessages {
 
   // handleSessionNew / handleSessionAttach
   sessionCreated: (alias: string) => string;
+  sessionAlreadyExists: (alias: string, agent: string, workspace: string) => string;
   sessionAttachNotFound: (alias: string, agent: string, workspace: string) => string;
   sessionAttached: (alias: string) => string;
 
@@ -1251,6 +1252,10 @@ export interface MiscMessages {
   // weixin/messaging/final-heads-up
   finalHeadsUp: (total: number, sentSoFar: number, remaining: number) => string;
 
+  // weixin/messaging/handle-weixin-message-turn: standalone notice when the
+  // final quota is exhausted and every page had to be parked
+  finalAllParked: (count: number) => string;
+
   // weixin/messaging/inbound
   quotedMessagePrefix: (parts: string) => string;
 
@@ -1290,6 +1295,8 @@ export interface MiscMessages {
   // commands/command-policy
   commandAccessDeniedSuffix: string;
   commandAccessDeniedHint: string;
+  commandAccessDeniedChatTypeMissingSuffix: string;
+  commandAccessDeniedChatTypeMissingHint: string;
   commandLabelThisMessage: string;
 
   // commands/handlers/session-reset-handler

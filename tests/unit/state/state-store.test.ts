@@ -651,26 +651,34 @@ test("treats an empty state file as empty state", async () => {
 });
 
 
-test("rejects states whose sessions field is not an object", async () => {
+test("resets a non-object sessions field to empty and reports it", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
   const path = join(dir, "state.json");
   const store = new StateStore(path);
 
   await Bun.write(path, JSON.stringify({ sessions: [], chat_contexts: {} }));
 
-  await expect(store.load()).rejects.toThrow('state file "' + path + '" must contain an object field "sessions"');
+  const state = await store.load();
+  expect(state.sessions).toEqual({});
+  expect(store.lastLoadReport?.dropped).toEqual([
+    { section: "sessions", key: "", reason: expect.stringContaining("not an object") },
+  ]);
 
   await rm(dir, { recursive: true, force: true });
 });
 
-test("rejects states whose chat_contexts field is not an object", async () => {
+test("resets a non-object chat_contexts field to empty and reports it", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
   const path = join(dir, "state.json");
   const store = new StateStore(path);
 
   await Bun.write(path, JSON.stringify({ sessions: {}, chat_contexts: [] }));
 
-  await expect(store.load()).rejects.toThrow('state file "' + path + '" must contain an object field "chat_contexts"');
+  const state = await store.load();
+  expect(state.chat_contexts).toEqual({});
+  expect(store.lastLoadReport?.dropped).toEqual([
+    { section: "chat_contexts", key: "", reason: expect.stringContaining("not an object") },
+  ]);
 
   await rm(dir, { recursive: true, force: true });
 });
@@ -776,7 +784,7 @@ test("loads and validates external coordinator records", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-test("rejects malformed external coordinator records", async () => {
+test("drops malformed external coordinator records and reports them", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
   const path = join(dir, "state.json");
   const store = new StateStore(path);
@@ -802,14 +810,20 @@ test("rejects malformed external coordinator records", async () => {
     }),
   );
 
-  await expect(store.load()).rejects.toThrow(
-    `state file "${path}" contains an invalid external coordinator at "codex:backend"`,
-  );
+  const state = await store.load();
+  expect(state.orchestration.externalCoordinators).toEqual({});
+  expect(store.lastLoadReport?.dropped).toEqual([
+    {
+      section: "orchestration.externalCoordinators",
+      key: "codex:backend",
+      reason: "malformed external coordinator record",
+    },
+  ]);
 
   await rm(dir, { recursive: true, force: true });
 });
 
-test("rejects external coordinator records whose map key does not match coordinatorSession", async () => {
+test("drops external coordinator records whose map key does not match coordinatorSession", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
   const path = join(dir, "state.json");
   const store = new StateStore(path);
@@ -835,14 +849,20 @@ test("rejects external coordinator records whose map key does not match coordina
     }),
   );
 
-  await expect(store.load()).rejects.toThrow(
-    `state file "${path}" contains an external coordinator key mismatch at "codex:backend"`,
-  );
+  const state = await store.load();
+  expect(state.orchestration.externalCoordinators).toEqual({});
+  expect(store.lastLoadReport?.dropped).toEqual([
+    {
+      section: "orchestration.externalCoordinators",
+      key: "codex:backend",
+      reason: expect.stringContaining("does not match map key"),
+    },
+  ]);
 
   await rm(dir, { recursive: true, force: true });
 });
 
-test("rejects external coordinator handles that collide with logical sessions in persisted state", async () => {
+test("repairs external coordinator handles that collide with logical sessions in persisted state", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
   const path = join(dir, "state.json");
   const store = new StateStore(path);
@@ -877,14 +897,21 @@ test("rejects external coordinator handles that collide with logical sessions in
     }),
   );
 
-  await expect(store.load()).rejects.toThrow(
-    `state file "${path}" contains external coordinator "codex:backend" that conflicts with a logical session`,
-  );
+  const state = await store.load();
+  expect(state.sessions.main).toBeDefined();
+  expect(state.orchestration.externalCoordinators).toEqual({});
+  expect(store.lastLoadReport?.dropped).toEqual([
+    {
+      section: "orchestration.externalCoordinators",
+      key: "codex:backend",
+      reason: expect.stringContaining("conflicts with a logical session"),
+    },
+  ]);
 
   await rm(dir, { recursive: true, force: true });
 });
 
-test("rejects external coordinator handles that collide with worker bindings in persisted state", async () => {
+test("repairs external coordinator handles that collide with worker bindings in persisted state", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
   const path = join(dir, "state.json");
   const store = new StateStore(path);
@@ -917,14 +944,21 @@ test("rejects external coordinator handles that collide with worker bindings in 
     }),
   );
 
-  await expect(store.load()).rejects.toThrow(
-    `state file "${path}" contains external coordinator "codex:backend" that conflicts with a worker binding`,
-  );
+  const state = await store.load();
+  expect(state.orchestration.workerBindings["codex:backend"]).toBeDefined();
+  expect(state.orchestration.externalCoordinators).toEqual({});
+  expect(store.lastLoadReport?.dropped).toEqual([
+    {
+      section: "orchestration.externalCoordinators",
+      key: "codex:backend",
+      reason: expect.stringContaining("conflicts with a worker binding"),
+    },
+  ]);
 
   await rm(dir, { recursive: true, force: true });
 });
 
-test("rejects external coordinator handles that collide with active task worker sessions in persisted state", async () => {
+test("repairs external coordinator handles that collide with active task worker sessions in persisted state", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
   const path = join(dir, "state.json");
   const store = new StateStore(path);
@@ -966,9 +1000,16 @@ test("rejects external coordinator handles that collide with active task worker 
     }),
   );
 
-  await expect(store.load()).rejects.toThrow(
-    `state file "${path}" contains external coordinator "codex:backend" that conflicts with an active task worker session`,
-  );
+  const state = await store.load();
+  expect(state.orchestration.tasks["task-1"]).toBeDefined();
+  expect(state.orchestration.externalCoordinators).toEqual({});
+  expect(store.lastLoadReport?.dropped).toEqual([
+    {
+      section: "orchestration.externalCoordinators",
+      key: "codex:backend",
+      reason: expect.stringContaining("conflicts with an active task worker session"),
+    },
+  ]);
 
   await rm(dir, { recursive: true, force: true });
 });
@@ -1097,19 +1138,23 @@ test("allows external coordinator handles that only match terminal task worker s
   await rm(dir, { recursive: true, force: true });
 });
 
-test("rejects states whose orchestration field is not an object", async () => {
+test("resets a non-object orchestration field to empty and reports it", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
   const path = join(dir, "state.json");
   const store = new StateStore(path);
 
   await Bun.write(path, JSON.stringify({ sessions: {}, chat_contexts: {}, orchestration: [] }));
 
-  await expect(store.load()).rejects.toThrow('state file "' + path + '" must contain an object field "orchestration"');
+  const state = await store.load();
+  expect(state.orchestration.tasks).toEqual({});
+  expect(store.lastLoadReport?.dropped).toEqual([
+    { section: "orchestration", key: "", reason: expect.stringContaining("not an object") },
+  ]);
 
   await rm(dir, { recursive: true, force: true });
 });
 
-test("rejects states whose orchestration.tasks field is not an object", async () => {
+test("resets a non-object orchestration.tasks field to empty and reports it", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
   const path = join(dir, "state.json");
   const store = new StateStore(path);
@@ -1126,12 +1171,16 @@ test("rejects states whose orchestration.tasks field is not an object", async ()
     }),
   );
 
-  await expect(store.load()).rejects.toThrow('state file "' + path + '" must contain an object field "orchestration.tasks"');
+  const state = await store.load();
+  expect(state.orchestration.tasks).toEqual({});
+  expect(store.lastLoadReport?.dropped).toEqual([
+    { section: "orchestration.tasks", key: "", reason: expect.stringContaining("not an object") },
+  ]);
 
   await rm(dir, { recursive: true, force: true });
 });
 
-test("rejects states whose orchestration.workerBindings field is not an object", async () => {
+test("resets a non-object orchestration.workerBindings field to empty and reports it", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
   const path = join(dir, "state.json");
   const store = new StateStore(path);
@@ -1148,12 +1197,16 @@ test("rejects states whose orchestration.workerBindings field is not an object",
     }),
   );
 
-  await expect(store.load()).rejects.toThrow('state file "' + path + '" must contain an object field "orchestration.workerBindings"');
+  const state = await store.load();
+  expect(state.orchestration.workerBindings).toEqual({});
+  expect(store.lastLoadReport?.dropped).toEqual([
+    { section: "orchestration.workerBindings", key: "", reason: expect.stringContaining("not an object") },
+  ]);
 
   await rm(dir, { recursive: true, force: true });
 });
 
-test("rejects states with malformed orchestration task entries", async () => {
+test("drops malformed orchestration task entries and reports them", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
   const path = join(dir, "state.json");
   const store = new StateStore(path);
@@ -1185,14 +1238,16 @@ test("rejects states with malformed orchestration task entries", async () => {
     }),
   );
 
-  await expect(store.load()).rejects.toThrow(
-    `state file "${path}" contains an invalid orchestration task at "task-1"`,
-  );
+  const state = await store.load();
+  expect(state.orchestration.tasks).toEqual({});
+  expect(store.lastLoadReport?.dropped).toEqual([
+    { section: "orchestration.tasks", key: "task-1", reason: "malformed orchestration task record" },
+  ]);
 
   await rm(dir, { recursive: true, force: true });
 });
 
-test("rejects states with malformed orchestration worker binding entries", async () => {
+test("drops malformed orchestration worker binding entries and reports them", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
   const path = join(dir, "state.json");
   const store = new StateStore(path);
@@ -1216,9 +1271,15 @@ test("rejects states with malformed orchestration worker binding entries", async
     }),
   );
 
-  await expect(store.load()).rejects.toThrow(
-    `state file "${path}" contains an invalid orchestration worker binding at "worker-1"`,
-  );
+  const state = await store.load();
+  expect(state.orchestration.workerBindings).toEqual({});
+  expect(store.lastLoadReport?.dropped).toEqual([
+    {
+      section: "orchestration.workerBindings",
+      key: "worker-1",
+      reason: "malformed orchestration worker binding record",
+    },
+  ]);
 
   await rm(dir, { recursive: true, force: true });
 });
@@ -1265,14 +1326,18 @@ test("loads orchestration task records with progress metadata", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-test("includes the state file path when JSON is malformed", async () => {
+test("recovers from malformed JSON by renaming the file aside and starting empty", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
   const path = join(dir, "state.json");
   const store = new StateStore(path);
 
   await Bun.write(path, "{not-json");
 
-  await expect(store.load()).rejects.toThrow('failed to parse state file "' + path + '"');
+  const state = await store.load();
+  expect(state.sessions).toEqual({});
+  const report = store.lastLoadReport;
+  expect(report?.corruptPath).toMatch(/state\.json\.corrupt-/);
+  expect(report?.dropped[0]?.key).toBe(path);
 
   await rm(dir, { recursive: true, force: true });
 });
@@ -1305,7 +1370,7 @@ test("saves state with owner-only file permissions", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-test("rejects states with malformed session records", async () => {
+test("drops malformed session records and reports them", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
   const path = join(dir, "state.json");
   await Bun.write(
@@ -1334,11 +1399,16 @@ test("rejects states with malformed session records", async () => {
     }),
   );
 
-  await expect(new StateStore(path).load()).rejects.toThrow("malformed session record");
+  const store = new StateStore(path);
+  const state = await store.load();
+  expect(state.sessions).toEqual({});
+  expect(store.lastLoadReport?.dropped).toEqual([
+    { section: "sessions", key: "broken", reason: "malformed session record" },
+  ]);
   await rm(dir, { recursive: true, force: true });
 });
 
-test("rejects states with malformed chat context records", async () => {
+test("drops malformed chat context records and reports them", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
   const path = join(dir, "state.json");
   await Bun.write(
@@ -1360,7 +1430,12 @@ test("rejects states with malformed chat context records", async () => {
     }),
   );
 
-  await expect(new StateStore(path).load()).rejects.toThrow("malformed chat context record");
+  const store = new StateStore(path);
+  const state = await store.load();
+  expect(state.chat_contexts).toEqual({});
+  expect(store.lastLoadReport?.dropped).toEqual([
+    { section: "chat_contexts", key: "wx:user", reason: "malformed chat context record" },
+  ]);
   await rm(dir, { recursive: true, force: true });
 });
 
@@ -1405,7 +1480,7 @@ test("round-trips a temp scheduled task with session_mode + agent/workspace snap
   await rm(dir, { recursive: true, force: true });
 });
 
-test("rejects scheduled tasks with an invalid session_mode", async () => {
+test("drops scheduled tasks with an invalid session_mode and reports them", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-state-"));
   const path = join(dir, "state.json");
   await Bun.write(
@@ -1437,7 +1512,12 @@ test("rejects scheduled tasks with an invalid session_mode", async () => {
     }),
   );
 
-  await expect(new StateStore(path).load()).rejects.toThrow("malformed scheduled task record");
+  const store = new StateStore(path);
+  const state = await store.load();
+  expect(state.scheduled_tasks).toEqual({});
+  expect(store.lastLoadReport?.dropped).toEqual([
+    { section: "scheduled_tasks", key: "bad1", reason: "malformed scheduled task record" },
+  ]);
   await rm(dir, { recursive: true, force: true });
 });
 

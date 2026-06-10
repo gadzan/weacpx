@@ -11,7 +11,7 @@ import type { QuotaManager } from "../weixin/messaging/quota-manager.js";
 import { resolveSessionAgentCommandFromIndex, type SessionAgentCommandResolver } from "../transport/acpx-session-index";
 import { PromptCommandError } from "../transport/prompt-output";
 import { parseCommand } from "./parse-command";
-import { authorizeCommandForChat, renderCommandAccessDenied } from "./command-policy";
+import { authorizeCommandForChat, renderCommandAccessDenied, withEffectiveOwner } from "./command-policy";
 import type { ChatRequestMetadata } from "../weixin/agent/interface";
 import type { ToolUseEvent } from "../channels/types.js";
 import { handlePermissionAutoSet, handlePermissionAutoStatus, handlePermissionModeSet, handlePermissionStatus } from "./handlers/permission-handler";
@@ -145,9 +145,32 @@ export class CommandRouter {
       kind: command.kind,
     });
 
+    // Refresh config BEFORE authorization so an ownerIds edit takes effect on
+    // the very next message.
+    await this.refreshConfigFromStore();
+    perfSpan?.mark("router.config_refreshed");
+
+    // Single seam for channel-turn ownership: the effective metadata (with
+    // ownerIds applied) is what gets authorized AND what flows down to the
+    // handlers, so the coordinator route records the per-turn effective
+    // isOwner instead of whatever a previous turn left behind.
+    metadata = withEffectiveOwner(metadata, this.config);
+
     const access = authorizeCommandForChat(command, metadata);
     perfSpan?.mark("router.authorized", { decision: access.allowed ? "allow" : "deny" });
     if (!access.allowed) {
+      if (access.reason === "chat-type-missing") {
+        await this.logger.error(
+          "channel.chat_type_missing",
+          "channel turn carried no chatType; denying privileged command (channel metadata contract violation)",
+          {
+            chatKey,
+            kind: command.kind,
+            channel: metadata?.channel,
+            senderId: metadata?.senderId,
+          },
+        );
+      }
       await this.logger.info("command.blocked", "blocked command by chat policy", {
         chatKey,
         kind: command.kind,
@@ -155,11 +178,8 @@ export class CommandRouter {
         channel: metadata?.channel,
         senderId: metadata?.senderId,
       });
-      return { text: renderCommandAccessDenied(command) };
+      return { text: renderCommandAccessDenied(command, access.reason) };
     }
-
-    await this.refreshConfigFromStore();
-    perfSpan?.mark("router.config_refreshed");
 
     return await this.executeCommand(chatKey, command.kind, startedAt, async () => {
       switch (command.kind) {
@@ -296,7 +316,7 @@ export class CommandRouter {
           return handleLaterHelp();
         case "later.list":
           if (!this.scheduled) return { text: t().later.serviceNotEnabled };
-          return handleLaterList(this.scheduled);
+          return handleLaterList(this.scheduled, chatKey);
         case "later.create": {
           if (!this.scheduled) return { text: t().later.serviceNotEnabled };
           if (this.scheduledDelivery && !this.scheduledDelivery.supportsScheduledMessages(chatKey)) {
@@ -320,7 +340,7 @@ export class CommandRouter {
         }
         case "later.cancel":
           if (!this.scheduled) return { text: t().later.serviceNotEnabled };
-          return await handleLaterCancel(command.id, this.scheduled);
+          return await handleLaterCancel(command.id, this.scheduled, chatKey);
         case "prompt": {
           const sessionContext = this.createSessionHandlerContext(undefined, perfSpan);
           if (metadata?.scheduledSessionDescriptor) {

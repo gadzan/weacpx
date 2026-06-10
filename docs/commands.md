@@ -441,7 +441,7 @@ More examples:
 - Only **one-off** tasks are supported; repeated execution is not supported.
 - The scheduled time must be **at least 10 seconds from now and within 7 days**.
 - By default it runs in a temporary session; add `--bind` to run it bound to the current session; the default mode can be configured via `later.defaultMode`.
-- `/lt list` shows **global** pending tasks, not limited to the current session.
+- `/lt list` shows pending tasks created in the **current chat** only; other chats' tasks are never visible, and their ids cannot be cancelled from here.
 - Cancellation follows the **trusted channel model**: in group chats, only the group owner can cancel.
 - Delaying execution of xacpx commands that start with `/` is **not supported** (e.g. `/lt in 1h /status` will be rejected). If you need the agent to discuss a command, describe it in a plain sentence.
 - The trigger notification and the agent reply reuse the existing **channel routing**; WeChat reply quotas are controlled by the existing routing.
@@ -451,6 +451,14 @@ More examples:
 ```text
 /help later
 ```
+
+## Group Permissions
+
+In group chats, only read-only commands (`/help`, `/status`, `/sessions`, `/config`, ...) and plain prompts are open to every member. Control commands (`/clear`, `/use`, `/session new`, `/mode`, `/permission`, `/later` control, ...) are restricted to the chat owner:
+
+- Channels that report group roles grant owner automatically (e.g. Yuanbao recognizes the bot owner).
+- WeChat carries **no group-role information**, so configure your own sender id in `channel.ownerIds` (or `channels[].ownerIds`) to authorize yourself; see [config-reference.md — `channel.ownerIds`](./config-reference.md#channelownerids). Your sender id appears as `senderId` in the `command.blocked` entry written to `~/.xacpx/runtime/app.log` when a command is denied.
+- If a channel fails to report whether a chat is direct or group, control commands are denied (fail closed) and a `channel.chat_type_missing` warning is logged.
 
 ## Common Errors
 

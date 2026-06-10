@@ -80,7 +80,7 @@ test("self-update via runInherit spawns npm with shell: true on win32", async ()
   const printed: string[] = [];
   const exitCode = await withPlatform("win32", async () => await handleUpdateCli(["xacpx"], {
     loadConfig: async () => ({}) as never,
-    saveConfig: async () => {},
+    savePlugins: async () => {},
     readCurrentVersion: () => "0.0.1",
     print: (line) => { printed.push(line); },
     isInteractive: () => false,
@@ -106,7 +106,7 @@ test("self-update via runInherit spawns npm without a shell on posix", async () 
 
   const exitCode = await withPlatform("darwin", async () => await handleUpdateCli(["xacpx"], {
     loadConfig: async () => ({}) as never,
-    saveConfig: async () => {},
+    savePlugins: async () => {},
     readCurrentVersion: () => "0.0.1",
     print: () => {},
     isInteractive: () => false,

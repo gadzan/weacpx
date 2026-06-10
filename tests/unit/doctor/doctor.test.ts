@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -712,6 +712,68 @@ test("runDoctor skips orchestration-health instead of throwing when config canno
       severity: "skip",
       summary: "orchestration check skipped because configuration could not be loaded",
     });
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+function createStateDoctorStubs() {
+  return {
+    checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    loadConfig: async () => ({ orchestration: { progressHeartbeatSeconds: 300 } }) as never,
+  };
+}
+
+test("doctor surfaces invalid state records as a warning without mutating state.json", async () => {
+  const home = await createTempHome();
+  const rootDir = join(home, ".xacpx");
+  const statePath = join(rootDir, "state.json");
+  const original = JSON.stringify({
+    sessions: { bad: { alias: "bad" } },
+    chat_contexts: {},
+  });
+
+  try {
+    await mkdir(rootDir, { recursive: true });
+    await writeFile(statePath, original, "utf8");
+
+    const result = await runDoctor({}, { home, ...createStateDoctorStubs() });
+
+    const orchestration = result.report.checks.find((check) => check.id === "orchestration");
+    expect(orchestration?.severity).toBe("warn");
+    expect(orchestration?.summary).toContain("state.json");
+    const details = orchestration?.details?.join("\n") ?? "";
+    expect(details).toContain('sessions["bad"]');
+    expect(details).toContain("malformed session record");
+    // diagnostic command must be side-effect-free: no quarantine, no rename
+    expect(await readFile(statePath, "utf8")).toBe(original);
+    expect(await readdir(rootDir)).toEqual(["state.json"]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("doctor warns on an unreadable state.json without renaming it", async () => {
+  const home = await createTempHome();
+  const rootDir = join(home, ".xacpx");
+  const statePath = join(rootDir, "state.json");
+
+  try {
+    await mkdir(rootDir, { recursive: true });
+    await writeFile(statePath, "{not-json", "utf8");
+
+    const result = await runDoctor({}, { home, ...createStateDoctorStubs() });
+
+    const orchestration = result.report.checks.find((check) => check.id === "orchestration");
+    expect(orchestration?.severity).toBe("warn");
+    expect(orchestration?.details?.join("\n") ?? "").toContain("invalid JSON");
+    expect(await readFile(statePath, "utf8")).toBe("{not-json");
+    expect(await readdir(rootDir)).toEqual(["state.json"]);
   } finally {
     await rm(home, { recursive: true, force: true });
   }

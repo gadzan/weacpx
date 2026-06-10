@@ -18,7 +18,7 @@ function makeDeps(initialChannels: any[]) {
       isInteractive: () => false,
       promptText: async () => "",
       loadConfig: async () => JSON.parse(JSON.stringify(stored)),
-      saveConfig: async (c: any) => { stored = c; },
+      saveChannels: async (c: any) => { stored = { ...stored, channels: c }; },
       getDaemonStatus: async () => ({ state: "stopped" as const }),
       restartDaemon: async () => 0,
     } as any,

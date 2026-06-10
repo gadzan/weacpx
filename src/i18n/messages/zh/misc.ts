@@ -39,6 +39,10 @@ export const misc: MiscMessages = {
   finalHeadsUp: (total: number, sentSoFar: number, remaining: number) =>
     `—\n📄 结果共 ${total} 段，已发 ${sentSoFar} 段。回复 /jx 续看后 ${remaining} 段。`,
 
+  // weixin/messaging/handle-weixin-message-turn: all pages parked
+  finalAllParked: (count: number) =>
+    `📄 已达消息上限：结果共 ${count} 段已暂存。回复 /jx 接收。`,
+
   // weixin/messaging/inbound: quoted message prefix
   quotedMessagePrefix: (parts: string) => `[引用: ${parts}]`,
 
@@ -88,6 +92,8 @@ export const misc: MiscMessages = {
   // commands/command-policy
   commandAccessDeniedSuffix: " 仅限群创建者/频道 owner 使用。",
   commandAccessDeniedHint: "如果需要执行控制类操作，请由 owner 在群内发送，或改用私聊。",
+  commandAccessDeniedChatTypeMissingSuffix: " 已被拦截：该频道未上报会话类型（直聊/群聊），控制类命令在此暂不可用。",
+  commandAccessDeniedChatTypeMissingHint: "只读命令与普通对话不受影响。这是频道元数据问题，请升级或反馈该频道插件。",
   commandLabelThisMessage: "该消息",
 
   // commands/handlers/session-reset-handler

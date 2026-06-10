@@ -6,7 +6,7 @@ import { coreEnv } from "../runtime/core-env";
 import { loadConfig } from "../config/load-config";
 import type { AppConfig } from "../config/types";
 import { resolveRuntimePaths, type RuntimePaths } from "../main";
-import { StateStore } from "../state/state-store";
+import { StateStore, type StateLoadReport } from "../state/state-store";
 import { checkAcpx } from "./checks/acpx-check";
 import { checkBridge } from "./checks/bridge-check";
 import { checkConfig } from "./checks/config-check";
@@ -180,12 +180,17 @@ async function defaultCheckOrchestrationHealth(deps: {
   }
 
   try {
+    // inspect(), not load(): a diagnostic command must never quarantine/rename
+    // state.json as a side effect. The inspection report is surfaced below so
+    // damage the daemon WOULD repair at startup is visible, not masked.
     const store = new StateStore(deps.runtimePaths.statePath);
-    return await checkOrchestrationHealth({
-      loadState: () => store.load(),
+    const inspection = await store.inspect();
+    const result = await checkOrchestrationHealth({
+      loadState: async () => inspection.state,
       now: () => new Date(),
       heartbeatThresholdSeconds: config.orchestration.progressHeartbeatSeconds,
     });
+    return applyStateInspectionReport(result, inspection.report, deps.runtimePaths.statePath);
   } catch (error) {
     return {
       id: "orchestration",
@@ -195,6 +200,49 @@ async function defaultCheckOrchestrationHealth(deps: {
       details: [`state path: ${deps.runtimePaths.statePath}`, `error: ${formatError(error)}`],
     };
   }
+}
+
+/**
+ * Merge a state.json inspection report into the orchestration check result.
+ * Severity follows the doctor convention for degraded-but-working conditions
+ * (daemon stopped / wechat logged out are "warn"): the daemon still boots —
+ * it quarantines the listed records at startup — so this warns rather than
+ * fails, and never downgrades an existing "fail".
+ */
+function applyStateInspectionReport(
+  result: DoctorCheckResult,
+  report: StateLoadReport | null,
+  statePath: string,
+): DoctorCheckResult {
+  if (!report) {
+    return result;
+  }
+
+  const fileCorrupt = report.dropped.some((record) => record.section === "file");
+  const details = [
+    ...(result.details ?? []),
+    `state path: ${statePath}`,
+    ...report.dropped.map((record) =>
+      record.section === "file"
+        ? `state.json is unreadable: ${record.reason}`
+        : `invalid state record ${record.section}["${record.key}"]: ${record.reason}`,
+    ),
+  ];
+
+  return {
+    ...result,
+    severity: result.severity === "fail" ? "fail" : "warn",
+    summary: fileCorrupt
+      ? `state.json is unreadable and will be reset (renamed to state.json.corrupt-*) at next daemon startup; ${result.summary}`
+      : `state.json has ${report.dropped.length} invalid record(s) that will be quarantined at next daemon startup; ${result.summary}`,
+    details,
+    suggestions: [
+      ...(result.suggestions ?? []),
+      fileCorrupt
+        ? "back up the state file before the next daemon start if you want to attempt manual recovery"
+        : "the daemon backs the original file up as state.json.quarantine-* before dropping these records",
+    ],
+  };
 }
 
 function formatError(error: unknown): string {

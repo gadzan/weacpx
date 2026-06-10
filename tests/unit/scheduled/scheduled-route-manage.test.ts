@@ -43,33 +43,50 @@ function groupRoute(state: AppState, isOwner?: boolean): void {
   };
 }
 
-test("listScheduledTasksFromRoute returns the global pending list for a direct route", async () => {
+test("listScheduledTasksFromRoute scopes the list to the route's chatKey", async () => {
   const state = createEmptyState();
   directRoute(state);
-  const all = [
-    pending("a1b2", "wx:user", "2026-05-25T03:00:00.000Z"),
-    pending("c3d4", "wx:other", "2026-05-25T02:00:00.000Z"),
-  ];
+  const own = [pending("a1b2", "wx:user", "2026-05-25T03:00:00.000Z")];
+  const seenChatKeys: string[] = [];
 
   const result = await listScheduledTasksFromRoute(
     { coordinatorSession: "backend:main" },
-    { state, scheduled: { listPending: () => all } },
+    {
+      state,
+      scheduled: {
+        listPending: (chatKey) => {
+          seenChatKeys.push(chatKey);
+          return own;
+        },
+      },
+    },
   );
 
-  // Global: includes the task from a different chat (wx:other).
-  expect(result).toEqual(all);
+  // The service is queried with the route's own chatKey — never globally.
+  expect(seenChatKeys).toEqual(["wx:user"]);
+  expect(result).toEqual(own);
 });
 
 test("listScheduledTasksFromRoute allows group owners", async () => {
   const state = createEmptyState();
   groupRoute(state, true);
   const all = [pending("a1b2", "wx:group", "2026-05-25T03:00:00.000Z")];
+  const seenChatKeys: string[] = [];
 
   const result = await listScheduledTasksFromRoute(
     { coordinatorSession: "backend:main" },
-    { state, scheduled: { listPending: () => all } },
+    {
+      state,
+      scheduled: {
+        listPending: (chatKey) => {
+          seenChatKeys.push(chatKey);
+          return all;
+        },
+      },
+    },
   );
 
+  expect(seenChatKeys).toEqual(["wx:group"]);
   expect(result).toEqual(all);
 });
 
@@ -142,27 +159,27 @@ test("rejects an empty coordinatorSession", async () => {
   ).rejects.toThrow("coordinatorSession must be a non-empty string");
 });
 
-test("cancelScheduledTaskFromRoute cancels by id and returns the normalized id", async () => {
+test("cancelScheduledTaskFromRoute cancels by id scoped to the route's chatKey and returns the normalized id", async () => {
   const state = createEmptyState();
   directRoute(state);
-  const seen: string[] = [];
+  const seen: Array<{ id: string; chatKey: string }> = [];
 
   const result = await cancelScheduledTaskFromRoute(
     { coordinatorSession: "backend:main", id: "#K8F2" },
     {
       state,
       scheduled: {
-        cancelPending: async (id) => {
-          seen.push(id);
+        cancelPending: async (id, chatKey) => {
+          seen.push({ id, chatKey });
           return true;
         },
       },
     },
   );
 
-  // The raw id is passed through to cancelPending (which normalizes internally);
-  // the returned id is normalized for display.
-  expect(seen).toEqual(["#K8F2"]);
+  // The raw id is passed through to cancelPending (which normalizes internally)
+  // together with the route's own chatKey; the returned id is normalized for display.
+  expect(seen).toEqual([{ id: "#K8F2", chatKey: "wx:user" }]);
   expect(result).toEqual({ id: "k8f2", cancelled: true });
 });
 

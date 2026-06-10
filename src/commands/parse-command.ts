@@ -621,12 +621,16 @@ function readNativeAttachCommand(
 }
 
 function normalizeCommand(command: string): string {
-  if (command === "/ss") return "/session";
-  if (command === "/ws") return "/workspace";
-  if (command === "/pm") return "/permission";
-  if (command === "/stop") return "/cancel";
-  if (command === "/lt") return "/later";
-  return command;
+  // Only the leading command word is case-insensitive (mobile keyboards
+  // auto-capitalize). Arguments and subcommand tokens keep their case:
+  // aliases, workspace names and paths are case-sensitive.
+  const lowered = command.toLowerCase();
+  if (lowered === "/ss") return "/session";
+  if (lowered === "/ws") return "/workspace";
+  if (lowered === "/pm") return "/permission";
+  if (lowered === "/stop") return "/cancel";
+  if (lowered === "/lt") return "/later";
+  return lowered;
 }
 
 function isRecognizedCommand(command: string): boolean {
@@ -648,23 +652,36 @@ function toNonInteractivePermission(value: string): "deny" | "fail" | null {
   return null;
 }
 
+// Opening quote char → the only char that closes it. Includes curly and
+// full-width variants that mobile keyboards auto-substitute. A straight quote
+// never closes a curly quote (and vice versa); closing-only chars (” ’)
+// outside a quote are literal characters.
+const QUOTE_PAIRS: Record<string, string> = {
+  '"': '"',
+  "'": "'",
+  "“": "”", // “ … ”
+  "‘": "’", // ‘ … ’
+  "＂": "＂", // ＂ … ＂
+};
+
 function tokenizeCommand(input: string): string[] {
   const tokens: string[] = [];
   let current = "";
-  let quote: '"' | "'" | null = null;
+  let closingQuote: string | null = null;
 
   for (const char of input) {
-    if (quote) {
-      if (char === quote) {
-        quote = null;
+    if (closingQuote) {
+      if (char === closingQuote) {
+        closingQuote = null;
       } else {
         current += char;
       }
       continue;
     }
 
-    if (char === '"' || char === "'") {
-      quote = char;
+    const close = QUOTE_PAIRS[char];
+    if (close) {
+      closingQuote = close;
       continue;
     }
 

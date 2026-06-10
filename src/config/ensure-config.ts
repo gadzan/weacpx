@@ -1,10 +1,11 @@
 import { readFile } from "node:fs/promises";
 
-import { ConfigStore } from "./config-store";
+import { writePrivateFileAtomic } from "../util/private-file.js";
+
+import { serializeRawConfig } from "./config-store";
 import { DEFAULT_HOME_WORKSPACE, DEFAULT_HOME_WORKSPACE_NAME } from "./default-workspace";
 import { loadConfig, parseConfig } from "./load-config";
 import { resolveAgentCommand } from "./resolve-agent-command";
-import type { AppConfig } from "./types";
 
 interface EnsureConfigOptions {
   readDefaultConfigTemplate?: () => Promise<unknown>;
@@ -13,21 +14,6 @@ interface EnsureConfigOptions {
 const BUILTIN_DEFAULT_CONFIG_TEMPLATE = {
   transport: {
     type: "acpx-bridge",
-    sessionInitTimeoutMs: 120000,
-    permissionMode: "approve-all",
-    nonInteractivePermissions: "deny",
-  },
-  logging: {
-    level: "info",
-    maxSizeBytes: 2 * 1024 * 1024,
-    maxFiles: 5,
-    retentionDays: 7,
-    perf: {
-      enabled: false,
-      maxSizeBytes: 5_242_880,
-      maxFiles: 3,
-      retentionDays: 7,
-    },
   },
   channel: {
     type: "weixin",
@@ -40,7 +26,6 @@ const BUILTIN_DEFAULT_CONFIG_TEMPLATE = {
   workspaces: {
     [DEFAULT_HOME_WORKSPACE_NAME]: { ...DEFAULT_HOME_WORKSPACE },
   },
-  plugins: [],
 } satisfies unknown;
 
 export async function ensureConfigExists(path: string, options: EnsureConfigOptions = {}): Promise<void> {
@@ -51,12 +36,12 @@ export async function ensureConfigExists(path: string, options: EnsureConfigOpti
       throw error;
     }
 
-    const store = new ConfigStore(path);
-    await store.save(await loadDefaultConfigTemplate(options));
+    const seed = await loadDefaultConfigTemplate(options);
+    await writePrivateFileAtomic(path, serializeRawConfig(seed));
   }
 }
 
-async function loadDefaultConfigTemplate(options: EnsureConfigOptions = {}): Promise<AppConfig> {
+async function loadDefaultConfigTemplate(options: EnsureConfigOptions = {}): Promise<Record<string, unknown>> {
   if (options.readDefaultConfigTemplate) {
     try {
       return normalizeDefaultConfigTemplate(await options.readDefaultConfigTemplate());
@@ -91,11 +76,25 @@ async function loadDefaultConfigTemplate(options: EnsureConfigOptions = {}): Pro
   return normalizeDefaultConfigTemplate(JSON.parse(raw) as unknown);
 }
 
-export function normalizeDefaultConfigTemplate(raw: unknown): AppConfig {
+/**
+ * Builds the raw seed object written on first run. The template is validated
+ * through the shared parser, but the seed deliberately contains only what a
+ * working starter file needs: defaults the loader materializes anyway
+ * (timeouts, permission modes, logging limits, TTLs) are NOT pinned, so future
+ * default changes reach existing installs.
+ */
+export function normalizeDefaultConfigTemplate(raw: unknown): Record<string, unknown> {
   const template = parseConfig(raw);
 
   return {
-    ...template,
+    transport: {
+      type: template.transport.type,
+      ...(template.transport.command ? { command: template.transport.command } : {}),
+    },
+    channel: {
+      type: template.channel.type,
+      replyMode: template.channel.replyMode,
+    },
     agents: Object.fromEntries(
       Object.entries(template.agents).map(([name, agent]) => [
         name,

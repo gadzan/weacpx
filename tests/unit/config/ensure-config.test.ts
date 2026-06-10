@@ -26,9 +26,10 @@ test("shipped config.example.json ships only the portable home workspace (safe t
   expect(raw.workspaces?.home?.cwd).toBe("~");
 });
 
-test("normalizes the default config template through the shared config parser", () => {
-  const config = normalizeDefaultConfigTemplate({
-    transport: { type: "acpx-bridge" },
+test("builds a slim raw seed: validated by the shared parser, no pinned defaults", () => {
+  const seed = normalizeDefaultConfigTemplate({
+    transport: { type: "acpx-bridge", sessionInitTimeoutMs: 120000, permissionMode: "approve-all" },
+    logging: { level: "info", maxSizeBytes: 2097152 },
     agents: {
       codex: { driver: "codex" },
     },
@@ -37,28 +38,16 @@ test("normalizes the default config template through the shared config parser", 
     },
   });
 
-  expect(config).toMatchObject({
-    transport: {
-      type: "acpx-bridge",
-      permissionMode: "approve-all",
-      nonInteractivePermissions: "deny",
-    },
+  // The seed contains only what a working starter file needs. Loader-supplied
+  // defaults (timeouts, permission modes, logging numbers) are never pinned so
+  // future default changes reach existing installs.
+  expect(seed).toEqual({
+    transport: { type: "acpx-bridge" },
+    channel: { type: "weixin", replyMode: "verbose" },
     agents: {
       codex: { driver: "codex" },
     },
     workspaces: { home: { cwd: "~", description: "home directory" } },
-  });
-  expect(config.logging).toEqual({
-    level: "info",
-    maxSizeBytes: 2 * 1024 * 1024,
-    maxFiles: 5,
-    retentionDays: 7,
-    perf: {
-      enabled: false,
-      maxSizeBytes: 5 * 1024 * 1024,
-      maxFiles: 3,
-      retentionDays: 7,
-    },
   });
 });
 
@@ -87,12 +76,13 @@ test("ensureConfigExists falls back to the built-in default template when bundle
       },
     });
 
-    const raw = JSON.parse(await readFile(configPath, "utf8")) as unknown;
+    const raw = JSON.parse(await readFile(configPath, "utf8")) as {
+      transport: Record<string, unknown>;
+      logging?: unknown;
+    };
     expect(raw).toMatchObject({
       transport: {
         type: "acpx-bridge",
-        permissionMode: "approve-all",
-        nonInteractivePermissions: "deny",
       },
       agents: {
         codex: { driver: "codex" },
@@ -100,8 +90,13 @@ test("ensureConfigExists falls back to the built-in default template when bundle
       },
       workspaces: { home: { cwd: "~", description: "home directory" } },
     });
+    // Defaults stay loader-side: the seed must not freeze them into the file.
+    expect(raw.transport.permissionMode).toBeUndefined();
+    expect(raw.transport.sessionInitTimeoutMs).toBeUndefined();
+    expect(raw.logging).toBeUndefined();
 
     const parsed = await loadConfig(configPath);
+    expect(parsed.transport.permissionMode).toBe("approve-all");
     expect(parsed.orchestration.progressHeartbeatSeconds).toBe(300);
   } finally {
     await rm(dir, { recursive: true, force: true });

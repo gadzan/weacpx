@@ -1,8 +1,8 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { rm, writeFile } from "node:fs/promises";
 
 import type { DaemonPaths } from "./daemon-files";
 import { DaemonStatusStore, type DaemonStatus } from "./daemon-status";
+import { ensurePrivateRuntimeDir } from "./private-runtime-dir";
 
 interface DaemonRuntimeOptions {
   pid: number;
@@ -35,7 +35,10 @@ export class DaemonRuntime {
       stderr_log: this.paths.stderrLog,
     };
 
-    await mkdir(dirname(this.paths.pidFile), { recursive: true });
+    // Daemon startup runs before the orchestration server listens: ensure the
+    // runtime dir is user-private (0700) so the socket is never reachable by
+    // other accounts, and repair pre-existing installs created at 0755.
+    await ensurePrivateRuntimeDir(this.paths.runtimeDir);
     await writeFile(this.paths.pidFile, `${this.options.pid}\n`);
     await this.statusStore.save(this.currentStatus);
   }

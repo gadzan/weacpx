@@ -208,6 +208,29 @@ rejects the prompt with the first observed error.
 - `/replymode reset` 会清除当前会话覆盖，回退到 `channel.replyMode`
 - `final` 只影响文本是否实时发送，不改变 acpx transport 的输出生成方式
 
+### `channel.ownerIds`
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `ownerIds` | `string[]` | 否 | 操作者信任的频道 owner 发送者 id 列表。来自这些发送者的群聊消息可以通过 owner 门槛的命令鉴权（控制类命令、`/later`、会话内 `scheduled_*` 工具），即使该频道协议不携带群角色信息。 |
+
+说明：
+
+- 微信协议**不携带任何群角色信息**，所以不配置 `ownerIds` 时，微信群里所有人（包括操作者自己）的特权命令都会被拒绝。把自己的发送者 id 加进来即可给自己授权。
+- 同名字段也可以按频道配置在 `channels[].ownerIds`（使用对应频道的发送者 id 格式：微信 `from_user_id`、飞书 `open_id`、元宝账号 id）。
+- `ownerIds` 中的发送者在频道自身上报的 owner 判定（如元宝的 `bot_owner_id`）之外**额外**被视为 owner，两者叠加生效。
+- 把 `ownerIds` 设为空数组（`[]`）是显式撤销授权：该频道的回合会按 owner = false 记录（除非频道自身上报了 owner），并覆盖此前记录的 owner 状态。整个删掉该字段则表示「未配置」，不影响频道自身上报的 owner 判定。
+- **如何找到自己的发送者 id**：在群里发送任意特权命令（如 `/clear`），拒绝记录会写入 `~/.xacpx/runtime/app.log` 的 `command.blocked` 日志条目，其中的 `senderId` 字段就是要填进 `ownerIds` 的 id。
+
+```json
+{
+  "channel": {
+    "type": "weixin",
+    "ownerIds": ["wxid_xxxxxxxx"]
+  }
+}
+```
+
 ### 兼容旧配置
 
 旧配置文件中的 `wechat.replyMode` 仍然可以正常使用，加载时会自动映射到 `channel.replyMode`。保存后会写入 `channel` 格式。
@@ -236,6 +259,7 @@ xacpx restart
 | `id` | `string` | 是 | 频道唯一标识，必须与 `type` 相同（内置：`"weixin"`；插件：例如 `"feishu"`、`"yuanbao"`） |
 | `type` | `string` | 是 | 频道类型。内置频道类型只有 `"weixin"`。`"feishu"` 由 `@ganglion/xacpx-channel-feishu` 提供，`"yuanbao"` 由 `@ganglion/xacpx-channel-yuanbao` 提供；其它类型由已安装插件提供 |
 | `enabled` | `boolean` | 否 | 是否启用。默认 `true` |
+| `ownerIds` | `string[]` | 否 | 按频道配置的受信 owner 发送者 id 列表，见 [`channel.ownerIds`](#channelownerids)。来自这些发送者的群聊消息可以通过 owner 门槛的命令鉴权。 |
 | `options` | `object` | 视频道而定 | 频道配置（飞书/元宝字段见下方） |
 
 ### 飞书频道配置（`options`）

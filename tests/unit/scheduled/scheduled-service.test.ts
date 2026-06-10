@@ -43,7 +43,7 @@ test("creates task with collision-checked lowercase id", async () => {
   expect(store.saves).toBe(1);
 });
 
-test("lists pending tasks ordered by execute_at and cancels by #id case-insensitively", async () => {
+test("lists pending tasks ordered by execute_at, scoped to the caller chat, and cancels by #id case-insensitively", async () => {
   const state = createEmptyState();
   state.scheduled_tasks.bbbb = {
     id: "bbbb", chat_key: "c", session_alias: "s", execute_at: "2026-05-23T12:00:00.000Z", message: "later", status: "pending", created_at: "2026-05-23T09:00:00.000Z",
@@ -51,12 +51,44 @@ test("lists pending tasks ordered by execute_at and cancels by #id case-insensit
   state.scheduled_tasks.aaaa = {
     id: "aaaa", chat_key: "c", session_alias: "s", execute_at: "2026-05-23T10:00:00.000Z", message: "soon", status: "pending", created_at: "2026-05-23T09:00:00.000Z",
   };
+  state.scheduled_tasks.dddd = {
+    id: "dddd", chat_key: "other", session_alias: "s", execute_at: "2026-05-23T11:00:00.000Z", message: "theirs", status: "pending", created_at: "2026-05-23T09:00:00.000Z",
+  };
   const store = new MemoryStore();
   const service = new ScheduledTaskService(state, store);
 
-  expect(service.listPending().map((task) => task.id)).toEqual(["aaaa", "bbbb"]);
-  expect(await service.cancelPending("#AAAA")).toBe(true);
+  expect(service.listPending("c").map((task) => task.id)).toEqual(["aaaa", "bbbb"]);
+  expect(service.listPending("other").map((task) => task.id)).toEqual(["dddd"]);
+  expect(await service.cancelPending("#AAAA", "c")).toBe(true);
   expect(state.scheduled_tasks.aaaa?.status).toBe("cancelled");
+});
+
+test("cancelPending from another chat behaves like not-found and leaves the task pending", async () => {
+  const state = createEmptyState();
+  state.scheduled_tasks.aaaa = {
+    id: "aaaa", chat_key: "chat-a", session_alias: "s", execute_at: "2026-05-23T10:00:00.000Z", message: "secret", status: "pending", created_at: "2026-05-23T09:00:00.000Z",
+  };
+  const store = new MemoryStore();
+  const service = new ScheduledTaskService(state, store);
+
+  expect(await service.cancelPending("aaaa", "chat-b")).toBe(false);
+  expect(state.scheduled_tasks.aaaa?.status).toBe("pending");
+  expect(store.saves).toBe(0);
+});
+
+test("listPendingAllChats / cancelPendingAnyChat operate across chats (operator surface)", async () => {
+  const state = createEmptyState();
+  state.scheduled_tasks.aaaa = {
+    id: "aaaa", chat_key: "chat-a", session_alias: "s", execute_at: "2026-05-23T10:00:00.000Z", message: "a", status: "pending", created_at: "2026-05-23T09:00:00.000Z",
+  };
+  state.scheduled_tasks.bbbb = {
+    id: "bbbb", chat_key: "chat-b", session_alias: "s", execute_at: "2026-05-23T12:00:00.000Z", message: "b", status: "pending", created_at: "2026-05-23T09:00:00.000Z",
+  };
+  const service = new ScheduledTaskService(state, new MemoryStore());
+
+  expect(service.listPendingAllChats().map((task) => task.id)).toEqual(["aaaa", "bbbb"]);
+  expect(await service.cancelPendingAnyChat("#BBBB")).toBe(true);
+  expect(state.scheduled_tasks.bbbb?.status).toBe("cancelled");
 });
 
 test("claims due tasks and marks old pending tasks missed", async () => {
@@ -98,7 +130,7 @@ test("rolls back the in-memory claim when save fails so the next tick can retry"
   // listPending, and silently never fires until a daemon restart.
   expect(state.scheduled_tasks.due1?.status).toBe("pending");
   expect(state.scheduled_tasks.due1?.triggered_at).toBeUndefined();
-  expect(service.listPending().map((task) => task.id)).toEqual(["due1"]);
+  expect(service.listPendingAllChats().map((task) => task.id)).toEqual(["due1"]);
 
   // The next tick retries and claims the task normally.
   expect((await service.claimDueTasks()).map((task) => task.id)).toEqual(["due1"]);

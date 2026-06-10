@@ -1,5 +1,10 @@
 import { mock } from "bun:test";
-import type { ConfigStore } from "../../../src/config/config-store";
+import type { ConfigStore, RawConfigLookup, RawConfigPath } from "../../../src/config/config-store";
+import {
+  readRawConfigValue,
+  setRawConfigValue,
+  unsetRawConfigValue,
+} from "../../../src/config/config-store";
 import type { AppConfig } from "../../../src/config/types";
 import type { OrchestrationRouterOps } from "../../../src/commands/router-types";
 import { createEmptyState } from "../../../src/state/types";
@@ -59,7 +64,20 @@ export class MemoryStateStore implements Pick<StateStore, "save"> {
 }
 
 export class MemoryConfigStore
-  implements Pick<ConfigStore, "load" | "save" | "upsertWorkspace" | "removeWorkspace" | "upsertAgent" | "removeAgent" | "updateTransport" | "updateChannel">
+  implements
+    Pick<
+      ConfigStore,
+      | "load"
+      | "upsertWorkspace"
+      | "removeWorkspace"
+      | "upsertAgent"
+      | "removeAgent"
+      | "updateTransport"
+      | "updateChannel"
+      | "getRawValue"
+      | "setRawValue"
+      | "unsetRawValue"
+    >
 {
   constructor(private readonly config: AppConfig) {}
 
@@ -67,23 +85,22 @@ export class MemoryConfigStore
     return this.config;
   }
 
-  async save(config: AppConfig): Promise<void> {
-    this.config.transport = { ...config.transport };
-    this.config.logging = { ...config.logging };
-    this.config.channel = { ...config.channel };
-    this.config.channels = config.channels.map((channel) => ({
-      ...channel,
-      ...(channel.feishu ? { feishu: { ...channel.feishu } } : {}),
-    }));
-    this.config.agents = Object.fromEntries(Object.entries(config.agents).map(([name, agent]) => [name, { ...agent }]));
-    this.config.workspaces = Object.fromEntries(
-      Object.entries(config.workspaces).map(([name, workspace]) => [name, { ...workspace }]),
-    );
-    this.config.orchestration = {
-      ...config.orchestration,
-      allowedAgentRequestTargets: [...config.orchestration.allowedAgentRequestTargets],
-      allowedAgentRequestRoles: [...config.orchestration.allowedAgentRequestRoles],
-    };
+  private root(): Record<string, unknown> {
+    return this.config as unknown as Record<string, unknown>;
+  }
+
+  async getRawValue(path: RawConfigPath): Promise<RawConfigLookup> {
+    return readRawConfigValue(this.root(), path);
+  }
+
+  async setRawValue(path: RawConfigPath, value: unknown): Promise<AppConfig> {
+    setRawConfigValue(this.root(), path, value);
+    return this.config;
+  }
+
+  async unsetRawValue(path: RawConfigPath): Promise<AppConfig> {
+    unsetRawConfigValue(this.root(), path);
+    return this.config;
   }
 
   async upsertWorkspace(name: string, cwd: string, description?: string): Promise<AppConfig> {
@@ -110,19 +127,23 @@ export class MemoryConfigStore
   }
 
   async updateTransport(transport: Partial<AppConfig["transport"]>): Promise<AppConfig> {
-    this.config.transport = {
-      ...this.config.transport,
-      ...transport,
-    };
+    applyPatch(this.config.transport as unknown as Record<string, unknown>, transport);
     return this.config;
   }
 
   async updateChannel(channel: Partial<AppConfig["channel"]>): Promise<AppConfig> {
-    this.config.channel = {
-      ...this.config.channel,
-      ...channel,
-    };
+    applyPatch(this.config.channel as unknown as Record<string, unknown>, channel);
     return this.config;
+  }
+}
+
+function applyPatch(target: Record<string, unknown>, patch: object): void {
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) {
+      delete target[key];
+    } else {
+      target[key] = value;
+    }
   }
 }
 

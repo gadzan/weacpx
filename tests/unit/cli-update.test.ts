@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { AppConfig } from "../../src/config/types";
+import type { AppConfig, PluginConfig } from "../../src/config/types";
 import { handleUpdateCli } from "../../src/cli-update";
 import { setLocale, t } from "../../src/i18n";
 
@@ -20,11 +20,11 @@ test("update --all updates xacpx and plugins after checking latest versions", as
   setLocale("zh");
   const lines: string[] = [];
   const updated: string[] = [];
-  let saved: AppConfig | null = null;
+  let saved: PluginConfig[] | null = null;
 
   const code = await handleUpdateCli(["--all"], {
     loadConfig: async () => config([{ name: "p1", version: "1.0.0", enabled: true }]),
-    saveConfig: async (next) => { saved = next; },
+    savePlugins: async (next) => { saved = next; },
     readCurrentVersion: () => "0.8.0",
     packageName: "xacpx",
     print: (line) => lines.push(line),
@@ -38,7 +38,7 @@ test("update --all updates xacpx and plugins after checking latest versions", as
 
   expect(code).toBe(0);
   expect(updated).toEqual(["xacpx", "p1"]);
-  expect(saved?.plugins[0]?.version).toBe("1.2.0");
+  expect(saved?.[0]?.version).toBe("1.2.0");
   expect(lines).toContain(`1. ${t().cliUpdate.formatSelf("xacpx", "0.8.0", "0.8.1")}`);
   expect(lines).toContain(`2. ${t().cliUpdate.formatPlugin("p1", "1.0.0", "1.2.0")}`);
 });
@@ -47,7 +47,7 @@ test("update prompts for selection when plugins are installed", async () => {
   const updated: string[] = [];
   const code = await handleUpdateCli([], {
     loadConfig: async () => config([{ name: "p1", version: "1.0.0", enabled: true }]),
-    saveConfig: async () => {},
+    savePlugins: async () => {},
     readCurrentVersion: () => "0.4.0",
     print: () => {},
     isInteractive: () => true,
@@ -68,7 +68,7 @@ test("update unknown target does not fall back to self", async () => {
   const lines: string[] = [];
   const code = await handleUpdateCli(["not-exist"], {
     loadConfig: async () => config([]),
-    saveConfig: async () => {},
+    savePlugins: async () => {},
     readCurrentVersion: () => "0.4.0",
     print: (line) => lines.push(line),
     isInteractive: () => false,
@@ -88,7 +88,7 @@ test("update skips entries already at latest version", async () => {
   const lines: string[] = [];
   const code = await handleUpdateCli(["--all"], {
     loadConfig: async () => config([{ name: "p1", version: "1.0.0", enabled: true }]),
-    saveConfig: async () => { throw new Error("should not save"); },
+    savePlugins: async () => { throw new Error("should not save"); },
     readCurrentVersion: () => "0.8.0",
     packageName: "xacpx",
     print: (line) => lines.push(line),
@@ -108,7 +108,7 @@ test("update rolls back pinned plugin and does not save config when validation f
   const operations: string[] = [];
   const code = await handleUpdateCli(["p1"], {
     loadConfig: async () => config([{ name: "p1", version: "1.0.0", enabled: true }]),
-    saveConfig: async () => { throw new Error("should not save"); },
+    savePlugins: async () => { throw new Error("should not save"); },
     readCurrentVersion: () => "0.4.0",
     print: () => {},
     isInteractive: () => false,
@@ -129,7 +129,7 @@ test("update --all fails when any latest version cannot be checked", async () =>
   const lines: string[] = [];
   const code = await handleUpdateCli(["--all"], {
     loadConfig: async () => config([{ name: "p1", version: "1.0.0", enabled: true }]),
-    saveConfig: async () => {},
+    savePlugins: async () => {},
     readCurrentVersion: () => "0.8.0",
     packageName: "xacpx",
     print: (line) => lines.push(line),
@@ -151,7 +151,7 @@ test("self-only update requires confirmation in implicit non-interactive mode", 
   const lines: string[] = [];
   const code = await handleUpdateCli([], {
     loadConfig: async () => config([]),
-    saveConfig: async () => {},
+    savePlugins: async () => {},
     readCurrentVersion: () => "0.8.0",
     packageName: "xacpx",
     print: (line) => lines.push(line),
@@ -177,7 +177,7 @@ test("update --all migrates to the renamed successor once it is published", asyn
   const lines: string[] = [];
   const code = await handleUpdateCli(["--all"], {
     loadConfig: async () => config([]),
-    saveConfig: async () => {},
+    savePlugins: async () => {},
     readCurrentVersion: () => "0.7.0",
     print: (line) => lines.push(line),
     isInteractive: () => false,
@@ -202,7 +202,7 @@ test("update does not redirect while the successor is unpublished (dormant)", as
   const updated: string[] = [];
   const code = await handleUpdateCli(["--all"], {
     loadConfig: async () => config([]),
-    saveConfig: async () => {},
+    savePlugins: async () => {},
     readCurrentVersion: () => "0.7.0",
     print: () => {},
     isInteractive: () => false,
@@ -224,7 +224,7 @@ test("a successor prerelease does not trip the rename for everyone", async () =>
   const updated: string[] = [];
   const code = await handleUpdateCli(["--all"], {
     loadConfig: async () => config([]),
-    saveConfig: async () => {},
+    savePlugins: async () => {},
     readCurrentVersion: () => "0.7.0",
     print: () => {},
     isInteractive: () => false,
@@ -247,7 +247,7 @@ test("a failed migration is reported and does not fall back to an in-place updat
   const lines: string[] = [];
   const code = await handleUpdateCli(["--all"], {
     loadConfig: async () => config([]),
-    saveConfig: async () => {},
+    savePlugins: async () => {},
     readCurrentVersion: () => "0.7.0",
     print: (line) => lines.push(line),
     isInteractive: () => false,
@@ -268,7 +268,7 @@ test("explicit `update xacpx` matches the self target and migrates", async () =>
   const migrations: Array<{ from: string; to: string }> = [];
   const code = await handleUpdateCli(["xacpx"], {
     loadConfig: async () => config([]),
-    saveConfig: async () => {},
+    savePlugins: async () => {},
     readCurrentVersion: () => "0.7.0",
     print: () => {},
     isInteractive: () => false,
@@ -290,7 +290,7 @@ test("implicit rename migration requires confirmation in interactive mode", asyn
   const lines: string[] = [];
   const code = await handleUpdateCli([], {
     loadConfig: async () => config([]),
-    saveConfig: async () => {},
+    savePlugins: async () => {},
     readCurrentVersion: () => "0.7.0",
     print: (line) => lines.push(line),
     isInteractive: () => true,
@@ -310,10 +310,10 @@ test("implicit rename migration requires confirmation in interactive mode", asyn
 test("update --all updates unpinned plugins to latest and pins the result", async () => {
   setLocale("zh");
   const updated: string[] = [];
-  let saved: AppConfig | null = null;
+  let saved: PluginConfig[] | null = null;
   const code = await handleUpdateCli(["--all"], {
     loadConfig: async () => config([{ name: "p1", enabled: true }]),
-    saveConfig: async (next) => { saved = next; },
+    savePlugins: async (next) => { saved = next; },
     readCurrentVersion: () => "0.8.0",
     packageName: "xacpx",
     print: () => {},
@@ -329,16 +329,16 @@ test("update --all updates unpinned plugins to latest and pins the result", asyn
   expect(code).toBe(0);
   expect(updated).toEqual(["p1"]);
   // After updating, the previously-unpinned plugin is pinned to the new version.
-  expect(saved?.plugins[0]?.version).toBe("9.0.0");
+  expect(saved?.[0]?.version).toBe("9.0.0");
 });
 
 test("interactive 'a' updates unpinned plugins (the reported regression)", async () => {
   setLocale("en");
   const updated: string[] = [];
-  let saved: AppConfig | null = null;
+  let saved: PluginConfig[] | null = null;
   const code = await handleUpdateCli([], {
     loadConfig: async () => config([{ name: "p1", enabled: true }]),
-    saveConfig: async (next) => { saved = next; },
+    savePlugins: async (next) => { saved = next; },
     readCurrentVersion: () => "0.9.1",
     packageName: "xacpx",
     print: () => {},
@@ -353,5 +353,5 @@ test("interactive 'a' updates unpinned plugins (the reported regression)", async
 
   expect(code).toBe(0);
   expect(updated).toEqual(["xacpx", "p1"]);
-  expect(saved?.plugins[0]?.version).toBe("0.5.0");
+  expect(saved?.[0]?.version).toBe("0.5.0");
 });

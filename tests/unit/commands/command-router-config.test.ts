@@ -488,6 +488,19 @@ test("creates a workspace via the short alias and cwd flag", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test("/ws new stores a ~ cwd verbatim (expansion happens at config load, not at write)", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle("wx:user", '/ws new notes -d "~"');
+
+  expect(reply.text).toBe(t().workspace.saved("notes"));
+  // The configured value keeps the user's literal `~` so the file stays portable.
+  expect(config.workspaces.notes).toEqual({ cwd: "~" });
+});
+
 test("/ws new sanitizes a name with spaces and reports the rewrite", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-workspace-"));
   try {
@@ -723,4 +736,28 @@ test("rejects an unsupported locale via /config set language", async () => {
 
   expect(reply.text).toBe(t().config.languageInvalid);
   expect(config.language).toBeUndefined();
+});
+
+test("/config set rejects prototype-polluting agent/workspace names without polluting Object.prototype", async () => {
+  for (const path of [
+    "agents.__proto__.driver",
+    "agents.constructor.driver",
+    "workspaces.__proto__.cwd",
+    "workspaces.prototype.cwd",
+  ]) {
+    const config = createConfig();
+    const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+    const transport = createTransport();
+    const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+    const reply = await router.handle("wx:user", `/config set ${path} EVIL`);
+
+    // Rejected with an error, never "Config updated".
+    expect(reply.text).not.toBe(t().config.updated(path, "EVIL"));
+    expect(reply.text).toBe(t().config.pathNotSupported(path));
+  }
+
+  // The live daemon's Object.prototype must remain clean.
+  expect(({} as Record<string, unknown>).driver).toBeUndefined();
+  expect(({} as Record<string, unknown>).cwd).toBeUndefined();
 });

@@ -198,6 +198,16 @@ export async function handleSessionNew(
 ): Promise<RouterResponse> {
   const channelId = getChannelIdFromChatKey(chatKey);
   const internalAlias = scopeDisplayAliasToInternal(channelId, alias);
+
+  // Refuse to overwrite an existing alias: silently re-pointing it would
+  // either reuse the old transport session (stale history) or orphan it, and
+  // a native session's agent_session_id would be silently dropped. Internal
+  // repair paths (resolveSession) intentionally bypass this guard.
+  const existing = context.sessions.getResolvedSessionByInternalAlias(internalAlias);
+  if (existing) {
+    return { text: t().session.sessionAlreadyExists(alias, existing.agent, existing.workspace) };
+  }
+
   const session = context.lifecycle.resolveSession(internalAlias, agent, workspace, `${workspace}:${internalAlias}`);
   const releaseTransportReservation = await context.lifecycle.reserveTransportSession(session.transportSession);
   try {

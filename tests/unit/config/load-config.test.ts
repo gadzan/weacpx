@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { loadConfig, parseConfig } from "../../../src/config/load-config";
+import { resolveChannelOwnerIds, withEffectiveOwner } from "../../../src/commands/command-policy";
 
 test("loads a valid config file", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-config-"));
@@ -1182,4 +1183,93 @@ test("throws when channels[].replyMode is invalid", async () => {
   );
 
   await rm(dir, { recursive: true, force: true });
+});
+
+test("parses channel.ownerIds without copying it into the synthesized runtime channel", async () => {
+  const config = parseConfig({
+    transport: { type: "acpx-bridge" },
+    channel: { type: "weixin", ownerIds: ["wx-op", " wx-op-2 "] },
+    agents: { codex: { driver: "codex" } },
+    workspaces: {},
+  });
+
+  expect(config.channel.ownerIds).toEqual(["wx-op", "wx-op-2"]);
+  // No parse-time copy: the policy resolver unions channel.ownerIds and
+  // channels[].ownerIds live, and a baked copy would survive saves and make
+  // a later revocation via channel.ownerIds silently ineffective.
+  expect(config.channels).toEqual([{ id: "weixin", type: "weixin", enabled: true }]);
+});
+
+test("save/reload round-trip keeps ownerIds revocable via channel.ownerIds", async () => {
+  const first = parseConfig({
+    transport: { type: "acpx-bridge" },
+    channel: { type: "weixin", ownerIds: ["wx-op"] },
+    agents: { codex: { driver: "codex" } },
+    workspaces: {},
+  });
+
+  // A round-trip of the parsed object: the synthesized runtime channel carries
+  // no baked ownerIds copy, so editing channel.ownerIds stays effective.
+  const persisted = JSON.parse(JSON.stringify(first)) as Record<string, unknown>;
+  expect((persisted.channels as Array<Record<string, unknown>>)[0]?.ownerIds).toBeUndefined();
+
+  // Operator revokes by editing channel.ownerIds in the saved file.
+  (persisted.channel as Record<string, unknown>).ownerIds = [];
+  const reloaded = parseConfig(persisted);
+
+  expect(resolveChannelOwnerIds(reloaded, "weixin")).toEqual([]);
+  expect(
+    withEffectiveOwner({ channel: "weixin", chatType: "group", senderId: "wx-op" }, reloaded),
+  ).toMatchObject({ isOwner: false });
+});
+
+test("parses channels[].ownerIds", async () => {
+  const config = parseConfig({
+    transport: { type: "acpx-bridge" },
+    channels: [
+      { id: "weixin", type: "weixin", enabled: true },
+      { id: "feishu", type: "feishu", enabled: true, ownerIds: ["ou-op"] },
+    ],
+    agents: { codex: { driver: "codex" } },
+    workspaces: {},
+  });
+
+  expect(config.channels[0]?.ownerIds).toBeUndefined();
+  expect(config.channels[1]?.ownerIds).toEqual(["ou-op"]);
+});
+
+test("leaves ownerIds undefined when omitted", async () => {
+  const config = parseConfig({
+    transport: { type: "acpx-bridge" },
+    channel: { type: "weixin" },
+    agents: { codex: { driver: "codex" } },
+    workspaces: {},
+  });
+
+  expect(config.channel.ownerIds).toBeUndefined();
+  expect(config.channels[0]?.ownerIds).toBeUndefined();
+});
+
+test("throws on invalid ownerIds shapes", async () => {
+  const base = {
+    transport: { type: "acpx-bridge" },
+    agents: { codex: { driver: "codex" } },
+    workspaces: {},
+  };
+
+  expect(() => parseConfig({ ...base, channel: { type: "weixin", ownerIds: "wx-op" } })).toThrow(
+    "channel.ownerIds must be an array of non-empty strings",
+  );
+  expect(() => parseConfig({ ...base, channel: { type: "weixin", ownerIds: [1, 2] } })).toThrow(
+    "channel.ownerIds must be an array of non-empty strings",
+  );
+  expect(() => parseConfig({ ...base, channel: { type: "weixin", ownerIds: ["", "wx"] } })).toThrow(
+    "channel.ownerIds must be an array of non-empty strings",
+  );
+  expect(() =>
+    parseConfig({
+      ...base,
+      channels: [{ id: "feishu", type: "feishu", enabled: true, ownerIds: [null] }],
+    }),
+  ).toThrow("channels[0].ownerIds must be an array of non-empty strings");
 });

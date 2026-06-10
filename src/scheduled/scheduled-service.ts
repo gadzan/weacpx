@@ -68,17 +68,40 @@ export class ScheduledTaskService {
     });
   }
 
-  listPending(): ScheduledTaskRecord[] {
+  // Chat-scoped view: tasks are private to their originating chat, so callers
+  // acting on behalf of a chat (router commands, MCP route tools) must pass
+  // that chat's key and only ever see/cancel their own tasks.
+  listPending(chatKey: string): ScheduledTaskRecord[] {
+    return this.listPendingAllChats().filter((task) => task.chat_key === chatKey);
+  }
+
+  // Unscoped view for operator/internal surfaces (local CLI, the scheduler's
+  // own claiming loop). Never expose this to a chat- or route-driven caller.
+  listPendingAllChats(): ScheduledTaskRecord[] {
     return Object.values(this.state.scheduled_tasks)
       .filter((task) => task.status === "pending")
       .sort((left, right) => left.execute_at.localeCompare(right.execute_at));
   }
 
-  async cancelPending(inputId: string): Promise<boolean> {
+  // A chatKey mismatch is reported exactly like an unknown id so another chat
+  // cannot probe whether a given task id exists.
+  async cancelPending(inputId: string, chatKey: string): Promise<boolean> {
+    return await this.cancelPendingWhere(inputId, (task) => task.chat_key === chatKey);
+  }
+
+  // Unscoped cancel for the local operator CLI. Never expose to chat callers.
+  async cancelPendingAnyChat(inputId: string): Promise<boolean> {
+    return await this.cancelPendingWhere(inputId, () => true);
+  }
+
+  private async cancelPendingWhere(
+    inputId: string,
+    allowed: (task: ScheduledTaskRecord) => boolean,
+  ): Promise<boolean> {
     return await this.mutate(async () => {
       const id = normalizeId(inputId);
       const task = this.state.scheduled_tasks[id];
-      if (!task || task.status !== "pending") return false;
+      if (!task || task.status !== "pending" || !allowed(task)) return false;
       task.status = "cancelled";
       task.cancelled_at = this.now().toISOString();
       await this.save();
@@ -110,7 +133,7 @@ export class ScheduledTaskService {
   async claimDueTasks(): Promise<ScheduledTaskRecord[]> {
     return await this.mutate(async () => {
       const nowMs = this.now().getTime();
-      const due = this.listPending().filter((task) => Date.parse(task.execute_at) <= nowMs);
+      const due = this.listPendingAllChats().filter((task) => Date.parse(task.execute_at) <= nowMs);
       if (due.length === 0) return [];
       const at = this.now().toISOString();
       for (const task of due) {
@@ -122,7 +145,7 @@ export class ScheduledTaskService {
         await this.save();
       } catch (error) {
         // Roll back the claim: a task left "triggering" in memory drops out of
-        // listPending and would silently never fire until a daemon restart.
+        // the pending list and would silently never fire until a daemon restart.
         // Restoring "pending" lets the next scheduler tick retry the claim.
         for (const task of due) {
           task.status = "pending";

@@ -40,10 +40,10 @@ function createMockScheduled(overrides?: Partial<ScheduledRouterOps>): Scheduled
       tasks.push(task);
       return task;
     }),
-    listPending: mock(() => tasks.filter((t) => t.status === "pending")),
-    cancelPending: mock(async (id: string) => {
+    listPending: mock((chatKey: string) => tasks.filter((t) => t.status === "pending" && t.chat_key === chatKey)),
+    cancelPending: mock(async (id: string, chatKey: string) => {
       const task = tasks.find((t) => t.id === id.replace(/^#/, "").toLowerCase());
-      if (!task || task.status !== "pending") return false;
+      if (!task || task.status !== "pending" || task.chat_key !== chatKey) return false;
       task.status = "cancelled";
       return true;
     }),
@@ -182,27 +182,57 @@ test("/lt rejects unknown slash-looking messages", async () => {
   expect(scheduled.createTask).toHaveBeenCalledTimes(0);
 });
 
-test("/lt list renders pending tasks", async () => {
+test("/lt list renders pending tasks scoped to the requesting chat", async () => {
   const scheduled = createMockScheduled({
-    listPending: mock(() => [
-      {
-        id: "k8f2",
-        chat_key: "wx:user",
-        session_alias: "weixin:backend-codex",
-        execute_at: "2026-05-23T12:00:00.000Z",
-        message: "检查 CI",
-        status: "pending",
-        created_at: "2026-05-23T10:00:00.000Z",
-      },
-    ]),
+    listPending: mock((chatKey: string) =>
+      [
+        {
+          id: "k8f2",
+          chat_key: "wx:user",
+          session_alias: "weixin:backend-codex",
+          execute_at: "2026-05-23T12:00:00.000Z",
+          message: "检查 CI",
+          status: "pending" as const,
+          created_at: "2026-05-23T10:00:00.000Z",
+        },
+        {
+          id: "z9y8",
+          chat_key: "wx:other",
+          session_alias: "weixin:backend-codex",
+          execute_at: "2026-05-23T13:00:00.000Z",
+          message: "别人的秘密任务",
+          status: "pending" as const,
+          created_at: "2026-05-23T10:00:00.000Z",
+        },
+      ].filter((task) => task.chat_key === chatKey)),
   });
   const { router } = buildRouter({ scheduled });
   const reply = await router.handle("wx:user", "/lt list");
+  expect(scheduled.listPending).toHaveBeenCalledWith("wx:user");
   expect(reply.text).toContain(t().scheduledRender.listHeader);
   expect(reply.text).toContain("#k8f2");
   expect(reply.text).toContain("检查 CI");
   expect(reply.text).toContain(t().scheduledRender.boundSession("backend-codex"));
   expect(reply.text).not.toContain("weixin:backend-codex");
+  // Another chat's task never leaks into this chat's list.
+  expect(reply.text).not.toContain("#z9y8");
+  expect(reply.text).not.toContain("别人的秘密任务");
+});
+
+test("/lt list from another chat does not show this chat's tasks", async () => {
+  const scheduled = createMockScheduled();
+  const state = createEmptyState();
+  seedCurrentSession(state);
+  const { router } = buildRouter({ scheduled, state });
+  await router.handle("wx:user", "/lt in 2h 检查 CI");
+
+  const replyOther = await router.handle("wx:intruder", "/lt list");
+  expect(scheduled.listPending).toHaveBeenLastCalledWith("wx:intruder");
+  expect(replyOther.text).toContain(t().scheduledRender.listEmpty);
+  expect(replyOther.text).not.toContain("#k8f2");
+
+  const replyOwner = await router.handle("wx:user", "/lt list");
+  expect(replyOwner.text).toContain("#k8f2");
 });
 
 test("/lt list renders empty when no tasks", async () => {
@@ -219,7 +249,23 @@ test("/lt cancel #K8F2 cancels and renders success", async () => {
   const { router } = buildRouter({ scheduled });
   const reply = await router.handle("wx:user", "/lt cancel #K8F2");
   expect(reply.text).toContain(t().later.cancelSuccess("k8f2"));
-  expect(scheduled.cancelPending).toHaveBeenCalledWith("#K8F2");
+  expect(scheduled.cancelPending).toHaveBeenCalledWith("#K8F2", "wx:user");
+});
+
+test("/lt cancel from another chat renders not found and leaves the task pending", async () => {
+  const scheduled = createMockScheduled();
+  const state = createEmptyState();
+  seedCurrentSession(state);
+  const { router } = buildRouter({ scheduled, state });
+  await router.handle("wx:user", "/lt in 2h 检查 CI");
+
+  const replyIntruder = await router.handle("wx:intruder", "/lt cancel #k8f2");
+  expect(scheduled.cancelPending).toHaveBeenLastCalledWith("#k8f2", "wx:intruder");
+  expect(replyIntruder.text).toContain(t().later.cancelNotFound("k8f2"));
+
+  // The owner can still see and cancel the task afterwards.
+  const replyOwner = await router.handle("wx:user", "/lt cancel #k8f2");
+  expect(replyOwner.text).toContain(t().later.cancelSuccess("k8f2"));
 });
 
 test("/lt cancel with not found renders not found", async () => {

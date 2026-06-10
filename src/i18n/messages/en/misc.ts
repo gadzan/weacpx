@@ -39,6 +39,10 @@ export const misc: MiscMessages = {
   finalHeadsUp: (total: number, sentSoFar: number, remaining: number) =>
     `—\n📄 Result: ${total} parts total, ${sentSoFar} sent. Reply /jx to see the next ${remaining} parts.`,
 
+  // weixin/messaging/handle-weixin-message-turn: all pages parked
+  finalAllParked: (count: number) =>
+    `📄 Message limit reached: the result (${count} parts) is parked. Reply /jx to receive it.`,
+
   // weixin/messaging/inbound: quoted message prefix
   quotedMessagePrefix: (parts: string) => `[Quote: ${parts}]`,
 
@@ -88,6 +92,10 @@ export const misc: MiscMessages = {
   // commands/command-policy
   commandAccessDeniedSuffix: " is restricted to group owner only.",
   commandAccessDeniedHint: "To perform control operations, have the owner send them in the group, or use a private chat.",
+  commandAccessDeniedChatTypeMissingSuffix:
+    " was blocked: this channel did not report the chat type (direct or group), so control commands are disabled here.",
+  commandAccessDeniedChatTypeMissingHint:
+    "Read-only commands and prompts still work. This is a channel metadata issue — update or report the channel plugin.",
   commandLabelThisMessage: "This message",
 
   // commands/handlers/session-reset-handler
