@@ -17,6 +17,11 @@ export const session: SessionMessages = {
 
   // handleSessionNew / handleSessionAttach
   sessionCreated: (alias) => `Session "${alias}" created and switched.`,
+  sessionAlreadyExists: (alias, agent, workspace) =>
+    [
+      `Session "${alias}" already exists (${agent} @ ${workspace}).`,
+      `Switch to it with /use ${alias}, or remove it first with /session rm ${alias}.`,
+    ].join("\n"),
   sessionAttachNotFound: (alias, agent, workspace) =>
     [
       "No existing session found to attach.",

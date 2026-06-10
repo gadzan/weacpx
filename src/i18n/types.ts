@@ -17,6 +17,7 @@ export interface SessionMessages {
 
   // handleSessionNew / handleSessionAttach
   sessionCreated: (alias: string) => string;
+  sessionAlreadyExists: (alias: string, agent: string, workspace: string) => string;
   sessionAttachNotFound: (alias: string, agent: string, workspace: string) => string;
   sessionAttached: (alias: string) => string;
 

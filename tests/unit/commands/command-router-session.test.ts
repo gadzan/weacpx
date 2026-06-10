@@ -99,6 +99,47 @@ test("rejects session creation when acpx reports success but the named session i
   await expect(sessions.getCurrentSession("wx:user")).resolves.toBeNull();
 });
 
+test("/session new refuses an alias that already exists", async () => {
+  const config = createConfig();
+  config.agents.opencode = { driver: "opencode" };
+  config.workspaces.frontend = { cwd: "/tmp/frontend" };
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config);
+
+  await router.handle("wx:user", "/session new api-fix --agent codex --ws backend");
+  const ensureCalls = (transport.ensureSession as ReturnType<typeof mock>).mock.calls.length;
+
+  const reply = await router.handle("wx:user", "/session new api-fix --agent opencode --ws frontend");
+
+  expect(reply.text).toBe(t().session.sessionAlreadyExists("api-fix", "codex", "backend"));
+  // The refused command must not touch the transport or the stored session.
+  expect((transport.ensureSession as ReturnType<typeof mock>).mock.calls.length).toBe(ensureCalls);
+  await expect(sessions.getCurrentSession("wx:user")).resolves.toMatchObject({
+    alias: "api-fix",
+    agent: "codex",
+    workspace: "backend",
+  });
+});
+
+test("/session attach still rebinds an existing alias", async () => {
+  const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport);
+
+  await router.handle("wx:user", "/session new review --agent codex --ws backend");
+  const reply = await router.handle(
+    "wx:user",
+    "/session attach review --agent codex --ws backend --name existing-review",
+  );
+
+  expect(reply.text).toBe(t().session.sessionAttached("review"));
+  await expect(sessions.getCurrentSession("wx:user")).resolves.toMatchObject({
+    alias: "review",
+    transportSession: "existing-review",
+  });
+});
+
 test("attaches and selects an existing session without creating it through transport", async () => {
   const sessions = new SessionService(createConfig(), new MemoryStateStore(), createEmptyState());
   const transport = createTransport();
