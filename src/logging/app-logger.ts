@@ -115,7 +115,7 @@ export function createAppLogger(options: CreateAppLoggerOptions): AppLogger {
     }
 
     const line = formatLogLine(now(), level, event, message, context);
-    await mkdir(dirname(options.filePath), { recursive: true });
+    await mkdir(dirname(options.filePath), { recursive: true, mode: 0o700 });
     if (!modeEnsured) {
       // Harden a log file created before 0o600 was enforced. A missing file
       // (first run) throws ENOENT and is ignored — appendFile then creates it

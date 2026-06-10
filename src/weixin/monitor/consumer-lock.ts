@@ -63,7 +63,7 @@ export function createWeixinConsumerLock(
 
   return {
     async acquire(meta) {
-      await mkdir(dirname(lockFilePath), { recursive: true });
+      await mkdir(dirname(lockFilePath), { recursive: true, mode: 0o700 });
 
       while (true) {
         try {

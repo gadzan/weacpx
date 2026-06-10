@@ -18,7 +18,7 @@ export interface CreatePerfLogWriterOptions {
   failureThreshold?: number;
   // Test hooks
   appendImpl?: (path: string, data: string) => Promise<void>;
-  mkdirImpl?: (path: string, opts: { recursive: true }) => Promise<void>;
+  mkdirImpl?: (path: string, opts: { recursive: true; mode?: number }) => Promise<void>;
   now?: () => Date;
 }
 
@@ -80,7 +80,7 @@ export function createPerfLogWriter(options: CreatePerfLogWriterOptions): PerfLo
     if (disabled) return;
     const data = batch.join("");
     try {
-      await mkdir(dirname(options.filePath), { recursive: true });
+      await mkdir(dirname(options.filePath), { recursive: true, mode: 0o700 });
       await rotateIfNeeded(options.filePath, Buffer.byteLength(data), options.maxSizeBytes, options.maxFiles);
       await append(options.filePath, data);
       consecutiveFailures = 0;

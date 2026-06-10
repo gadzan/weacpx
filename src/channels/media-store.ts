@@ -45,7 +45,7 @@ export class RuntimeMediaStore {
     const safeMessageId = safePathSegment(input.messageId || "message");
     const baseFileName = sanitizeMediaFileName(input.fileName ?? "attachment", input.mimeType);
     const dir = path.join(this.rootDir, input.channelId, safeChatKey, safeMessageId);
-    await mkdir(dir, { recursive: true });
+    await mkdir(dir, { recursive: true, mode: 0o700 });
 
     const resolvedRoot = path.resolve(this.rootDir);
     const resolvedFile = path.resolve(path.join(dir, await uniqueFileName(dir, baseFileName)));
