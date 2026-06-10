@@ -133,7 +133,9 @@ function validateResult(
   if (pastTodayValue) return { ok: false, code: "past_today_time", value: pastTodayValue };
   if (tokens.slice(messageStartIndex).join(" ").trim().length === 0) return { ok: false, code: "missing_message" };
   const delta = executeAt.getTime() - now.getTime();
+  // NaN delta (e.g. astronomically large digit counts overflow the Date range)
+  // must be treated as out-of-range, not silently accepted with an Invalid Date.
+  if (isNaN(delta) || delta > LATER_MAX_DELAY_MS) return { ok: false, code: "out_of_range" };
   if (delta < LATER_MIN_DELAY_MS) return { ok: false, code: "too_soon" };
-  if (delta > LATER_MAX_DELAY_MS) return { ok: false, code: "out_of_range" };
   return { ok: true, executeAt, messageStartIndex };
 }

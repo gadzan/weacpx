@@ -60,7 +60,19 @@ export class ScheduledTaskScheduler {
     if (this.ticking) return;
     this.ticking = true;
     try {
-      const dueTasks = await this.service.claimDueTasks();
+      let dueTasks: ScheduledTaskRecord[];
+      try {
+        dueTasks = await this.service.claimDueTasks();
+      } catch (claimError) {
+        // A transient state-store failure (disk full, EBUSY, EPERM, …) must
+        // never kill the daemon — skip this tick and wait for the next interval.
+        await this.logger?.error(
+          "scheduled.claim.failed",
+          "claimDueTasks threw; skipping tick",
+          { message: claimError instanceof Error ? claimError.message : String(claimError) },
+        );
+        return;
+      }
       for (const task of dueTasks) {
         try {
           await this.dispatchWithTimeout(task);
@@ -71,7 +83,21 @@ export class ScheduledTaskScheduler {
             taskId: task.id,
             message,
           });
-          await this.service.markFailed(task.id, error);
+          try {
+            await this.service.markFailed(task.id, error);
+          } catch (markError) {
+            // markFailed itself may throw if the store write fails.  Swallow so
+            // one bad task's error-recording write cannot escape tick() and
+            // crash the daemon or prevent subsequent tasks from being processed.
+            await this.logger?.error(
+              "scheduled.markFailed.failed",
+              "markFailed threw; task state may be stale",
+              {
+                taskId: task.id,
+                message: markError instanceof Error ? markError.message : String(markError),
+              },
+            );
+          }
         }
       }
     } finally {

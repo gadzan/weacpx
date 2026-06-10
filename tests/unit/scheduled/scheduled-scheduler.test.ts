@@ -356,3 +356,82 @@ test("tick does not wedge when a dispatch ignores its abort signal", async () =>
 
   expect(state.scheduled_tasks.stuck?.status).toBe("failed");
 });
+
+// ---- Bug A robustness tests ----
+
+test("tick survives claimDueTasks throwing — no unhandled rejection", async () => {
+  // Build a fake service whose claimDueTasks always throws.
+  // If tick() lets the error escape as an unhandled rejection, bun:test detects
+  // it and fails the file.  The await below would also throw if tick() rethrows.
+  const throwingService = {
+    markStartupMissed: async () => {},
+    claimDueTasks: async (): Promise<never> => {
+      throw new Error("state-store EBUSY");
+    },
+    markExecuted: async () => {},
+    markFailed: async () => {},
+  } as unknown as ScheduledTaskService;
+
+  const dispatchTask = mock(async () => {});
+  const { setIntervalFn, clearIntervalFn } = createFakeSetInterval();
+
+  const scheduler = new ScheduledTaskScheduler(throwingService, {
+    dispatchTask,
+    setIntervalFn,
+    clearIntervalFn,
+  });
+
+  // tick() must not throw (the daemon must survive a transient store error).
+  await expect(scheduler.tick()).resolves.toBeUndefined();
+
+  // A second tick must also execute (the ticking lock must have been released).
+  await expect(scheduler.tick()).resolves.toBeUndefined();
+
+  // dispatchTask was never reached because claimDueTasks threw before it.
+  expect(dispatchTask).toHaveBeenCalledTimes(0);
+});
+
+test("tick survives dispatch failure AND markFailed throwing — no unhandled rejection", async () => {
+  // Simulate: dispatch throws, then markFailed also throws (e.g. disk full during
+  // the error-recording write). Neither error should escape tick().
+  const state = createEmptyState();
+  state.scheduled_tasks.fail2 = {
+    id: "fail2",
+    chat_key: "c",
+    session_alias: "s",
+    execute_at: "2026-05-23T09:59:00.000Z",
+    message: "will fail",
+    status: "pending",
+    created_at: "2026-05-23T09:00:00.000Z",
+  };
+
+  const saveCalls: number[] = [];
+  const store = {
+    saves: 0,
+    async save(): Promise<void> {
+      saveCalls.push(Date.now());
+      // First save (claimDueTasks) succeeds; second save (markFailed) throws.
+      if (saveCalls.length >= 2) throw new Error("disk full");
+    },
+  };
+  const service = new ScheduledTaskService(state, store, {
+    now: () => new Date("2026-05-23T10:00:00.000Z"),
+  });
+
+  const dispatchTask = mock(async () => {
+    throw new Error("channel unavailable");
+  });
+  const { setIntervalFn, clearIntervalFn } = createFakeSetInterval();
+
+  const scheduler = new ScheduledTaskScheduler(service, {
+    dispatchTask,
+    setIntervalFn,
+    clearIntervalFn,
+  });
+
+  // Must not throw even though markFailed's save also throws.
+  await expect(scheduler.tick()).resolves.toBeUndefined();
+
+  // Subsequent tick must still work (ticking lock released).
+  await expect(scheduler.tick()).resolves.toBeUndefined();
+});

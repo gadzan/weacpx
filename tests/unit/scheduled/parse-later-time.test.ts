@@ -111,3 +111,25 @@ test("parses various weekday names", () => {
   const r4 = ok(["周天", "12:00", "x"]);
   expect(r4.executeAt.getDay()).toBe(0);
 });
+
+// ---- Bug B: Invalid Date from huge digit count ----
+
+test("rejects astronomically large day count (overflow → Invalid Date)", () => {
+  // 99999999999999d overflows Date range → getTime() is NaN.
+  // Must return ok:false with out_of_range, not ok:true with an Invalid Date.
+  const result = parseLaterTime(["in", "99999999999999d", "继续"], now);
+  expect(result.ok).toBe(false);
+  if (!result.ok) expect(result.code).toBe("out_of_range");
+});
+
+test("rejects astronomically large hour count (overflow → Invalid Date)", () => {
+  const result = parseLaterTime(["in", "999999999999h", "继续"], now);
+  expect(result.ok).toBe(false);
+  if (!result.ok) expect(result.code).toBe("out_of_range");
+});
+
+test("normal 5m duration still works after NaN guard", () => {
+  // Sanity-check that the guard does not break ordinary inputs.
+  const result = parseLaterTime(["in", "5m", "继续"], now);
+  expect(result.ok).toBe(true);
+});
