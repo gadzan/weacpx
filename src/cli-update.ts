@@ -316,9 +316,19 @@ function compareSemver(a: string, b: string): number {
   return left.prerelease ? -1 : 1;
 }
 
+// runCapture/runInherit are only ever used to run package managers (npm/bun).
+// On Windows those resolve to .cmd shims, which Node refuses to spawn without
+// a shell since the batch-file security change (EINVAL), so spawn with
+// `shell: true` there — same pattern as src/recovery/auto-install-optional-dep.ts.
+// With a shell, args are not re-quoted, but everything passed here is an npm
+// package name/spec or a fixed flag (no spaces or shell metacharacters), so
+// this is safe. Do NOT reuse these helpers for commands whose args may
+// contain spaces (e.g. paths) without adding quoting.
+const spawnUsesShell = (): boolean => process.platform === "win32";
+
 async function runCapture(command: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   return await new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], shell: spawnUsesShell() });
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8");
@@ -332,7 +342,7 @@ async function runCapture(command: string, args: string[]): Promise<{ code: numb
 
 async function runInherit(command: string, args: string[]): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, args, { stdio: "inherit" });
+    const child = spawn(command, args, { stdio: "inherit", shell: spawnUsesShell() });
     child.on("error", reject);
     child.on("exit", (code) => {
       if (code === 0) resolve();
