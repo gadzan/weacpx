@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 
 import {
   AcpxBridgeClient,
   buildBridgeSpawnEnv,
   buildBridgeSpawnSpec,
+  manageBridgeChild,
 } from "../../../../src/transport/acpx-bridge/acpx-bridge-client";
 import {
   normalizeBridgePermissionPolicy,
@@ -166,6 +169,24 @@ test("a late write-callback error after the response resolved is ignored", async
   await expect(pending).resolves.toEqual({});
 
   expect(() => reportError?.(new Error("write EPIPE"))).not.toThrow();
+});
+
+test("survives an 'error' event on the bridge stdin and keeps serving requests", async () => {
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const child = Object.assign(new EventEmitter(), { stdin, stdout, pid: 12345 });
+
+  const client = manageBridgeChild(child);
+
+  // Per Node stream semantics a failed write is reported through the write
+  // callback AND as an 'error' event on the stream. Without a listener the
+  // event becomes an uncaught exception that kills the daemon.
+  expect(() => stdin.emit("error", new Error("write EPIPE"))).not.toThrow();
+
+  // The client must keep functioning after the stdin error.
+  const pending = client.request("ping", {});
+  stdout.write('{"id":"1","ok":true,"result":{}}\n');
+  await expect(pending).resolves.toEqual({});
 });
 
 test("includes the permission policy in the bridge spawn env and round-trips it", () => {

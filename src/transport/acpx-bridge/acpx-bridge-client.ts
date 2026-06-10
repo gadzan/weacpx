@@ -241,9 +241,38 @@ export async function spawnAcpxBridgeClient(
     stdio: ["pipe", "pipe", "inherit"],
   });
 
+  const client = manageBridgeChild(child);
+  await client.waitUntilReady();
+  return client;
+}
+
+/**
+ * Minimal child-process surface needed by manageBridgeChild; lets tests drive a
+ * fake child without spawning a real bridge process.
+ */
+export interface BridgeChildProcess {
+  pid?: number | undefined;
+  stdin: {
+    write(chunk: string, callback?: (error?: Error | null) => void): boolean;
+    end(): void;
+    on(event: "error", listener: (error: Error) => void): unknown;
+  };
+  stdout: NodeJS.ReadableStream;
+  on(event: "exit" | "error", listener: (...args: never[]) => void): unknown;
+}
+
+/** Wire a spawned bridge child process into a managed bridge client. */
+export function manageBridgeChild(child: BridgeChildProcess): ManagedBridgeClient {
   const client = new AcpxBridgeClient(
     (line, onWriteError) => child.stdin.write(line, onWriteError),
   ) as ManagedBridgeClient;
+
+  // Per Node stream semantics a failed stdin write is reported through the
+  // write callback (which rejects the pending request) AND as an 'error' event
+  // on the stream. Without a listener that event becomes an uncaught exception
+  // that kills the daemon; bridge death itself is handled by the 'exit' handler.
+  child.stdin.on("error", () => {});
+
   const output = createInterface({
     input: child.stdout,
     crlfDelay: Infinity,
@@ -257,7 +286,7 @@ export async function spawnAcpxBridgeClient(
     output.close();
     client.handleExit(new Error("bridge process exited before responding"));
   });
-  child.on("error", (error) => {
+  child.on("error", (error: Error) => {
     client.handleExit(error);
   });
 
@@ -273,7 +302,6 @@ export async function spawnAcpxBridgeClient(
     }
   };
 
-  await client.waitUntilReady();
   return client;
 }
 
