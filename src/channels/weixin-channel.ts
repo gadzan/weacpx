@@ -70,6 +70,8 @@ export class WeixinChannel implements MessageChannelRuntime {
     this.agent = null;
     this.quota = null;
     this.logger = null;
+    this.markDelivered = null;
+    this.markFailed = null;
   }
 
   createConsumerLock(options?: ConsumerLockOptions): ConsumerLock {

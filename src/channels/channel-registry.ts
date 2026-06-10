@@ -46,15 +46,25 @@ export class MessageChannelRegistry {
    * non-destructive `stop()` and falls back to `logout()` only for channels
    * that predate `stop()` (published plugins whose logout is a benign client
    * stop). Never an intentional credential wipe — that is `xacpx logout`.
+   *
+   * Like startAll, channels are isolated from each other: one throwing
+   * channel must not skip teardown of the rest. The first error is rethrown
+   * afterwards so the run-console cleanup sequence still records it.
    */
   async stopAll(): Promise<void> {
+    let firstError: unknown;
     for (const channel of this.channels.values()) {
-      if (channel.stop) {
-        await channel.stop();
-      } else {
-        channel.logout();
+      try {
+        if (channel.stop) {
+          await channel.stop();
+        } else {
+          channel.logout();
+        }
+      } catch (error) {
+        firstError ??= error;
       }
     }
+    if (firstError !== undefined) throw firstError;
   }
 
   getByChatKey(chatKey: string): MessageChannelRuntime | null {
