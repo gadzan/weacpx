@@ -331,7 +331,7 @@ async function removePlugin(packageName: string, rawArgs: string[], deps: Plugin
     return 1;
   }
 
-  config.plugins = config.plugins.filter((entry) => entry.name !== packageName);
+  config.plugins = config.plugins.filter((entry) => entry.name !== existing.name);
   await deps.saveConfig(config);
   deps.print(t().pluginCli.pluginRemoved(packageName));
   return await maybeRestartAfterMutation(flags.restart, deps);

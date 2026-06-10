@@ -6,6 +6,7 @@ import { listKnownChannelIds } from "../channels/channel-scope.js";
 import { importPluginFromHome } from "./plugin-loader.js";
 import { validateWeacpxPlugin } from "./validate-plugin.js";
 import { findKnownPluginByChannel } from "./known-plugins.js";
+import { normalizePluginPackageName } from "./plugin-renames.js";
 
 function suggestedPluginPackageForChannel(type: string): string {
   return findKnownPluginByChannel(type)?.packageName ?? `<npm-package-that-provides-${type}>`;
@@ -54,9 +55,9 @@ export async function inspectPlugins(input: InspectPluginsInput): Promise<Plugin
 
   const importPlugin = input.importPlugin ?? importPluginFromHome;
   const allConfigured = input.config.plugins;
-  const filterByName = input.pluginName ?? null;
+  const filterByName = input.pluginName ? normalizePluginPackageName(input.pluginName) : null;
 
-  if (filterByName && !allConfigured.some((plugin) => plugin.name === filterByName)) {
+  if (filterByName && !allConfigured.some((plugin) => normalizePluginPackageName(plugin.name) === filterByName)) {
     return [{ level: "error", plugin: filterByName, message: `plugin is not configured; run xacpx plugin add ${filterByName}` }];
   }
 
@@ -110,6 +111,7 @@ export async function inspectPlugins(input: InspectPluginsInput): Promise<Plugin
 
   const builtInChannelTypes = new Set(listKnownChannelIds());
   for (const channel of input.config.channels) {
+    if (channel.enabled === false) continue;
     if (builtInChannelTypes.has(channel.type)) continue;
     const provider = channelProviders.get(channel.type);
     if (!provider) {

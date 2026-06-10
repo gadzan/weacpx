@@ -211,3 +211,71 @@ test("doctor errors when configured channel provider plugin is disabled", async 
     await rm(pluginHome, { recursive: true, force: true });
   }
 });
+
+test("doctor with legacy pluginName filter finds the configured plugin (Bug B)", async () => {
+  const pluginHome = await createPluginHome({ "@ganglion/xacpx-channel-feishu": "1.0.0" });
+  try {
+    const issues = await inspectPlugins({
+      pluginHome,
+      // config stores the normalized name
+      config: baseConfig({ plugins: [{ name: "@ganglion/xacpx-channel-feishu", enabled: true }] }),
+      // user passes the legacy name as filter
+      pluginName: "@ganglion/weacpx-channel-feishu",
+      importPlugin: async () => ({ default: { apiVersion: 1, name: "@ganglion/xacpx-channel-feishu", channels: [] } }),
+    });
+
+    // Should NOT return "plugin is not configured" error
+    expect(issues.some((issue) => issue.message.includes("plugin is not configured"))).toBe(false);
+    // Should find the plugin and report it as valid
+    expect(issues.some((issue) => issue.level === "ok")).toBe(true);
+  } finally {
+    await rm(pluginHome, { recursive: true, force: true });
+  }
+});
+
+test("doctor does not flag a disabled channel as orphan (Bug C)", async () => {
+  const pluginHome = await createPluginHome();
+  try {
+    const issues = await inspectPlugins({
+      pluginHome,
+      config: baseConfig({
+        plugins: [],
+        channels: [
+          { id: "weixin", type: "weixin", enabled: true },
+          // feishu channel intentionally disabled — no plugin needed
+          { id: "feishu", type: "feishu", enabled: false },
+        ],
+      }),
+      importPlugin: async () => ({ default: { apiVersion: 1, channels: [] } }),
+    });
+
+    // disabled channel must NOT produce an orphan error
+    expect(issues.some((issue) => issue.message.includes("channel feishu is configured"))).toBe(false);
+  } finally {
+    await rm(pluginHome, { recursive: true, force: true });
+  }
+});
+
+test("doctor still flags an enabled channel with no provider as error (Bug C regression)", async () => {
+  const pluginHome = await createPluginHome();
+  try {
+    const issues = await inspectPlugins({
+      pluginHome,
+      config: baseConfig({
+        plugins: [],
+        channels: [
+          { id: "weixin", type: "weixin", enabled: true },
+          { id: "feishu", type: "feishu", enabled: true },
+        ],
+      }),
+      importPlugin: async () => ({ default: { apiVersion: 1, channels: [] } }),
+    });
+
+    expect(issues).toContainEqual(expect.objectContaining({
+      level: "error",
+      message: expect.stringContaining("channel feishu is configured but no enabled plugin provides it"),
+    }));
+  } finally {
+    await rm(pluginHome, { recursive: true, force: true });
+  }
+});
