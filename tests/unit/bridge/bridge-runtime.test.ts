@@ -4,7 +4,9 @@ import {
   BridgeRuntime,
   runStreamingPrompt,
   selectLatestAcpxSessionIndexTmp,
+  spawnCapture,
   tryRepairAcpxSessionIndex,
+  type CommandRunnerOptions,
 } from "../../../src/bridge/bridge-runtime";
 import type { AcpxQueueOwnerLauncher } from "../../../src/transport/acpx-queue-owner-launcher";
 
@@ -256,6 +258,118 @@ test("ensureSession retries after EPERM repair succeeds", async () => {
     name: "demo",
   })).resolves.toEqual({});
   expect(repairCalls).toBe(1);
+});
+
+// ── session init timeout tests ───────────────────────────────────────────────
+
+interface FakeSpawnChildOptions {
+  pid: number;
+  /** When set, fire the close handler with this exit code on the next tick. */
+  closeWithCode?: number;
+}
+
+function makeFakeSpawnChild(options: FakeSpawnChildOptions) {
+  return {
+    pid: options.pid,
+    stdout: { setEncoding: () => {}, on: () => {} },
+    stderr: { setEncoding: () => {}, on: () => {} },
+    on: (event: string, handler: (code: number | null) => void) => {
+      if (event === "close" && options.closeWithCode !== undefined) {
+        setTimeout(() => handler(options.closeWithCode!), 0);
+      }
+    },
+  };
+}
+
+function makeTimeoutTestRuntime(childOptions: FakeSpawnChildOptions, sessionInitTimeoutMs: number) {
+  const killed: number[] = [];
+  const spawnFn = (() => makeFakeSpawnChild(childOptions)) as never;
+  const killProcessTreeFn = async (pid: number) => {
+    killed.push(pid);
+  };
+  const runtime = new BridgeRuntime(
+    "acpx",
+    (command, args, options?: CommandRunnerOptions) =>
+      spawnCapture(command, args, { ...options, spawnFn, killProcessTreeFn }),
+    (command, args, cwd, options?: CommandRunnerOptions) =>
+      spawnCapture(command, args, { ...options, cwd, spawnFn, killProcessTreeFn }),
+    { sessionInitTimeoutMs },
+  );
+  return { runtime, killed };
+}
+
+test("ensureSession kills the hung acpx spawn and rejects once the session init timeout expires", async () => {
+  // The fake child never emits "close" — equivalent to acpx hanging on agent init.
+  const { runtime, killed } = makeTimeoutTestRuntime({ pid: 4242 }, 50);
+
+  let caught: unknown;
+  try {
+    await runtime.ensureSession({ agent: "codex", cwd: "/repo", name: "demo" });
+  } catch (error) {
+    caught = error;
+  }
+
+  expect((caught as Error).message).toBe("session initialization timed out after 0.05s");
+  expect((caught as { kind?: string }).kind).toBe("generic");
+  expect(killed).toEqual([4242]);
+});
+
+test("ensureSession completes within the session init timeout and never fires the kill timer", async () => {
+  const { runtime, killed } = makeTimeoutTestRuntime({ pid: 1111, closeWithCode: 0 }, 30);
+
+  await expect(runtime.ensureSession({ agent: "codex", cwd: "/repo", name: "demo" })).resolves.toEqual({});
+
+  // If the timer were left dangling it would fire here and kill pid 1111.
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  expect(killed).toEqual([]);
+});
+
+test("ensureSession defaults the session init timeout to 120s and threads it into ensure and create spawns", async () => {
+  const ensureTimeouts: Array<number | undefined> = [];
+  const createTimeouts: Array<number | undefined> = [];
+  const defaultedRuntime = new BridgeRuntime(
+    "acpx",
+    async (_command, args, options?: CommandRunnerOptions) => {
+      if (args.includes("ensure")) ensureTimeouts.push(options?.timeoutMs);
+      return { code: args.includes("ensure") ? 0 : 1, stdout: "", stderr: "" };
+    },
+  );
+  await defaultedRuntime.ensureSession({ agent: "codex", cwd: "/repo", name: "demo" });
+  expect(ensureTimeouts).toEqual([120_000]);
+
+  const configuredRuntime = new BridgeRuntime(
+    "acpx",
+    async (_command, args, options?: CommandRunnerOptions) => {
+      if (args.includes("ensure")) ensureTimeouts.push(options?.timeoutMs);
+      return { code: 1, stdout: "", stderr: "boom" };
+    },
+    async (_command, _args, _cwd, options?: CommandRunnerOptions) => {
+      createTimeouts.push(options?.timeoutMs);
+      return { code: 0, stdout: "", stderr: "" };
+    },
+    { sessionInitTimeoutMs: 45_000 },
+  );
+  await configuredRuntime.ensureSession({ agent: "codex", cwd: "/repo", name: "demo" });
+  expect(ensureTimeouts).toEqual([120_000, 45_000]);
+  expect(createTimeouts).toEqual([45_000]);
+});
+
+test("prompt and other session commands are not subject to the session init timeout", async () => {
+  const timeouts: Array<number | undefined> = [];
+  const runtime = new BridgeRuntime(
+    "acpx",
+    async (_command, _args, options?: CommandRunnerOptions) => {
+      timeouts.push(options?.timeoutMs);
+      return { code: 0, stdout: "agent reply", stderr: "" };
+    },
+    undefined,
+    { sessionInitTimeoutMs: 50 },
+  );
+
+  await runtime.prompt({ agent: "codex", cwd: "/repo", name: "demo", text: "hello" });
+  await runtime.hasSession({ agent: "codex", cwd: "/repo", name: "demo" });
+
+  expect(timeouts).toEqual([undefined, undefined]);
 });
 
 test("prompt starts queue owner with orchestration MCP identity", async () => {

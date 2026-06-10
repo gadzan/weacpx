@@ -181,6 +181,7 @@ interface SpawnedBridgeClientOptions {
   nonInteractivePermissions?: string;
   permissionPolicy?: string;
   queueOwnerTtlSeconds?: number;
+  sessionInitTimeoutMs?: number;
 }
 
 export function buildBridgeSpawnEnv(
@@ -196,6 +197,11 @@ export function buildBridgeSpawnEnv(
       : {}),
     ...(typeof options.queueOwnerTtlSeconds === "number" && Number.isFinite(options.queueOwnerTtlSeconds)
       ? { XACPX_BRIDGE_QUEUE_OWNER_TTL_SECONDS: String(options.queueOwnerTtlSeconds) }
+      : {}),
+    ...(typeof options.sessionInitTimeoutMs === "number"
+      && Number.isFinite(options.sessionInitTimeoutMs)
+      && options.sessionInitTimeoutMs > 0
+      ? { XACPX_BRIDGE_SESSION_INIT_TIMEOUT_MS: String(options.sessionInitTimeoutMs) }
       : {}),
   };
 }

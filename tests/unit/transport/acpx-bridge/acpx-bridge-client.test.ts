@@ -5,7 +5,10 @@ import {
   buildBridgeSpawnEnv,
   buildBridgeSpawnSpec,
 } from "../../../../src/transport/acpx-bridge/acpx-bridge-client";
-import { normalizeBridgePermissionPolicy } from "../../../../src/bridge/bridge-env";
+import {
+  normalizeBridgePermissionPolicy,
+  normalizeBridgeSessionInitTimeoutMs,
+} from "../../../../src/bridge/bridge-env";
 import { encodeBridgeRequest } from "../../../../src/transport/acpx-bridge/acpx-bridge-protocol";
 import { PromptCommandError } from "../../../../src/transport/prompt-output";
 import { MissingOptionalDepError } from "../../../../src/recovery/errors";
@@ -172,6 +175,23 @@ test("includes the permission policy in the bridge spawn env and round-trips it"
   expect(normalizeBridgePermissionPolicy(env.XACPX_BRIDGE_PERMISSION_POLICY)).toBe(
     "C:/policies/weacpx-policy.json",
   );
+});
+
+test("includes the session init timeout in the bridge spawn env and round-trips it", () => {
+  const env = buildBridgeSpawnEnv({ sessionInitTimeoutMs: 120_000 });
+
+  expect(env.XACPX_BRIDGE_SESSION_INIT_TIMEOUT_MS).toBe("120000");
+  expect(normalizeBridgeSessionInitTimeoutMs(env.XACPX_BRIDGE_SESSION_INIT_TIMEOUT_MS)).toBe(120_000);
+});
+
+test("omits the session init timeout from the bridge spawn env when unset or invalid", () => {
+  expect("XACPX_BRIDGE_SESSION_INIT_TIMEOUT_MS" in buildBridgeSpawnEnv({})).toBe(false);
+  expect(
+    "XACPX_BRIDGE_SESSION_INIT_TIMEOUT_MS" in buildBridgeSpawnEnv({ sessionInitTimeoutMs: Number.NaN }),
+  ).toBe(false);
+  expect(
+    "XACPX_BRIDGE_SESSION_INIT_TIMEOUT_MS" in buildBridgeSpawnEnv({ sessionInitTimeoutMs: 0 }),
+  ).toBe(false);
 });
 
 test("omits the permission policy from the bridge spawn env when unset", () => {

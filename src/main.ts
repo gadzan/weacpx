@@ -225,6 +225,9 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
                 ...(typeof config.transport.queueOwnerTtlSeconds === "number"
                   ? { queueOwnerTtlSeconds: config.transport.queueOwnerTtlSeconds }
                   : {}),
+                ...(typeof config.transport.sessionInitTimeoutMs === "number"
+                  ? { sessionInitTimeoutMs: config.transport.sessionInitTimeoutMs }
+                  : {}),
               }),
             ),
           ))

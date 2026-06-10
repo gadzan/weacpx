@@ -5,6 +5,7 @@ import {
   normalizeBridgePermissionMode,
   normalizeBridgePermissionPolicy,
   normalizeBridgeQueueOwnerTtlSeconds,
+  normalizeBridgeSessionInitTimeoutMs,
 } from "./bridge-env";
 import { BridgeServer } from "./bridge-server";
 import { BridgeRuntime } from "./bridge-runtime";
@@ -66,6 +67,9 @@ export async function runBridgeMain(): Promise<void> {
       permissionPolicy: normalizeBridgePermissionPolicy(coreEnv("BRIDGE_PERMISSION_POLICY")),
       queueOwnerTtlSeconds: normalizeBridgeQueueOwnerTtlSeconds(
         coreEnv("BRIDGE_QUEUE_OWNER_TTL_SECONDS"),
+      ),
+      sessionInitTimeoutMs: normalizeBridgeSessionInitTimeoutMs(
+        coreEnv("BRIDGE_SESSION_INIT_TIMEOUT_MS"),
       ),
     }),
   );
