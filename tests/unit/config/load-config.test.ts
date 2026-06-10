@@ -1208,7 +1208,8 @@ test("save/reload round-trip keeps ownerIds revocable via channel.ownerIds", asy
     workspaces: {},
   });
 
-  // ConfigStore.save persists the parsed object verbatim.
+  // A round-trip of the parsed object: the synthesized runtime channel carries
+  // no baked ownerIds copy, so editing channel.ownerIds stays effective.
   const persisted = JSON.parse(JSON.stringify(first)) as Record<string, unknown>;
   expect((persisted.channels as Array<Record<string, unknown>>)[0]?.ownerIds).toBeUndefined();
 

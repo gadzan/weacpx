@@ -40,7 +40,7 @@ export class ConfigStore {
 
   /** Reads the raw (unparsed) value at `path`, e.g. to capture it for a rollback. */
   async getRawValue(path: RawConfigPath): Promise<RawConfigLookup> {
-    return readRawConfigValue(await this.readRaw(), path);
+    return readRawConfigValue((await this.readRaw()).raw, path);
   }
 
   async setRawValue(path: RawConfigPath, value: unknown): Promise<AppConfig> {
@@ -56,6 +56,7 @@ export class ConfigStore {
   }
 
   async upsertWorkspace(name: string, cwd: string, description?: string): Promise<AppConfig> {
+    assertSafeConfigKey(name);
     return await this.patchRaw((raw) => {
       const workspaces = ensureRecordAt(raw, "workspaces");
       workspaces[name] = {
@@ -66,12 +67,14 @@ export class ConfigStore {
   }
 
   async removeWorkspace(name: string): Promise<AppConfig> {
+    assertSafeConfigKey(name);
     return await this.patchRaw((raw) => {
       deleteRecordEntry(raw, "workspaces", name);
     });
   }
 
   async upsertAgent(name: string, agent: AgentConfig): Promise<AppConfig> {
+    assertSafeConfigKey(name);
     return await this.patchRaw((raw) => {
       const agents = ensureRecordAt(raw, "agents");
       agents[name] = {
@@ -82,6 +85,7 @@ export class ConfigStore {
   }
 
   async removeAgent(name: string): Promise<AppConfig> {
+    assertSafeConfigKey(name);
     return await this.patchRaw((raw) => {
       deleteRecordEntry(raw, "agents", name);
     });
@@ -116,23 +120,28 @@ export class ConfigStore {
   }
 
   private async patchRaw(mutate: (raw: RawConfig) => void): Promise<AppConfig> {
-    const raw = await this.readRaw();
-    mutate(raw);
-    // Validate the patched document before it lands on disk. The read view
-    // backfills the required sections so a sparse file (or a brand-new one)
-    // still parses with defaults, without pinning those defaults into the file.
-    const parsed = parseConfig({ transport: {}, agents: {}, workspaces: {}, ...raw });
-    await writePrivateFileAtomic(this.path, serializeRawConfig(raw));
+    const { raw, existed } = await this.readRaw();
+    // For a brand-new file, seed the required sections into the WRITTEN doc so
+    // the file round-trips through load() (parseConfig requires transport/
+    // agents/workspaces to be objects). For an existing file we only patch the
+    // targeted subtree and never inject these sections.
+    const doc: RawConfig = existed ? raw : { transport: {}, agents: {}, workspaces: {} };
+    mutate(doc);
+    // Validate the patched document before it lands on disk. The required
+    // sections are backfilled for validation so a sparse existing file still
+    // parses with defaults, without pinning those defaults into the file.
+    const parsed = parseConfig({ transport: {}, agents: {}, workspaces: {}, ...doc });
+    await writePrivateFileAtomic(this.path, serializeRawConfig(doc));
     return parsed;
   }
 
-  private async readRaw(): Promise<RawConfig> {
+  private async readRaw(): Promise<{ raw: RawConfig; existed: boolean }> {
     let text: string;
     try {
       text = await readFile(this.path, "utf8");
     } catch (error) {
       if (isMissingFileError(error)) {
-        return {};
+        return { raw: {}, existed: false };
       }
       throw error;
     }
@@ -150,7 +159,7 @@ export class ConfigStore {
     if (!isPlainRecord(parsed)) {
       throw new Error(`refusing to modify ${this.path}: the top level must be a JSON object`);
     }
-    return parsed;
+    return { raw: parsed, existed: true };
   }
 }
 
@@ -168,7 +177,7 @@ export function readRawConfigValue(root: Record<string, unknown>, path: RawConfi
     }
     container = next.value;
   }
-  if (!isPlainRecord(container) || !(lastKey in container)) {
+  if (!isPlainRecord(container) || !Object.hasOwn(container, lastKey)) {
     return { present: false };
   }
   return { present: true, value: container[lastKey] };
@@ -208,7 +217,8 @@ function descendForRead(
   segment: RawConfigPathSegment,
 ): { ok: true; value: unknown } | { ok: false } {
   if (typeof segment === "string") {
-    if (!isPlainRecord(container) || !(segment in container)) {
+    assertSafeConfigKey(segment);
+    if (!isPlainRecord(container) || !Object.hasOwn(container, segment)) {
       return { ok: false };
     }
     return { ok: true, value: container[segment] };
@@ -227,6 +237,7 @@ function descendForWrite(
   path: RawConfigPath,
 ): unknown {
   if (typeof segment === "string") {
+    assertSafeConfigKey(segment);
     if (!isPlainRecord(container)) {
       throw new Error(`config path "${describeRawConfigPath(path)}" does not address an object at "${segment}"`);
     }
@@ -263,7 +274,20 @@ function requireObjectKeyTail(path: RawConfigPath): string {
   if (typeof last !== "string") {
     throw new Error("raw config path must end with an object key");
   }
+  assertSafeConfigKey(last);
   return last;
+}
+
+// Keys that, when used as a property name on a plain object, can mutate the
+// prototype chain. They must never be written into (or read out of, defensively)
+// the config document — a `/config set agents.__proto__.driver EVIL` from chat
+// would otherwise poison Object.prototype in the live daemon.
+const PROTOTYPE_POLLUTING_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+export function assertSafeConfigKey(key: string): void {
+  if (PROTOTYPE_POLLUTING_KEYS.has(key)) {
+    throw new Error(`refusing to use unsafe config key "${key}"`);
+  }
 }
 
 function describeRawConfigPath(path: RawConfigPath): string {

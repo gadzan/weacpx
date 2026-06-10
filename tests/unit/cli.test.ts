@@ -7,6 +7,7 @@ import { expect, test } from "bun:test";
 import { createMcpStdioIdentityResolver, prepareMcpCoordinatorStartup, resolveLoginChannelForCli, runCli } from "../../src/cli";
 import { normalizeWorkspacePath } from "../../src/commands/workspace-path";
 import { listAgentTemplates } from "../../src/config/agent-templates";
+import { loadConfig } from "../../src/config/load-config";
 import { createEmptyState } from "../../src/state/types";
 import { setLocale, t } from "../../src/i18n";
 
@@ -1627,8 +1628,12 @@ test("dispatches channel alias to channel CLI", async () => {
     await expect(runCli(["ch", "list"], { print: (line) => lines.push(line) })).resolves.toBe(0);
 
     expect(lines.some((line) => line.includes("weixin"))).toBe(true);
+    // The slimmed first-run seed no longer writes channels[] to disk — it is a
+    // load-time default. Assert the file omits it, but loading materializes it.
     const config = await readConfigJson(home);
-    expect(config.channels).toEqual([{ id: "weixin", type: "weixin", enabled: true }]);
+    expect(config.channels).toBeUndefined();
+    const loaded = await loadConfig(join(home, ".xacpx", "config.json"));
+    expect(loaded.channels).toEqual([{ id: "weixin", type: "weixin", enabled: true }]);
   });
 });
 

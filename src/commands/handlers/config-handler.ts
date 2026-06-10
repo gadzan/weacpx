@@ -179,10 +179,12 @@ function planSupportedConfigUpdate(
   const agentMatch = path.match(/^agents\.([^.]+)\.(driver|command)$/);
   if (agentMatch) {
     const [, name, field] = agentMatch;
-    if (!name || !field) {
+    if (!name || !field || isPrototypePollutingKey(name)) {
       return { error: c.pathNotSupported(path) };
     }
-    if (!config.agents[name]) {
+    // hasOwn (not truthy access): `config.agents["__proto__"]` resolves to
+    // Object.prototype and would pass a `!config.agents[name]` guard.
+    if (!Object.hasOwn(config.agents, name)) {
       return { error: c.agentNotFound(name) };
     }
     if (!rawValue.trim()) {
@@ -194,10 +196,10 @@ function planSupportedConfigUpdate(
   const workspaceMatch = path.match(/^workspaces\.([^.]+)\.(cwd|description)$/);
   if (workspaceMatch) {
     const [, name, field] = workspaceMatch;
-    if (!name || !field) {
+    if (!name || !field || isPrototypePollutingKey(name)) {
       return { error: c.pathNotSupported(path) };
     }
-    if (!config.workspaces[name]) {
+    if (!Object.hasOwn(config.workspaces, name)) {
       return { error: c.workspaceNotFound(name) };
     }
     if (!rawValue.trim()) {
@@ -235,6 +237,10 @@ function planSupportedConfigUpdate(
   }
 
   return { error: c.pathNotSupported(path) };
+}
+
+function isPrototypePollutingKey(key: string): boolean {
+  return key === "__proto__" || key === "constructor" || key === "prototype";
 }
 
 function parseEnum<T extends string>(value: string, allowed: readonly T[]): T | null {

@@ -129,7 +129,7 @@ test("invalid JSON file fails the mutation with a clear error and leaves the fil
   await rm(dir, { recursive: true, force: true });
 });
 
-test("mutating a missing file starts the patch from an empty object", async () => {
+test("mutating a missing file seeds the required sections so the written file round-trips", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-config-store-"));
   const path = join(dir, "config.json");
 
@@ -137,9 +137,63 @@ test("mutating a missing file starts the patch from an empty object", async () =
   const config = await store.upsertWorkspace("backend", "/tmp/backend");
 
   const saved = await readRaw(path);
-  expect(saved).toEqual({ workspaces: { backend: { cwd: "/tmp/backend" } } });
+  // The required sections are present on disk so a subsequent load() succeeds.
+  expect(saved).toEqual({ transport: {}, agents: {}, workspaces: { backend: { cwd: "/tmp/backend" } } });
   expect(config.workspaces.backend).toEqual({ cwd: "/tmp/backend" });
   expect(config.transport.type).toBe("acpx-bridge");
+
+  // Round-trip: reloading the freshly-written file must not throw.
+  const reloaded = await new ConfigStore(path).load();
+  expect(reloaded.workspaces.backend).toEqual({ cwd: "/tmp/backend" });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("upsertAgent on a missing file produces a loadable config", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-config-store-"));
+  const path = join(dir, "config.json");
+
+  const store = new ConfigStore(path);
+  await store.upsertAgent("codex", { driver: "codex" });
+
+  // The regression: the written doc lacked transport/workspaces and load() threw
+  // "transport must be an object".
+  const reloaded = await new ConfigStore(path).load();
+  expect(reloaded.agents.codex).toEqual({ driver: "codex" });
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("raw mutators reject prototype-polluting keys and never touch Object.prototype", async () => {
+  const { dir, path } = await makeConfigFile({
+    transport: { type: "acpx-bridge" },
+    agents: { codex: { driver: "codex" } },
+    workspaces: {},
+  });
+  const before = await readFile(path, "utf8");
+  const store = new ConfigStore(path);
+
+  for (const key of ["__proto__", "constructor", "prototype"]) {
+    // As the tail key.
+    await expect(store.setRawValue(["transport", key], "x")).rejects.toThrow(/unsafe|prototype|__proto__|constructor/);
+    // As an intermediate segment.
+    await expect(store.setRawValue(["agents", key, "driver"], "EVIL")).rejects.toThrow(
+      /unsafe|prototype|__proto__|constructor/,
+    );
+    await expect(store.unsetRawValue(["agents", key])).rejects.toThrow(/unsafe|prototype|__proto__|constructor/);
+    // Targeted mutators that take an entry name.
+    await expect(store.upsertAgent(key, { driver: "EVIL" })).rejects.toThrow(
+      /unsafe|prototype|__proto__|constructor/,
+    );
+    await expect(store.upsertWorkspace(key, "/tmp/evil")).rejects.toThrow(
+      /unsafe|prototype|__proto__|constructor/,
+    );
+  }
+
+  // Object.prototype stays clean and the file is untouched.
+  expect(({} as Record<string, unknown>).driver).toBeUndefined();
+  expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  expect(await readFile(path, "utf8")).toBe(before);
 
   await rm(dir, { recursive: true, force: true });
 });
@@ -393,11 +447,17 @@ test("writes with 2-space indent, trailing newline, and owner-only permissions",
   const dir = await mkdtemp(join(tmpdir(), "weacpx-config-store-"));
   const path = join(dir, "config.json");
 
+  // Use an existing file so the assertion targets only the indent/newline/mode,
+  // not the brand-new-file section seeding (covered by its own test).
+  await writeFile(path, `${JSON.stringify({ transport: { type: "acpx-bridge" }, agents: {}, workspaces: {} })}\n`);
+
   const store = new ConfigStore(path);
   await store.upsertAgent("codex", { driver: "codex" });
 
   const text = await readFile(path, "utf8");
-  expect(text).toBe(`${JSON.stringify({ agents: { codex: { driver: "codex" } } }, null, 2)}\n`);
+  expect(text).toBe(
+    `${JSON.stringify({ transport: { type: "acpx-bridge" }, agents: { codex: { driver: "codex" } }, workspaces: {} }, null, 2)}\n`,
+  );
   if (process.platform !== "win32") {
     expect((await stat(path)).mode & 0o777).toBe(0o600);
   }
