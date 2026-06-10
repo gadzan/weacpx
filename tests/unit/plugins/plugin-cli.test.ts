@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { AppConfig } from "../../../src/config/types";
+import type { AppConfig, PluginConfig } from "../../../src/config/types";
 import { handlePluginCli, looksLikePath } from "../../../src/plugins/plugin-cli";
 import { setLocale, t } from "../../../src/i18n";
 
@@ -43,7 +43,7 @@ function createHarness(initial: AppConfig) {
     getConfig: () => config,
     deps: {
       loadConfig: async () => structuredClone(config) as AppConfig,
-      saveConfig: async (next: AppConfig) => { config = structuredClone(next) as AppConfig; },
+      savePlugins: async (next: PluginConfig[]) => { config = { ...config, plugins: structuredClone(next) as PluginConfig[] }; },
       print: (line: string) => lines.push(line),
       isInteractive: () => false,
       promptText: async () => "",
@@ -125,7 +125,7 @@ test("plugin add refreshes plugin-api shim after npm install prunes it", async (
   try {
     const code = await handlePluginCli(["add", "demo-plugin"], {
       loadConfig: async () => structuredClone(config) as AppConfig,
-      saveConfig: async (next: AppConfig) => { config = structuredClone(next) as AppConfig; },
+      savePlugins: async (next: PluginConfig[]) => { config = { ...config, plugins: structuredClone(next) as PluginConfig[] }; },
       print: (line: string) => lines.push(line),
       isInteractive: () => false,
       promptText: async () => "",

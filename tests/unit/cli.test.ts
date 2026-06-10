@@ -1783,7 +1783,7 @@ test("runCli routes plugin command", async () => {
           progressHeartbeatSeconds: 300,
         },
       }),
-      saveConfig: async () => {},
+      savePlugins: async () => {},
       getDaemonStatus: async () => ({ state: "stopped" }),
       restartDaemon: async () => 0,
     },

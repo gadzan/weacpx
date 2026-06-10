@@ -35,7 +35,7 @@ test("interactive onboarding still fires when only the seeded home workspace is 
   const result = await maybeRunFirstUseOnboarding({
     config: cfg,
     state,
-    saveConfig: async () => {},
+    saveFirstRunConfig: async () => {},
     deps: {
       cwd: () => "/tmp/myrepo",
       print: () => {},
@@ -53,10 +53,13 @@ test("first-use onboarding creates current directory workspace and initial sessi
   const cfg = config();
   const state = createEmptyState();
   const answers = ["", "1"];
+  const savedEntries: unknown[] = [];
   const result = await maybeRunFirstUseOnboarding({
     config: cfg,
     state,
-    saveConfig: async () => {},
+    saveFirstRunConfig: async (entries) => {
+      savedEntries.push(entries);
+    },
     deps: {
       cwd: () => "/tmp/myrepo",
       print: () => {},
@@ -67,6 +70,13 @@ test("first-use onboarding creates current directory workspace and initial sessi
 
   expect(result.created).toBe(true);
   expect(cfg.workspaces.myrepo.cwd).toBe("/tmp/myrepo");
+  // Persists only the created entries (targeted patches), never a whole config.
+  expect(savedEntries).toEqual([
+    {
+      workspace: { name: "myrepo", cwd: "/tmp/myrepo" },
+      agent: { name: "codex", config: { driver: "codex" } },
+    },
+  ]);
   expect(result).toMatchObject({
     created: true,
     alias: "myrepo:codex",
@@ -83,7 +93,7 @@ test("first-use onboarding skips non-interactive mode", async () => {
   const result = await maybeRunFirstUseOnboarding({
     config: cfg,
     state,
-    saveConfig: async () => { throw new Error("should not save"); },
+    saveFirstRunConfig: async () => { throw new Error("should not save"); },
     deps: { cwd: () => "/tmp/myrepo", print: () => {}, isInteractive: () => false, promptText: async () => "" },
   });
 
@@ -97,7 +107,7 @@ test("first-use onboarding sanitizes workspace names for session aliases", async
   const result = await maybeRunFirstUseOnboarding({
     config: cfg,
     state,
-    saveConfig: async () => {},
+    saveFirstRunConfig: async () => {},
     deps: {
       cwd: () => "/tmp/my repo!",
       print: () => {},
@@ -117,7 +127,7 @@ test("first-use onboarding records rollback metadata for existing agents", async
   const result = await maybeRunFirstUseOnboarding({
     config: cfg,
     state,
-    saveConfig: async () => {},
+    saveFirstRunConfig: async () => {},
     deps: {
       cwd: () => "/tmp/myrepo",
       print: () => {},

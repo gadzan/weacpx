@@ -475,9 +475,9 @@ function parseRuntimeChannels(rawChannels: unknown, channel: ChannelConfig): Cha
   const legacyType = channel.type ?? "weixin";
   // Deliberately NOT copying channel.ownerIds here: the policy resolver
   // (resolveChannelOwnerIds) unions channel.ownerIds and channels[].ownerIds
-  // at evaluation time, and ConfigStore.save persists this parsed object — a
-  // baked copy would survive saves and make a later revocation edit of
-  // channel.ownerIds silently ineffective.
+  // at evaluation time, and channel mutations (ConfigStore.replaceChannels)
+  // persist parsed runtime entries — a baked copy would survive those writes
+  // and make a later revocation edit of channel.ownerIds silently ineffective.
   return [
     {
       id: legacyType,

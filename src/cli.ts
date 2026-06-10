@@ -534,7 +534,9 @@ async function defaultUpdate(
   const store = await createCliConfigStore();
   const deps: UpdateCliDeps = {
     loadConfig: async () => await store.load(),
-    saveConfig: async (config) => await store.save(config),
+    savePlugins: async (plugins) => {
+      await store.replacePlugins(plugins);
+    },
     readCurrentVersion: readVersion,
     print: input.print,
     isInteractive: input.isInteractive ?? defaultIsInteractive,
@@ -559,7 +561,10 @@ async function runOnboardingBeforeStart(input: {
   const result = await maybeRunFirstUseOnboarding({
     config,
     state,
-    saveConfig: async (next) => await configStore.save(next),
+    saveFirstRunConfig: async ({ workspace, agent }) => {
+      await configStore.upsertWorkspace(workspace.name, workspace.cwd);
+      await configStore.upsertAgent(agent.name, agent.config);
+    },
     deps: {
       print: input.print,
       cwd: input.cwd,
@@ -970,14 +975,12 @@ async function rollbackFirstRunConfig(
   plan: FirstRunOnboardingPlan,
 ): Promise<void> {
   try {
-    const config = await runtime.configStore.load();
-    if (!plan.rollback.workspaceExisted && config.workspaces[plan.workspace]) {
-      delete config.workspaces[plan.workspace];
+    if (!plan.rollback.workspaceExisted) {
+      await runtime.configStore.removeWorkspace(plan.workspace);
     }
-    if (!plan.rollback.agentExisted && config.agents[plan.agent]) {
-      delete config.agents[plan.agent];
+    if (!plan.rollback.agentExisted) {
+      await runtime.configStore.removeAgent(plan.agent);
     }
-    await runtime.configStore.save(config);
   } catch (error) {
     await runtime.logger.error("onboarding.rollback_failed", "failed to roll back first-run config", {
       alias: plan.alias,
@@ -1102,7 +1105,9 @@ async function createChannelCliDeps(input: {
   const controller = input.controller ?? createDefaultController();
   const base: ChannelCliDeps = {
     loadConfig: async () => await store.load(),
-    saveConfig: async (config) => await store.save(config),
+    saveChannels: async (channels) => {
+      await store.replaceChannels(channels);
+    },
     print: input.print,
     stderr: input.stderr ?? ((text: string) => process.stderr.write(text)),
     isInteractive: input.isInteractive ?? defaultIsInteractive,
@@ -1130,7 +1135,9 @@ async function createPluginCliDeps(input: {
   const controller = input.controller ?? createDefaultController();
   const base: PluginCliDeps = {
     loadConfig: async () => await store.load(),
-    saveConfig: async (config) => await store.save(config),
+    savePlugins: async (plugins) => {
+      await store.replacePlugins(plugins);
+    },
     print: input.print,
     isInteractive: input.isInteractive ?? defaultIsInteractive,
     promptText: input.promptText ?? defaultPromptText,

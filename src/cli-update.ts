@@ -22,7 +22,8 @@ const SUCCESSOR = { from: "weacpx", package: "xacpx", minVersion: "0.8.0" } as c
 
 export interface UpdateCliDeps {
   loadConfig: () => Promise<AppConfig>;
-  saveConfig: (config: AppConfig) => Promise<void>;
+  /** Persists only the plugins[] subtree — never the whole parsed config. */
+  savePlugins: (plugins: PluginConfig[]) => Promise<void>;
   readCurrentVersion: () => string;
   print: (line: string) => void;
   isInteractive: () => boolean;
@@ -187,7 +188,7 @@ export async function handleUpdateCli(args: string[], deps: UpdateCliDeps): Prom
 
   if (selected.targets.some((target) => target.kind === "plugin")) {
     config.plugins = updatedPlugins;
-    await deps.saveConfig(config);
+    await deps.savePlugins(updatedPlugins);
   }
   return 0;
 }

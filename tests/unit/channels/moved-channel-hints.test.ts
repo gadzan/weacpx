@@ -38,7 +38,7 @@ test("channel add yuanbao reports the plugin install hint when the plugin is abs
 
   const code = await handleChannelCli(["add", "yuanbao"], {
     loadConfig: async () => structuredClone(config) as AppConfig,
-    saveConfig: async () => {},
+    saveChannels: async () => {},
     print: (line) => lines.push(line),
     stderr: () => {},
     isInteractive: () => false,
@@ -64,7 +64,7 @@ test("channel add feishu reports the plugin install hint when the plugin is abse
 
   const code = await handleChannelCli(["add", "feishu"], {
     loadConfig: async () => structuredClone(config) as AppConfig,
-    saveConfig: async () => {},
+    saveChannels: async () => {},
     print: (line) => lines.push(line),
     stderr: () => {},
     isInteractive: () => false,

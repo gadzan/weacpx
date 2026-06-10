@@ -488,6 +488,19 @@ test("creates a workspace via the short alias and cwd flag", async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
+test("/ws new stores a ~ cwd verbatim (expansion happens at config load, not at write)", async () => {
+  const config = createConfig();
+  const sessions = new SessionService(config, new MemoryStateStore(), createEmptyState());
+  const transport = createTransport();
+  const router = new CommandRouter(sessions, transport, config, new MemoryConfigStore(config));
+
+  const reply = await router.handle("wx:user", '/ws new notes -d "~"');
+
+  expect(reply.text).toBe(t().workspace.saved("notes"));
+  // The configured value keeps the user's literal `~` so the file stays portable.
+  expect(config.workspaces.notes).toEqual({ cwd: "~" });
+});
+
 test("/ws new sanitizes a name with spaces and reports the rewrite", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-workspace-"));
   try {
