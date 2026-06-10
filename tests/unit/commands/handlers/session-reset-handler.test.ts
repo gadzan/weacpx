@@ -104,7 +104,7 @@ test("falls back when reading the fresh agent id throws", async () => {
   expect(reply.text).toBe(t().misc.sessionResetSuccess("review"));
 });
 
-test("a non-native session resets to xacpx and is left untouched", async () => {
+test("a non-native session resets to xacpx and closes the previous transport session", async () => {
   const previous = resolved({ source: "xacpx" });
   const ctx = build({ current: previous, agentSessionId: "fresh-native-id" });
 
@@ -113,8 +113,19 @@ test("a non-native session resets to xacpx and is left untouched", async () => {
   expect(ctx.attachSession).toHaveBeenCalledTimes(1);
   expect(ctx.attachNativeSession).not.toHaveBeenCalled();
   expect(ctx.getAgentSessionId).not.toHaveBeenCalled();
-  expect(ctx.removeSession).not.toHaveBeenCalled();
+  expect(ctx.removeSession).toHaveBeenCalledTimes(1);
+  expect(ctx.removeSession.mock.calls[0][0]).toMatchObject({ transportSession: "backend:review" });
   expect(reply.text).toBe(t().misc.sessionResetSuccess("review"));
+});
+
+test("does not close the previous transport for a non-native session another alias shares", async () => {
+  const previous = resolved({ source: "xacpx" });
+  const ctx = build({ current: previous, sharingCount: 1 });
+
+  await handleSessionResetCommand(ctx.context, ctx.ops, "wx:user");
+
+  expect(ctx.attachSession).toHaveBeenCalledTimes(1);
+  expect(ctx.removeSession).not.toHaveBeenCalled();
 });
 
 test("does not close the previous transport when another alias still shares it", async () => {
