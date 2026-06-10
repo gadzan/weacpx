@@ -219,6 +219,9 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
                 bridgeEntryPath: resolveBridgeEntryPath(),
                 permissionMode: config.transport.permissionMode,
                 nonInteractivePermissions: config.transport.nonInteractivePermissions,
+                ...(typeof config.transport.permissionPolicy === "string"
+                  ? { permissionPolicy: config.transport.permissionPolicy }
+                  : {}),
                 ...(typeof config.transport.queueOwnerTtlSeconds === "number"
                   ? { queueOwnerTtlSeconds: config.transport.queueOwnerTtlSeconds }
                   : {}),

@@ -15,7 +15,10 @@ import { terminateProcessTree } from "../../process/terminate-process-tree";
 import type { ToolUseEvent } from "../../channels/types.js";
 import { getLocale } from "../../i18n";
 
-type WriteLine = (line: string) => boolean | void;
+// `boolean | void` return mirrors Writable.write: `false` only signals
+// backpressure (the line is still queued and delivered), never failure.
+// Real write failures are reported through the optional callback.
+type WriteLine = (line: string, onWriteError?: (error?: Error | null) => void) => boolean | void;
 
 export type BridgeEvent =
   | { type: "prompt.segment"; text: string }
@@ -57,18 +60,21 @@ export class AcpxBridgeClient {
       });
 
       try {
-        const didWrite = this.writeLine(
+        // A `false` return only signals backpressure (the line is still
+        // queued and delivered), so it is deliberately ignored here. Only a
+        // real write error — reported via the callback — fails the request.
+        this.writeLine(
           encodeBridgeRequest({
             id,
             method,
             params,
           }),
+          (error) => {
+            if (error && this.pending.delete(id)) {
+              reject(error);
+            }
+          },
         );
-
-        if (didWrite === false) {
-          this.pending.delete(id);
-          reject(new Error("bridge write buffer is full"));
-        }
       } catch (error) {
         this.pending.delete(id);
         reject(error);
@@ -173,7 +179,25 @@ interface SpawnedBridgeClientOptions {
   cwd?: string;
   permissionMode?: string;
   nonInteractivePermissions?: string;
+  permissionPolicy?: string;
   queueOwnerTtlSeconds?: number;
+}
+
+export function buildBridgeSpawnEnv(
+  options: SpawnedBridgeClientOptions = {},
+): Record<string, string> {
+  return {
+    XACPX_LANG: getLocale(),
+    XACPX_BRIDGE_ACPX_COMMAND: options.acpxCommand ?? "acpx",
+    XACPX_BRIDGE_PERMISSION_MODE: options.permissionMode ?? "approve-all",
+    XACPX_BRIDGE_NON_INTERACTIVE_PERMISSIONS: options.nonInteractivePermissions ?? "deny",
+    ...(typeof options.permissionPolicy === "string" && options.permissionPolicy.trim().length > 0
+      ? { XACPX_BRIDGE_PERMISSION_POLICY: options.permissionPolicy }
+      : {}),
+    ...(typeof options.queueOwnerTtlSeconds === "number" && Number.isFinite(options.queueOwnerTtlSeconds)
+      ? { XACPX_BRIDGE_QUEUE_OWNER_TTL_SECONDS: String(options.queueOwnerTtlSeconds) }
+      : {}),
+  };
 }
 
 export function buildBridgeSpawnSpec(options: {
@@ -206,18 +230,14 @@ export async function spawnAcpxBridgeClient(
     cwd: options.cwd ?? process.cwd(),
     env: {
       ...process.env,
-      XACPX_LANG: getLocale(),
-      XACPX_BRIDGE_ACPX_COMMAND: options.acpxCommand ?? "acpx",
-      XACPX_BRIDGE_PERMISSION_MODE: options.permissionMode ?? "approve-all",
-      XACPX_BRIDGE_NON_INTERACTIVE_PERMISSIONS: options.nonInteractivePermissions ?? "deny",
-      ...(typeof options.queueOwnerTtlSeconds === "number" && Number.isFinite(options.queueOwnerTtlSeconds)
-        ? { XACPX_BRIDGE_QUEUE_OWNER_TTL_SECONDS: String(options.queueOwnerTtlSeconds) }
-        : {}),
+      ...buildBridgeSpawnEnv(options),
     },
     stdio: ["pipe", "pipe", "inherit"],
   });
 
-  const client = new AcpxBridgeClient((line) => child.stdin.write(line)) as ManagedBridgeClient;
+  const client = new AcpxBridgeClient(
+    (line, onWriteError) => child.stdin.write(line, onWriteError),
+  ) as ManagedBridgeClient;
   const output = createInterface({
     input: child.stdout,
     crlfDelay: Infinity,

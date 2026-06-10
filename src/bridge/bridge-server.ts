@@ -126,6 +126,7 @@ export class BridgeServer {
         return await this.runtime.updatePermissionPolicy({
           permissionMode: requirePermissionMode(params, "permissionMode"),
           nonInteractivePermissions: requireNonInteractivePermissions(params, "nonInteractivePermissions"),
+          permissionPolicy: asOptionalString(params.permissionPolicy),
         });
       case "hasSession":
         return await this.runtime.hasSession({

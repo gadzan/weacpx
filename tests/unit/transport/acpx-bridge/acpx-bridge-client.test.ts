@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import {
   AcpxBridgeClient,
+  buildBridgeSpawnEnv,
   buildBridgeSpawnSpec,
 } from "../../../../src/transport/acpx-bridge/acpx-bridge-client";
+import { normalizeBridgePermissionPolicy } from "../../../../src/bridge/bridge-env";
 import { encodeBridgeRequest } from "../../../../src/transport/acpx-bridge/acpx-bridge-protocol";
 import { PromptCommandError } from "../../../../src/transport/prompt-output";
 import { MissingOptionalDepError } from "../../../../src/recovery/errors";
@@ -125,15 +127,60 @@ test("rejects new requests after the bridge exits", async () => {
   await expect(client.request("ping", {})).rejects.toThrow("bridge exited");
 });
 
-test("rejects requests when the writer signals backpressure", async () => {
+test("keeps the request pending when the writer signals backpressure (write returned false)", async () => {
+  // Writable.write returning false means "queued above the high-water mark" —
+  // the line is still delivered, so the request must NOT fail.
   const writes: string[] = [];
   const client = new AcpxBridgeClient((line) => {
     writes.push(line);
     return false;
   });
 
-  await expect(client.request("ping", {})).rejects.toThrow("bridge write buffer is full");
+  const pending = client.request("ping", {});
+  client.handleLine('{"id":"1","ok":true,"result":{}}');
+
+  await expect(pending).resolves.toEqual({});
   expect(writes).toEqual(['{"id":"1","method":"ping","params":{}}\n']);
+});
+
+test("rejects the request when the write callback reports a real write error", async () => {
+  const client = new AcpxBridgeClient((_line, onWriteError) => {
+    onWriteError?.(new Error("write EPIPE"));
+    return false;
+  });
+
+  await expect(client.request("ping", {})).rejects.toThrow("write EPIPE");
+});
+
+test("a late write-callback error after the response resolved is ignored", async () => {
+  let reportError: ((error?: Error | null) => void) | undefined;
+  const client = new AcpxBridgeClient((_line, onWriteError) => {
+    reportError = onWriteError;
+  });
+
+  const pending = client.request("ping", {});
+  client.handleLine('{"id":"1","ok":true,"result":{}}');
+  await expect(pending).resolves.toEqual({});
+
+  expect(() => reportError?.(new Error("write EPIPE"))).not.toThrow();
+});
+
+test("includes the permission policy in the bridge spawn env and round-trips it", () => {
+  const env = buildBridgeSpawnEnv({ permissionPolicy: "C:/policies/weacpx-policy.json" });
+
+  expect(env.XACPX_BRIDGE_PERMISSION_POLICY).toBe("C:/policies/weacpx-policy.json");
+  expect(normalizeBridgePermissionPolicy(env.XACPX_BRIDGE_PERMISSION_POLICY)).toBe(
+    "C:/policies/weacpx-policy.json",
+  );
+});
+
+test("omits the permission policy from the bridge spawn env when unset", () => {
+  const env = buildBridgeSpawnEnv({});
+
+  expect("XACPX_BRIDGE_PERMISSION_POLICY" in env).toBe(false);
+  expect(env.XACPX_BRIDGE_PERMISSION_MODE).toBe("approve-all");
+  expect(env.XACPX_BRIDGE_NON_INTERACTIVE_PERMISSIONS).toBe("deny");
+  expect(env.XACPX_BRIDGE_ACPX_COMMAND).toBe("acpx");
 });
 
 describe("AcpxBridgeClient", () => {

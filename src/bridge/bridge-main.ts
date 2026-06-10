@@ -3,6 +3,7 @@ import { createInterface } from "node:readline";
 import {
   normalizeBridgeNonInteractivePermissions,
   normalizeBridgePermissionMode,
+  normalizeBridgePermissionPolicy,
   normalizeBridgeQueueOwnerTtlSeconds,
 } from "./bridge-env";
 import { BridgeServer } from "./bridge-server";
@@ -62,6 +63,7 @@ export async function runBridgeMain(): Promise<void> {
       nonInteractivePermissions: normalizeBridgeNonInteractivePermissions(
         coreEnv("BRIDGE_NON_INTERACTIVE_PERMISSIONS"),
       ),
+      permissionPolicy: normalizeBridgePermissionPolicy(coreEnv("BRIDGE_PERMISSION_POLICY")),
       queueOwnerTtlSeconds: normalizeBridgeQueueOwnerTtlSeconds(
         coreEnv("BRIDGE_QUEUE_OWNER_TTL_SECONDS"),
       ),

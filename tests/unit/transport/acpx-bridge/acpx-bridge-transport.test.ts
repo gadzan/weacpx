@@ -229,11 +229,13 @@ test("proxies permission policy updates through the bridge client", async () => 
   await transport.updatePermissionPolicy?.({
     permissionMode: "approve-reads",
     nonInteractivePermissions: "deny",
+    permissionPolicy: "C:/policies/weacpx-policy.json",
   });
 
   expect(request).toHaveBeenCalledWith("updatePermissionPolicy", {
     permissionMode: "approve-reads",
     nonInteractivePermissions: "deny",
+    permissionPolicy: "C:/policies/weacpx-policy.json",
   });
 });
 
