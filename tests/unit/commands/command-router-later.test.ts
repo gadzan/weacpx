@@ -120,6 +120,39 @@ test("/lt in 2h 检查 CI creates a task recording the current session as origin
   expect(call.sessionAlias).toBe("backend:codex");
 });
 
+test("/lt stores the message verbatim — quotes and internal spacing intact", async () => {
+  const state = createEmptyState();
+  state.sessions["backend:codex"] = {
+    alias: "backend:codex",
+    agent: "codex",
+    workspace: "backend",
+    transport_session: "backend:backend:codex",
+    created_at: "2026-05-23T09:00:00.000Z",
+    last_used_at: "2026-05-23T09:00:00.000Z",
+  };
+  state.chat_contexts["wx:user"] = { current_session: "backend:codex" };
+
+  const cases: Array<{ input: string; message: string }> = [
+    // Curly quotes from Chinese IMEs must not be stripped from the body.
+    { input: "/later in 2h 提醒我看“报告”", message: "提醒我看“报告”" },
+    // Straight quotes and a multi-space run survive.
+    { input: '/lt in 2h remind me to say "hello"  twice', message: 'remind me to say "hello"  twice' },
+    // A body that starts with a quoted word keeps its opening quote.
+    { input: '/lt in 2h "hello world" now', message: '"hello world" now' },
+    // A leading --temp flag is still consumed before the time spec.
+    { input: "/lt --temp in 2h 检查＂版本＂号", message: "检查＂版本＂号" },
+  ];
+
+  for (const { input, message } of cases) {
+    const scheduled = createMockScheduled();
+    const { router } = buildRouter({ scheduled, state });
+    await router.handle("wx:user", input);
+    expect(scheduled.createTask).toHaveBeenCalledTimes(1);
+    const call = (scheduled.createTask as ReturnType<typeof mock>).mock.calls[0][0] as CreateScheduledTaskInput;
+    expect(call.message).toBe(message);
+  }
+});
+
 test("/lt rejects creation when channel lacks scheduled-message support", async () => {
   const scheduled = createMockScheduled();
   const scheduledDelivery: ScheduledDeliveryCapabilityOps = {

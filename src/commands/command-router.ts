@@ -325,6 +325,7 @@ export class CommandRouter {
           const currentSession = await this.sessions.getCurrentSession(chatKey);
           return await handleLaterCreate(
             command.tokens,
+            command.tails,
             this.scheduled,
             chatKey,
             currentSession
