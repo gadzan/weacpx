@@ -36,7 +36,11 @@ export class DaemonStatusStore {
   }
 
   async save(status: DaemonStatus): Promise<void> {
-    await mkdir(dirname(this.path), { recursive: true });
+    // status.json lives in the runtime dir, which must stay user-private
+    // (0700) because it also holds the orchestration socket. The mode only
+    // applies when this mkdir actually creates the dir; daemon startup
+    // additionally chmod-repairs pre-existing dirs (private-runtime-dir.ts).
+    await mkdir(dirname(this.path), { recursive: true, mode: 0o700 });
     await writeFileAtomic(this.path, JSON.stringify(status, null, 2), { encoding: "utf8" });
   }
 

@@ -688,6 +688,13 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     paths.orchestrationSocketPath ?? resolveOrchestrationSocketPathFromConfigPath(paths.configPath),
   );
   const orchestrationServer = new OrchestrationServer(orchestrationEndpoint, orchestration, {
+    onSocketHardenError: (error) => {
+      void logger.error(
+        "orchestration.socket.chmod_failed",
+        "failed to restrict orchestration socket to owner-only (0600); falling back to runtime dir permissions",
+        { message: error instanceof Error ? error.message : String(error) },
+      );
+    },
     createScheduledTaskFromRoute: async (input) =>
       await createScheduledTaskFromRoute(input, {
         state,

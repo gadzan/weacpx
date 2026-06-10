@@ -24,6 +24,15 @@ flowchart LR
   Host -->|legacy tools<br/>task_get / task_list / task_watch| Mcp
 ```
 
+## Security: the trust boundary is the user account
+
+The orchestration IPC endpoint performs no authentication of its own. Access control is purely filesystem-based:
+
+- On macOS / Linux the daemon keeps the runtime dir (`~/.xacpx/runtime`) at `0700` and the unix socket (`orchestration.sock`) at `0600`, so only the owning user (and root) can connect.
+- On Windows the endpoint is a named pipe that relies on the default pipe DACL, which restricts access to the creating user/session.
+
+Consequence: **any process running as your user account can drive your agents** — delegate prompts with an arbitrary working directory, list tasks, and so on. This is the same stance as `ssh-agent` or rootless Docker: same user = trusted, other users = denied by the OS. There is no per-process token or peer-credential check, because a same-user attacker could read any such token anyway. Do not loosen the permissions of `~/.xacpx/runtime`, and do not run the daemon on a shared account.
+
 ## MCP Tasks progress and input requests
 
 Hosts that support MCP Tasks should prefer calling `delegate_request` with a task-augmented `tools/call`:

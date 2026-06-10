@@ -1,4 +1,4 @@
-import { rm } from "node:fs/promises";
+import { chmod, rm } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
 
 import {
@@ -56,6 +56,9 @@ const ORCHESTRATION_RPC_METHODS = new Set<OrchestrationRpcMethod>([
 interface OrchestrationServerDeps {
   createServer?: typeof createServer;
   removeFile?: (path: string) => Promise<void>;
+  chmodFile?: (path: string, mode: number) => Promise<void>;
+  /** Best-effort socket chmod failures are reported here instead of thrown. */
+  onSocketHardenError?: (error: unknown) => void;
   createScheduledTaskFromRoute?: (input: ScheduledCreateFromRouteInput) => Promise<ScheduledTaskRecord>;
   listScheduledTasksFromRoute?: (input: ScheduledListFromRouteInput) => Promise<ScheduledTaskRecord[]>;
   cancelScheduledTaskFromRoute?: (input: ScheduledCancelFromRouteInput) => Promise<{ id: string; cancelled: boolean }>;
@@ -108,6 +111,7 @@ export class OrchestrationServer {
     });
 
     await this.listenWithUnixSocketRecovery();
+    await this.hardenUnixSocketPermissions();
     this.started = true;
   }
 
@@ -420,6 +424,27 @@ export class OrchestrationServer {
       whyBlocked: requireString(params, "whyBlocked"),
       whatIsNeeded: requireString(params, "whatIsNeeded"),
     };
+  }
+
+  /**
+   * The RPC surface has no authentication: anything that can connect can drive
+   * agents. Trust therefore rests entirely on filesystem permissions — chmod
+   * the unix socket to owner-only (0600) right after listen() creates it.
+   * Windows named pipes are skipped: POSIX modes do not apply and the default
+   * pipe DACL already restricts access to the creating user/session.
+   */
+  private async hardenUnixSocketPermissions(): Promise<void> {
+    if (this.endpoint.kind !== "unix") {
+      return;
+    }
+
+    const chmodFile = this.deps.chmodFile ?? chmod;
+    try {
+      await chmodFile(this.endpoint.path, 0o600);
+    } catch (error) {
+      // Best-effort: a failed chmod must not take the daemon down.
+      this.deps.onSocketHardenError?.(error);
+    }
   }
 
   private async cleanupEndpoint(): Promise<void> {

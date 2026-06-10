@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -51,6 +51,28 @@ test("clears the daemon status file", async () => {
 
   await store.clear();
   await expect(store.load()).resolves.toBeNull();
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("save creates a missing runtime dir user-private (0700)", async () => {
+  if (process.platform === "win32") return;
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-daemon-status-"));
+  const runtimeDir = join(dir, "runtime");
+  const store = new DaemonStatusStore(join(runtimeDir, "status.json"));
+
+  await store.save({
+    pid: 99,
+    started_at: "2026-03-26T00:00:00.000Z",
+    heartbeat_at: "2026-03-26T00:00:00.000Z",
+    config_path: "/cfg",
+    state_path: "/state",
+    app_log: "/a.log",
+    stdout_log: "/o.log",
+    stderr_log: "/e.log",
+  });
+
+  expect(((await stat(runtimeDir)).mode & 0o777)).toBe(0o700);
 
   await rm(dir, { recursive: true, force: true });
 });

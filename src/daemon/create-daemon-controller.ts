@@ -1,8 +1,9 @@
-import { mkdir, open } from "node:fs/promises";
+import { open } from "node:fs/promises";
 import { spawn } from "node:child_process";
 
 import { DaemonController } from "./daemon-controller";
 import type { DaemonPaths } from "./daemon-files";
+import { ensurePrivateRuntimeDir } from "./private-runtime-dir";
 import { terminateProcessTree } from "../process/terminate-process-tree";
 
 interface SpawnRequest {
@@ -36,7 +37,11 @@ export function createDaemonController(
   return new DaemonController(paths, {
     isProcessRunning: options.isProcessRunning ?? defaultIsProcessRunning,
     spawnDetached: async (spawnOptions) => {
-      await mkdir(paths.runtimeDir, { recursive: true });
+      // User-private (0700): the runtime dir holds the orchestration socket,
+      // whose only access control is filesystem permissions.
+      await ensurePrivateRuntimeDir(paths.runtimeDir, {
+        ...(options.platform ? { platform: options.platform } : {}),
+      });
       const stdoutHandle = await open(paths.stdoutLog, "a", 0o600);
       const stderrHandle = await open(paths.stderrLog, "a", 0o600);
       // open's mode only applies on creation; harden pre-existing logs too.
