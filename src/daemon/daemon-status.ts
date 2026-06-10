@@ -1,5 +1,7 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { dirname } from "node:path";
+
+import writeFileAtomic from "write-file-atomic";
 
 export interface DaemonStatus {
   pid: number;
@@ -35,7 +37,7 @@ export class DaemonStatusStore {
 
   async save(status: DaemonStatus): Promise<void> {
     await mkdir(dirname(this.path), { recursive: true });
-    await writeFile(this.path, JSON.stringify(status, null, 2));
+    await writeFileAtomic(this.path, JSON.stringify(status, null, 2), { encoding: "utf8" });
   }
 
   async clear(): Promise<void> {
