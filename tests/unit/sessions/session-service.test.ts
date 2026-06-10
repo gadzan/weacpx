@@ -636,6 +636,154 @@ test("setBackgroundResult overwrites a prior unread result for the same alias", 
   expect(taken?.status).toBe("error");
 });
 
+test("useSession preserves unread background results across switches", async () => {
+  const service = new SessionService(createSwitchConfig(), new MemoryStateStore(), createEmptyState());
+  await service.createSession("a", "codex", "backend");
+  await service.createSession("b", "codex", "backend");
+  const chatKey = "weixin:acc:user";
+
+  await service.useSession(chatKey, "a");
+  await service.setBackgroundResult(chatKey, "a", {
+    text: "task a finished", status: "done", finished_at: "2026-06-10T01:00:00.000Z",
+  });
+  await service.useSession(chatKey, "b");
+  expect(service.listBackgroundResultAliases(chatKey)).toEqual(["a"]);
+  await service.useSession(chatKey, "a");
+
+  const taken = await service.takeBackgroundResult(chatKey, "a");
+  expect(taken?.text).toBe("task a finished");
+});
+
+test("usePreviousSession preserves unread background results", async () => {
+  const service = new SessionService(createSwitchConfig(), new MemoryStateStore(), createEmptyState());
+  await service.createSession("a", "codex", "backend");
+  await service.createSession("b", "codex", "backend");
+  const chatKey = "weixin:acc:user";
+
+  await service.useSession(chatKey, "a");
+  await service.useSession(chatKey, "b");
+  await service.setBackgroundResult(chatKey, "a", {
+    text: "task a finished", status: "done", finished_at: "2026-06-10T01:00:00.000Z",
+  });
+
+  const prev = await service.usePreviousSession(chatKey);
+  expect(prev?.alias).toBe("a");
+  const taken = await service.takeBackgroundResult(chatKey, "a");
+  expect(taken?.text).toBe("task a finished");
+});
+
+test("removeSession of current session keeps other aliases' background results and promotes previous_session", async () => {
+  const service = new SessionService(createSwitchConfig(), new MemoryStateStore(), createEmptyState());
+  await service.createSession("a", "codex", "backend");
+  await service.createSession("b", "codex", "backend");
+  const chatKey = "weixin:acc:user";
+
+  await service.useSession(chatKey, "a");
+  await service.useSession(chatKey, "b"); // current=b, previous=a
+  await service.setBackgroundResult(chatKey, "a", {
+    text: "task a finished", status: "done", finished_at: "2026-06-10T01:00:00.000Z",
+  });
+
+  await service.removeSession("b");
+
+  // previous_session promoted to current; a's background result survives.
+  await expect(service.getCurrentSession(chatKey)).resolves.toMatchObject({ alias: "a" });
+  const taken = await service.takeBackgroundResult(chatKey, "a");
+  expect(taken?.text).toBe("task a finished");
+});
+
+test("removeSession drops only the removed alias's background result", async () => {
+  const service = new SessionService(createSwitchConfig(), new MemoryStateStore(), createEmptyState());
+  await service.createSession("a", "codex", "backend");
+  await service.createSession("b", "codex", "backend");
+  const chatKey = "weixin:acc:user";
+
+  await service.useSession(chatKey, "b");
+  await service.setBackgroundResult(chatKey, "a", {
+    text: "task a finished", status: "done", finished_at: "2026-06-10T01:00:00.000Z",
+  });
+  await service.setBackgroundResult(chatKey, "b", {
+    text: "task b finished", status: "done", finished_at: "2026-06-10T01:00:00.000Z",
+  });
+
+  await service.removeSession("b");
+
+  expect(await service.takeBackgroundResult(chatKey, "b")).toBeNull();
+  expect((await service.takeBackgroundResult(chatKey, "a"))?.text).toBe("task a finished");
+});
+
+test("removeSession of current session without previous clears the current marker", async () => {
+  const service = new SessionService(createSwitchConfig(), new MemoryStateStore(), createEmptyState());
+  await service.createSession("a", "codex", "backend");
+  await service.createSession("b", "codex", "backend");
+  const chatKey = "weixin:acc:user";
+
+  await service.useSession(chatKey, "a");
+  await service.setBackgroundResult(chatKey, "b", {
+    text: "task b finished", status: "done", finished_at: "2026-06-10T01:00:00.000Z",
+  });
+
+  await service.removeSession("a");
+
+  expect(await service.getCurrentSession(chatKey)).toBeNull();
+  expect((await service.takeBackgroundResult(chatKey, "b"))?.text).toBe("task b finished");
+});
+
+test("recreating an alias with a different agent does not inherit transport agent command, mode, or reply mode", async () => {
+  const store = new MemoryStateStore();
+  const state = createEmptyState();
+  const service = new SessionService(createConfig(), store, state);
+  const chatKey = "weixin:acc:user";
+
+  await service.createSession("foo", "codex", "backend");
+  await service.useSession(chatKey, "foo");
+  await service.setSessionTransportAgentCommand("foo", "npx @zed-industries/codex-acp@^0.9.5");
+  await service.setCurrentSessionMode(chatKey, "plan");
+  await service.setCurrentSessionReplyMode(chatKey, "final");
+
+  const recreated = await service.createSession("foo", "claude", "backend");
+
+  expect(recreated.agentCommand).toBeUndefined();
+  expect(recreated.modeId).toBeUndefined();
+  expect(recreated.replyMode).toBeUndefined();
+  expect(state.sessions.foo?.transport_agent_command).toBeUndefined();
+  expect(state.sessions.foo?.mode_id).toBeUndefined();
+  expect(state.sessions.foo?.reply_mode).toBeUndefined();
+});
+
+test("recreating an alias with the same agent still inherits transport agent command, mode, and reply mode", async () => {
+  const store = new MemoryStateStore();
+  const state = createEmptyState();
+  const service = new SessionService(createConfig(), store, state);
+  const chatKey = "weixin:acc:user";
+
+  await service.createSession("foo", "codex", "backend");
+  await service.useSession(chatKey, "foo");
+  await service.setSessionTransportAgentCommand("foo", "npx @zed-industries/codex-acp@^0.9.5");
+  await service.setCurrentSessionMode(chatKey, "plan");
+  await service.setCurrentSessionReplyMode(chatKey, "final");
+
+  const recreated = await service.createSession("foo", "codex", "backend");
+
+  expect(recreated.agentCommand).toBe("npx @zed-industries/codex-acp@^0.9.5");
+  expect(recreated.modeId).toBe("plan");
+  expect(recreated.replyMode).toBe("final");
+});
+
+test("resolveSession does not reuse a cached transport agent command from a different agent", async () => {
+  const store = new MemoryStateStore();
+  const service = new SessionService(createConfig(), store, createEmptyState());
+
+  await service.createSession("foo", "codex", "backend");
+  await service.setSessionTransportAgentCommand("foo", "npx @zed-industries/codex-acp@^0.9.5");
+
+  const crossAgent = service.resolveSession("foo", "claude", "backend", "backend:foo");
+  expect(crossAgent.agentCommand).toBeUndefined();
+
+  const sameAgent = service.resolveSession("foo", "codex", "backend", "backend:foo");
+  expect(sameAgent.agentCommand).toBe("npx @zed-industries/codex-acp@^0.9.5");
+});
+
 test("peekCurrentSessionAlias returns the current internal alias without mutating", async () => {
   const store = new MemoryStateStore();
   const service = new SessionService(createConfig(), store, createEmptyState());
