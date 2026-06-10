@@ -48,7 +48,9 @@ export function createAppLogger(options: CreateAppLoggerOptions): AppLogger {
   let writeChain = Promise.resolve();
   let modeEnsured = false;
   // Latch: emit at most one console.error when the log file becomes unwritable.
-  // Reset if a subsequent write succeeds (file may have been restored).
+  // Reset only when an append actually succeeds (file may have been restored) —
+  // level-filtered no-op writes must NOT reset it, or interleaved below-level
+  // calls would turn the one-time notice into per-failure spam.
   let writeErrorLatched = false;
 
   return {
@@ -84,26 +86,20 @@ export function createAppLogger(options: CreateAppLoggerOptions): AppLogger {
     // The resolved promise handed back to the caller must never reject.
     // We catch write errors internally and degrade gracefully (emit a
     // one-time operator notice, then silently drop further failures).
+    // Invariant: every promise assigned to writeChain has its rejection
+    // handled below, so the chain head never rejects (no .catch needed).
     const writePromise = writeChain
-      .catch(() => {})
       .then(() => writeLog(level, event, message, context))
-      .then(
-        () => {
-          // A successful write clears the latch so the next failure is
-          // visible again (e.g. disk temporarily full then freed).
-          writeErrorLatched = false;
-        },
-        (error: unknown) => {
-          if (!writeErrorLatched) {
-            writeErrorLatched = true;
-            console.error(
-              "[xacpx] app-logger: log file write failed — further write errors will be suppressed.",
-              error instanceof Error ? error.message : String(error),
-            );
-          }
-          // Swallow the error: callers must not be affected by log I/O failures.
-        },
-      );
+      .catch((error: unknown) => {
+        if (!writeErrorLatched) {
+          writeErrorLatched = true;
+          console.error(
+            "[xacpx] app-logger: log file write failed — further write errors will be suppressed.",
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        // Swallow the error: callers must not be affected by log I/O failures.
+      });
     writeChain = writePromise;
     return writePromise;
   }
@@ -129,6 +125,9 @@ export function createAppLogger(options: CreateAppLoggerOptions): AppLogger {
     }
     await rotateIfNeeded(options.filePath, Buffer.byteLength(line), options.maxSizeBytes, options.maxFiles);
     await appendFile(options.filePath, line, { encoding: "utf8", mode: 0o600 });
+    // A real append succeeded — clear the latch so the next failure is
+    // visible again (e.g. disk temporarily full then freed).
+    writeErrorLatched = false;
   }
 }
 

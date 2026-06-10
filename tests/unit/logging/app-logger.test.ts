@@ -187,6 +187,39 @@ test("logger emits a one-time console.error note on write failure, not per-call 
   await rm(dir, { recursive: true, force: true });
 });
 
+test("level-filtered no-op writes do not reset the one-time error latch", async () => {
+  // Regression: debug calls at info level early-return without touching disk;
+  // they resolve through the success path and must NOT reset the latch, or a
+  // persistently broken disk with interleaved debug calls would emit one
+  // console.error per failing write instead of one per burst.
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-logger-latch-"));
+  const appLog = join(dir, "app.log");
+  const logger = createAppLogger({
+    filePath: appLog,
+    level: "info",
+    maxSizeBytes: 1024,
+    maxFiles: 3,
+    retentionDays: 7,
+  });
+
+  const fsPromises = await import("node:fs/promises");
+  const appendFileSpy = spyOn(fsPromises, "appendFile").mockRejectedValue(
+    new Error("ENOSPC: no space left on device"),
+  );
+  const consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
+
+  for (let i = 0; i < 3; i++) {
+    await logger.info("test.event", "failing write");
+    await logger.debug("test.noop", "below level — never touches disk");
+  }
+
+  expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+
+  appendFileSpy.mockRestore();
+  consoleErrorSpy.mockRestore();
+  await rm(dir, { recursive: true, force: true });
+});
+
 test("logger.cleanup() resolves even when cleanupExpiredRotatedLogs throws", async () => {
   const cleanupSpy = spyOn(rotatingFileWriter, "cleanupExpiredRotatedLogs").mockRejectedValueOnce(
     new Error("EACCES: permission denied"),

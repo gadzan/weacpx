@@ -55,26 +55,12 @@ test("cleanupExpiredRotatedLogs deletes rotated files older than retentionDays",
 
 // --- Bug B: candidate disappearing between readdir and stat must not reject ---
 
-test("cleanupExpiredRotatedLogs resolves and processes remaining candidates when one file is removed before stat", async () => {
-  // Verifies the ENOENT-tolerance fix: when a rotated file is deleted between
-  // readdir and stat (race with another process / manual deletion), cleanup must
-  // not throw and must still process the remaining candidates.
-  //
-  // We simulate the race by wrapping cleanupExpiredRotatedLogs in a variant that
-  // deletes a candidate immediately after readdir completes but before stat is
-  // called. We achieve the observable effect by creating both files, then deleting
-  // one right before the function call — on a fast system, readdir inside the
-  // function won't see the deleted file, so we cannot rely on that. Instead we
-  // pass a custom `stat` wrapper by refactoring the test to call the internal
-  // helper with an injected fs — but since the function is not parameterised on fs,
-  // we test via real filesystem: create .1 and .2, delete .1, then call cleanup.
-  // readdir won't list .1 (it's already gone), so no ENOENT path is hit — but the
-  // test still proves cleanup works correctly when candidates are missing.
-  //
-  // The precise ENOENT-during-stat scenario is validated by a second sub-test
-  // that wraps the module with a monkey-patched stat that injects ENOENT for
-  // one specific path, verifying the loop continues to process remaining files.
-
+test("cleanupExpiredRotatedLogs tolerates ENOENT from stat mid-iteration and still processes other candidates", async () => {
+  // Simulates the race where a rotated file is removed between readdir and stat
+  // (concurrent cleanup in another process, manual deletion). Both candidates
+  // exist on disk so readdir lists them; the spy then makes stat throw ENOENT
+  // for candidate1 only. Cleanup must skip it without rejecting and continue
+  // on to delete the stale candidate2.
   const dir = await mkdtemp(join(tmpdir(), "weacpx-rfw-race-"));
   const logFile = join(dir, "test.log");
   const candidate1 = join(dir, "test.log.1");
@@ -88,8 +74,23 @@ test("cleanupExpiredRotatedLogs resolves and processes remaining candidates when
   await utimes(candidate1, eightDaysAgo, eightDaysAgo);
   await utimes(candidate2, eightDaysAgo, eightDaysAgo);
 
-  // Delete one file before calling cleanup — simulates external removal.
-  await rm(candidate1, { force: true });
+  const fsPromises = await import("node:fs/promises");
+  // Capture the real stat BEFORE spying — the mock must call through to the
+  // original, not the spied binding (that would recurse infinitely).
+  const realStat = fsPromises.stat;
+  const statSpy = spyOn(fsPromises, "stat").mockImplementation(((
+    path: Parameters<typeof realStat>[0],
+    ...args: unknown[]
+  ) => {
+    if (typeof path === "string" && path === candidate1) {
+      return Promise.reject(
+        Object.assign(new Error("ENOENT: no such file or directory (simulated race)"), {
+          code: "ENOENT",
+        }),
+      );
+    }
+    return (realStat as (...a: unknown[]) => Promise<unknown>)(path, ...args);
+  }) as typeof realStat);
 
   let threw = false;
   try {
@@ -97,10 +98,13 @@ test("cleanupExpiredRotatedLogs resolves and processes remaining candidates when
   } catch {
     threw = true;
   }
+  statSpy.mockRestore();
 
   expect(threw).toBe(false);
-  // candidate2 was stale and still present — should be cleaned up.
   const files = await readdir(dir);
+  // candidate1 was skipped (stat "raced") so it remains on disk untouched.
+  expect(files).toContain("test.log.1");
+  // candidate2 was stale and statted fine — it must still have been deleted.
   expect(files).not.toContain("test.log.2");
 
   await rm(dir, { recursive: true, force: true });
