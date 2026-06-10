@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -51,6 +51,55 @@ test("clears the daemon status file", async () => {
 
   await store.clear();
   await expect(store.load()).resolves.toBeNull();
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("leaves no stray tmp files after save", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-daemon-status-"));
+  const store = new DaemonStatusStore(join(dir, "status.json"));
+
+  await store.save({
+    pid: 99,
+    started_at: "2026-03-26T00:00:00.000Z",
+    heartbeat_at: "2026-03-26T00:00:00.000Z",
+    config_path: "/cfg",
+    state_path: "/state",
+    app_log: "/a.log",
+    stdout_log: "/o.log",
+    stderr_log: "/e.log",
+  });
+
+  const entries = await readdir(dir);
+  expect(entries).toEqual(["status.json"]);
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("overwrites existing status.json atomically", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-daemon-status-"));
+  const store = new DaemonStatusStore(join(dir, "status.json"));
+
+  const first: DaemonStatus = {
+    pid: 1,
+    started_at: "2026-01-01T00:00:00.000Z",
+    heartbeat_at: "2026-01-01T00:00:00.000Z",
+    config_path: "/cfg",
+    state_path: "/state",
+    app_log: "/a.log",
+    stdout_log: "/o.log",
+    stderr_log: "/e.log",
+  };
+  const second: DaemonStatus = { ...first, pid: 2, heartbeat_at: "2026-01-01T00:05:00.000Z" };
+
+  await store.save(first);
+  await store.save(second);
+
+  await expect(store.load()).resolves.toEqual(second);
+
+  // Only status.json should be present — no stray tmp from second write
+  const entries = await readdir(dir);
+  expect(entries).toEqual(["status.json"]);
 
   await rm(dir, { recursive: true, force: true });
 });

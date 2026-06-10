@@ -69,6 +69,123 @@ function makeServerHandlers(overrides: Partial<Record<string, unknown>> = {}) {
 
 
 
+test("delegate.request accepts parallel:true and passes it to the handler", async () => {
+  const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
+  const requestDelegate = mock(async (input: Record<string, unknown>) => ({
+    taskId: "task-1",
+    status: "needs_confirmation",
+    input,
+  }));
+  const server = new OrchestrationServer(endpoint, makeServerHandlers({ requestDelegate }));
+
+  const response = JSON.parse(
+    await server.handleLine(JSON.stringify({
+      id: "req-parallel-true",
+      method: "delegate.request",
+      params: {
+        sourceHandle: "backend:main",
+        targetAgent: "claude",
+        task: "review",
+        parallel: true,
+      },
+    })),
+  );
+
+  expect(response).toMatchObject({ id: "req-parallel-true", ok: true });
+  expect(requestDelegate).toHaveBeenCalledWith({
+    sourceHandle: "backend:main",
+    targetAgent: "claude",
+    task: "review",
+    parallel: true,
+  });
+});
+
+test("delegate.request accepts parallel:false and passes it to the handler", async () => {
+  const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
+  const requestDelegate = mock(async (input: Record<string, unknown>) => ({
+    taskId: "task-2",
+    status: "needs_confirmation",
+    input,
+  }));
+  const server = new OrchestrationServer(endpoint, makeServerHandlers({ requestDelegate }));
+
+  const response = JSON.parse(
+    await server.handleLine(JSON.stringify({
+      id: "req-parallel-false",
+      method: "delegate.request",
+      params: {
+        sourceHandle: "backend:main",
+        targetAgent: "claude",
+        task: "review",
+        parallel: false,
+      },
+    })),
+  );
+
+  expect(response).toMatchObject({ id: "req-parallel-false", ok: true });
+  expect(requestDelegate).toHaveBeenCalledWith({
+    sourceHandle: "backend:main",
+    targetAgent: "claude",
+    task: "review",
+    parallel: false,
+  });
+});
+
+test("delegate.request without parallel omits the field from handler input", async () => {
+  const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
+  const requestDelegate = mock(async (input: Record<string, unknown>) => ({
+    taskId: "task-3",
+    status: "needs_confirmation",
+    input,
+  }));
+  const server = new OrchestrationServer(endpoint, makeServerHandlers({ requestDelegate }));
+
+  const response = JSON.parse(
+    await server.handleLine(JSON.stringify({
+      id: "req-no-parallel",
+      method: "delegate.request",
+      params: {
+        sourceHandle: "backend:main",
+        targetAgent: "claude",
+        task: "review",
+      },
+    })),
+  );
+
+  expect(response).toMatchObject({ id: "req-no-parallel", ok: true });
+  const calledWith = (requestDelegate.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+  expect(calledWith).not.toHaveProperty("parallel");
+});
+
+test("delegate.request rejects non-boolean parallel value", async () => {
+  const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
+  const requestDelegate = mock(async () => ({ taskId: "task-1", status: "needs_confirmation" }));
+  const server = new OrchestrationServer(endpoint, makeServerHandlers({ requestDelegate }));
+
+  for (const parallel of ["yes", 1, "true", null, []]) {
+    const response = JSON.parse(
+      await server.handleLine(JSON.stringify({
+        id: "req-bad-parallel",
+        method: "delegate.request",
+        params: {
+          sourceHandle: "backend:main",
+          targetAgent: "claude",
+          task: "review",
+          parallel,
+        },
+      })),
+    );
+
+    expect(response).toMatchObject({
+      id: "req-bad-parallel",
+      ok: false,
+      error: { code: "ORCHESTRATION_INVALID_REQUEST" },
+    });
+  }
+
+  expect(requestDelegate).not.toHaveBeenCalled();
+});
+
 test("forwards task watch RPC to handlers", async () => {
   const endpoint = resolveOrchestrationEndpoint("/tmp/weacpx-orch-server-test");
   const watchTask = mock(async (input: Record<string, unknown>) => ({

@@ -1,6 +1,6 @@
 import { describe, expect, test, beforeEach, afterAll } from "bun:test";
 
-import { drainPendingFinalForJx } from "../../../src/weixin/messaging/slash-commands";
+import { drainPendingFinalForJx, handleSlashCommand } from "../../../src/weixin/messaging/slash-commands";
 import type { PendingFinalChunk } from "../../../src/weixin/messaging/quota-manager";
 import type { SlashCommandContext } from "../../../src/weixin/messaging/slash-commands";
 import { setLocale } from "../../../src/i18n";
@@ -25,6 +25,16 @@ function baseCtx(overrides: Partial<SlashCommandContext> = {}): SlashCommandCont
     ...overrides,
   };
 }
+
+describe("/logout chat command removal", () => {
+  test("/logout is no longer handled (no unauthenticated credential wipe)", async () => {
+    // Must fall through as an unknown command: any chat peer could previously
+    // trigger clearAllWeixinAccounts() with zero authorization. CLI `xacpx
+    // logout` is the only remaining logout surface.
+    const result = await handleSlashCommand("/logout", baseCtx(), Date.now());
+    expect(result.handled).toBe(false);
+  });
+});
 
 describe("v1.4: /jx drains pending final pages", () => {
   beforeEach(() => {

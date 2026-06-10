@@ -4,7 +4,7 @@ import { t } from "../i18n/index.js";
 import { AsyncMutex } from "../orchestration/async-mutex";
 import { stableCoordinatorSession } from "../orchestration/coordinator-identity";
 import type { StateStore } from "../state/state-store";
-import type { AppState, BackgroundResult, LogicalSession } from "../state/types";
+import type { AppState, BackgroundResult, ChatContextState, LogicalSession } from "../state/types";
 import type { AgentSession, ResolvedSession } from "../transport/types";
 import {
   buildDefaultTransportSession,
@@ -86,36 +86,55 @@ export class SessionService {
 
   /**
    * All currently-known logical sessions resolved to transport sessions, deduped by
-   * transport session. Sessions whose agent or workspace is no longer registered are
-   * skipped (toResolvedSession would throw). Used by shutdown cleanup to reap warm
-   * acpx queue owners; never throws.
+   * the composite identity acpx keys its session records on (agent + agent command +
+   * cwd + transport session name). Two aliases sharing a transport-session *name*
+   * but differing in agent/cwd (possible via /session attach) resolve to different
+   * acpx records with their own warm queue owners, so both must survive. Sessions
+   * whose agent or workspace is no longer registered are skipped (toResolvedSession
+   * would throw). Used by startup/shutdown cleanup to reap warm acpx queue owners;
+   * never throws.
    */
   listAllResolvedSessions(): ResolvedSession[] {
     const seen = new Set<string>();
     const resolved: ResolvedSession[] = [];
     for (const session of Object.values(this.state.sessions)) {
-      if (seen.has(session.transport_session)) {
-        continue;
-      }
-      seen.add(session.transport_session);
+      let candidate: ResolvedSession;
       try {
-        resolved.push(this.toResolvedSession(session));
+        candidate = this.toResolvedSession(session);
       } catch {
         // Agent/workspace de-registered since this session was created — skip it.
+        continue;
       }
+      // Same composite key as reapQueueOwners/defaultResolveRecordId; JSON.stringify
+      // so cwd values with arbitrary characters cannot collide.
+      const key = JSON.stringify([
+        candidate.agent,
+        candidate.agentCommand ?? null,
+        candidate.cwd,
+        candidate.transportSession,
+      ]);
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      resolved.push(candidate);
     }
     return resolved;
   }
 
   resolveSession(alias: string, agent: string, workspace: string, transportSession: string): ResolvedSession {
     this.validateSession(alias, agent, workspace);
+    const existing = this.state.sessions[alias];
+    // A cached transport agent command is only valid for the same agent; never
+    // reuse it across agents (e.g. alias recreated with --agent claude after codex).
+    const sameAgentExisting = existing && existing.agent === agent ? existing : undefined;
     return this.toResolvedSession({
       alias,
       agent,
       workspace,
       transport_session: transportSession,
-      transport_agent_command: this.state.sessions[alias]?.transport_agent_command,
-      created_at: this.state.sessions[alias]?.created_at ?? new Date().toISOString(),
+      transport_agent_command: sameAgentExisting?.transport_agent_command,
+      created_at: existing?.created_at ?? new Date().toISOString(),
       last_used_at: new Date().toISOString(),
     });
   }
@@ -233,10 +252,15 @@ export class SessionService {
         previousCurrent && previousCurrent !== internalAlias ? previousCurrent : prevCtx?.previous_session;
 
       session.last_used_at = new Date().toISOString();
-      this.state.chat_contexts[chatKey] = {
-        current_session: internalAlias,
-        ...(carriedPrevious ? { previous_session: carriedPrevious } : {}),
-      };
+      // Spread the previous context so unread background_results (and any other
+      // per-chat state) survive the switch; only current/previous change.
+      const nextCtx: ChatContextState = { ...prevCtx, current_session: internalAlias };
+      if (carriedPrevious) {
+        nextCtx.previous_session = carriedPrevious;
+      } else {
+        delete nextCtx.previous_session;
+      }
+      this.state.chat_contexts[chatKey] = nextCtx;
       await this.persist();
 
       return {
@@ -266,10 +290,14 @@ export class SessionService {
 
       const currentInternal = ctx?.current_session;
       prevSession.last_used_at = new Date().toISOString();
-      this.state.chat_contexts[chatKey] = {
-        current_session: prevInternal,
-        ...(currentInternal && currentInternal !== prevInternal ? { previous_session: currentInternal } : {}),
-      };
+      // Preserve background_results and other per-chat state on toggle.
+      const nextCtx: ChatContextState = { ...ctx, current_session: prevInternal };
+      if (currentInternal && currentInternal !== prevInternal) {
+        nextCtx.previous_session = currentInternal;
+      } else {
+        delete nextCtx.previous_session;
+      }
+      this.state.chat_contexts[chatKey] = nextCtx;
       await this.persist();
 
       return {
@@ -477,12 +505,27 @@ export class SessionService {
       delete this.state.sessions[alias];
 
       for (const [chatKey, ctx] of Object.entries(this.state.chat_contexts)) {
-        if (ctx.current_session === alias) {
-          delete this.state.chat_contexts[chatKey];
-          continue;
-        }
+        // Prune only references to the removed alias; keep the rest of the
+        // chat context (other aliases' background_results, previous_session).
         if (ctx.previous_session === alias) {
           delete ctx.previous_session;
+        }
+        if (ctx.current_session === alias) {
+          if (ctx.previous_session) {
+            ctx.current_session = ctx.previous_session;
+            delete ctx.previous_session;
+          } else {
+            ctx.current_session = "";
+          }
+        }
+        if (ctx.background_results && alias in ctx.background_results) {
+          delete ctx.background_results[alias];
+          if (Object.keys(ctx.background_results).length === 0) {
+            delete ctx.background_results;
+          }
+        }
+        if (!ctx.current_session && !ctx.previous_session && !ctx.background_results) {
+          delete this.state.chat_contexts[chatKey];
         }
       }
 
@@ -631,6 +674,11 @@ export class SessionService {
         throw new Error(`transport session "${transportSession}" conflicts with an external coordinator`);
       }
       const existingSession = this.state.sessions[alias];
+      // Per-agent settings (cached transport command, mode, reply mode) are only
+      // carried over when the alias is recreated with the same agent. A different
+      // agent must start clean, otherwise prompts would go to the old agent binary.
+      const sameAgentExisting =
+        existingSession && existingSession.agent === agent ? existingSession : undefined;
       const now = new Date(this.now()).toISOString();
       const normalizedTransportAgentCommand = transportAgentCommand?.trim();
       const session: LogicalSession = {
@@ -645,11 +693,11 @@ export class SessionService {
         attached_at: native ? now : undefined,
         ...(normalizedTransportAgentCommand
           ? { transport_agent_command: normalizedTransportAgentCommand }
-          : existingSession?.transport_agent_command
-            ? { transport_agent_command: existingSession.transport_agent_command }
+          : sameAgentExisting?.transport_agent_command
+            ? { transport_agent_command: sameAgentExisting.transport_agent_command }
             : {}),
-        mode_id: existingSession?.mode_id,
-        reply_mode: existingSession?.reply_mode,
+        mode_id: sameAgentExisting?.mode_id,
+        reply_mode: sameAgentExisting?.reply_mode,
         created_at: existingSession?.created_at ?? now,
         last_used_at: now,
       };

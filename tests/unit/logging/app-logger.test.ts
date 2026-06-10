@@ -1,9 +1,10 @@
-import { expect, test } from "bun:test";
+import { expect, test, mock, spyOn, beforeEach, afterEach } from "bun:test";
 import { chmod, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { createAppLogger } from "../../../src/logging/app-logger";
+import * as rotatingFileWriter from "../../../src/logging/rotating-file-writer";
 
 test("writes structured log lines at or above the configured level", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-app-logger-"));
@@ -122,5 +123,126 @@ test("cleans expired rotated logs while keeping fresh files", async () => {
   await expect(stat(freshLog)).resolves.toBeDefined();
   await expect(stat(staleLog)).rejects.toThrow();
 
+  await rm(dir, { recursive: true, force: true });
+});
+
+// --- Bug A: write failures must not reject logger public methods ---
+
+test("logger.info resolves (does not reject) when appendFile rejects", async () => {
+  const fsPromises = await import("node:fs/promises");
+  const appendFileSpy = spyOn(fsPromises, "appendFile").mockRejectedValueOnce(
+    new Error("ENOSPC: no space left on device"),
+  );
+
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-logger-mock-"));
+  const appLog = join(dir, "app.log");
+  const logger = createAppLogger({
+    filePath: appLog,
+    level: "info",
+    maxSizeBytes: 1024,
+    maxFiles: 3,
+    retentionDays: 7,
+  });
+
+  let threw = false;
+  try {
+    await logger.info("test.event", "should not throw even when disk full");
+  } catch {
+    threw = true;
+  }
+  expect(threw).toBe(false);
+
+  appendFileSpy.mockRestore();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("logger emits a one-time console.error note on write failure, not per-call spam", async () => {
+  // Set up temp dir BEFORE mocking so fs operations for dir creation succeed.
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-logger-once-"));
+  const appLog = join(dir, "app.log");
+  const logger = createAppLogger({
+    filePath: appLog,
+    level: "info",
+    maxSizeBytes: 1024,
+    maxFiles: 3,
+    retentionDays: 7,
+  });
+
+  // Now activate mocks — only affects calls made during logger.info invocations.
+  const fsPromises = await import("node:fs/promises");
+  const appendFileSpy = spyOn(fsPromises, "appendFile").mockRejectedValue(
+    new Error("ENOSPC: no space left on device"),
+  );
+  const consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
+
+  // Call 5 times — should only emit one console.error
+  for (let i = 0; i < 5; i++) {
+    await logger.info("test.event", "repeated failure");
+  }
+
+  expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+
+  appendFileSpy.mockRestore();
+  consoleErrorSpy.mockRestore();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("level-filtered no-op writes do not reset the one-time error latch", async () => {
+  // Regression: debug calls at info level early-return without touching disk;
+  // they resolve through the success path and must NOT reset the latch, or a
+  // persistently broken disk with interleaved debug calls would emit one
+  // console.error per failing write instead of one per burst.
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-logger-latch-"));
+  const appLog = join(dir, "app.log");
+  const logger = createAppLogger({
+    filePath: appLog,
+    level: "info",
+    maxSizeBytes: 1024,
+    maxFiles: 3,
+    retentionDays: 7,
+  });
+
+  const fsPromises = await import("node:fs/promises");
+  const appendFileSpy = spyOn(fsPromises, "appendFile").mockRejectedValue(
+    new Error("ENOSPC: no space left on device"),
+  );
+  const consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
+
+  for (let i = 0; i < 3; i++) {
+    await logger.info("test.event", "failing write");
+    await logger.debug("test.noop", "below level — never touches disk");
+  }
+
+  expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
+
+  appendFileSpy.mockRestore();
+  consoleErrorSpy.mockRestore();
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("logger.cleanup() resolves even when cleanupExpiredRotatedLogs throws", async () => {
+  const cleanupSpy = spyOn(rotatingFileWriter, "cleanupExpiredRotatedLogs").mockRejectedValueOnce(
+    new Error("EACCES: permission denied"),
+  );
+
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-logger-cleanup-"));
+  const appLog = join(dir, "app.log");
+  const logger = createAppLogger({
+    filePath: appLog,
+    level: "info",
+    maxSizeBytes: 1024,
+    maxFiles: 3,
+    retentionDays: 7,
+  });
+
+  let threw = false;
+  try {
+    await logger.cleanup();
+  } catch {
+    threw = true;
+  }
+  expect(threw).toBe(false);
+
+  cleanupSpy.mockRestore();
   await rm(dir, { recursive: true, force: true });
 });

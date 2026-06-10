@@ -282,6 +282,8 @@ export interface MessageChannelRuntime {
 
   start(input: ChannelStartInput): Promise<void>;
 
+  stop?(): void | Promise<void>;
+
   createConsumerLock?(options?: ConsumerLockOptions): ConsumerLock;
   configureOrchestration?(callbacks: OrchestrationDeliveryCallbacks): void;
 
@@ -314,7 +316,9 @@ Only interactive channels (WeChat QR-code login) need to run the QR code flow he
 
 ### `logout(): void`
 
-Release credentials, disconnect persistent connections, and clear in-memory sessions. **Must be reentrant** — both daemon shutdown and re-login will call it.
+**Destructive**: remove stored credentials, disconnect persistent connections, and clear in-memory sessions. It is reached only when the user explicitly runs `xacpx logout` — never as part of a normal daemon shutdown. **Must be reentrant.**
+
+One legacy exception: for channels that do **not** implement `stop()`, the daemon shutdown path falls back to `logout()`. If you rely on that fallback, `logout()` must not delete anything the user would have to re-acquire interactively (re-login, re-scan QR). New plugins should implement `stop()` and keep credential removal exclusively in `logout()`.
 
 ### `start(input: ChannelStartInput): Promise<void>`
 
@@ -328,6 +332,10 @@ Requirements:
 - Record key events for any outbound send via `input.logger`, so the user can troubleshoot with `xacpx doctor --verbose` / `app.log`.
 
 `start()` is usually a long-running promise — returning means you have wired up the callbacks, but the message loop can be asynchronous in the background.
+
+### `stop?(): void | Promise<void>`
+
+Optional, **preferred**. Non-destructive shutdown hook: on every daemon shutdown (SIGTERM / Ctrl-C and startup-error cleanup) the registry calls `stop()` when it exists and falls back to `logout()` only when it does not. Release runtime resources here — stop clients, drop `agent` / `quota` / `logger` references, clear queues — but **never touch stored credentials**: a daemon stop or restart must not force the user to log in again. Note that `abortSignal` has usually already fired by the time `stop()` runs, so it is often a small cleanup (or even a no-op).
 
 ### `createConsumerLock?(options?): ConsumerLock`
 
@@ -394,7 +402,7 @@ export interface ChannelStartInput {
 
 The `ChatAgent` interface itself is internal, but the `MessageChannelRuntime` contract only requires you to `await agent.handle(chatKey, text)` for inbound text. It returns no data; the agent calls your send methods within its own callback chain.
 
-> **Important**: Your channel must hold a reference to `agent` / `quota` / `logger` until `logout()` or `abortSignal` fires. They are not passed again after `start()` returns.
+> **Important**: Your channel must hold a reference to `agent` / `quota` / `logger` until `stop()` / `logout()` or `abortSignal` fires. They are not passed again after `start()` returns.
 
 ### 5.1 Internationalization (i18n)
 
@@ -783,10 +791,10 @@ Every plugin command accepts `--restart` / `--no-restart`, and by default asks i
    5.3 channel.start({ agent, abortSignal, quota, logger })
 6. Receive messages: channel → agent.handle(chatKey, text) → router
 7. Send messages: orchestration → channel.notifyTaskCompletion / sendCoordinatorMessage
-8. SIGTERM / SIGINT: abortSignal aborted → channel cleans up itself → channel.stopAll? → daemon exit
+8. SIGTERM / SIGINT: abortSignal aborted → channel cleans up itself → registry.stopAll: channel.stop?() (fallback: logout()) → daemon exit
 ```
 
-`logout()` is triggered only when `xacpx logout` is explicitly invoked; normal exit goes through `abortSignal`.
+Normal exit goes through `abortSignal` plus the non-destructive `stop()`; the destructive `logout()` is triggered only when `xacpx logout` is explicitly invoked — except as the shutdown fallback for legacy channels that do not implement `stop()`.
 
 ### 16.3 Module cache semantics (developer must-read)
 

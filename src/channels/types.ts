@@ -114,9 +114,21 @@ export interface MessageChannelRuntime {
 
   isLoggedIn(): boolean;
   login(): Promise<string>;
+  /**
+   * Destructive credential removal. Reached only via the explicit
+   * `xacpx logout` CLI path — never as part of a normal shutdown.
+   */
   logout(): void;
 
   start(input: ChannelStartInput): Promise<void>;
+
+  /**
+   * Non-destructive shutdown: release runtime resources without touching
+   * stored credentials. Optional for compatibility with already-published
+   * plugin channels; when absent, the registry falls back to `logout()`
+   * (which for those plugins is a benign client stop).
+   */
+  stop?(): void | Promise<void>;
 
   createConsumerLock?(options?: ConsumerLockOptions): ConsumerLock;
 

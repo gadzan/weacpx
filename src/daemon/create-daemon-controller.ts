@@ -120,10 +120,24 @@ function buildSpawnRequest(
 }
 
 function buildWindowsLauncherScript(): string {
+  // Invariant: each -ArgumentList element must reach the child process as ONE
+  // argv entry even when it contains spaces. Windows PowerShell 5.1 builds the
+  // child command line by joining -ArgumentList elements with spaces WITHOUT
+  // quoting them, so a cli.js path like `C:\Users\John Doe\...\cli.js` would
+  // split into multiple argv entries (node then exits MODULE_NOT_FOUND).
+  // Wrap each element in explicit double quotes here, in PowerShell, where no
+  // further escaping layer applies (the script travels via -EncodedCommand and
+  // the values via env vars). Windows paths cannot contain `"`, and neither
+  // value ends with a trailing backslash (arg0 ends in cli.js, arg1 is "run"),
+  // so plain surrounding quotes are sufficient. -FilePath, -WorkingDirectory
+  // and -RedirectStandard* bind their variable as a single parameter value and
+  // need no quoting.
   const script = [
     "$env:XACPX_DAEMON_RUN = '1'",
+    `$arg0 = '"' + $env:XACPX_DAEMON_ARG0 + '"'`,
+    `$arg1 = '"' + $env:XACPX_DAEMON_ARG1 + '"'`,
     "$process = Start-Process -FilePath $env:XACPX_DAEMON_COMMAND `",
-    "  -ArgumentList @($env:XACPX_DAEMON_ARG0, $env:XACPX_DAEMON_ARG1) `",
+    "  -ArgumentList @($arg0, $arg1) `",
     "  -WorkingDirectory $env:XACPX_DAEMON_CWD `",
     "  -RedirectStandardOutput $env:XACPX_DAEMON_STDOUT `",
     "  -RedirectStandardError $env:XACPX_DAEMON_STDERR `",

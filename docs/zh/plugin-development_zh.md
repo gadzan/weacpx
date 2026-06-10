@@ -282,6 +282,8 @@ export interface MessageChannelRuntime {
 
   start(input: ChannelStartInput): Promise<void>;
 
+  stop?(): void | Promise<void>;
+
   createConsumerLock?(options?: ConsumerLockOptions): ConsumerLock;
   configureOrchestration?(callbacks: OrchestrationDeliveryCallbacks): void;
 
@@ -314,7 +316,9 @@ async login(): Promise<string> {
 
 ### `logout(): void`
 
-释放凭据、断开持久连接、清空内存里的会话。**必须可重入**——daemon shutdown / 重新登录都会调到。
+**破坏性操作**：删除已保存的凭据、断开持久连接、清空内存里的会话。只有用户显式执行 `xacpx logout` 才会走到这里——正常的 daemon shutdown 不会调用它。**必须可重入。**
+
+唯一的遗留例外：频道**没有**实现 `stop()` 时，daemon 关停路径会回退调用 `logout()`。如果你依赖这个回退，`logout()` 里就不能删除任何需要用户重新交互获取的东西（重新登录、重新扫码）。新插件应实现 `stop()`，并把凭据删除逻辑只放在 `logout()` 里。
 
 ### `start(input: ChannelStartInput): Promise<void>`
 
@@ -328,6 +332,10 @@ async login(): Promise<string> {
 - 任何外发都通过 `input.logger` 记录关键事件，方便用户用 `xacpx doctor --verbose` / `app.log` 排查。
 
 `start()` 通常是个长运行 promise——返回时意味着你已经 wire 好回调，但消息循环可以是后台异步。
+
+### `stop?(): void | Promise<void>`
+
+可选，**推荐实现**。非破坏性的关停钩子：每次 daemon 关停（SIGTERM / Ctrl-C 以及启动失败的 cleanup）时，registry 优先调用 `stop()`，只有它不存在时才回退到 `logout()`。在这里释放运行时资源——停掉客户端、丢弃 `agent` / `quota` / `logger` 引用、清队列——但**绝不能动磁盘上的凭据**：daemon 停止或重启不应迫使用户重新登录。注意 `stop()` 执行时 `abortSignal` 通常已经触发过，所以它往往只是一小段收尾（甚至可以是 no-op）。
 
 ### `createConsumerLock?(options?): ConsumerLock`
 
@@ -394,7 +402,7 @@ export interface ChannelStartInput {
 
 `ChatAgent` 接口本身在内部，但通过 `MessageChannelRuntime` 的契约只要求你把入站文本 `await agent.handle(chatKey, text)` 即可。返回不带数据；agent 会在自己的回调链里调你的发送方法。
 
-> **重要**：你的频道要持有一份 `agent` / `quota` / `logger` 引用直到 `logout()` 或 `abortSignal` 触发。`start()` 返回后这些不会再传一次。
+> **重要**：你的频道要持有一份 `agent` / `quota` / `logger` 引用直到 `stop()` / `logout()` 或 `abortSignal` 触发。`start()` 返回后这些不会再传一次。
 
 ### 5.1 国际化（i18n）
 
@@ -783,10 +791,10 @@ CLI 不会自动 disable 出错的插件——需要用户手工 `xacpx plugin d
    5.3 channel.start({ agent, abortSignal, quota, logger })
 6. 收消息：channel → agent.handle(chatKey, text) → router
 7. 出消息：orchestration → channel.notifyTaskCompletion / sendCoordinatorMessage
-8. SIGTERM / SIGINT：abortSignal aborted → channel 自己 cleanup → channel.stopAll? → daemon exit
+8. SIGTERM / SIGINT：abortSignal aborted → channel 自己 cleanup → registry.stopAll：channel.stop?()（回退：logout()）→ daemon exit
 ```
 
-`logout()` 只在 `xacpx logout` 显式调用时被触发；正常退出走 `abortSignal`。
+正常退出走 `abortSignal` 加非破坏性的 `stop()`；破坏性的 `logout()` 只在 `xacpx logout` 显式调用时被触发——唯一例外是没有实现 `stop()` 的遗留频道，关停时会回退到 `logout()`。
 
 ### 16.3 模块缓存语义（开发者必读）
 

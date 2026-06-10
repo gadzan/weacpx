@@ -141,6 +141,53 @@ test("uses a hidden powershell launcher when spawning the daemon on win32", asyn
   await rm(runtimeDir, { recursive: true, force: true });
 });
 
+test("quotes Start-Process arguments so install paths with spaces survive on win32", async () => {
+  const runtimeDir = await mkdtemp(join(tmpdir(), "weacpx-daemon-factory-"));
+  const paths = createPaths(runtimeDir);
+  const spawnCalls: Array<{
+    command: string;
+    args: string[];
+    options: Record<string, unknown>;
+  }> = [];
+
+  const controller = createDaemonController(paths, {
+    processExecPath: "C:\\Program Files\\nodejs\\node.exe",
+    cliEntryPath: "C:\\Users\\John Doe\\AppData\\Roaming\\npm\\node_modules\\xacpx\\dist\\cli.js",
+    cwd: "C:\\Users\\John Doe\\project",
+    env: {},
+    platform: "win32",
+    spawnProcess: async ({ command, args, options }) => {
+      spawnCalls.push({ command, args, options });
+      await writeReadyStatus(paths.statusFile, 87654);
+      return 87654;
+    },
+    isProcessRunning: (pid) => pid === 87654,
+    terminateProcess: async () => {},
+  });
+
+  await controller.start();
+
+  // Paths with spaces travel verbatim through env vars (never through the
+  // command line of the powershell process itself).
+  const env = (spawnCalls[0]!.options as { env: Record<string, string> }).env;
+  expect(env.XACPX_DAEMON_COMMAND).toBe("C:\\Program Files\\nodejs\\node.exe");
+  expect(env.XACPX_DAEMON_ARG0).toBe("C:\\Users\\John Doe\\AppData\\Roaming\\npm\\node_modules\\xacpx\\dist\\cli.js");
+  expect(env.XACPX_DAEMON_ARG1).toBe("run");
+
+  const encodedIndex = spawnCalls[0]!.args.indexOf("-EncodedCommand") + 1;
+  const launcherScript = Buffer.from(spawnCalls[0]!.args[encodedIndex]!, "base64").toString("utf16le");
+  // Windows PowerShell 5.1's Start-Process joins -ArgumentList elements with
+  // spaces WITHOUT quoting them, so each element must carry its own embedded
+  // double quotes to reach the child as a single argv entry. Pin the exact
+  // quoting construction so it cannot regress to bare $env: references.
+  expect(launcherScript).toContain(`$arg0 = '"' + $env:XACPX_DAEMON_ARG0 + '"'`);
+  expect(launcherScript).toContain(`$arg1 = '"' + $env:XACPX_DAEMON_ARG1 + '"'`);
+  expect(launcherScript).toContain("-ArgumentList @($arg0, $arg1)");
+  expect(launcherScript).not.toContain("-ArgumentList @($env:XACPX_DAEMON_ARG0");
+
+  await rm(runtimeDir, { recursive: true, force: true });
+});
+
 test("returns as soon as the hidden windows launcher prints a pid", async () => {
   const runtimeDir = await mkdtemp(join(tmpdir(), "weacpx-daemon-factory-"));
   const paths = createPaths(runtimeDir);

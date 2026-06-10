@@ -47,13 +47,17 @@ export async function reapQueueOwners(
   const timeoutMs = deps.timeoutMs ?? 5_000;
 
   // Several aliases can share one transport session; the queue owner is per
-  // session record, so dedup by name to avoid redundant resolves/kills.
+  // session record, so dedup by composite identity to avoid redundant resolves/kills.
+  // Two targets that share a session *name* but differ in cwd or agent resolve to
+  // different acpx records (different queue owners) and must both be reaped.
+  // Use JSON.stringify so cwd values with arbitrary characters cannot collide.
   const seen = new Set<string>();
   const unique = targets.filter((target) => {
-    if (seen.has(target.transportSession)) {
+    const key = JSON.stringify([target.agent, target.agentCommand ?? null, target.cwd, target.transportSession]);
+    if (seen.has(key)) {
       return false;
     }
-    seen.add(target.transportSession);
+    seen.add(key);
     return true;
   });
 

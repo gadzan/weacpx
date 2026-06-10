@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 
 import type { NonInteractivePermissions, PermissionMode, WechatReplyMode } from "../config/types";
 import { resolveSpawnCommand } from "../process/spawn-command";
+import { terminateProcessTree } from "../process/terminate-process-tree";
 import { getPromptText } from "../transport/prompt-output";
 import { createStructuredPromptFile } from "../transport/prompt-media";
 import { createStreamingPromptState, parseStreamingDataChunk } from "../transport/streaming-prompt";
@@ -47,8 +48,20 @@ interface CommandResult {
   stderr: string;
 }
 
+/** Mirrors the acpx-cli transport's `sessionInitTimeoutMs ?? 120_000` default. */
+const DEFAULT_SESSION_INIT_TIMEOUT_MS = 120_000;
+
+export class CommandTimeoutError extends Error {
+  constructor(readonly timeoutMs: number, command: string) {
+    super(`acpx command timed out after ${timeoutMs / 1000}s: ${command}`);
+    this.name = "CommandTimeoutError";
+  }
+}
+
 export interface CommandRunnerOptions {
   onStderrLine?: (line: string) => void;
+  /** Kill the spawned process tree and reject with CommandTimeoutError when it runs longer than this. */
+  timeoutMs?: number;
 }
 type CommandRunner = (command: string, args: string[], options?: CommandRunnerOptions) => Promise<CommandResult>;
 type SessionCreateRunner = (command: string, args: string[], cwd: string, options?: CommandRunnerOptions) => Promise<CommandResult>;
@@ -99,6 +112,8 @@ interface BridgeRuntimeOptions {
   permissionPolicy?: string;
   /** Idle TTL (seconds) passed to acpx as `--ttl` on prompt; 0 = keep alive forever. */
   queueOwnerTtlSeconds?: number;
+  /** Time bound for session-creation spawns (ensure/new/resume); defaults to 120s like acpx-cli. */
+  sessionInitTimeoutMs?: number;
 }
 
 export class BridgeRuntime {
@@ -174,11 +189,27 @@ export class BridgeRuntime {
       "--resume-session",
       input.agentSessionId,
     ], { format: "quiet" }));
-    const result = await this.runSessionCreate(spawnSpec.command, spawnSpec.args, input.cwd);
+    const timeoutMs = this.sessionInitTimeoutMs();
+    let result: CommandResult;
+    try {
+      result = await this.runSessionCreate(spawnSpec.command, spawnSpec.args, input.cwd, { timeoutMs });
+    } catch (error) {
+      if (error instanceof CommandTimeoutError) {
+        throw new Error(`session initialization timed out after ${timeoutMs / 1000}s`);
+      }
+      throw error;
+    }
     if (result.code !== 0) {
       throw new Error(result.stderr || result.stdout || "sessions resume failed");
     }
     return {};
+  }
+
+  private sessionInitTimeoutMs(): number {
+    const value = this.options.sessionInitTimeoutMs;
+    return typeof value === "number" && Number.isFinite(value) && value > 0
+      ? value
+      : DEFAULT_SESSION_INIT_TIMEOUT_MS;
   }
 
   async hasSession(input: {
@@ -231,6 +262,7 @@ export class BridgeRuntime {
     onProgress?: (progress: EnsureSessionProgress) => void,
   ): Promise<Record<string, never>> {
     onProgress?.("spawn");
+    const timeoutMs = this.sessionInitTimeoutMs();
     const onStderrLine = onProgress
       ? (line: string) => {
           const trimmed = line.replace(/\r$/, "").trimEnd();
@@ -243,30 +275,43 @@ export class BridgeRuntime {
       tailArgs: string[],
       runner: (command: string, args: string[]) => Promise<CommandResult>,
     ): Promise<CommandResult> => {
-      const useVerbose = this.acpxVerboseSupported !== false;
-      const spec = resolveSpawnCommand(
-        this.command,
-        this.buildSessionArgs(input, tailArgs, { verbose: useVerbose }),
-      );
-      const result = await runner(spec.command, spec.args);
-      if (result.code === 0) {
-        if (useVerbose) this.acpxVerboseSupported = true;
-        return result;
-      }
-      if (useVerbose && isUnknownVerboseOption(result.stderr, result.stdout)) {
-        this.acpxVerboseSupported = false;
-        const retrySpec = resolveSpawnCommand(
+      try {
+        const useVerbose = this.acpxVerboseSupported !== false;
+        const spec = resolveSpawnCommand(
           this.command,
-          this.buildSessionArgs(input, tailArgs, { verbose: false }),
+          this.buildSessionArgs(input, tailArgs, { verbose: useVerbose }),
         );
-        return await runner(retrySpec.command, retrySpec.args);
+        const result = await runner(spec.command, spec.args);
+        if (result.code === 0) {
+          if (useVerbose) this.acpxVerboseSupported = true;
+          return result;
+        }
+        if (useVerbose && isUnknownVerboseOption(result.stderr, result.stdout)) {
+          this.acpxVerboseSupported = false;
+          const retrySpec = resolveSpawnCommand(
+            this.command,
+            this.buildSessionArgs(input, tailArgs, { verbose: false }),
+          );
+          return await runner(retrySpec.command, retrySpec.args);
+        }
+        return result;
+      } catch (error) {
+        // Agent init hung (auth prompt, network stall): the spawn was already
+        // killed by the runner; surface a clear, user-facing error instead of
+        // blocking this session's bridge lane forever.
+        if (error instanceof CommandTimeoutError) {
+          throw new EnsureSessionFailedError(
+            `session initialization timed out after ${timeoutMs / 1000}s`,
+            "generic",
+          );
+        }
+        throw error;
       }
-      return result;
     };
 
     const ensured = await runWithVerboseFallback(
       ["sessions", "ensure", "--name", input.name],
-      (command, args) => this.run(command, args, { onStderrLine }),
+      (command, args) => this.run(command, args, { onStderrLine, timeoutMs }),
     );
     if (ensured.code === 0) {
       onProgress?.("ready");
@@ -283,7 +328,7 @@ export class BridgeRuntime {
     onProgress?.("initializing");
     const created = await runWithVerboseFallback(
       ["sessions", "new", "--name", input.name],
-      (command, args) => this.runSessionCreate(command, args, input.cwd, { onStderrLine }),
+      (command, args) => this.runSessionCreate(command, args, input.cwd, { onStderrLine, timeoutMs }),
     );
 
     if (created.code === 0) {
@@ -570,18 +615,39 @@ export class BridgeRuntime {
   }
 }
 
-function spawnCapture(
+export interface SpawnCaptureOptions extends CommandRunnerOptions {
+  cwd?: string;
+  /** Test seam: replaces node:child_process spawn. */
+  spawnFn?: typeof spawn;
+  /** Test seam: replaces terminateProcessTree for timeout kills. */
+  killProcessTreeFn?: (pid: number) => Promise<void>;
+}
+
+export function spawnCapture(
   command: string,
   args: string[],
-  options?: { cwd?: string; onStderrLine?: (line: string) => void },
+  options?: SpawnCaptureOptions,
 ): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: options?.cwd, stdio: ["ignore", "pipe", "pipe"] });
+    const spawnFn = options?.spawnFn ?? spawn;
+    const child = spawnFn(command, args, { cwd: options?.cwd, stdio: ["ignore", "pipe", "pipe"] });
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     let stdout = "";
     let stderr = "";
     let stderrTail = "";
+
+    const timeoutId =
+      typeof options?.timeoutMs === "number" && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
+        ? setTimeout(() => {
+            // Same kill semantics as the acpx-cli transport's timed-out runner:
+            // tear down the whole spawned tree so no orphan keeps holding the lane.
+            const kill = options.killProcessTreeFn
+              ?? ((pid: number) => terminateProcessTree(pid, { detachedProcessGroup: false }));
+            void kill(child.pid ?? 0);
+            reject(new CommandTimeoutError(options.timeoutMs!, [command, ...args].join(" ")));
+          }, options.timeoutMs)
+        : undefined;
 
     child.stdout.on("data", (chunk) => {
       stdout += String(chunk);
@@ -599,8 +665,12 @@ function spawnCapture(
         options.onStderrLine(line);
       }
     });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      if (timeoutId) clearTimeout(timeoutId);
+      reject(error);
+    });
     child.on("close", (code) => {
+      if (timeoutId) clearTimeout(timeoutId);
       if (options?.onStderrLine && stderrTail.length > 0) {
         options.onStderrLine(stderrTail);
       }
@@ -709,7 +779,7 @@ async function shellSessionCreateRunner(
   cwd: string,
   options?: CommandRunnerOptions,
 ): Promise<CommandResult> {
-  return await spawnCapture(command, args, { cwd, onStderrLine: options?.onStderrLine });
+  return await spawnCapture(command, args, { ...options, cwd });
 }
 
 export function selectLatestAcpxSessionIndexTmp(files: string[]): string | null {

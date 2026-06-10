@@ -12,6 +12,21 @@ export function normalizeBridgeNonInteractivePermissions(
   return value === "deny" || value === "fail" ? value : "deny";
 }
 
+export function normalizeBridgePermissionPolicy(value: string | undefined): string | undefined {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return undefined;
+  }
+  return value;
+}
+
+export function normalizeBridgeSessionInitTimeoutMs(value: string | undefined): number | undefined {
+  if (value === undefined || value.trim().length === 0) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 export function normalizeBridgeQueueOwnerTtlSeconds(value: string | undefined): number | undefined {
   if (value === undefined) {
     return undefined;

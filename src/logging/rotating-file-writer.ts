@@ -69,7 +69,17 @@ export async function cleanupExpiredRotatedLogs(
     }
 
     const candidate = join(parentDir, file);
-    const details = await stat(candidate);
+    let details;
+    try {
+      details = await stat(candidate);
+    } catch (error) {
+      if (isMissingFileError(error)) {
+        // File was removed between readdir and stat (race with another process
+        // or manual deletion) — skip silently.
+        continue;
+      }
+      throw error;
+    }
     if (details.mtime.getTime() < cutoff) {
       await rm(candidate, { force: true });
     }

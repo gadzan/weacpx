@@ -77,6 +77,8 @@ export const session: SessionMessages = {
   sessionRemoved: (alias) => `Session "${alias}" removed.`,
   sessionRemovedWasActive:
     "This was the active session. Its chat context has been cleared.",
+  sessionRemovedWasActivePromoted: (alias) =>
+    `This was the active session. Switched back to the previous session "${alias}".`,
   sessionTransportShared: (transportSession, count) =>
     `Note: backend session "${transportSession}" is still referenced by ${count} other session(s) and was not closed.`,
   sessionOrchestrationPurgeFailed: (warning) =>

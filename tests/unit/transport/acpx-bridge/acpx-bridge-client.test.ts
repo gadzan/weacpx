@@ -1,9 +1,17 @@
 import { describe, expect, test } from "bun:test";
+import { EventEmitter } from "node:events";
+import { PassThrough } from "node:stream";
 
 import {
   AcpxBridgeClient,
+  buildBridgeSpawnEnv,
   buildBridgeSpawnSpec,
+  manageBridgeChild,
 } from "../../../../src/transport/acpx-bridge/acpx-bridge-client";
+import {
+  normalizeBridgePermissionPolicy,
+  normalizeBridgeSessionInitTimeoutMs,
+} from "../../../../src/bridge/bridge-env";
 import { encodeBridgeRequest } from "../../../../src/transport/acpx-bridge/acpx-bridge-protocol";
 import { PromptCommandError } from "../../../../src/transport/prompt-output";
 import { MissingOptionalDepError } from "../../../../src/recovery/errors";
@@ -125,15 +133,95 @@ test("rejects new requests after the bridge exits", async () => {
   await expect(client.request("ping", {})).rejects.toThrow("bridge exited");
 });
 
-test("rejects requests when the writer signals backpressure", async () => {
+test("keeps the request pending when the writer signals backpressure (write returned false)", async () => {
+  // Writable.write returning false means "queued above the high-water mark" —
+  // the line is still delivered, so the request must NOT fail.
   const writes: string[] = [];
   const client = new AcpxBridgeClient((line) => {
     writes.push(line);
     return false;
   });
 
-  await expect(client.request("ping", {})).rejects.toThrow("bridge write buffer is full");
+  const pending = client.request("ping", {});
+  client.handleLine('{"id":"1","ok":true,"result":{}}');
+
+  await expect(pending).resolves.toEqual({});
   expect(writes).toEqual(['{"id":"1","method":"ping","params":{}}\n']);
+});
+
+test("rejects the request when the write callback reports a real write error", async () => {
+  const client = new AcpxBridgeClient((_line, onWriteError) => {
+    onWriteError?.(new Error("write EPIPE"));
+    return false;
+  });
+
+  await expect(client.request("ping", {})).rejects.toThrow("write EPIPE");
+});
+
+test("a late write-callback error after the response resolved is ignored", async () => {
+  let reportError: ((error?: Error | null) => void) | undefined;
+  const client = new AcpxBridgeClient((_line, onWriteError) => {
+    reportError = onWriteError;
+  });
+
+  const pending = client.request("ping", {});
+  client.handleLine('{"id":"1","ok":true,"result":{}}');
+  await expect(pending).resolves.toEqual({});
+
+  expect(() => reportError?.(new Error("write EPIPE"))).not.toThrow();
+});
+
+test("survives an 'error' event on the bridge stdin and keeps serving requests", async () => {
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const child = Object.assign(new EventEmitter(), { stdin, stdout, pid: 12345 });
+
+  const client = manageBridgeChild(child);
+
+  // Per Node stream semantics a failed write is reported through the write
+  // callback AND as an 'error' event on the stream. Without a listener the
+  // event becomes an uncaught exception that kills the daemon.
+  expect(() => stdin.emit("error", new Error("write EPIPE"))).not.toThrow();
+
+  // The client must keep functioning after the stdin error.
+  const pending = client.request("ping", {});
+  stdout.write('{"id":"1","ok":true,"result":{}}\n');
+  await expect(pending).resolves.toEqual({});
+});
+
+test("includes the permission policy in the bridge spawn env and round-trips it", () => {
+  const env = buildBridgeSpawnEnv({ permissionPolicy: "C:/policies/weacpx-policy.json" });
+
+  expect(env.XACPX_BRIDGE_PERMISSION_POLICY).toBe("C:/policies/weacpx-policy.json");
+  expect(normalizeBridgePermissionPolicy(env.XACPX_BRIDGE_PERMISSION_POLICY)).toBe(
+    "C:/policies/weacpx-policy.json",
+  );
+});
+
+test("includes the session init timeout in the bridge spawn env and round-trips it", () => {
+  const env = buildBridgeSpawnEnv({ sessionInitTimeoutMs: 120_000 });
+
+  expect(env.XACPX_BRIDGE_SESSION_INIT_TIMEOUT_MS).toBe("120000");
+  expect(normalizeBridgeSessionInitTimeoutMs(env.XACPX_BRIDGE_SESSION_INIT_TIMEOUT_MS)).toBe(120_000);
+});
+
+test("omits the session init timeout from the bridge spawn env when unset or invalid", () => {
+  expect("XACPX_BRIDGE_SESSION_INIT_TIMEOUT_MS" in buildBridgeSpawnEnv({})).toBe(false);
+  expect(
+    "XACPX_BRIDGE_SESSION_INIT_TIMEOUT_MS" in buildBridgeSpawnEnv({ sessionInitTimeoutMs: Number.NaN }),
+  ).toBe(false);
+  expect(
+    "XACPX_BRIDGE_SESSION_INIT_TIMEOUT_MS" in buildBridgeSpawnEnv({ sessionInitTimeoutMs: 0 }),
+  ).toBe(false);
+});
+
+test("omits the permission policy from the bridge spawn env when unset", () => {
+  const env = buildBridgeSpawnEnv({});
+
+  expect("XACPX_BRIDGE_PERMISSION_POLICY" in env).toBe(false);
+  expect(env.XACPX_BRIDGE_PERMISSION_MODE).toBe("approve-all");
+  expect(env.XACPX_BRIDGE_NON_INTERACTIVE_PERMISSIONS).toBe("deny");
+  expect(env.XACPX_BRIDGE_ACPX_COMMAND).toBe("acpx");
 });
 
 describe("AcpxBridgeClient", () => {

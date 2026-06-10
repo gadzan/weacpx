@@ -63,6 +63,7 @@ export interface SessionMessages {
   sessionBlockedByTasksHint: string;
   sessionRemoved: (alias: string) => string;
   sessionRemovedWasActive: string;
+  sessionRemovedWasActivePromoted: (alias: string) => string;
   sessionTransportShared: (transportSession: string, count: number) => string;
   sessionOrchestrationPurgeFailed: (warning: string) => string;
   sessionTransportTeardownFailed: (warning: string) => string;
@@ -1196,12 +1197,6 @@ export interface WeixinMessages {
 
   // /clear
   sessionCleared: string;
-
-  // /logout — no accounts
-  noAccountsLoggedIn: string;
-
-  // /logout — success
-  logoutSuccess: string;
 
   // handleSlashCommand — command execution error
   commandFailed: (detail: string) => string;

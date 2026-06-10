@@ -15,7 +15,10 @@ import { terminateProcessTree } from "../../process/terminate-process-tree";
 import type { ToolUseEvent } from "../../channels/types.js";
 import { getLocale } from "../../i18n";
 
-type WriteLine = (line: string) => boolean | void;
+// `boolean | void` return mirrors Writable.write: `false` only signals
+// backpressure (the line is still queued and delivered), never failure.
+// Real write failures are reported through the optional callback.
+type WriteLine = (line: string, onWriteError?: (error?: Error | null) => void) => boolean | void;
 
 export type BridgeEvent =
   | { type: "prompt.segment"; text: string }
@@ -57,18 +60,21 @@ export class AcpxBridgeClient {
       });
 
       try {
-        const didWrite = this.writeLine(
+        // A `false` return only signals backpressure (the line is still
+        // queued and delivered), so it is deliberately ignored here. Only a
+        // real write error — reported via the callback — fails the request.
+        this.writeLine(
           encodeBridgeRequest({
             id,
             method,
             params,
           }),
+          (error) => {
+            if (error && this.pending.delete(id)) {
+              reject(error);
+            }
+          },
         );
-
-        if (didWrite === false) {
-          this.pending.delete(id);
-          reject(new Error("bridge write buffer is full"));
-        }
       } catch (error) {
         this.pending.delete(id);
         reject(error);
@@ -173,7 +179,31 @@ interface SpawnedBridgeClientOptions {
   cwd?: string;
   permissionMode?: string;
   nonInteractivePermissions?: string;
+  permissionPolicy?: string;
   queueOwnerTtlSeconds?: number;
+  sessionInitTimeoutMs?: number;
+}
+
+export function buildBridgeSpawnEnv(
+  options: SpawnedBridgeClientOptions = {},
+): Record<string, string> {
+  return {
+    XACPX_LANG: getLocale(),
+    XACPX_BRIDGE_ACPX_COMMAND: options.acpxCommand ?? "acpx",
+    XACPX_BRIDGE_PERMISSION_MODE: options.permissionMode ?? "approve-all",
+    XACPX_BRIDGE_NON_INTERACTIVE_PERMISSIONS: options.nonInteractivePermissions ?? "deny",
+    ...(typeof options.permissionPolicy === "string" && options.permissionPolicy.trim().length > 0
+      ? { XACPX_BRIDGE_PERMISSION_POLICY: options.permissionPolicy }
+      : {}),
+    ...(typeof options.queueOwnerTtlSeconds === "number" && Number.isFinite(options.queueOwnerTtlSeconds)
+      ? { XACPX_BRIDGE_QUEUE_OWNER_TTL_SECONDS: String(options.queueOwnerTtlSeconds) }
+      : {}),
+    ...(typeof options.sessionInitTimeoutMs === "number"
+      && Number.isFinite(options.sessionInitTimeoutMs)
+      && options.sessionInitTimeoutMs > 0
+      ? { XACPX_BRIDGE_SESSION_INIT_TIMEOUT_MS: String(options.sessionInitTimeoutMs) }
+      : {}),
+  };
 }
 
 export function buildBridgeSpawnSpec(options: {
@@ -206,18 +236,44 @@ export async function spawnAcpxBridgeClient(
     cwd: options.cwd ?? process.cwd(),
     env: {
       ...process.env,
-      XACPX_LANG: getLocale(),
-      XACPX_BRIDGE_ACPX_COMMAND: options.acpxCommand ?? "acpx",
-      XACPX_BRIDGE_PERMISSION_MODE: options.permissionMode ?? "approve-all",
-      XACPX_BRIDGE_NON_INTERACTIVE_PERMISSIONS: options.nonInteractivePermissions ?? "deny",
-      ...(typeof options.queueOwnerTtlSeconds === "number" && Number.isFinite(options.queueOwnerTtlSeconds)
-        ? { XACPX_BRIDGE_QUEUE_OWNER_TTL_SECONDS: String(options.queueOwnerTtlSeconds) }
-        : {}),
+      ...buildBridgeSpawnEnv(options),
     },
     stdio: ["pipe", "pipe", "inherit"],
   });
 
-  const client = new AcpxBridgeClient((line) => child.stdin.write(line)) as ManagedBridgeClient;
+  const client = manageBridgeChild(child);
+  await client.waitUntilReady();
+  return client;
+}
+
+/**
+ * Minimal child-process surface needed by manageBridgeChild; lets tests drive a
+ * fake child without spawning a real bridge process.
+ */
+export interface BridgeChildProcess {
+  pid?: number | undefined;
+  stdin: {
+    write(chunk: string, callback?: (error?: Error | null) => void): boolean;
+    end(): void;
+    on(event: "error", listener: (error: Error) => void): unknown;
+  };
+  stdout: NodeJS.ReadableStream;
+  on(event: "exit", listener: () => void): unknown;
+  on(event: "error", listener: (error: Error) => void): unknown;
+}
+
+/** Wire a spawned bridge child process into a managed bridge client. */
+export function manageBridgeChild(child: BridgeChildProcess): ManagedBridgeClient {
+  const client = new AcpxBridgeClient(
+    (line, onWriteError) => child.stdin.write(line, onWriteError),
+  ) as ManagedBridgeClient;
+
+  // Per Node stream semantics a failed stdin write is reported through the
+  // write callback (which rejects the pending request) AND as an 'error' event
+  // on the stream. Without a listener that event becomes an uncaught exception
+  // that kills the daemon; bridge death itself is handled by the 'exit' handler.
+  child.stdin.on("error", () => {});
+
   const output = createInterface({
     input: child.stdout,
     crlfDelay: Infinity,
@@ -231,7 +287,7 @@ export async function spawnAcpxBridgeClient(
     output.close();
     client.handleExit(new Error("bridge process exited before responding"));
   });
-  child.on("error", (error) => {
+  child.on("error", (error: Error) => {
     client.handleExit(error);
   });
 
@@ -247,7 +303,6 @@ export async function spawnAcpxBridgeClient(
     }
   };
 
-  await client.waitUntilReady();
   return client;
 }
 

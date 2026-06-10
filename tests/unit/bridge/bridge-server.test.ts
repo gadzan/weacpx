@@ -1487,6 +1487,92 @@ test("bridge-server serializes structured missing_optional_dep error", async () 
   expect(parsed.error.data.package).toBe("opencode-windows-x64");
 });
 
+test("forwards permissionPolicy through the updatePermissionPolicy dispatch", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const runtime = {
+    updatePermissionPolicy: async (policy: Record<string, unknown>) => {
+      calls.push(policy);
+      return {};
+    },
+  } as unknown as BridgeRuntime;
+  const server = new BridgeServer(runtime);
+
+  await expect(server.handleLine(JSON.stringify({
+    id: "policy-fwd",
+    method: "updatePermissionPolicy",
+    params: {
+      permissionMode: "approve-reads",
+      nonInteractivePermissions: "deny",
+      permissionPolicy: "C:/policies/weacpx-policy.json",
+    },
+  }))).resolves.toBe('{"id":"policy-fwd","ok":true,"result":{}}\n');
+
+  expect(calls).toEqual([
+    {
+      permissionMode: "approve-reads",
+      nonInteractivePermissions: "deny",
+      permissionPolicy: "C:/policies/weacpx-policy.json",
+    },
+  ]);
+});
+
+test("clears permissionPolicy when the updatePermissionPolicy request omits it", async () => {
+  const calls: Array<Record<string, unknown>> = [];
+  const runtime = {
+    updatePermissionPolicy: async (policy: Record<string, unknown>) => {
+      calls.push(policy);
+      return {};
+    },
+  } as unknown as BridgeRuntime;
+  const server = new BridgeServer(runtime);
+
+  await expect(server.handleLine(JSON.stringify({
+    id: "policy-clear",
+    method: "updatePermissionPolicy",
+    params: {
+      permissionMode: "approve-all",
+      nonInteractivePermissions: "deny",
+    },
+  }))).resolves.toBe('{"id":"policy-clear","ok":true,"result":{}}\n');
+
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.permissionPolicy).toBeUndefined();
+});
+
+test("applies a permissionPolicy received over ndjson to later runtime commands", async () => {
+  const calls: string[][] = [];
+  const runtime = new BridgeRuntime(
+    "acpx",
+    async (_command, args) => {
+      calls.push(args);
+      return { code: 0, stdout: "ok", stderr: "" };
+    },
+  );
+  const server = new BridgeServer(runtime);
+
+  await server.handleLine(JSON.stringify({
+    id: "policy-apply",
+    method: "updatePermissionPolicy",
+    params: {
+      permissionMode: "approve-all",
+      nonInteractivePermissions: "deny",
+      permissionPolicy: "C:/policies/weacpx-policy.json",
+    },
+  }));
+  await runtime.prompt({
+    agent: "codex",
+    cwd: "/repo",
+    name: "demo",
+    text: "hello",
+  });
+
+  expect(calls).toHaveLength(1);
+  const args = calls[0]!;
+  const flagIndex = args.indexOf("--permission-policy");
+  expect(flagIndex).toBeGreaterThan(-1);
+  expect(args[flagIndex + 1]).toBe("C:/policies/weacpx-policy.json");
+});
+
 test("updates bridge runtime permission policy for later commands", async () => {
   const calls: string[][] = [];
   const runtime = new BridgeRuntime(
