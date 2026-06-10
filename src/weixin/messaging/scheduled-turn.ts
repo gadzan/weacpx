@@ -190,9 +190,13 @@ export async function executeScheduledTurn(
     let sent = 0;
     for (let index = 0; index < wave.length; index += 1) {
       if (!deps.reserveFinal(quotaKey)) {
+        // With a pending-final queue the remaining chunks are parked below,
+        // not dropped — label the log accordingly.
         await deps.logger.info(
-          "scheduled.final_dropped",
-          "scheduled turn final response dropped due to quota",
+          deps.enqueuePendingFinal ? "scheduled.final_parked" : "scheduled.final_dropped",
+          deps.enqueuePendingFinal
+            ? "scheduled turn final response parked due to quota"
+            : "scheduled turn final response dropped due to quota",
           { chatKey: input.chatKey, reason: "quota_exhausted", chunk: index + 1, total },
         );
         break;
