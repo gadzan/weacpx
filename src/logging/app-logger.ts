@@ -47,6 +47,9 @@ export function createAppLogger(options: CreateAppLoggerOptions): AppLogger {
   const now = options.now ?? (() => new Date());
   let writeChain = Promise.resolve();
   let modeEnsured = false;
+  // Latch: emit at most one console.error when the log file becomes unwritable.
+  // Reset if a subsequent write succeeds (file may have been restored).
+  let writeErrorLatched = false;
 
   return {
     debug: async (event, message, context) => {
@@ -59,7 +62,13 @@ export function createAppLogger(options: CreateAppLoggerOptions): AppLogger {
       await enqueueWrite("error", event, message, context);
     },
     cleanup: async () => {
-      await cleanupExpiredRotatedLogs(options.filePath, options.retentionDays, now);
+      try {
+        await cleanupExpiredRotatedLogs(options.filePath, options.retentionDays, now);
+      } catch {
+        // Cleanup failures must not abort the daemon. The rotating writer
+        // already tolerates ENOENT; other transient errors (EACCES, etc.)
+        // are silenced here so startup continues unaffected.
+      }
     },
     flush: async () => {
       await writeChain;
@@ -72,7 +81,29 @@ export function createAppLogger(options: CreateAppLoggerOptions): AppLogger {
     message: string,
     context: LogContext = {},
   ): Promise<void> {
-    const writePromise = writeChain.catch(() => {}).then(() => writeLog(level, event, message, context));
+    // The resolved promise handed back to the caller must never reject.
+    // We catch write errors internally and degrade gracefully (emit a
+    // one-time operator notice, then silently drop further failures).
+    const writePromise = writeChain
+      .catch(() => {})
+      .then(() => writeLog(level, event, message, context))
+      .then(
+        () => {
+          // A successful write clears the latch so the next failure is
+          // visible again (e.g. disk temporarily full then freed).
+          writeErrorLatched = false;
+        },
+        (error: unknown) => {
+          if (!writeErrorLatched) {
+            writeErrorLatched = true;
+            console.error(
+              "[xacpx] app-logger: log file write failed — further write errors will be suppressed.",
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+          // Swallow the error: callers must not be affected by log I/O failures.
+        },
+      );
     writeChain = writePromise;
     return writePromise;
   }
