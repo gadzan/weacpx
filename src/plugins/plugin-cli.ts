@@ -315,7 +315,10 @@ async function removePlugin(packageName: string, rawArgs: string[], deps: Plugin
 
   const pluginHome = deps.pluginHome ?? resolvePluginHome();
   const validate = deps.validateInstalledPlugin ?? ((name: string) => validateInstalledPluginDefault(name, pluginHome));
-  const guard = await dependencyGuard(packageName, config, validate);
+  // Guard and uninstall must target the installed (normalized) package name,
+  // not the raw user input: a legacy alias makes `npm uninstall` a silent
+  // no-op (orphan package) and `bun remove` a hard failure.
+  const guard = await dependencyGuard(existing.name, config, validate);
   if (!guard.allow) {
     if (guard.reason) deps.print(guard.reason);
     return 1;
@@ -325,9 +328,9 @@ async function removePlugin(packageName: string, rawArgs: string[], deps: Plugin
     await removePluginPackage({ packageName: name, pluginHome });
   });
   try {
-    await remove(packageName);
+    await remove(existing.name);
   } catch (error) {
-    deps.print(t().pluginCli.pluginUninstallFailed(packageName, describeError(error)));
+    deps.print(t().pluginCli.pluginUninstallFailed(existing.name, describeError(error)));
     return 1;
   }
 

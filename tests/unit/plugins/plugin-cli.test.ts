@@ -179,12 +179,23 @@ test("plugin rm with legacy name removes the normalized config entry (Bug A)", a
     plugins: [{ name: "@ganglion/xacpx-channel-feishu", enabled: true }],
   }));
   harness.summaries.set("@ganglion/xacpx-channel-feishu", { name: "@ganglion/xacpx-channel-feishu", channels: [] });
+  const validatedNames: string[] = [];
+  const validate = harness.deps.validateInstalledPlugin;
+  harness.deps.validateInstalledPlugin = async (packageName: string) => {
+    validatedNames.push(packageName);
+    return await validate(packageName);
+  };
 
   const code = await handlePluginCli(["rm", "@ganglion/weacpx-channel-feishu"], harness.deps);
 
   expect(code).toBe(0);
   // The normalized config entry must be gone — not just the raw legacy-name entry.
   expect(harness.getConfig().plugins).toEqual([]);
+  // The uninstall and the dependency guard must target the actually installed
+  // (normalized) package: uninstalling the legacy name is a silent no-op with
+  // npm (config gone, package orphaned) and a hard failure with bun.
+  expect(harness.calls).toEqual(["remove:@ganglion/xacpx-channel-feishu"]);
+  expect(validatedNames).toEqual(["@ganglion/xacpx-channel-feishu"]);
 });
 
 test("plugin disable and enable toggle config", async () => {
