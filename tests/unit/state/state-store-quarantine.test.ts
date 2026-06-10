@@ -291,6 +291,80 @@ test("a failing quarantine backup still returns the cleaned state", async () => 
   });
 });
 
+test("inspect() reports dropped records without writing quarantine files", async () => {
+  await withStateDir(async (dir, path) => {
+    const raw = JSON.stringify({
+      sessions: { good: goodSession("good"), bad: { alias: "bad" } },
+      chat_contexts: {},
+    });
+    await Bun.write(path, raw);
+
+    const store = new StateStore(path, { now: () => FIXED_NOW });
+    const inspection = await store.inspect();
+
+    expect(inspection.state.sessions.good).toBeDefined();
+    expect(inspection.state.sessions.bad).toBeUndefined();
+    expect(inspection.report?.dropped).toEqual([
+      { section: "sessions", key: "bad", reason: "malformed session record" },
+    ]);
+    // side-effect-free: no quarantine file, original untouched
+    expect(await readdir(dir)).toEqual(["state.json"]);
+    expect(await readFile(path, "utf8")).toBe(raw);
+  });
+});
+
+test("inspect() reports whole-file corruption without renaming the file", async () => {
+  await withStateDir(async (dir, path) => {
+    await Bun.write(path, "{not-json");
+
+    const store = new StateStore(path, { now: () => FIXED_NOW });
+    const inspection = await store.inspect();
+
+    expect(inspection.state.sessions).toEqual({});
+    expect(inspection.report?.dropped).toEqual([
+      { section: "file", key: path, reason: expect.stringContaining("invalid JSON") },
+    ]);
+    expect(await readdir(dir)).toEqual(["state.json"]);
+    expect(await readFile(path, "utf8")).toBe("{not-json");
+  });
+});
+
+test("inspect() of a fully valid file returns a null report", async () => {
+  await withStateDir(async (dir, path) => {
+    await Bun.write(
+      path,
+      JSON.stringify({ sessions: { good: goodSession("good") }, chat_contexts: {} }),
+    );
+
+    const store = new StateStore(path, { now: () => FIXED_NOW });
+    const inspection = await store.inspect();
+
+    expect(inspection.state.sessions.good).toBeDefined();
+    expect(inspection.report).toBeNull();
+  });
+});
+
+test("quarantine backup never overwrites an existing file (wx + suffix retry)", async () => {
+  await withStateDir(async (dir, path) => {
+    const raw = JSON.stringify({
+      sessions: { good: goodSession("good"), bad: { alias: "bad" } },
+      chat_contexts: {},
+    });
+    await Bun.write(path, raw);
+    const occupiedPath = `${path}.quarantine-${FIXED_TS}`;
+    await Bun.write(occupiedPath, "sentinel");
+
+    const store = new StateStore(path, { now: () => FIXED_NOW });
+    const state = await store.load();
+
+    expect(state.sessions.good).toBeDefined();
+    // existing backup untouched; the new one lands on a suffixed name
+    expect(await readFile(occupiedPath, "utf8")).toBe("sentinel");
+    expect(store.lastLoadReport?.quarantinePath).toBe(`${occupiedPath}-1`);
+    expect(await readFile(`${occupiedPath}-1`, "utf8")).toBe(raw);
+  });
+});
+
 test("a fully valid state file produces no report and no quarantine files", async () => {
   await withStateDir(async (dir, path) => {
     await Bun.write(

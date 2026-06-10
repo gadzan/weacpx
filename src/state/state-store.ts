@@ -758,9 +758,25 @@ function isTerminalTaskStatus(status: OrchestrationTaskStatus): boolean {
 export interface StateStoreOptions {
   /** Injectable clock used for quarantine/corrupt backup file names. */
   now?: () => Date;
-  /** Injectable backup writer (tests simulate backup failures). */
-  writeBackup?: (targetPath: string, content: string) => Promise<void>;
+  /**
+   * Injectable backup writer (tests simulate backup failures). May return the
+   * path actually written when it differs from the requested one (the default
+   * writer suffix-retries instead of overwriting an existing backup).
+   */
+  writeBackup?: (targetPath: string, content: string) => Promise<string | void>;
 }
+
+/** Result of a side-effect-free {@link StateStore.inspect}. */
+export interface StateLoadInspection {
+  state: AppState;
+  /** Null when the file is fully valid (or missing/empty). */
+  report: StateLoadReport | null;
+}
+
+type ParsedStateFile =
+  | { kind: "absent" }
+  | { kind: "corrupt"; reason: string }
+  | { kind: "parsed"; state: AppState; dropped: StateLoadDroppedRecord[]; content: string };
 
 export class StateStore {
   private loadReport: StateLoadReport | null = null;
@@ -782,52 +798,86 @@ export class StateStore {
   async load(): Promise<AppState> {
     this.loadReport = null;
 
+    const read = await this.readAndParse();
+    if (read.kind === "absent") {
+      return createEmptyState();
+    }
+    if (read.kind === "corrupt") {
+      return await this.recoverFromCorruptFile(read.reason);
+    }
+    if (read.dropped.length === 0) {
+      // Happy path: no report, no backup I/O.
+      return read.state;
+    }
+
+    // Something was dropped/repaired. Back up the ORIGINAL bytes before
+    // returning: debounced saves fire shortly after load and would otherwise
+    // overwrite the only copy of the quarantined records.
+    const report: StateLoadReport = { dropped: read.dropped };
+    const quarantinePath = `${this.path}.quarantine-${this.fileTimestamp()}`;
+    try {
+      const written = await (this.options.writeBackup ?? defaultWriteBackup)(quarantinePath, read.content);
+      report.quarantinePath = typeof written === "string" ? written : quarantinePath;
+    } catch (error) {
+      // Best-effort: losing the backup must not re-introduce the startup brick.
+      report.backupError = error instanceof Error ? error.message : String(error);
+    }
+    this.loadReport = report;
+    return read.state;
+  }
+
+  /**
+   * Side-effect-free variant of load() for diagnostic callers (doctor): parses
+   * and reports exactly what load() would drop/repair, but never writes a
+   * quarantine backup, never renames a corrupt file, and does not touch
+   * {@link lastLoadReport}.
+   */
+  async inspect(): Promise<StateLoadInspection> {
+    const read = await this.readAndParse();
+    if (read.kind === "absent") {
+      return { state: createEmptyState(), report: null };
+    }
+    if (read.kind === "corrupt") {
+      return {
+        state: createEmptyState(),
+        report: { dropped: [{ section: "file", key: this.path, reason: read.reason }] },
+      };
+    }
+    return {
+      state: read.state,
+      report: read.dropped.length > 0 ? { dropped: read.dropped } : null,
+    };
+  }
+
+  private async readAndParse(): Promise<ParsedStateFile> {
     let content: string;
     try {
       content = await readFile(this.path, "utf8");
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return createEmptyState();
+        return { kind: "absent" };
       }
       throw error;
     }
     if (content.trim() === "") {
-      return createEmptyState();
+      return { kind: "absent" };
     }
 
     let parsed: unknown;
     try {
       parsed = JSON.parse(content) as unknown;
     } catch (error) {
-      return await this.recoverFromCorruptFile(
-        `invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      return {
+        kind: "corrupt",
+        reason: `invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+      };
     }
     if (!isRecord(parsed)) {
-      return await this.recoverFromCorruptFile("top-level value is not an object");
+      return { kind: "corrupt", reason: "top-level value is not an object" };
     }
 
     const dropped: StateLoadDroppedRecord[] = [];
-    const state = parseState(parsed, this.path, dropped);
-    if (dropped.length === 0) {
-      // Happy path: no report, no backup I/O.
-      return state;
-    }
-
-    // Something was dropped/repaired. Back up the ORIGINAL bytes before
-    // returning: debounced saves fire shortly after load and would otherwise
-    // overwrite the only copy of the quarantined records.
-    const report: StateLoadReport = { dropped };
-    const quarantinePath = `${this.path}.quarantine-${this.fileTimestamp()}`;
-    try {
-      await (this.options.writeBackup ?? defaultWriteBackup)(quarantinePath, content);
-      report.quarantinePath = quarantinePath;
-    } catch (error) {
-      // Best-effort: losing the backup must not re-introduce the startup brick.
-      report.backupError = error instanceof Error ? error.message : String(error);
-    }
-    this.loadReport = report;
-    return state;
+    return { kind: "parsed", state: parseState(parsed, this.path, dropped), dropped, content };
   }
 
   async save(state: AppState): Promise<void> {
@@ -864,7 +914,19 @@ export class StateStore {
   }
 }
 
-async function defaultWriteBackup(targetPath: string, content: string): Promise<void> {
-  // state.json is 0600 (it can reference private chat keys); keep backups private too.
-  await writeFile(targetPath, content, { encoding: "utf8", mode: 0o600 });
+async function defaultWriteBackup(targetPath: string, content: string): Promise<string> {
+  // state.json is 0600 (it can reference private chat keys); keep backups
+  // private too. "wx" + suffix retry: a same-millisecond load (e.g. a second
+  // process) must never overwrite an existing quarantine backup.
+  for (let attempt = 0; ; attempt += 1) {
+    const candidate = attempt === 0 ? targetPath : `${targetPath}-${attempt}`;
+    try {
+      await writeFile(candidate, content, { encoding: "utf8", mode: 0o600, flag: "wx" });
+      return candidate;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST" || attempt >= 9) {
+        throw error;
+      }
+    }
+  }
 }

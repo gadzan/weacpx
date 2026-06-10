@@ -1956,6 +1956,68 @@ test("extracts [PROGRESS] markers from worker output and sends progress notifica
   await rm(dir, { recursive: true, force: true });
 });
 
+test("buildApp logs quarantined state records at error level with the quarantine path", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
+  const rootDir = join(dir, ".weacpx");
+  const configPath = join(rootDir, "config.json");
+  const statePath = join(rootDir, "state.json");
+  const runtimeDir = join(rootDir, "runtime");
+  await mkdir(rootDir, { recursive: true });
+
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      transport: { type: "acpx-cli", command: "acpx" },
+      agents: { codex: { driver: "codex" } },
+      workspaces: {
+        backend: {
+          cwd: "/tmp/backend",
+        },
+      },
+    }),
+  );
+  await writeFile(
+    statePath,
+    JSON.stringify({
+      sessions: {
+        good: {
+          alias: "good",
+          agent: "codex",
+          workspace: "backend",
+          transport_session: "backend:good",
+          created_at: "2026-06-10T10:00:00.000Z",
+          last_used_at: "2026-06-10T10:00:00.000Z",
+        },
+        bad: { alias: "bad", agent: 42 },
+      },
+      chat_contexts: {},
+    }),
+  );
+
+  const runtime = await buildApp(
+    { configPath, statePath },
+    {
+      createCliTransport: () => ({
+        ensureSession: async () => {},
+        prompt: async () => ({ text: "ok" }),
+        cancel: async () => ({ cancelled: true, message: "cancelled" }),
+        hasSession: async () => true,
+        listSessions: async () => [],
+      }),
+    },
+  );
+
+  const appLog = await readFile(join(runtimeDir, "app.log"), "utf8");
+  expect(appLog).toContain("ERROR state.record_quarantined");
+  expect(appLog).toContain('section="sessions"');
+  expect(appLog).toContain('key="bad"');
+  expect(appLog).toContain("ERROR state.file_quarantined");
+  expect(appLog).toContain("state.json.quarantine-");
+
+  await runtime.dispose();
+  await rm(dir, { recursive: true, force: true });
+});
+
 test("buildApp cleans stale rotated app logs and can default logging to debug", async () => {
   const dir = await mkdtemp(join(tmpdir(), "weacpx-app-"));
   const rootDir = join(dir, ".weacpx");
