@@ -4,9 +4,12 @@ import { dirname } from "node:path";
 import { homedir } from "node:os";
 
 import { resolveDaemonPaths, resolveRuntimeDirFromConfigPath, type DaemonPaths } from "../../daemon/daemon-files";
-import type { DoctorCheckResult } from "../doctor-types";
+import { ensurePrivateRuntimeDir } from "../../daemon/private-runtime-dir";
+import type { DoctorCheckResult, DoctorFix } from "../doctor-types";
 
 const DIRECTORY_USABLE = constants.W_OK | constants.X_OK;
+/** The runtime dir must be user-private (0700); see ensurePrivateRuntimeDir. */
+const PRIVATE_DIR_MODE = 0o700;
 
 export interface RuntimeCheckOptions {
   home?: string;
@@ -14,6 +17,8 @@ export interface RuntimeCheckOptions {
   configPath?: string;
   probe?: RuntimeFsProbe;
   platform?: NodeJS.Platform;
+  /** Injected so the attached repair never touches the real filesystem in tests. */
+  ensurePrivateRuntimeDir?: (runtimeDir: string) => Promise<void>;
 }
 
 export async function checkRuntime(options: RuntimeCheckOptions = {}): Promise<DoctorCheckResult> {
@@ -45,6 +50,26 @@ export async function checkRuntime(options: RuntimeCheckOptions = {}): Promise<D
     };
   }
 
+  // The dir is usable, but it may still need privacy hardening: a missing dir
+  // (about to be created) or — on POSIX — a present dir whose mode has group/
+  // other bits set. Both are repaired by ensurePrivateRuntimeDir (create +
+  // chmod 0700). This downgrades an otherwise-passing dir to a warn so the
+  // world-readable orchestration socket directory is surfaced and fixable.
+  const privacy = await inspectRuntimeDirPrivacy(paths.runtimeDir, probe, platform);
+  if (privacy.needsRepair) {
+    return {
+      id: "runtime",
+      label: "Runtime",
+      severity: "warn",
+      summary: "daemon runtime dir should be private (mode 0700)",
+      details: [...checks.map((check) => check.detail), privacy.detail],
+      fixes: [createEnsurePrivateDirFix(paths.runtimeDir, options.ensurePrivateRuntimeDir)],
+      metadata: {
+        paths,
+      },
+    };
+  }
+
   return {
     id: "runtime",
     label: "Runtime",
@@ -55,6 +80,73 @@ export async function checkRuntime(options: RuntimeCheckOptions = {}): Promise<D
       paths,
     },
   };
+}
+
+interface RuntimeDirPrivacy {
+  needsRepair: boolean;
+  detail: string;
+}
+
+/**
+ * Decide whether the runtime dir warrants the ensure-private-dir repair. On
+ * win32 POSIX modes do not apply (mirror ensurePrivateRuntimeDir's own no-op),
+ * so privacy is never flagged there. Otherwise: a missing dir needs creating
+ * (with mode 0700), and a present dir whose mode (mask 0o777) is not exactly
+ * 0700 needs a chmod repair. A stat that reports no mode (older probes) is
+ * treated as fine — only definitive wrong bits trigger the fix.
+ */
+async function inspectRuntimeDirPrivacy(
+  runtimeDir: string,
+  probe: RuntimeFsProbe,
+  platform: NodeJS.Platform,
+): Promise<RuntimeDirPrivacy> {
+  if (platform === "win32") {
+    return { needsRepair: false, detail: "" };
+  }
+
+  try {
+    const stats = await probe.stat(runtimeDir);
+    if (typeof stats.mode !== "number") {
+      return { needsRepair: false, detail: "" };
+    }
+    const mode = stats.mode & 0o777;
+    if (mode === PRIVATE_DIR_MODE) {
+      return { needsRepair: false, detail: "" };
+    }
+    return {
+      needsRepair: true,
+      detail: `runtimeDir: ${runtimeDir} (mode ${formatMode(mode)} is not 0700; group/other access should be removed)`,
+    };
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return {
+        needsRepair: true,
+        detail: `runtimeDir: ${runtimeDir} (missing; will be created with mode 0700)`,
+      };
+    }
+    // An unreadable dir is already a usability failure handled above; do not
+    // double-report it here.
+    return { needsRepair: false, detail: "" };
+  }
+}
+
+function createEnsurePrivateDirFix(
+  runtimeDir: string,
+  ensureImpl?: (runtimeDir: string) => Promise<void>,
+): DoctorFix {
+  const ensure = ensureImpl ?? ((dir: string) => ensurePrivateRuntimeDir(dir));
+  return {
+    id: "runtime.ensure-private-dir",
+    title: "create/repair runtime dir with mode 0700",
+    run: async () => {
+      await ensure(runtimeDir);
+      return { ok: true, message: `runtime dir ${runtimeDir} created/repaired with mode 0700` };
+    },
+  };
+}
+
+function formatMode(mode: number): string {
+  return `0${(mode & 0o777).toString(8)}`;
 }
 
 interface PathCheckResult {
@@ -69,6 +161,8 @@ interface RuntimeFsProbe {
 
 interface RuntimePathStat {
   isDirectory(): boolean;
+  /** POSIX permission bits, when the probe supplies them (used for privacy checks). */
+  mode?: number;
 }
 
 function createRuntimeFsProbe(): RuntimeFsProbe {

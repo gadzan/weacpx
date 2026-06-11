@@ -5,6 +5,8 @@ import { coreHomeDir } from "../runtime/core-home";
 import { coreEnv } from "../runtime/core-env";
 import { loadConfig } from "../config/load-config";
 import type { AppConfig } from "../config/types";
+import { createDaemonController } from "../daemon/create-daemon-controller";
+import { resolveDaemonPaths, resolveRuntimeDirFromConfigPath } from "../daemon/daemon-files";
 import { resolveRuntimePaths, type RuntimePaths } from "../main";
 import { StateStore, type StateLoadReport } from "../state/state-store";
 import { checkAcpx } from "./checks/acpx-check";
@@ -17,6 +19,7 @@ import { checkSmoke } from "./checks/smoke-check";
 import { checkWechat } from "./checks/wechat-check";
 import type {
   DoctorCheckResult,
+  DoctorFix,
   DoctorFixOutcome,
   DoctorReport,
   DoctorRepairOutcome,
@@ -42,6 +45,12 @@ interface DoctorDeps {
   checkBridge?: typeof checkBridge;
   checkOrchestrationHealth?: () => Promise<DoctorCheckResult>;
   checkSmoke?: (options: DoctorRunOptions) => Promise<DoctorCheckResult>;
+  /**
+   * Whether a daemon currently owns the runtime. Injected so the state-mutating
+   * orchestration repair can be gated (withheld) without touching real
+   * processes in tests.
+   */
+  isDaemonRunning?: () => Promise<boolean>;
   renderDoctor?: typeof renderDoctor;
 }
 
@@ -109,6 +118,7 @@ export async function runDoctor(options: DoctorRunOptions = {}, deps: DoctorDeps
         (deps.checkOrchestrationHealth ?? (() => defaultCheckOrchestrationHealth({
           runtimePaths,
           loadConfig: sharedLoadConfig,
+          isDaemonRunning: deps.isDaemonRunning ?? (() => defaultIsDaemonRunning(home, runtimePaths)),
         })))(),
     },
     {
@@ -262,6 +272,7 @@ function createSmokeSkipResult(summary: string): DoctorCheckResult {
 async function defaultCheckOrchestrationHealth(deps: {
   runtimePaths: RuntimePaths;
   loadConfig: (configPath: string) => Promise<AppConfig>;
+  isDaemonRunning: () => Promise<boolean>;
 }): Promise<DoctorCheckResult> {
   let config: AppConfig;
   try {
@@ -288,7 +299,11 @@ async function defaultCheckOrchestrationHealth(deps: {
       now: () => new Date(),
       heartbeatThresholdSeconds: config.orchestration.progressHeartbeatSeconds,
     });
-    return applyStateInspectionReport(result, inspection.report, deps.runtimePaths.statePath);
+    // Determine daemon liveness only when a fix would actually be offered (the
+    // inspection found something to quarantine), to avoid a needless status read
+    // on the healthy path.
+    const daemonRunning = inspection.report ? await deps.isDaemonRunning() : false;
+    return applyStateInspectionReport(result, inspection.report, deps.runtimePaths.statePath, daemonRunning);
   } catch (error) {
     return {
       id: "orchestration",
@@ -311,6 +326,7 @@ function applyStateInspectionReport(
   result: DoctorCheckResult,
   report: StateLoadReport | null,
   statePath: string,
+  daemonRunning: boolean,
 ): DoctorCheckResult {
   if (!report) {
     return result;
@@ -340,7 +356,68 @@ function applyStateInspectionReport(
         ? "back up the state file before the next daemon start if you want to attempt manual recovery"
         : "the daemon backs the original file up as state.json.quarantine-* before dropping these records",
     ],
+    fixes: [createStateQuarantineFix(statePath, daemonRunning)],
   };
+}
+
+/**
+ * Quarantine repair for invalid/corrupt state.json. run() drives the documented
+ * StateStore.load() path (drop bad records, back the original up as
+ * .quarantine-* / rename a corrupt file to .corrupt-*). Gated: while the daemon
+ * is running it owns state.json and performs this itself at the next start, so
+ * the fix is withheld rather than racing it.
+ */
+function createStateQuarantineFix(statePath: string, daemonRunning: boolean): DoctorFix {
+  return {
+    id: "state.quarantine",
+    title: "quarantine invalid state.json records",
+    ...(daemonRunning ? { withheld: "stop the daemon first: xacpx stop" } : {}),
+    run: async () => {
+      const store = new StateStore(statePath);
+      await store.load();
+      const report = store.lastLoadReport;
+      if (!report) {
+        return { ok: true, message: "state.json was already valid; nothing to quarantine" };
+      }
+      if (report.corruptPath) {
+        return { ok: true, message: `state.json was unreadable; renamed to ${report.corruptPath} and reset` };
+      }
+      const backup = report.quarantinePath ? ` (original backed up to ${report.quarantinePath})` : "";
+      return {
+        ok: true,
+        message: `quarantined ${report.dropped.length} invalid state.json record(s)${backup}`,
+      };
+    },
+  };
+}
+
+async function defaultIsDaemonRunning(home: string, runtimePaths: RuntimePaths): Promise<boolean> {
+  try {
+    const paths = resolveDaemonPaths({
+      home,
+      runtimeDir: resolveRuntimeDirFromConfigPath(runtimePaths.configPath),
+    });
+    const controller = createDaemonController(paths, {
+      processExecPath: process.execPath,
+      cliEntryPath: process.argv[1] ?? "",
+      cwd: process.cwd(),
+      env: process.env,
+      isProcessRunning: (pid: number) => {
+        try {
+          process.kill(pid, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+    });
+    const status = await controller.getStatus();
+    return status.state === "running";
+  } catch {
+    // If we cannot determine daemon state, do NOT mutate: treat as running so
+    // the state-mutating fix is withheld (fail-safe).
+    return true;
+  }
 }
 
 function formatError(error: unknown): string {

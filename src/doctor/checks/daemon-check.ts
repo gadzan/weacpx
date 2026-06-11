@@ -1,9 +1,13 @@
+import { readFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
+import { join } from "node:path";
 
 import { createDaemonController } from "../../daemon/create-daemon-controller";
 import { resolveDaemonPaths, resolveRuntimeDirFromConfigPath, type DaemonPaths } from "../../daemon/daemon-files";
-import type { DoctorCheckResult } from "../doctor-types";
+import type { DoctorCheckResult, DoctorFix } from "../doctor-types";
+
+const CONSUMER_LOCK_FILENAME = "weixin-consumer.lock.json";
 
 export interface DaemonCheckOptions {
   home?: string;
@@ -14,6 +18,10 @@ export interface DaemonCheckOptions {
   cliEntryPath?: string;
   cwd?: string;
   env?: NodeJS.ProcessEnv;
+  /** Injected so stale-lock detection never reads the real filesystem in tests. */
+  readConsumerLock?: (path: string) => Promise<{ pid: number } | null>;
+  /** Injected so the attached repair never touches the real filesystem in tests. */
+  removeConsumerLock?: (path: string) => Promise<void>;
 }
 
 export async function checkDaemon(options: DaemonCheckOptions = {}): Promise<DoctorCheckResult> {
@@ -23,16 +31,26 @@ export async function checkDaemon(options: DaemonCheckOptions = {}): Promise<Doc
     home,
     ...(runtimeDir ? { runtimeDir } : {}),
   });
+  const isProcessRunning = options.isProcessRunning ?? defaultIsProcessRunning;
+  const readConsumerLock = options.readConsumerLock ?? defaultReadConsumerLock;
+  const removeConsumerLock = options.removeConsumerLock ?? defaultRemoveConsumerLock;
   const controller = createDaemonController(paths, {
     processExecPath: options.processExecPath ?? process.execPath,
     cliEntryPath: options.cliEntryPath ?? resolveCliEntryPath(),
     cwd: options.cwd ?? process.cwd(),
     env: options.env ?? process.env,
-    isProcessRunning: options.isProcessRunning ?? defaultIsProcessRunning,
+    isProcessRunning,
   });
 
   try {
     const status = await controller.getStatus();
+    // A stale consumer lock can only be safely cleared when no daemon owns it.
+    // When the daemon is running it owns the lock, so we never offer a removal
+    // there (no staleness is possible).
+    const staleLockFix =
+      status.state === "running"
+        ? undefined
+        : await detectStaleConsumerLockFix(paths.runtimeDir, isProcessRunning, readConsumerLock, removeConsumerLock);
     switch (status.state) {
       case "running":
         return {
@@ -54,6 +72,7 @@ export async function checkDaemon(options: DaemonCheckOptions = {}): Promise<Doc
           summary: status.stale ? "daemon was stopped and stale runtime files were cleared" : "daemon is not running",
           details: status.stale ? ["stale runtime files were cleared"] : undefined,
           suggestions: ["run: xacpx start"],
+          ...(staleLockFix ? { fixes: [staleLockFix] } : {}),
           metadata: {
             paths,
             status,
@@ -66,6 +85,7 @@ export async function checkDaemon(options: DaemonCheckOptions = {}): Promise<Doc
           severity: "fail",
           summary: "daemon status is indeterminate",
           details: [`pid: ${status.pid}`, `reason: ${status.reason}`],
+          ...(staleLockFix ? { fixes: [staleLockFix] } : {}),
           metadata: {
             paths,
             status,
@@ -100,6 +120,48 @@ export async function checkDaemon(options: DaemonCheckOptions = {}): Promise<Doc
       },
     };
   }
+}
+
+/**
+ * Detect a STALE Weixin consumer lock: the lock file exists and its recorded
+ * pid is definitively NOT running. Conservative — a lock that is missing,
+ * unreadable, or owned by a live pid yields no fix. Returns the removal repair
+ * when (and only when) staleness is certain.
+ */
+async function detectStaleConsumerLockFix(
+  runtimeDir: string,
+  isProcessRunning: (pid: number) => boolean,
+  readConsumerLock: (path: string) => Promise<{ pid: number } | null>,
+  removeConsumerLock: (path: string) => Promise<void>,
+): Promise<DoctorFix | undefined> {
+  const lockPath = join(runtimeDir, CONSUMER_LOCK_FILENAME);
+  const lock = await readConsumerLock(lockPath);
+  if (!lock || isProcessRunning(lock.pid)) {
+    return undefined;
+  }
+
+  return {
+    id: "daemon.clear-stale-lock",
+    title: "remove stale weixin consumer lock",
+    run: async () => {
+      await removeConsumerLock(lockPath);
+      return { ok: true, message: `removed stale consumer lock ${lockPath} (owner pid ${lock.pid} not running)` };
+    },
+  };
+}
+
+async function defaultReadConsumerLock(path: string): Promise<{ pid: number } | null> {
+  try {
+    const raw = await readFile(path, "utf8");
+    const parsed = JSON.parse(raw) as { pid?: unknown };
+    return typeof parsed.pid === "number" ? { pid: parsed.pid } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function defaultRemoveConsumerLock(path: string): Promise<void> {
+  await rm(path, { force: true });
 }
 
 function defaultIsProcessRunning(pid: number): boolean {

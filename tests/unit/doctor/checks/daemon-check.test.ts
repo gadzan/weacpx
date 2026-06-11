@@ -1,0 +1,137 @@
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+
+import { expect, test } from "bun:test";
+
+import { checkDaemon } from "../../../../src/doctor/checks/daemon-check";
+import { DaemonStatusStore } from "../../../../src/daemon/daemon-status";
+
+async function createTempHome(): Promise<string> {
+  return await mkdtemp(join(tmpdir(), "xacpx-daemon-check-"));
+}
+
+function lockPath(runtimeDir: string): string {
+  return join(runtimeDir, "weixin-consumer.lock.json");
+}
+
+async function writeLock(runtimeDir: string, pid: number): Promise<void> {
+  await mkdir(runtimeDir, { recursive: true });
+  await writeFile(
+    lockPath(runtimeDir),
+    JSON.stringify({
+      pid,
+      mode: "daemon",
+      startedAt: "2026-06-11T00:00:00.000Z",
+      configPath: "/cfg",
+      statePath: "/state",
+    }),
+    "utf8",
+  );
+}
+
+test("daemon check attaches clear-stale-lock fix when the lock pid is dead and no daemon runs", async () => {
+  const home = await createTempHome();
+  const runtimeDir = join(home, ".xacpx", "runtime");
+  const stalePid = 99999;
+
+  try {
+    await writeLock(runtimeDir, stalePid);
+
+    const removed: string[] = [];
+    const result = await checkDaemon({
+      home,
+      // daemon stopped (no pid file); lock pid is not running
+      isProcessRunning: () => false,
+      removeConsumerLock: async (path) => {
+        removed.push(path);
+      },
+    });
+
+    const fix = result.fixes?.find((entry) => entry.id === "daemon.clear-stale-lock");
+    expect(fix).toBeDefined();
+    expect(fix?.withheld).toBeUndefined();
+
+    const outcome = await fix!.run();
+    expect(outcome.ok).toBe(true);
+    expect(removed).toEqual([lockPath(runtimeDir)]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("daemon check does not attach the lock fix when the lock pid is alive", async () => {
+  const home = await createTempHome();
+  const runtimeDir = join(home, ".xacpx", "runtime");
+  const livePid = 4242;
+
+  try {
+    await writeLock(runtimeDir, livePid);
+
+    const result = await checkDaemon({
+      home,
+      // The lock owner is alive; the daemon pid file is absent so the daemon
+      // itself reads as stopped, but the lock is NOT stale.
+      isProcessRunning: (pid) => pid === livePid,
+    });
+
+    expect(result.fixes?.some((entry) => entry.id === "daemon.clear-stale-lock") ?? false).toBe(false);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("daemon check does not attach the lock fix when the daemon is running", async () => {
+  const home = await createTempHome();
+  const runtimeDir = join(home, ".weacpx", "runtime");
+  const daemonPid = 12345;
+  const stalePid = 99999;
+
+  try {
+    await mkdir(runtimeDir, { recursive: true });
+    await writeFile(join(runtimeDir, "daemon.pid"), `${daemonPid}\n`, "utf8");
+    await new DaemonStatusStore(join(runtimeDir, "status.json")).save({
+      pid: daemonPid,
+      started_at: "2026-06-11T00:00:00.000Z",
+      heartbeat_at: "2026-06-11T00:01:00.000Z",
+      config_path: "/cfg",
+      state_path: "/state",
+      app_log: "/app",
+      stdout_log: "/out",
+      stderr_log: "/err",
+    });
+    await writeLock(runtimeDir, stalePid);
+
+    const removed: string[] = [];
+    const result = await checkDaemon({
+      home,
+      // daemon pid alive, lock pid dead
+      isProcessRunning: (pid) => pid === daemonPid,
+      removeConsumerLock: async (path) => {
+        removed.push(path);
+      },
+    });
+
+    expect(result.severity).toBe("pass");
+    expect(result.fixes?.some((entry) => entry.id === "daemon.clear-stale-lock") ?? false).toBe(false);
+    expect(removed).toEqual([]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("daemon check ignores a missing consumer lock", async () => {
+  const home = await createTempHome();
+
+  try {
+    const result = await checkDaemon({
+      home,
+      isProcessRunning: () => false,
+    });
+
+    expect(result.fixes?.some((entry) => entry.id === "daemon.clear-stale-lock") ?? false).toBe(false);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

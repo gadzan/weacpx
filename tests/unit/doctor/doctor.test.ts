@@ -1209,3 +1209,83 @@ test("doctor index main runs orchestrator and prints rendered output", async () 
     console.log = restore;
   }
 });
+
+test("orchestration check attaches state.quarantine fix when daemon is stopped and a state record is invalid", async () => {
+  const home = await createTempHome();
+  const rootDir = join(home, ".xacpx");
+  const statePath = join(rootDir, "state.json");
+  const original = JSON.stringify({ sessions: { bad: { alias: "bad" } }, chat_contexts: {} });
+
+  try {
+    await mkdir(rootDir, { recursive: true });
+    await writeFile(statePath, original, "utf8");
+
+    const result = await runDoctor(
+      {},
+      { home, ...createStateDoctorStubs(), isDaemonRunning: async () => false },
+    );
+
+    const orchestration = result.report.checks.find((check) => check.id === "orchestration");
+    const fix = orchestration?.fixes?.find((entry) => entry.id === "state.quarantine");
+    expect(fix).toBeDefined();
+    expect(fix?.withheld).toBeUndefined();
+
+    // run() performs the real quarantine via StateStore.load(): records dropped,
+    // original backed up, state.json rewritten on the next save cycle.
+    const outcome = await fix!.run();
+    expect(outcome.ok).toBe(true);
+    const backups = (await readdir(rootDir)).filter((name) => name.includes("quarantine"));
+    expect(backups.length).toBeGreaterThan(0);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("orchestration check withholds state.quarantine fix and does not mutate when the daemon is running", async () => {
+  const home = await createTempHome();
+  const rootDir = join(home, ".xacpx");
+  const statePath = join(rootDir, "state.json");
+  const original = JSON.stringify({ sessions: { bad: { alias: "bad" } }, chat_contexts: {} });
+
+  try {
+    await mkdir(rootDir, { recursive: true });
+    await writeFile(statePath, original, "utf8");
+
+    const result = await runDoctor(
+      {},
+      { home, ...createStateDoctorStubs(), isDaemonRunning: async () => true },
+    );
+
+    const orchestration = result.report.checks.find((check) => check.id === "orchestration");
+    const fix = orchestration?.fixes?.find((entry) => entry.id === "state.quarantine");
+    expect(fix).toBeDefined();
+    expect(fix?.withheld).toBe("stop the daemon first: xacpx stop");
+
+    // Detection alone must never mutate; the running daemon owns state.json.
+    expect(await readFile(statePath, "utf8")).toBe(original);
+    expect(await readdir(rootDir)).toEqual(["state.json"]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("orchestration check attaches no state.quarantine fix when state.json is valid", async () => {
+  const home = await createTempHome();
+  const rootDir = join(home, ".xacpx");
+  const statePath = join(rootDir, "state.json");
+
+  try {
+    await mkdir(rootDir, { recursive: true });
+    await writeFile(statePath, JSON.stringify({ sessions: {}, chat_contexts: {} }), "utf8");
+
+    const result = await runDoctor(
+      {},
+      { home, ...createStateDoctorStubs(), isDaemonRunning: async () => false },
+    );
+
+    const orchestration = result.report.checks.find((check) => check.id === "orchestration");
+    expect(orchestration?.fixes?.some((entry) => entry.id === "state.quarantine") ?? false).toBe(false);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
