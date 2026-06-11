@@ -779,6 +779,408 @@ test("doctor warns on an unreadable state.json without renaming it", async () =>
   }
 });
 
+function createFixDoctorStubs() {
+  return {
+    checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+  };
+}
+
+test("doctor does not run fixes unless options.fix is true", async () => {
+  let ran = false;
+  const result = await runDoctor(
+    {},
+    {
+      ...createFixDoctorStubs(),
+      checkRuntime: async () => ({
+        id: "runtime",
+        label: "Runtime",
+        severity: "fail",
+        summary: "broken",
+        fixes: [
+          {
+            id: "runtime.repair",
+            title: "repair runtime",
+            run: async () => {
+              ran = true;
+              return { ok: true, message: "repaired" };
+            },
+          },
+        ],
+      }),
+    },
+  );
+
+  expect(ran).toBe(false);
+  expect(result.report.repairs ?? []).toEqual([]);
+  expect(result.exitCode).toBe(1);
+});
+
+test("doctor records a withheld fix as skipped and never invokes run()", async () => {
+  let ran = false;
+  const result = await runDoctor(
+    { fix: true },
+    {
+      ...createFixDoctorStubs(),
+      checkDaemon: async () => ({
+        id: "daemon",
+        label: "Daemon",
+        severity: "warn",
+        summary: "stale",
+        fixes: [
+          {
+            id: "daemon.clear",
+            title: "clear stale runtime",
+            withheld: "stop the daemon first: xacpx stop",
+            run: async () => {
+              ran = true;
+              return { ok: true, message: "cleared" };
+            },
+          },
+        ],
+      }),
+    },
+  );
+
+  expect(ran).toBe(false);
+  expect(result.report.repairs).toEqual([
+    {
+      checkId: "daemon",
+      fixId: "daemon.clear",
+      title: "clear stale runtime",
+      status: "skipped",
+      message: "stop the daemon first: xacpx stop",
+    },
+  ]);
+});
+
+test("doctor applies a fix and re-runs only the affected check", async () => {
+  let runtimeCalls = 0;
+  let daemonCalls = 0;
+
+  const result = await runDoctor(
+    { fix: true },
+    {
+      ...createFixDoctorStubs(),
+      checkRuntime: async () => {
+        runtimeCalls += 1;
+        if (runtimeCalls === 1) {
+          return {
+            id: "runtime",
+            label: "Runtime",
+            severity: "fail",
+            summary: "broken",
+            fixes: [
+              {
+                id: "runtime.repair",
+                title: "repair runtime",
+                run: async () => ({ ok: true, message: "repaired" }),
+              },
+            ],
+          };
+        }
+        return { id: "runtime", label: "Runtime", severity: "pass", summary: "fixed" };
+      },
+      checkDaemon: async () => {
+        daemonCalls += 1;
+        return { id: "daemon", label: "Daemon", severity: "pass", summary: "ok" };
+      },
+    },
+  );
+
+  expect(runtimeCalls).toBe(2);
+  expect(daemonCalls).toBe(1);
+  const runtime = result.report.checks.find((check) => check.id === "runtime");
+  expect(runtime).toMatchObject({ severity: "pass", summary: "fixed" });
+  expect(result.report.repairs).toEqual([
+    {
+      checkId: "runtime",
+      fixId: "runtime.repair",
+      title: "repair runtime",
+      status: "applied",
+      message: "repaired",
+    },
+  ]);
+  expect(result.exitCode).toBe(0);
+});
+
+test("doctor captures a throwing fix as failed without crashing", async () => {
+  let runtimeCalls = 0;
+  const result = await runDoctor(
+    { fix: true },
+    {
+      ...createFixDoctorStubs(),
+      checkRuntime: async () => {
+        runtimeCalls += 1;
+        return {
+          id: "runtime",
+          label: "Runtime",
+          severity: "fail",
+          summary: "broken",
+          fixes: [
+            {
+              id: "runtime.repair",
+              title: "repair runtime",
+              run: async () => {
+                throw new Error("boom");
+              },
+            },
+          ],
+        };
+      },
+    },
+  );
+
+  // a failed (not applied) fix does not trigger a re-run
+  expect(runtimeCalls).toBe(1);
+  expect(result.report.repairs).toEqual([
+    {
+      checkId: "runtime",
+      fixId: "runtime.repair",
+      title: "repair runtime",
+      status: "failed",
+      message: "boom",
+    },
+  ]);
+  expect(result.exitCode).toBe(1);
+});
+
+test("doctor records an outcome with ok false as failed", async () => {
+  const result = await runDoctor(
+    { fix: true },
+    {
+      ...createFixDoctorStubs(),
+      checkRuntime: async () => ({
+        id: "runtime",
+        label: "Runtime",
+        severity: "fail",
+        summary: "broken",
+        fixes: [
+          {
+            id: "runtime.repair",
+            title: "repair runtime",
+            run: async () => ({ ok: false, message: "could not repair" }),
+          },
+        ],
+      }),
+    },
+  );
+
+  expect(result.report.repairs).toEqual([
+    {
+      checkId: "runtime",
+      fixId: "runtime.repair",
+      title: "repair runtime",
+      status: "failed",
+      message: "could not repair",
+    },
+  ]);
+  expect(result.exitCode).toBe(1);
+});
+
+test("doctor handles a mixed fixes array: skips the withheld one and applies the runnable one", async () => {
+  let runtimeCalls = 0;
+  let withheldRan = false;
+
+  const result = await runDoctor(
+    { fix: true },
+    {
+      ...createFixDoctorStubs(),
+      checkRuntime: async () => {
+        runtimeCalls += 1;
+        if (runtimeCalls === 1) {
+          return {
+            id: "runtime",
+            label: "Runtime",
+            severity: "fail",
+            summary: "broken",
+            fixes: [
+              {
+                id: "runtime.withheld",
+                title: "withheld fix",
+                withheld: "stop the daemon first",
+                run: async () => {
+                  withheldRan = true;
+                  return { ok: true, message: "should not run" };
+                },
+              },
+              {
+                id: "runtime.repair",
+                title: "repair runtime",
+                run: async () => ({ ok: true, message: "repaired" }),
+              },
+            ],
+          };
+        }
+        return { id: "runtime", label: "Runtime", severity: "pass", summary: "fixed" };
+      },
+    },
+  );
+
+  expect(withheldRan).toBe(false);
+  // re-run exactly once despite two fixes on the check
+  expect(runtimeCalls).toBe(2);
+  expect(result.report.repairs).toEqual([
+    {
+      checkId: "runtime",
+      fixId: "runtime.withheld",
+      title: "withheld fix",
+      status: "skipped",
+      message: "stop the daemon first",
+    },
+    {
+      checkId: "runtime",
+      fixId: "runtime.repair",
+      title: "repair runtime",
+      status: "applied",
+      message: "repaired",
+    },
+  ]);
+  expect(result.report.checks.find((check) => check.id === "runtime")).toMatchObject({
+    severity: "pass",
+    summary: "fixed",
+  });
+  expect(result.exitCode).toBe(0);
+});
+
+test("doctor re-runs every check that applied a fix", async () => {
+  let runtimeCalls = 0;
+  let daemonCalls = 0;
+
+  const result = await runDoctor(
+    { fix: true },
+    {
+      ...createFixDoctorStubs(),
+      checkRuntime: async () => {
+        runtimeCalls += 1;
+        if (runtimeCalls === 1) {
+          return {
+            id: "runtime",
+            label: "Runtime",
+            severity: "fail",
+            summary: "broken",
+            fixes: [
+              {
+                id: "runtime.repair",
+                title: "repair runtime",
+                run: async () => ({ ok: true, message: "runtime repaired" }),
+              },
+            ],
+          };
+        }
+        return { id: "runtime", label: "Runtime", severity: "pass", summary: "runtime fixed" };
+      },
+      checkDaemon: async () => {
+        daemonCalls += 1;
+        if (daemonCalls === 1) {
+          return {
+            id: "daemon",
+            label: "Daemon",
+            severity: "warn",
+            summary: "stale",
+            fixes: [
+              {
+                id: "daemon.clear",
+                title: "clear stale runtime",
+                run: async () => ({ ok: true, message: "daemon cleared" }),
+              },
+            ],
+          };
+        }
+        return { id: "daemon", label: "Daemon", severity: "pass", summary: "daemon fixed" };
+      },
+    },
+  );
+
+  expect(runtimeCalls).toBe(2);
+  expect(daemonCalls).toBe(2);
+  expect(result.report.checks.find((check) => check.id === "runtime")).toMatchObject({
+    severity: "pass",
+    summary: "runtime fixed",
+  });
+  expect(result.report.checks.find((check) => check.id === "daemon")).toMatchObject({
+    severity: "pass",
+    summary: "daemon fixed",
+  });
+  expect(result.report.repairs).toEqual([
+    {
+      checkId: "runtime",
+      fixId: "runtime.repair",
+      title: "repair runtime",
+      status: "applied",
+      message: "runtime repaired",
+    },
+    {
+      checkId: "daemon",
+      fixId: "daemon.clear",
+      title: "clear stale runtime",
+      status: "applied",
+      message: "daemon cleared",
+    },
+  ]);
+  expect(result.exitCode).toBe(0);
+});
+
+test("doctor re-runs a check exactly once even when it applies two fixes", async () => {
+  let runtimeCalls = 0;
+
+  const result = await runDoctor(
+    { fix: true },
+    {
+      ...createFixDoctorStubs(),
+      checkRuntime: async () => {
+        runtimeCalls += 1;
+        if (runtimeCalls === 1) {
+          return {
+            id: "runtime",
+            label: "Runtime",
+            severity: "fail",
+            summary: "broken",
+            fixes: [
+              {
+                id: "runtime.repair-a",
+                title: "repair runtime a",
+                run: async () => ({ ok: true, message: "repaired a" }),
+              },
+              {
+                id: "runtime.repair-b",
+                title: "repair runtime b",
+                run: async () => ({ ok: true, message: "repaired b" }),
+              },
+            ],
+          };
+        }
+        return { id: "runtime", label: "Runtime", severity: "pass", summary: "fixed" };
+      },
+    },
+  );
+
+  // both fixes applied, but the dedup keeps the re-run to a single invocation
+  expect(runtimeCalls).toBe(2);
+  expect(result.report.repairs).toEqual([
+    {
+      checkId: "runtime",
+      fixId: "runtime.repair-a",
+      title: "repair runtime a",
+      status: "applied",
+      message: "repaired a",
+    },
+    {
+      checkId: "runtime",
+      fixId: "runtime.repair-b",
+      title: "repair runtime b",
+      status: "applied",
+      message: "repaired b",
+    },
+  ]);
+  expect(result.exitCode).toBe(0);
+});
+
 test("doctor index main runs orchestrator and prints rendered output", async () => {
   const lines: string[] = [];
   const restore = console.log;

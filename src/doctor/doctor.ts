@@ -15,7 +15,13 @@ import { checkOrchestrationHealth } from "./checks/orchestration-health";
 import { checkRuntime } from "./checks/runtime-check";
 import { checkSmoke } from "./checks/smoke-check";
 import { checkWechat } from "./checks/wechat-check";
-import type { DoctorCheckResult, DoctorReport, DoctorRunOptions } from "./doctor-types";
+import type {
+  DoctorCheckResult,
+  DoctorFixOutcome,
+  DoctorReport,
+  DoctorRepairOutcome,
+  DoctorRunOptions,
+} from "./doctor-types";
 import { renderDoctor } from "./render-doctor";
 
 export interface DoctorRunResult {
@@ -44,60 +50,102 @@ export async function runDoctor(options: DoctorRunOptions = {}, deps: DoctorDeps
   const runtimePaths = resolveDoctorRuntimePaths(home, deps.resolveRuntimePaths);
   const sharedLoadConfig = createSharedLoadConfig(runtimePaths, deps.loadConfig ?? loadConfig);
 
-  const checks: DoctorCheckResult[] = [];
-  checks.push(
-    await (deps.checkConfig ?? checkConfig)({
-      loadConfig: sharedLoadConfig,
-      resolveRuntimePaths: () => runtimePaths,
-    }),
-  );
-  checks.push(
-    await (deps.checkRuntime ?? checkRuntime)({
-      home,
-      configPath: runtimePaths.configPath,
-    }),
-  );
-  checks.push(
-    await (deps.checkDaemon ?? checkDaemon)({
-      home,
-      configPath: runtimePaths.configPath,
-    }),
-  );
-  checks.push(
-    await (deps.checkWechat ?? checkWechat)({
-      verbose: options.verbose,
-    }),
-  );
-  checks.push(
-    await (deps.checkAcpx ?? checkAcpx)({
-      verbose: options.verbose,
-      loadConfig: sharedLoadConfig,
-      resolveRuntimePaths: () => runtimePaths,
-    }),
-  );
-  checks.push(
-    await (deps.checkBridge ?? checkBridge)({
-      verbose: options.verbose,
-      loadConfig: sharedLoadConfig,
-      resolveRuntimePaths: () => runtimePaths,
-    }),
-  );
-  checks.push(
-    await (deps.checkOrchestrationHealth ?? (() => defaultCheckOrchestrationHealth({
-      runtimePaths,
-      loadConfig: sharedLoadConfig,
-    })))(),
-  );
-  checks.push(
-    options.smoke === true
-      ? await (deps.checkSmoke ?? ((runOptions) => defaultCheckSmoke(runOptions, {
-          resolveRuntimePaths: () => runtimePaths,
+  // Each runner produces one check result; keeping the wiring in a single place
+  // lets the repair pass re-invoke a check by id without duplicating dependency
+  // setup. The array order is the rendered/report order.
+  const runners: Array<{ id: string; run: () => Promise<DoctorCheckResult> }> = [
+    {
+      id: "config",
+      run: () =>
+        (deps.checkConfig ?? checkConfig)({
           loadConfig: sharedLoadConfig,
-        })))(options)
-      : createSmokeSkipResult("smoke probe not requested"),
-  );
+          resolveRuntimePaths: () => runtimePaths,
+        }),
+    },
+    {
+      id: "runtime",
+      run: () =>
+        (deps.checkRuntime ?? checkRuntime)({
+          home,
+          configPath: runtimePaths.configPath,
+        }),
+    },
+    {
+      id: "daemon",
+      run: () =>
+        (deps.checkDaemon ?? checkDaemon)({
+          home,
+          configPath: runtimePaths.configPath,
+        }),
+    },
+    {
+      id: "wechat",
+      run: () =>
+        (deps.checkWechat ?? checkWechat)({
+          verbose: options.verbose,
+        }),
+    },
+    {
+      id: "acpx",
+      run: () =>
+        (deps.checkAcpx ?? checkAcpx)({
+          verbose: options.verbose,
+          loadConfig: sharedLoadConfig,
+          resolveRuntimePaths: () => runtimePaths,
+        }),
+    },
+    {
+      id: "bridge",
+      run: () =>
+        (deps.checkBridge ?? checkBridge)({
+          verbose: options.verbose,
+          loadConfig: sharedLoadConfig,
+          resolveRuntimePaths: () => runtimePaths,
+        }),
+    },
+    {
+      id: "orchestration",
+      run: () =>
+        (deps.checkOrchestrationHealth ?? (() => defaultCheckOrchestrationHealth({
+          runtimePaths,
+          loadConfig: sharedLoadConfig,
+        })))(),
+    },
+    {
+      id: "smoke",
+      run: () =>
+        options.smoke === true
+          ? (deps.checkSmoke ?? ((runOptions) => defaultCheckSmoke(runOptions, {
+              resolveRuntimePaths: () => runtimePaths,
+              loadConfig: sharedLoadConfig,
+            })))(options)
+          : Promise.resolve(createSmokeSkipResult("smoke probe not requested")),
+    },
+  ];
+
+  const runnersById = new Map(runners.map((runner) => [runner.id, runner.run] as const));
+
+  const checks: DoctorCheckResult[] = [];
+  for (const runner of runners) {
+    checks.push(await runner.run());
+  }
 
   const report: DoctorReport = { checks };
+
+  if (options.fix === true) {
+    const { repairs, repairedCheckIds } = await applyRepairs(checks);
+    report.repairs = repairs;
+
+    for (const checkId of repairedCheckIds) {
+      const index = checks.findIndex((check) => check.id === checkId);
+      const rerun = runnersById.get(checkId);
+      if (index === -1 || !rerun) {
+        continue;
+      }
+      checks[index] = await rerun();
+    }
+  }
+
   const output = (deps.renderDoctor ?? renderDoctor)(report, options);
 
   return {
@@ -105,6 +153,56 @@ export async function runDoctor(options: DoctorRunOptions = {}, deps: DoctorDeps
     output,
     exitCode: checks.some((check) => check.severity === "fail") ? 1 : 0,
   };
+}
+
+/**
+ * Run the attached fixes for the read-only checks under --fix. Withheld fixes
+ * are recorded as skipped (never run). A failing or throwing fix is normalised
+ * into a "failed" outcome so a bad repair can never crash doctor. Returns the
+ * collected outcomes plus the set of check ids that had at least one applied
+ * fix (those, and only those, are re-run to reflect post-repair state).
+ */
+async function applyRepairs(
+  checks: DoctorCheckResult[],
+): Promise<{ repairs: DoctorRepairOutcome[]; repairedCheckIds: string[] }> {
+  const repairs: DoctorRepairOutcome[] = [];
+  const repairedCheckIds: string[] = [];
+
+  for (const check of checks) {
+    for (const fix of check.fixes ?? []) {
+      if (fix.withheld !== undefined) {
+        repairs.push({
+          checkId: check.id,
+          fixId: fix.id,
+          title: fix.title,
+          status: "skipped",
+          message: fix.withheld,
+        });
+        continue;
+      }
+
+      let outcome: DoctorFixOutcome;
+      try {
+        outcome = await fix.run();
+      } catch (error) {
+        outcome = { ok: false, message: formatError(error) };
+      }
+
+      repairs.push({
+        checkId: check.id,
+        fixId: fix.id,
+        title: fix.title,
+        status: outcome.ok ? "applied" : "failed",
+        message: outcome.message,
+      });
+
+      if (outcome.ok && !repairedCheckIds.includes(check.id)) {
+        repairedCheckIds.push(check.id);
+      }
+    }
+  }
+
+  return { repairs, repairedCheckIds };
 }
 
 function resolveDoctorRuntimePaths(home: string, resolver?: () => RuntimePaths): RuntimePaths {
