@@ -43,9 +43,10 @@ export function resolveDaemonOrchestrationSocketPath(
 }
 
 /**
- * Liveness probe via signal 0: succeeds when the pid exists (and is signalable),
- * throws otherwise. EPERM still means the process exists, so only a thrown
- * error is treated as "not alive".
+ * Liveness probe via signal 0: returns true when the pid can be signalled,
+ * false when process.kill throws. Note this treats any throw (including EPERM,
+ * which actually means the process exists but is owned by another user) as "not
+ * alive"; matches the behaviour of the other isProcessRunning copies.
  */
 export function isProcessAlive(pid: number): boolean {
   try {

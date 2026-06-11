@@ -57,6 +57,12 @@ interface DoctorDeps {
    * processes in tests.
    */
   isDaemonRunning?: () => Promise<boolean>;
+  /**
+   * Raw daemon status getter used by the DEFAULT liveness mapping. Injected so
+   * the running/indeterminate -> "live" gating can be exercised without real
+   * processes; ignored when {@link isDaemonRunning} is supplied directly.
+   */
+  getDaemonStatus?: () => Promise<{ state: string }>;
   renderDoctor?: typeof renderDoctor;
 }
 
@@ -141,7 +147,8 @@ export async function runDoctor(options: DoctorRunOptions = {}, deps: DoctorDeps
         (deps.checkOrchestrationHealth ?? (() => defaultCheckOrchestrationHealth({
           runtimePaths,
           loadConfig: sharedLoadConfig,
-          isDaemonRunning: deps.isDaemonRunning ?? (() => defaultIsDaemonRunning(home, runtimePaths)),
+          isDaemonRunning:
+            deps.isDaemonRunning ?? (() => defaultIsDaemonRunning(home, runtimePaths, deps.getDaemonStatus)),
         })))(),
     },
     {
@@ -422,26 +429,39 @@ function createStateQuarantineFix(statePath: string, daemonRunning: boolean): Do
   };
 }
 
-async function defaultIsDaemonRunning(home: string, runtimePaths: RuntimePaths): Promise<boolean> {
+async function defaultIsDaemonRunning(
+  home: string,
+  runtimePaths: RuntimePaths,
+  getDaemonStatus: () => Promise<{ state: string }> = () => defaultGetDaemonStatus(home, runtimePaths),
+): Promise<boolean> {
   try {
-    const paths = resolveDaemonPaths({
-      home,
-      runtimeDir: resolveRuntimeDirFromConfigPath(runtimePaths.configPath),
-    });
-    const controller = createDaemonController(paths, {
-      processExecPath: process.execPath,
-      cliEntryPath: process.argv[1] ?? "",
-      cwd: process.cwd(),
-      env: process.env,
-      isProcessRunning: isProcessAlive,
-    });
-    const status = await controller.getStatus();
-    return status.state === "running";
+    const status = await getDaemonStatus();
+    // Both "running" AND "indeterminate" mean a LIVE daemon pid:
+    // getStatus() only reports "indeterminate" after confirming the process is
+    // alive (status.json missing). The state-mutating quarantine must be gated
+    // (withheld) in both cases, or --fix would rename/rewrite state.json out
+    // from under a live daemon.
+    return status.state === "running" || status.state === "indeterminate";
   } catch {
     // If we cannot determine daemon state, do NOT mutate: treat as running so
     // the state-mutating fix is withheld (fail-safe).
     return true;
   }
+}
+
+async function defaultGetDaemonStatus(home: string, runtimePaths: RuntimePaths): Promise<{ state: string }> {
+  const paths = resolveDaemonPaths({
+    home,
+    runtimeDir: resolveRuntimeDirFromConfigPath(runtimePaths.configPath),
+  });
+  const controller = createDaemonController(paths, {
+    processExecPath: process.execPath,
+    cliEntryPath: process.argv[1] ?? "",
+    cwd: process.cwd(),
+    env: process.env,
+    isProcessRunning: isProcessAlive,
+  });
+  return await controller.getStatus();
 }
 
 function formatError(error: unknown): string {

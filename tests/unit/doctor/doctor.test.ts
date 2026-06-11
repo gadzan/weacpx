@@ -1417,3 +1417,57 @@ test("orchestration check attaches no state.quarantine fix when state.json is va
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("default daemon-liveness mapping withholds the quarantine fix for an indeterminate (live) daemon", async () => {
+  const home = await createTempHome();
+  const rootDir = join(home, ".xacpx");
+  const statePath = join(rootDir, "state.json");
+  const original = JSON.stringify({ sessions: { bad: { alias: "bad" } }, chat_contexts: {} });
+
+  try {
+    await mkdir(rootDir, { recursive: true });
+    await writeFile(statePath, original, "utf8");
+
+    // Exercise the DEFAULT liveness mapping (not the isDaemonRunning boolean):
+    // an "indeterminate" status is a LIVE daemon, so the fix must be withheld.
+    const result = await runDoctor(
+      {},
+      { home, ...createStateDoctorStubs(), getDaemonStatus: async () => ({ state: "indeterminate" }) },
+    );
+
+    const orchestration = result.report.checks.find((check) => check.id === "orchestration");
+    const fix = orchestration?.fixes?.find((entry) => entry.id === "state.quarantine");
+    expect(fix).toBeDefined();
+    expect(fix?.withheld).toBe("stop the daemon first: xacpx stop");
+
+    // The check must not mutate state.json while a live daemon owns it.
+    expect(await readFile(statePath, "utf8")).toBe(original);
+    expect(await readdir(rootDir)).toEqual(["state.json"]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("default daemon-liveness mapping allows the quarantine fix for a stopped daemon", async () => {
+  const home = await createTempHome();
+  const rootDir = join(home, ".xacpx");
+  const statePath = join(rootDir, "state.json");
+  const original = JSON.stringify({ sessions: { bad: { alias: "bad" } }, chat_contexts: {} });
+
+  try {
+    await mkdir(rootDir, { recursive: true });
+    await writeFile(statePath, original, "utf8");
+
+    const result = await runDoctor(
+      {},
+      { home, ...createStateDoctorStubs(), getDaemonStatus: async () => ({ state: "stopped" }) },
+    );
+
+    const orchestration = result.report.checks.find((check) => check.id === "orchestration");
+    const fix = orchestration?.fixes?.find((entry) => entry.id === "state.quarantine");
+    expect(fix).toBeDefined();
+    expect(fix?.withheld).toBeUndefined();
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
