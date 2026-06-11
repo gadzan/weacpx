@@ -9,7 +9,7 @@ xacpx login | logout | run | start | status | stop | restart
 xacpx update [--all | <name>]
 xacpx channel | ch  list | show | add | rm | enable | disable  [--account <id>]
 xacpx plugin  list | add | update | remove | enable | disable | doctor | known
-xacpx doctor [--verbose] [--smoke] [--agent <a>] [--workspace <w>]
+xacpx doctor [--verbose] [--smoke] [--agent <a>] [--workspace <w>] [--fix]
 xacpx version
 xacpx agent | agents  list | add | rm | templates
 xacpx workspace | ws  list | add [name] [--raw] | rm <name>
@@ -95,12 +95,14 @@ xacpx doctor
 xacpx doctor --verbose
 xacpx doctor --smoke
 xacpx doctor --smoke --agent codex --workspace backend
+xacpx doctor --fix
 ```
 
 - `--verbose` 会展开每项检查的细节。
 - `--smoke` 会额外执行一次真实 transport 级别的最小 prompt 检查。
 - `--agent` / `--workspace` 只影响 `--smoke`。
 - 如果不传 `--smoke`，相关检查会显示为 `SKIP`。
+- `--fix` 会执行安全的本地修复（运行时目录权限、残留 consumer 锁、无效 state 记录）并重跑受影响的检查。会改动状态的修复在 daemon 运行期间会被扣留（提示先 stop daemon）。
 
 ## 工作区 —— `xacpx workspace`
 

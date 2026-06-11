@@ -131,5 +131,12 @@ Stop the daemon, re-run `xacpx doctor --fix`, then start it again.
 Daemon liveness is detected independently of any check output: the
 `indeterminate` state (a live daemon pid whose `status.json` is missing)
 is treated as a live daemon, so lock removal is not offered there either.
-If daemon state cannot be determined at all, doctor fails safe and treats
-the daemon as running, withholding the state-mutating repairs.
+A process that exists but cannot be signalled (`EPERM`) also counts as
+alive. If daemon state cannot be determined at all, doctor fails safe and
+treats the daemon as running, withholding the state-mutating repairs.
+
+The gate is also re-verified at apply time: if a daemon starts between
+the read-only detection pass and `--fix` applying a repair,
+`state.quarantine` refuses to run (reported as `failed` with a "stop it
+first" message) and `daemon.clear-stale-lock` re-checks each lock and
+leaves any lock alone whose owner is alive again.

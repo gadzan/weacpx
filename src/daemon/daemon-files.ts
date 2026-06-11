@@ -43,16 +43,17 @@ export function resolveDaemonOrchestrationSocketPath(
 }
 
 /**
- * Liveness probe via signal 0: returns true when the pid can be signalled,
- * false when process.kill throws. Note this treats any throw (including EPERM,
- * which actually means the process exists but is owned by another user) as "not
- * alive"; matches the behaviour of the other isProcessRunning copies.
+ * Liveness probe via signal 0: returns true when the pid can be signalled.
+ * EPERM also reads as ALIVE — it means the signal was denied but the process
+ * exists (typically owned by another user). Doctor uses this to gate
+ * state-mutating repairs, where the unsafe direction is reporting a live
+ * process as dead; only a definitive "no such process" (ESRCH) reads as dead.
  */
 export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
   }
 }

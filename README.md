@@ -258,6 +258,7 @@ xacpx doctor
 xacpx doctor --verbose
 xacpx doctor --smoke
 xacpx doctor --smoke --agent codex --workspace backend
+xacpx doctor --fix
 ```
 
 Notes:
@@ -266,6 +267,7 @@ Notes:
 - `--smoke` additionally runs a minimal real transport-level prompt check
 - `--agent` / `--workspace` only affect `--smoke`
 - Without `--smoke`, the related checks show as `SKIP`
+- `--fix` applies safe local repairs (runtime dir permissions, stale locks, invalid state records) and re-checks; state-mutating repairs are withheld while the daemon runs — see [docs/doctor-command.md](docs/doctor-command.md)
 
 ### How to use `update`
 

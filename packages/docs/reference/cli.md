@@ -9,7 +9,7 @@ xacpx login | logout | run | start | status | stop | restart
 xacpx update [--all | <name>]
 xacpx channel | ch  list | show | add | rm | enable | disable  [--account <id>]
 xacpx plugin  list | add | update | remove | enable | disable | doctor | known
-xacpx doctor [--verbose] [--smoke] [--agent <a>] [--workspace <w>]
+xacpx doctor [--verbose] [--smoke] [--agent <a>] [--workspace <w>] [--fix]
 xacpx version
 xacpx agent | agents  list | add | rm | templates
 xacpx workspace | ws  list | add [name] [--raw] | rm <name>
@@ -95,12 +95,14 @@ xacpx doctor
 xacpx doctor --verbose
 xacpx doctor --smoke
 xacpx doctor --smoke --agent codex --workspace backend
+xacpx doctor --fix
 ```
 
 - `--verbose` expands the details of each check.
 - `--smoke` additionally runs a minimal real transport-level prompt check.
 - `--agent` / `--workspace` only affect `--smoke`.
 - Without `--smoke`, the related checks show as `SKIP`.
+- `--fix` applies safe local repairs (runtime dir permissions, stale consumer locks, invalid state records) and re-runs the affected checks. Repairs that mutate state are withheld while the daemon runs ("stop the daemon first").
 
 ## Workspaces — `xacpx workspace`
 

@@ -44,20 +44,26 @@ export async function checkLogs(options: LogsCheckOptions = {}): Promise<DoctorC
   const singleFileWarnBytes = options.singleFileWarnBytes ?? DEFAULT_SINGLE_FILE_WARN_BYTES;
   const totalWarnBytes = options.totalWarnBytes ?? DEFAULT_TOTAL_WARN_BYTES;
 
-  // A missing runtime dir means the daemon has never written logs here.
+  // A missing runtime dir means the daemon has never written logs here. Any
+  // other obstacle (unreadable dir, path is not a directory) is a Runtime-check
+  // problem; skip without claiming the logs do not exist.
   let entries: string[];
   try {
     const dirStat = await probe.stat(paths.runtimeDir);
     if (!dirStat.isDirectory()) {
-      return skip(paths.runtimeDir);
+      return skip("runtime log directory could not be read", [
+        `runtimeDir: ${paths.runtimeDir} (exists but is not a directory)`,
+      ]);
     }
     entries = await probe.readdir(paths.runtimeDir);
   } catch (error) {
     if (isMissingPathError(error)) {
-      return skip(paths.runtimeDir);
+      return skip("no runtime logs yet", [`runtimeDir: ${paths.runtimeDir} (missing)`]);
     }
-    // An unreadable runtime dir is surfaced by the Runtime check; do not crash here.
-    return skip(paths.runtimeDir);
+    return skip("runtime log directory could not be read", [
+      `runtimeDir: ${paths.runtimeDir}`,
+      `error: ${formatError(error)}`,
+    ]);
   }
 
   // Enumerate the base daemon logs plus every rotation sibling: a file in the
@@ -119,13 +125,13 @@ export async function checkLogs(options: LogsCheckOptions = {}): Promise<DoctorC
   };
 }
 
-function skip(runtimeDir: string): DoctorCheckResult {
+function skip(summary: string, details: string[]): DoctorCheckResult {
   return {
     id: "logs",
     label: "Logs",
     severity: "skip",
-    summary: "no runtime logs yet",
-    details: [`runtimeDir: ${runtimeDir} (missing)`],
+    summary,
+    details,
   };
 }
 
@@ -168,6 +174,10 @@ function createLogsFsProbe(): LogsFsProbe {
     stat: async (path) => await stat(path),
     readdir: async (path) => await readdir(path),
   };
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function isMissingPathError(error: unknown): boolean {
