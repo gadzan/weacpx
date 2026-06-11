@@ -268,6 +268,9 @@ test("plugin rm with legacy name removes the normalized config entry (Bug A)", a
   // npm (config gone, package orphaned) and a hard failure with bun.
   expect(harness.calls).toEqual(["remove:@ganglion/xacpx-channel-feishu"]);
   expect(validatedNames).toEqual(["@ganglion/xacpx-channel-feishu"]);
+  // The success message must name the actually removed (normalized) package,
+  // not the raw legacy input — consistent with the failure path.
+  expect(harness.lines).toContain(t().pluginCli.pluginRemoved("@ganglion/xacpx-channel-feishu"));
 });
 
 test("plugin disable and enable toggle config", async () => {
