@@ -341,7 +341,13 @@ async function defaultCheckOrchestrationHealth(deps: {
     // inspection found something to quarantine), to avoid a needless status read
     // on the healthy path.
     const daemonRunning = inspection.report ? await deps.isDaemonRunning() : false;
-    return applyStateInspectionReport(result, inspection.report, deps.runtimePaths.statePath, daemonRunning);
+    return applyStateInspectionReport(
+      result,
+      inspection.report,
+      deps.runtimePaths.statePath,
+      daemonRunning,
+      deps.isDaemonRunning,
+    );
   } catch (error) {
     return {
       id: "orchestration",
@@ -365,6 +371,7 @@ function applyStateInspectionReport(
   report: StateLoadReport | null,
   statePath: string,
   daemonRunning: boolean,
+  isDaemonRunning: () => Promise<boolean>,
 ): DoctorCheckResult {
   if (!report) {
     return result;
@@ -394,7 +401,7 @@ function applyStateInspectionReport(
         ? "back up the state file before the next daemon start if you want to attempt manual recovery"
         : "the daemon backs the original file up as state.json.quarantine-* before dropping these records",
     ],
-    fixes: [createStateQuarantineFix(statePath, daemonRunning)],
+    fixes: [createStateQuarantineFix(statePath, daemonRunning, isDaemonRunning)],
   };
 }
 
@@ -403,14 +410,26 @@ function applyStateInspectionReport(
  * StateStore.load() path (drop bad records, back the original up as
  * .quarantine-* / rename a corrupt file to .corrupt-*). Gated: while the daemon
  * is running it owns state.json and performs this itself at the next start, so
- * the fix is withheld rather than racing it.
+ * the fix is withheld rather than racing it. The gate is re-verified inside
+ * run() because a daemon may start between the read-only detection pass and
+ * --fix applying the repair.
  */
-function createStateQuarantineFix(statePath: string, daemonRunning: boolean): DoctorFix {
+function createStateQuarantineFix(
+  statePath: string,
+  daemonRunning: boolean,
+  isDaemonRunning: () => Promise<boolean>,
+): DoctorFix {
   return {
     id: "state.quarantine",
     title: "quarantine invalid state.json records",
     ...(daemonRunning ? { withheld: "stop the daemon first: xacpx stop" } : {}),
     run: async () => {
+      if (await isDaemonRunning()) {
+        return {
+          ok: false,
+          message: "a daemon started since detection; stop it first: xacpx stop",
+        };
+      }
       const store = new StateStore(statePath);
       await store.load();
       const report = store.lastLoadReport;

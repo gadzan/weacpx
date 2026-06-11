@@ -157,6 +157,9 @@ interface StaleConsumerLockDeps {
  * a missing dir, no matching files, unreadable locks, or live-pid locks all
  * yield no fix. When at least one stale lock exists, returns a repair whose
  * run() removes every stale lock found (and only those) and names them.
+ * run() re-verifies each lock is still readable-and-stale before removing it:
+ * a daemon may have started (rewriting a lock with a live pid) between the
+ * read-only detection pass and --fix applying the repair.
  */
 async function detectStaleConsumerLockFix(
   runtimeDir: string,
@@ -183,12 +186,24 @@ async function detectStaleConsumerLockFix(
     id: "daemon.clear-stale-lock",
     title: "remove stale consumer lock(s)",
     run: async () => {
+      const removed: string[] = [];
+      let skipped = 0;
       for (const lockPath of stalePaths) {
+        const lock = await deps.readConsumerLock(lockPath);
+        if (!lock || deps.isProcessRunning(lock.pid)) {
+          skipped += 1;
+          continue;
+        }
         await deps.removeConsumerLock(lockPath);
+        removed.push(lockPath);
       }
+      const skippedNote = skipped > 0 ? `; left ${skipped} no-longer-stale lock(s) alone` : "";
       return {
         ok: true,
-        message: `removed ${stalePaths.length} stale consumer lock(s): ${stalePaths.join(", ")}`,
+        message:
+          removed.length > 0
+            ? `removed ${removed.length} stale consumer lock(s): ${removed.join(", ")}${skippedNote}`
+            : `no locks removed${skippedNote}`,
       };
     },
   };

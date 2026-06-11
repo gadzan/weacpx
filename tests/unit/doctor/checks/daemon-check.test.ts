@@ -248,3 +248,36 @@ test("daemon check does not attach the lock fix when status is indeterminate (li
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("clear-stale-lock run() re-verifies and leaves a lock alone when its pid became live after detection", async () => {
+  const home = await createTempHome();
+  const runtimeDir = join(home, ".xacpx", "runtime");
+  const pid = 4242;
+
+  try {
+    await writeLock(runtimeDir, pid);
+
+    // Dead at detection time, alive by the time the fix runs — the TOCTOU
+    // window where a daemon/channel restarted and re-owned the lock.
+    let alive = false;
+    const removed: string[] = [];
+    const result = await checkDaemon({
+      home,
+      isProcessRunning: () => alive,
+      removeConsumerLock: async (path) => {
+        removed.push(path);
+      },
+    });
+
+    const fix = result.fixes?.find((entry) => entry.id === "daemon.clear-stale-lock");
+    expect(fix).toBeDefined();
+
+    alive = true;
+    const outcome = await fix!.run();
+    expect(outcome.ok).toBe(true);
+    expect(outcome.message).toContain("no locks removed");
+    expect(removed).toEqual([]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

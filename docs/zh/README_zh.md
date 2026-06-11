@@ -256,6 +256,7 @@ xacpx doctor
 xacpx doctor --verbose
 xacpx doctor --smoke
 xacpx doctor --smoke --agent codex --workspace backend
+xacpx doctor --fix
 ```
 
 说明：
@@ -264,6 +265,7 @@ xacpx doctor --smoke --agent codex --workspace backend
 - `--smoke` 会额外执行一次真实 transport 级别的最小 prompt 检查
 - `--agent` / `--workspace` 只影响 `--smoke`
 - 如果不传 `--smoke`，相关检查会显示为 `SKIP`
+- `--fix` 会执行安全的本地修复（运行时目录权限、残留锁、无效 state 记录）并重新检查；daemon 运行期间会扣留改动状态的修复，详见 [doctor-command_zh.md](doctor-command_zh.md)
 
 ### `update` 怎么用
 

@@ -182,3 +182,20 @@ test("logs check tolerates an unreadable individual file and still sums the rest
   // 10 MB summed from the two readable files; the unreadable one is skipped.
   expect(result.summary).toContain("10");
 });
+
+test("logs check skips with a could-not-read summary (not 'no logs') when the runtime dir is unreadable", async () => {
+  const home = "/home/user";
+  const runtimeDir = runtimeDirOf(home);
+  const probe = createLogsProbe({
+    directories: [],
+    // The runtime dir itself stats with EACCES — present but unreadable.
+    unreadable: [runtimeDir],
+  });
+
+  const result = await checkLogs({ home, probe });
+
+  expect(result.severity).toBe("skip");
+  expect(result.summary).toContain("could not be read");
+  expect(result.summary.toLowerCase()).not.toContain("no runtime logs");
+  expect(result.details?.join("\n") ?? "").toContain("EACCES");
+});

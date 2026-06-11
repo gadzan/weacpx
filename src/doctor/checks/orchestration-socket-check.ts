@@ -22,10 +22,8 @@ import type { DoctorCheckResult } from "../doctor-types";
  * the pid is alive); "stopped" is the only non-live state.
  */
 export type DaemonStatusSummary =
-  | { state: "stopped" }
-  | { state: "running"; pid: number }
-  | { state: "indeterminate"; pid: number }
-  | { state: string; pid?: number };
+  | { state: "stopped"; stale?: boolean }
+  | { state: "running" | "indeterminate" | "already-running"; pid: number };
 
 export interface OrchestrationSocketCheckOptions {
   home?: string;

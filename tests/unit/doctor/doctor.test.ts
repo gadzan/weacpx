@@ -1471,3 +1471,39 @@ test("default daemon-liveness mapping allows the quarantine fix for a stopped da
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("state.quarantine run() re-verifies liveness and refuses when a daemon started after detection", async () => {
+  const home = await createTempHome();
+  const rootDir = join(home, ".xacpx");
+  const statePath = join(rootDir, "state.json");
+  const original = JSON.stringify({ sessions: { bad: { alias: "bad" } }, chat_contexts: {} });
+
+  try {
+    await mkdir(rootDir, { recursive: true });
+    await writeFile(statePath, original, "utf8");
+
+    // Daemon is stopped at detection time (fix attached, not withheld), but has
+    // started by the time the fix is applied — the TOCTOU window.
+    let liveness = false;
+    const result = await runDoctor(
+      {},
+      { home, ...createStateDoctorStubs(), isDaemonRunning: async () => liveness },
+    );
+
+    const orchestration = result.report.checks.find((check) => check.id === "orchestration");
+    const fix = orchestration?.fixes?.find((entry) => entry.id === "state.quarantine");
+    expect(fix).toBeDefined();
+    expect(fix?.withheld).toBeUndefined();
+
+    liveness = true;
+    const outcome = await fix!.run();
+    expect(outcome.ok).toBe(false);
+    expect(outcome.message).toContain("xacpx stop");
+
+    // The refused repair must not have touched state.json.
+    expect(await readFile(statePath, "utf8")).toBe(original);
+    expect(await readdir(rootDir)).toEqual(["state.json"]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

@@ -1,7 +1,13 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { join } from "node:path";
 
-import { resolveDaemonPaths } from "../../../src/daemon/daemon-files";
+import { isProcessAlive, resolveDaemonPaths } from "../../../src/daemon/daemon-files";
+
+function killError(code: string): NodeJS.ErrnoException {
+  const error = new Error(`kill failed: ${code}`) as NodeJS.ErrnoException;
+  error.code = code;
+  return error;
+}
 
 test("resolves runtime files under ~/.xacpx/runtime by default", () => {
   expect(
@@ -32,4 +38,33 @@ test("allows overriding the runtime directory", () => {
     stderrLog: join("/tmp/weacpx-runtime", "stderr.log"),
     appLog: join("/tmp/weacpx-runtime", "app.log"),
   });
+});
+
+test("isProcessAlive reports the current process as alive", () => {
+  expect(isProcessAlive(process.pid)).toBe(true);
+});
+
+test("isProcessAlive treats ESRCH (no such process) as dead", () => {
+  const spy = spyOn(process, "kill").mockImplementation(() => {
+    throw killError("ESRCH");
+  });
+  try {
+    expect(isProcessAlive(99999)).toBe(false);
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+test("isProcessAlive treats EPERM (exists, signal denied) as ALIVE", () => {
+  // EPERM means the process exists but is owned by another user. Doctor gates
+  // state-mutating repairs on liveness, so an existing process must never read
+  // as dead.
+  const spy = spyOn(process, "kill").mockImplementation(() => {
+    throw killError("EPERM");
+  });
+  try {
+    expect(isProcessAlive(1)).toBe(true);
+  } finally {
+    spy.mockRestore();
+  }
 });
