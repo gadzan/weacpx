@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.10.0] - 2026-06-11
+
+A large hardening release covering three review batches: a codebase-review fix batch (#20), a deferred security/group-auth/persistence batch (#22), and a follow-up batch (#23).
+
+### Added
+
+- **`ownerIds` config for group command authorization (#22):** group-owner-only commands no longer depend on the channel protocol exposing group roles (WeChat has none). Configure `channel.ownerIds` (or `channels[].ownerIds`) with the trusted sender ids — visible in `command.blocked` log entries — to grant a user owner-level commands in groups. `withEffectiveOwner` computes the effective owner per turn at a single seam and writes an explicit boolean when configured; `[]` is an explicit revocation. Yuanbao still self-asserts via `bot_owner_id` when `ownerIds` is unconfigured.
+
+### Security
+
+- **Runtime dir and orchestration socket are now user-private (#22):** the runtime directory is created `0o700` (with chmod repair on startup), lazily-created runtime subdirectories also use `0o700`, and the Unix orchestration socket is chmod'd `0o600` after listen — so other local users can no longer read state or drive the orchestration endpoint. See the trust-boundary section in `docs/external-mcp.md`.
+- **Privileged commands fail closed without `chatType` (#22):** an interactive turn that carries `metadata.channel` but no `chatType` is now rejected for privileged commands (was fail-open). Internal scheduled-dispatch turns are exempt.
+- **`/config set` blocks prototype pollution (#22):** config keys that would touch `__proto__` / `constructor` / `prototype` are rejected before any write.
+- **`/later` and MCP scheduled list/cancel are scoped to the originating chat (#22):** cross-chat list/cancel now behaves as not-found — no save, no existence leak across chats. Operator/scheduler internals use explicit all-chat variants.
+
+### Changed
+
+- **Free-text command bodies are stored verbatim, quotes intact (#23):** `/later`, `/delegate`, and `/group new` now slice the original input for their free-text body instead of re-tokenizing it, so quotes and inner spacing are preserved. Behavior change: `/group new "x y"` stores the quotes literally. Structured arguments keep tokenized behavior.
+- **Case-insensitive command names + smart-quote tokenization (#22):** command words match case-insensitively and curly/smart quotes are tokenized like straight quotes.
+
+### Fixed
+
+- **Config writes preserve hand-edited `config.json` (#22, #23):** `ConfigStore` now raw-patches the on-disk document (read → parse → patch subtree → validate → atomic write) instead of rewriting the whole parsed model, so unknown/hand-added fields survive a `/config set`. A single non-reentrant file lock is held across the whole read → patch → write span. New config files round-trip correctly.
+- **Bad `state.json` records are quarantined instead of bricking startup (#22):** corrupt records are collected and skipped (original bytes backed up to `state.json.quarantine-<ts>`); a wholly corrupt file is renamed `state.json.corrupt-<ts>` rather than crashing. `doctor` now inspects state without mutating it and surfaces load repairs.
+- **Session-init deadline is bounded and shared (#22, #23):** bridge-side session initialization is bounded by `sessionInitTimeoutMs`, and a single deadline is shared across all `ensureSession` steps (ensure / show-probe / new / verbose-fallback / EPERM-repair) so the total wait can't compound.
+- **Scheduled tasks: correct failure domains (#20, #22, #23):** a dispatched task is no longer recorded as failed when only `markExecuted`'s save throws; the in-memory claim rolls back when `claimDueTasks` save fails; `tick()` is hardened against store errors and `Invalid Date` is guarded in `/later`.
+- **WeChat credentials are no longer wiped on shutdown (#20):** channel stop is non-destructive; the chat `/logout` command was dropped.
+- **Background results survive session switches (#20):** switching the active session preserves background task results and stops cross-agent command inheritance.
+- **Session/clear correctness (#20, #22):** `/session new` refuses an alias that already exists; `/clear` closes the previous transport session for non-native sessions too; `/session rm` reply names the promoted previous session; `listAllResolvedSessions` dedupes by composite identity rather than session name.
+- **Zero-quota final answers are no longer silently dropped (#22):** when a final answer is fully parked due to exhausted quota, the user is notified, for both interactive and scheduled turns.
+- **Plugin name normalization and Windows spawning (#20, #22, #23):** plugin uninstall/dependency-guard/`doctor` key off the normalized installed name; the plugin rm success message names the normalized package; Windows spawns `npm` and plugin package-manager commands via the shell with quoted args; install specs that can't survive the win32 shell path are rejected.
+- **Daemon and logging resilience (#20):** `status.json` is written atomically (tmp + rename); logger write and cleanup failures can no longer crash message handling or daemon startup; queue-owner reap targets dedupe by composite identity.
+- **Bridge stability (#20):** `permissionPolicy` is plumbed through the bridge transport, stdin backpressure is no longer treated as a write failure, and stdin `error` events are swallowed so a failed write can't kill the daemon.
+
+### Docs
+
+- Plan documents for the three batches under `docs/superpowers/plans/` (review fix batch, deferred batch, follow-up batch).
+
 ## [0.9.3] - 2026-06-08
 
 ### Fixed
