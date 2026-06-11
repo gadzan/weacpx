@@ -89,8 +89,25 @@ export async function checkOrchestrationSocket(
     };
   }
 
-  const endpoint = resolveEndpoint(paths.runtimeDir);
-  const reachable = await probe(endpoint.path);
+  let endpoint: OrchestrationIpcEndpoint;
+  let reachable: boolean;
+  try {
+    endpoint = resolveEndpoint(paths.runtimeDir);
+    reachable = await probe(endpoint.path);
+  } catch (error) {
+    // The real probe never rejects (it resolves true on any ambiguous error),
+    // but guard the whole resolve+probe body anyway so an injected or future
+    // probe that throws can never crash doctor (runDoctor's runner loop does not
+    // wrap run()). Mirror the getStatus guard: skip rather than fail, since a
+    // probe error means we could not establish liveness, not that the IPC is down.
+    return {
+      id: "orchestration-socket",
+      label: "Orchestration IPC",
+      severity: "skip",
+      summary: "orchestration IPC liveness could not be probed",
+      details: [`runtime dir: ${paths.runtimeDir}`, `error: ${formatError(error)}`],
+    };
+  }
 
   // The probe is conservative: it returns false ONLY when the endpoint
   // definitively has no listener (ECONNREFUSED/ENOENT). A successful connect OR

@@ -117,3 +117,48 @@ test("orchestration socket check resolves the endpoint from the runtime dir and 
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("orchestration socket check skips with the error in details when the daemon status read throws", async () => {
+  const home = await createTempHome();
+  let probed = false;
+
+  try {
+    const result = await checkOrchestrationSocket({
+      home,
+      getDaemonStatus: async () => {
+        throw new Error("status read exploded");
+      },
+      canConnectToEndpoint: async () => {
+        probed = true;
+        return true;
+      },
+    });
+
+    expect(result.severity).toBe("skip");
+    expect(result.summary).toContain("could not be read");
+    expect(result.details?.join("\n") ?? "").toContain("status read exploded");
+    expect(probed).toBe(false);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("orchestration socket check skips without crashing when the probe throws", async () => {
+  const home = await createTempHome();
+
+  try {
+    const result = await checkOrchestrationSocket({
+      home,
+      getDaemonStatus: async () => ({ state: "running", pid: 4242 }),
+      canConnectToEndpoint: async () => {
+        throw new Error("probe exploded");
+      },
+    });
+
+    expect(result.severity).toBe("skip");
+    expect(result.summary).toContain("could not be probed");
+    expect(result.details?.join("\n") ?? "").toContain("probe exploded");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
