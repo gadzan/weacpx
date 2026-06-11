@@ -8,54 +8,75 @@ const SEVERITY_LABELS: Record<DoctorSeverity, string> = {
 };
 
 export function renderDoctor(report: DoctorReport, options: DoctorRunOptions = {}): string[] {
-  return options.verbose ? renderVerboseDoctor(report) : renderDefaultDoctor(report);
+  const fixMode = options.fix === true;
+  return options.verbose
+    ? renderVerboseDoctor(report, fixMode)
+    : renderDefaultDoctor(report, fixMode);
 }
 
-function renderDefaultDoctor(report: DoctorReport): string[] {
+function renderDefaultDoctor(report: DoctorReport, fixMode: boolean): string[] {
   const lines: string[] = [];
 
   for (const check of report.checks) {
-    lines.push(renderCheckLine(check));
+    lines.push(renderCheckLine(check, fixMode));
   }
 
+  appendRepairs(lines, report, fixMode);
   lines.push(renderSummaryLine(report.checks));
-
-  const suggestions = collectSuggestions(report.checks);
-  if (suggestions.length > 0) {
-    lines.push("Next steps:");
-    for (const suggestion of suggestions) {
-      lines.push(`- ${suggestion}`);
-    }
-  }
+  appendNextSteps(lines, report.checks);
 
   return lines;
 }
 
-function renderVerboseDoctor(report: DoctorReport): string[] {
+function renderVerboseDoctor(report: DoctorReport, fixMode: boolean): string[] {
   const lines: string[] = [];
 
   for (const check of report.checks) {
-    lines.push(renderCheckLine(check));
+    lines.push(renderCheckLine(check, fixMode));
     for (const detail of check.details ?? []) {
       lines.push(`  detail: ${detail}`);
     }
   }
 
+  appendRepairs(lines, report, fixMode);
   lines.push(renderSummaryLine(report.checks));
+  appendNextSteps(lines, report.checks);
 
-  const suggestions = collectSuggestions(report.checks);
+  return lines;
+}
+
+function appendNextSteps(lines: string[], checks: DoctorCheckResult[]): void {
+  const suggestions = collectSuggestions(checks);
   if (suggestions.length > 0) {
     lines.push("Next steps:");
     for (const suggestion of suggestions) {
       lines.push(`- ${suggestion}`);
     }
   }
-
-  return lines;
 }
 
-function renderCheckLine(check: DoctorCheckResult): string {
-  return `${SEVERITY_LABELS[check.severity]} ${check.label}: ${check.summary}`;
+function appendRepairs(lines: string[], report: DoctorReport, fixMode: boolean): void {
+  if (!fixMode) {
+    return;
+  }
+
+  const repairs = report.repairs ?? [];
+  if (repairs.length === 0) {
+    return;
+  }
+
+  lines.push("Repairs:");
+  for (const repair of repairs) {
+    lines.push(`- ${repair.title}: ${repair.status} (${repair.message})`);
+  }
+}
+
+function renderCheckLine(check: DoctorCheckResult, fixMode: boolean): string {
+  const base = `${SEVERITY_LABELS[check.severity]} ${check.label}: ${check.summary}`;
+  if (!fixMode && (check.fixes?.length ?? 0) > 0) {
+    return `${base} (fixable — run: xacpx doctor --fix)`;
+  }
+  return base;
 }
 
 function renderSummaryLine(checks: DoctorCheckResult[]): string {

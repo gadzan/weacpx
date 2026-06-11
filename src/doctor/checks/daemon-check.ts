@@ -1,9 +1,24 @@
+import { readdir, readFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
+import { join } from "node:path";
 
 import { createDaemonController } from "../../daemon/create-daemon-controller";
-import { resolveDaemonPaths, resolveRuntimeDirFromConfigPath, type DaemonPaths } from "../../daemon/daemon-files";
-import type { DoctorCheckResult } from "../doctor-types";
+import {
+  isProcessAlive,
+  resolveDaemonPaths,
+  resolveRuntimeDirFromConfigPath,
+  type DaemonPaths,
+} from "../../daemon/daemon-files";
+import type { DoctorCheckResult, DoctorFix } from "../doctor-types";
+
+/**
+ * Consumer lock files are named "<channel-id>-consumer.lock.json" (see cli.ts:
+ * the first registered channel's id is the prefix). Match channel-agnostically
+ * so a Feishu-first install ("feishu-consumer.lock.json") is covered, not just
+ * Weixin.
+ */
+const CONSUMER_LOCK_SUFFIX = "-consumer.lock.json";
 
 export interface DaemonCheckOptions {
   home?: string;
@@ -14,6 +29,12 @@ export interface DaemonCheckOptions {
   cliEntryPath?: string;
   cwd?: string;
   env?: NodeJS.ProcessEnv;
+  /** Injected so stale-lock detection never reads the real filesystem in tests. */
+  listConsumerLocks?: (runtimeDir: string) => Promise<string[]>;
+  /** Injected so stale-lock detection never reads the real filesystem in tests. */
+  readConsumerLock?: (path: string) => Promise<{ pid: number } | null>;
+  /** Injected so the attached repair never touches the real filesystem in tests. */
+  removeConsumerLock?: (path: string) => Promise<void>;
 }
 
 export async function checkDaemon(options: DaemonCheckOptions = {}): Promise<DoctorCheckResult> {
@@ -23,16 +44,34 @@ export async function checkDaemon(options: DaemonCheckOptions = {}): Promise<Doc
     home,
     ...(runtimeDir ? { runtimeDir } : {}),
   });
+  const isProcessRunning = options.isProcessRunning ?? isProcessAlive;
+  const listConsumerLocks = options.listConsumerLocks ?? defaultListConsumerLocks;
+  const readConsumerLock = options.readConsumerLock ?? defaultReadConsumerLock;
+  const removeConsumerLock = options.removeConsumerLock ?? defaultRemoveConsumerLock;
   const controller = createDaemonController(paths, {
     processExecPath: options.processExecPath ?? process.execPath,
     cliEntryPath: options.cliEntryPath ?? resolveCliEntryPath(),
     cwd: options.cwd ?? process.cwd(),
     env: options.env ?? process.env,
-    isProcessRunning: options.isProcessRunning ?? defaultIsProcessRunning,
+    isProcessRunning,
   });
 
   try {
     const status = await controller.getStatus();
+    // A stale consumer lock can only be safely cleared when there is genuinely
+    // no live daemon. Only "stopped" qualifies: "running" obviously owns the
+    // lock, and "indeterminate" is also a LIVE pid (getStatus reports it only
+    // after confirming the daemon process is alive but status.json is missing),
+    // so removing the lock there would race a live daemon.
+    const staleLockFix =
+      status.state === "stopped"
+        ? await detectStaleConsumerLockFix(paths.runtimeDir, {
+            isProcessRunning,
+            listConsumerLocks,
+            readConsumerLock,
+            removeConsumerLock,
+          })
+        : undefined;
     switch (status.state) {
       case "running":
         return {
@@ -54,12 +93,15 @@ export async function checkDaemon(options: DaemonCheckOptions = {}): Promise<Doc
           summary: status.stale ? "daemon was stopped and stale runtime files were cleared" : "daemon is not running",
           details: status.stale ? ["stale runtime files were cleared"] : undefined,
           suggestions: ["run: xacpx start"],
+          ...(staleLockFix ? { fixes: [staleLockFix] } : {}),
           metadata: {
             paths,
             status,
           },
         };
       case "indeterminate":
+        // indeterminate = a LIVE daemon pid (status.json missing). Never offer
+        // a lock removal here; it would race the live daemon.
         return {
           id: "daemon",
           label: "Daemon",
@@ -102,13 +144,77 @@ export async function checkDaemon(options: DaemonCheckOptions = {}): Promise<Doc
   }
 }
 
-function defaultIsProcessRunning(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
+interface StaleConsumerLockDeps {
+  isProcessRunning: (pid: number) => boolean;
+  listConsumerLocks: (runtimeDir: string) => Promise<string[]>;
+  readConsumerLock: (path: string) => Promise<{ pid: number } | null>;
+  removeConsumerLock: (path: string) => Promise<void>;
+}
+
+/**
+ * Detect STALE consumer locks: any "<channel>-consumer.lock.json" in the
+ * runtime dir whose recorded pid is definitively NOT running. Conservative —
+ * a missing dir, no matching files, unreadable locks, or live-pid locks all
+ * yield no fix. When at least one stale lock exists, returns a repair whose
+ * run() removes every stale lock found (and only those) and names them.
+ */
+async function detectStaleConsumerLockFix(
+  runtimeDir: string,
+  deps: StaleConsumerLockDeps,
+): Promise<DoctorFix | undefined> {
+  const lockFiles = await deps.listConsumerLocks(runtimeDir);
+  const stalePaths: string[] = [];
+  for (const fileName of lockFiles) {
+    if (!fileName.endsWith(CONSUMER_LOCK_SUFFIX)) {
+      continue;
+    }
+    const lockPath = join(runtimeDir, fileName);
+    const lock = await deps.readConsumerLock(lockPath);
+    if (lock && !deps.isProcessRunning(lock.pid)) {
+      stalePaths.push(lockPath);
+    }
   }
+
+  if (stalePaths.length === 0) {
+    return undefined;
+  }
+
+  return {
+    id: "daemon.clear-stale-lock",
+    title: "remove stale consumer lock(s)",
+    run: async () => {
+      for (const lockPath of stalePaths) {
+        await deps.removeConsumerLock(lockPath);
+      }
+      return {
+        ok: true,
+        message: `removed ${stalePaths.length} stale consumer lock(s): ${stalePaths.join(", ")}`,
+      };
+    },
+  };
+}
+
+async function defaultListConsumerLocks(runtimeDir: string): Promise<string[]> {
+  try {
+    return await readdir(runtimeDir);
+  } catch {
+    // Missing/unreadable runtime dir => nothing to scan.
+    return [];
+  }
+}
+
+async function defaultReadConsumerLock(path: string): Promise<{ pid: number } | null> {
+  try {
+    const raw = await readFile(path, "utf8");
+    const parsed = JSON.parse(raw) as { pid?: unknown };
+    return typeof parsed.pid === "number" ? { pid: parsed.pid } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function defaultRemoveConsumerLock(path: string): Promise<void> {
+  await rm(path, { force: true });
 }
 
 function resolveCliEntryPath(): string {

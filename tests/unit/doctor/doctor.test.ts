@@ -509,28 +509,79 @@ test("doctor orchestrator runs baseline checks in stable order and records smoke
     {
       checkConfig: createCheck("config"),
       checkRuntime: createCheck("runtime"),
+      checkLogs: createCheck("logs") as never,
       checkDaemon: createCheck("daemon"),
       checkWechat: createCheck("wechat"),
       checkAcpx: createCheck("acpx"),
       checkBridge: createCheck("bridge"),
+      checkPlugins: createCheck("plugins") as never,
       checkOrchestrationHealth: createCheck("orchestration"),
+      checkOrchestrationSocket: createCheck("orchestration-socket") as never,
     },
   );
 
-  expect(calls).toEqual(["config", "runtime", "daemon", "wechat", "acpx", "bridge", "orchestration"]);
-  expect(result.report.checks.map((check) => check.id)).toEqual([
+  expect(calls).toEqual([
     "config",
     "runtime",
+    "logs",
     "daemon",
     "wechat",
     "acpx",
     "bridge",
+    "plugins",
     "orchestration",
+    "orchestration-socket",
+  ]);
+  expect(result.report.checks.map((check) => check.id)).toEqual([
+    "config",
+    "runtime",
+    "logs",
+    "daemon",
+    "wechat",
+    "acpx",
+    "bridge",
+    "plugins",
+    "orchestration",
+    "orchestration-socket",
     "smoke",
   ]);
   expect(result.report.checks.at(-1)).toMatchObject({
     id: "smoke",
     severity: "skip",
+  });
+});
+
+test("runDoctor places the logs check after runtime and before daemon and honors the checkLogs override", async () => {
+  let called = false;
+  const result = await runDoctor(
+    {},
+    {
+      checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }),
+      checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "pass", summary: "ok" }),
+      checkLogs: (async () => {
+        called = true;
+        return { id: "logs", label: "Logs", severity: "warn", summary: "log growth high" };
+      }) as never,
+      checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "pass", summary: "ok" }),
+      checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
+      checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
+      checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "pass", summary: "ok" }),
+      checkPlugins: (async () => ({ id: "plugins", label: "Plugins", severity: "skip", summary: "skip" })) as never,
+      checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }),
+      checkOrchestrationSocket: (async () => ({ id: "orchestration-socket", label: "Orchestration IPC", severity: "skip", summary: "skip" })) as never,
+    },
+  );
+
+  expect(called).toBe(true);
+  const ids = result.report.checks.map((check) => check.id);
+  const runtimeIndex = ids.indexOf("runtime");
+  const logsIndex = ids.indexOf("logs");
+  const daemonIndex = ids.indexOf("daemon");
+  expect(logsIndex).toBe(runtimeIndex + 1);
+  expect(daemonIndex).toBe(logsIndex + 1);
+  expect(result.report.checks.find((check) => check.id === "logs")).toMatchObject({
+    severity: "warn",
+    summary: "log growth high",
   });
 });
 
@@ -635,16 +686,19 @@ test("doctor orchestrator returns exit code 1 when any check fails", async () =>
     {
       checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }),
       checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "fail", summary: "broken" }),
+      checkLogs: (async () => ({ id: "logs", label: "Logs", severity: "skip", summary: "skip" })) as never,
       checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "warn", summary: "warn" }),
       checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
       checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
       checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "skip", summary: "skip" }),
+      checkPlugins: async () => ({ id: "plugins", label: "Plugins", severity: "skip", summary: "skip" }),
       checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }),
+      checkOrchestrationSocket: (async () => ({ id: "orchestration-socket", label: "Orchestration IPC", severity: "skip", summary: "skip" })) as never,
     },
   );
 
   expect(result.exitCode).toBe(1);
-  expect(result.output).toContain("Summary: PASS 4, WARN 1, FAIL 1, SKIP 2");
+  expect(result.output).toContain("Summary: PASS 4, WARN 1, FAIL 1, SKIP 5");
 });
 
 test("doctor orchestrator returns exit code 0 when report only contains pass warn and skip", async () => {
@@ -653,16 +707,19 @@ test("doctor orchestrator returns exit code 0 when report only contains pass war
     {
       checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }),
       checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "warn", summary: "warn" }),
+      checkLogs: (async () => ({ id: "logs", label: "Logs", severity: "skip", summary: "skip" })) as never,
       checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "pass", summary: "ok" }),
       checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
       checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
       checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "skip", summary: "skip" }),
+      checkPlugins: async () => ({ id: "plugins", label: "Plugins", severity: "skip", summary: "skip" }),
       checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }),
+      checkOrchestrationSocket: (async () => ({ id: "orchestration-socket", label: "Orchestration IPC", severity: "skip", summary: "skip" })) as never,
     },
   );
 
   expect(result.exitCode).toBe(0);
-  expect(result.output).toContain("Summary: PASS 5, WARN 1, FAIL 0, SKIP 2");
+  expect(result.output).toContain("Summary: PASS 5, WARN 1, FAIL 0, SKIP 5");
 });
 
 test("runDoctor includes the orchestration-health check result", async () => {
@@ -685,6 +742,71 @@ test("runDoctor includes the orchestration-health check result", async () => {
 
   expect(called).toBe(true);
   expect(result.report.checks.some((c) => c.id === "orchestration")).toBe(true);
+});
+
+test("runDoctor places the plugins check between bridge and orchestration and honors the checkPlugins override", async () => {
+  let called = false;
+  const result = await runDoctor(
+    {},
+    {
+      checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }),
+      checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "pass", summary: "ok" }),
+      checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "pass", summary: "ok" }),
+      checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
+      checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
+      checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "pass", summary: "ok" }),
+      checkPlugins: (async () => {
+        called = true;
+        return { id: "plugins", label: "Plugins", severity: "warn", summary: "1 plugin issue(s)" };
+      }) as never,
+      checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }),
+    },
+  );
+
+  expect(called).toBe(true);
+  const ids = result.report.checks.map((check) => check.id);
+  const bridgeIndex = ids.indexOf("bridge");
+  const pluginsIndex = ids.indexOf("plugins");
+  const orchestrationIndex = ids.indexOf("orchestration");
+  expect(pluginsIndex).toBe(bridgeIndex + 1);
+  expect(orchestrationIndex).toBe(pluginsIndex + 1);
+  expect(result.report.checks.find((check) => check.id === "plugins")).toMatchObject({
+    severity: "warn",
+    summary: "1 plugin issue(s)",
+  });
+});
+
+test("runDoctor places the orchestration-socket check after orchestration and before smoke and honors the override", async () => {
+  let called = false;
+  const result = await runDoctor(
+    {},
+    {
+      checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }),
+      checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "pass", summary: "ok" }),
+      checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "pass", summary: "ok" }),
+      checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
+      checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
+      checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "pass", summary: "ok" }),
+      checkPlugins: (async () => ({ id: "plugins", label: "Plugins", severity: "skip", summary: "skip" })) as never,
+      checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }),
+      checkOrchestrationSocket: (async () => {
+        called = true;
+        return { id: "orchestration-socket", label: "Orchestration IPC", severity: "fail", summary: "ipc down" };
+      }) as never,
+    },
+  );
+
+  expect(called).toBe(true);
+  const ids = result.report.checks.map((check) => check.id);
+  const orchestrationIndex = ids.indexOf("orchestration");
+  const socketIndex = ids.indexOf("orchestration-socket");
+  const smokeIndex = ids.indexOf("smoke");
+  expect(socketIndex).toBe(orchestrationIndex + 1);
+  expect(smokeIndex).toBe(socketIndex + 1);
+  expect(result.report.checks.find((check) => check.id === "orchestration-socket")).toMatchObject({
+    severity: "fail",
+    summary: "ipc down",
+  });
 });
 
 test("runDoctor skips orchestration-health instead of throwing when config cannot be loaded", async () => {
@@ -721,10 +843,13 @@ function createStateDoctorStubs() {
   return {
     checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }) as DoctorCheckResult,
     checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkLogs: (async () => ({ id: "logs", label: "Logs", severity: "skip", summary: "skip" })) as never,
     checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "pass", summary: "ok" }) as DoctorCheckResult,
     checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }) as DoctorCheckResult,
     checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }) as DoctorCheckResult,
     checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkPlugins: (async () => ({ id: "plugins", label: "Plugins", severity: "skip", summary: "skip" })) as never,
+    checkOrchestrationSocket: (async () => ({ id: "orchestration-socket", label: "Orchestration IPC", severity: "skip", summary: "skip" })) as never,
     loadConfig: async () => ({ orchestration: { progressHeartbeatSeconds: 300 } }) as never,
   };
 }
@@ -779,6 +904,411 @@ test("doctor warns on an unreadable state.json without renaming it", async () =>
   }
 });
 
+function createFixDoctorStubs() {
+  return {
+    checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkLogs: (async () => ({ id: "logs", label: "Logs", severity: "skip", summary: "skip" })) as never,
+    checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkPlugins: (async () => ({ id: "plugins", label: "Plugins", severity: "skip", summary: "skip" })) as never,
+    checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkOrchestrationSocket: (async () => ({ id: "orchestration-socket", label: "Orchestration IPC", severity: "skip", summary: "skip" })) as never,
+  };
+}
+
+test("doctor does not run fixes unless options.fix is true", async () => {
+  let ran = false;
+  const result = await runDoctor(
+    {},
+    {
+      ...createFixDoctorStubs(),
+      checkRuntime: async () => ({
+        id: "runtime",
+        label: "Runtime",
+        severity: "fail",
+        summary: "broken",
+        fixes: [
+          {
+            id: "runtime.repair",
+            title: "repair runtime",
+            run: async () => {
+              ran = true;
+              return { ok: true, message: "repaired" };
+            },
+          },
+        ],
+      }),
+    },
+  );
+
+  expect(ran).toBe(false);
+  expect(result.report.repairs ?? []).toEqual([]);
+  expect(result.exitCode).toBe(1);
+});
+
+test("doctor records a withheld fix as skipped and never invokes run()", async () => {
+  let ran = false;
+  const result = await runDoctor(
+    { fix: true },
+    {
+      ...createFixDoctorStubs(),
+      checkDaemon: async () => ({
+        id: "daemon",
+        label: "Daemon",
+        severity: "warn",
+        summary: "stale",
+        fixes: [
+          {
+            id: "daemon.clear",
+            title: "clear stale runtime",
+            withheld: "stop the daemon first: xacpx stop",
+            run: async () => {
+              ran = true;
+              return { ok: true, message: "cleared" };
+            },
+          },
+        ],
+      }),
+    },
+  );
+
+  expect(ran).toBe(false);
+  expect(result.report.repairs).toEqual([
+    {
+      checkId: "daemon",
+      fixId: "daemon.clear",
+      title: "clear stale runtime",
+      status: "skipped",
+      message: "stop the daemon first: xacpx stop",
+    },
+  ]);
+});
+
+test("doctor applies a fix and re-runs only the affected check", async () => {
+  let runtimeCalls = 0;
+  let daemonCalls = 0;
+
+  const result = await runDoctor(
+    { fix: true },
+    {
+      ...createFixDoctorStubs(),
+      checkRuntime: async () => {
+        runtimeCalls += 1;
+        if (runtimeCalls === 1) {
+          return {
+            id: "runtime",
+            label: "Runtime",
+            severity: "fail",
+            summary: "broken",
+            fixes: [
+              {
+                id: "runtime.repair",
+                title: "repair runtime",
+                run: async () => ({ ok: true, message: "repaired" }),
+              },
+            ],
+          };
+        }
+        return { id: "runtime", label: "Runtime", severity: "pass", summary: "fixed" };
+      },
+      checkDaemon: async () => {
+        daemonCalls += 1;
+        return { id: "daemon", label: "Daemon", severity: "pass", summary: "ok" };
+      },
+    },
+  );
+
+  expect(runtimeCalls).toBe(2);
+  expect(daemonCalls).toBe(1);
+  const runtime = result.report.checks.find((check) => check.id === "runtime");
+  expect(runtime).toMatchObject({ severity: "pass", summary: "fixed" });
+  expect(result.report.repairs).toEqual([
+    {
+      checkId: "runtime",
+      fixId: "runtime.repair",
+      title: "repair runtime",
+      status: "applied",
+      message: "repaired",
+    },
+  ]);
+  expect(result.exitCode).toBe(0);
+});
+
+test("doctor captures a throwing fix as failed without crashing", async () => {
+  let runtimeCalls = 0;
+  const result = await runDoctor(
+    { fix: true },
+    {
+      ...createFixDoctorStubs(),
+      checkRuntime: async () => {
+        runtimeCalls += 1;
+        return {
+          id: "runtime",
+          label: "Runtime",
+          severity: "fail",
+          summary: "broken",
+          fixes: [
+            {
+              id: "runtime.repair",
+              title: "repair runtime",
+              run: async () => {
+                throw new Error("boom");
+              },
+            },
+          ],
+        };
+      },
+    },
+  );
+
+  // a failed (not applied) fix does not trigger a re-run
+  expect(runtimeCalls).toBe(1);
+  expect(result.report.repairs).toEqual([
+    {
+      checkId: "runtime",
+      fixId: "runtime.repair",
+      title: "repair runtime",
+      status: "failed",
+      message: "boom",
+    },
+  ]);
+  expect(result.exitCode).toBe(1);
+});
+
+test("doctor records an outcome with ok false as failed", async () => {
+  const result = await runDoctor(
+    { fix: true },
+    {
+      ...createFixDoctorStubs(),
+      checkRuntime: async () => ({
+        id: "runtime",
+        label: "Runtime",
+        severity: "fail",
+        summary: "broken",
+        fixes: [
+          {
+            id: "runtime.repair",
+            title: "repair runtime",
+            run: async () => ({ ok: false, message: "could not repair" }),
+          },
+        ],
+      }),
+    },
+  );
+
+  expect(result.report.repairs).toEqual([
+    {
+      checkId: "runtime",
+      fixId: "runtime.repair",
+      title: "repair runtime",
+      status: "failed",
+      message: "could not repair",
+    },
+  ]);
+  expect(result.exitCode).toBe(1);
+});
+
+test("doctor handles a mixed fixes array: skips the withheld one and applies the runnable one", async () => {
+  let runtimeCalls = 0;
+  let withheldRan = false;
+
+  const result = await runDoctor(
+    { fix: true },
+    {
+      ...createFixDoctorStubs(),
+      checkRuntime: async () => {
+        runtimeCalls += 1;
+        if (runtimeCalls === 1) {
+          return {
+            id: "runtime",
+            label: "Runtime",
+            severity: "fail",
+            summary: "broken",
+            fixes: [
+              {
+                id: "runtime.withheld",
+                title: "withheld fix",
+                withheld: "stop the daemon first",
+                run: async () => {
+                  withheldRan = true;
+                  return { ok: true, message: "should not run" };
+                },
+              },
+              {
+                id: "runtime.repair",
+                title: "repair runtime",
+                run: async () => ({ ok: true, message: "repaired" }),
+              },
+            ],
+          };
+        }
+        return { id: "runtime", label: "Runtime", severity: "pass", summary: "fixed" };
+      },
+    },
+  );
+
+  expect(withheldRan).toBe(false);
+  // re-run exactly once despite two fixes on the check
+  expect(runtimeCalls).toBe(2);
+  expect(result.report.repairs).toEqual([
+    {
+      checkId: "runtime",
+      fixId: "runtime.withheld",
+      title: "withheld fix",
+      status: "skipped",
+      message: "stop the daemon first",
+    },
+    {
+      checkId: "runtime",
+      fixId: "runtime.repair",
+      title: "repair runtime",
+      status: "applied",
+      message: "repaired",
+    },
+  ]);
+  expect(result.report.checks.find((check) => check.id === "runtime")).toMatchObject({
+    severity: "pass",
+    summary: "fixed",
+  });
+  expect(result.exitCode).toBe(0);
+});
+
+test("doctor re-runs every check that applied a fix", async () => {
+  let runtimeCalls = 0;
+  let daemonCalls = 0;
+
+  const result = await runDoctor(
+    { fix: true },
+    {
+      ...createFixDoctorStubs(),
+      checkRuntime: async () => {
+        runtimeCalls += 1;
+        if (runtimeCalls === 1) {
+          return {
+            id: "runtime",
+            label: "Runtime",
+            severity: "fail",
+            summary: "broken",
+            fixes: [
+              {
+                id: "runtime.repair",
+                title: "repair runtime",
+                run: async () => ({ ok: true, message: "runtime repaired" }),
+              },
+            ],
+          };
+        }
+        return { id: "runtime", label: "Runtime", severity: "pass", summary: "runtime fixed" };
+      },
+      checkDaemon: async () => {
+        daemonCalls += 1;
+        if (daemonCalls === 1) {
+          return {
+            id: "daemon",
+            label: "Daemon",
+            severity: "warn",
+            summary: "stale",
+            fixes: [
+              {
+                id: "daemon.clear",
+                title: "clear stale runtime",
+                run: async () => ({ ok: true, message: "daemon cleared" }),
+              },
+            ],
+          };
+        }
+        return { id: "daemon", label: "Daemon", severity: "pass", summary: "daemon fixed" };
+      },
+    },
+  );
+
+  expect(runtimeCalls).toBe(2);
+  expect(daemonCalls).toBe(2);
+  expect(result.report.checks.find((check) => check.id === "runtime")).toMatchObject({
+    severity: "pass",
+    summary: "runtime fixed",
+  });
+  expect(result.report.checks.find((check) => check.id === "daemon")).toMatchObject({
+    severity: "pass",
+    summary: "daemon fixed",
+  });
+  expect(result.report.repairs).toEqual([
+    {
+      checkId: "runtime",
+      fixId: "runtime.repair",
+      title: "repair runtime",
+      status: "applied",
+      message: "runtime repaired",
+    },
+    {
+      checkId: "daemon",
+      fixId: "daemon.clear",
+      title: "clear stale runtime",
+      status: "applied",
+      message: "daemon cleared",
+    },
+  ]);
+  expect(result.exitCode).toBe(0);
+});
+
+test("doctor re-runs a check exactly once even when it applies two fixes", async () => {
+  let runtimeCalls = 0;
+
+  const result = await runDoctor(
+    { fix: true },
+    {
+      ...createFixDoctorStubs(),
+      checkRuntime: async () => {
+        runtimeCalls += 1;
+        if (runtimeCalls === 1) {
+          return {
+            id: "runtime",
+            label: "Runtime",
+            severity: "fail",
+            summary: "broken",
+            fixes: [
+              {
+                id: "runtime.repair-a",
+                title: "repair runtime a",
+                run: async () => ({ ok: true, message: "repaired a" }),
+              },
+              {
+                id: "runtime.repair-b",
+                title: "repair runtime b",
+                run: async () => ({ ok: true, message: "repaired b" }),
+              },
+            ],
+          };
+        }
+        return { id: "runtime", label: "Runtime", severity: "pass", summary: "fixed" };
+      },
+    },
+  );
+
+  // both fixes applied, but the dedup keeps the re-run to a single invocation
+  expect(runtimeCalls).toBe(2);
+  expect(result.report.repairs).toEqual([
+    {
+      checkId: "runtime",
+      fixId: "runtime.repair-a",
+      title: "repair runtime a",
+      status: "applied",
+      message: "repaired a",
+    },
+    {
+      checkId: "runtime",
+      fixId: "runtime.repair-b",
+      title: "repair runtime b",
+      status: "applied",
+      message: "repaired b",
+    },
+  ]);
+  expect(result.exitCode).toBe(0);
+});
+
 test("doctor index main runs orchestrator and prints rendered output", async () => {
   const lines: string[] = [];
   const restore = console.log;
@@ -805,5 +1335,139 @@ test("doctor index main runs orchestrator and prints rendered output", async () 
     expect(lines).toEqual(["PASS Config: ok", "Summary: PASS 1, WARN 0, FAIL 0, SKIP 0"]);
   } finally {
     console.log = restore;
+  }
+});
+
+test("orchestration check attaches state.quarantine fix when daemon is stopped and a state record is invalid", async () => {
+  const home = await createTempHome();
+  const rootDir = join(home, ".xacpx");
+  const statePath = join(rootDir, "state.json");
+  const original = JSON.stringify({ sessions: { bad: { alias: "bad" } }, chat_contexts: {} });
+
+  try {
+    await mkdir(rootDir, { recursive: true });
+    await writeFile(statePath, original, "utf8");
+
+    const result = await runDoctor(
+      {},
+      { home, ...createStateDoctorStubs(), isDaemonRunning: async () => false },
+    );
+
+    const orchestration = result.report.checks.find((check) => check.id === "orchestration");
+    const fix = orchestration?.fixes?.find((entry) => entry.id === "state.quarantine");
+    expect(fix).toBeDefined();
+    expect(fix?.withheld).toBeUndefined();
+
+    // run() performs the real quarantine via StateStore.load(): records dropped,
+    // original backed up, state.json rewritten on the next save cycle.
+    const outcome = await fix!.run();
+    expect(outcome.ok).toBe(true);
+    const backups = (await readdir(rootDir)).filter((name) => name.includes("quarantine"));
+    expect(backups.length).toBeGreaterThan(0);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("orchestration check withholds state.quarantine fix and does not mutate when the daemon is running", async () => {
+  const home = await createTempHome();
+  const rootDir = join(home, ".xacpx");
+  const statePath = join(rootDir, "state.json");
+  const original = JSON.stringify({ sessions: { bad: { alias: "bad" } }, chat_contexts: {} });
+
+  try {
+    await mkdir(rootDir, { recursive: true });
+    await writeFile(statePath, original, "utf8");
+
+    const result = await runDoctor(
+      {},
+      { home, ...createStateDoctorStubs(), isDaemonRunning: async () => true },
+    );
+
+    const orchestration = result.report.checks.find((check) => check.id === "orchestration");
+    const fix = orchestration?.fixes?.find((entry) => entry.id === "state.quarantine");
+    expect(fix).toBeDefined();
+    expect(fix?.withheld).toBe("stop the daemon first: xacpx stop");
+
+    // Detection alone must never mutate; the running daemon owns state.json.
+    expect(await readFile(statePath, "utf8")).toBe(original);
+    expect(await readdir(rootDir)).toEqual(["state.json"]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("orchestration check attaches no state.quarantine fix when state.json is valid", async () => {
+  const home = await createTempHome();
+  const rootDir = join(home, ".xacpx");
+  const statePath = join(rootDir, "state.json");
+
+  try {
+    await mkdir(rootDir, { recursive: true });
+    await writeFile(statePath, JSON.stringify({ sessions: {}, chat_contexts: {} }), "utf8");
+
+    const result = await runDoctor(
+      {},
+      { home, ...createStateDoctorStubs(), isDaemonRunning: async () => false },
+    );
+
+    const orchestration = result.report.checks.find((check) => check.id === "orchestration");
+    expect(orchestration?.fixes?.some((entry) => entry.id === "state.quarantine") ?? false).toBe(false);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("default daemon-liveness mapping withholds the quarantine fix for an indeterminate (live) daemon", async () => {
+  const home = await createTempHome();
+  const rootDir = join(home, ".xacpx");
+  const statePath = join(rootDir, "state.json");
+  const original = JSON.stringify({ sessions: { bad: { alias: "bad" } }, chat_contexts: {} });
+
+  try {
+    await mkdir(rootDir, { recursive: true });
+    await writeFile(statePath, original, "utf8");
+
+    // Exercise the DEFAULT liveness mapping (not the isDaemonRunning boolean):
+    // an "indeterminate" status is a LIVE daemon, so the fix must be withheld.
+    const result = await runDoctor(
+      {},
+      { home, ...createStateDoctorStubs(), getDaemonStatus: async () => ({ state: "indeterminate" }) },
+    );
+
+    const orchestration = result.report.checks.find((check) => check.id === "orchestration");
+    const fix = orchestration?.fixes?.find((entry) => entry.id === "state.quarantine");
+    expect(fix).toBeDefined();
+    expect(fix?.withheld).toBe("stop the daemon first: xacpx stop");
+
+    // The check must not mutate state.json while a live daemon owns it.
+    expect(await readFile(statePath, "utf8")).toBe(original);
+    expect(await readdir(rootDir)).toEqual(["state.json"]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("default daemon-liveness mapping allows the quarantine fix for a stopped daemon", async () => {
+  const home = await createTempHome();
+  const rootDir = join(home, ".xacpx");
+  const statePath = join(rootDir, "state.json");
+  const original = JSON.stringify({ sessions: { bad: { alias: "bad" } }, chat_contexts: {} });
+
+  try {
+    await mkdir(rootDir, { recursive: true });
+    await writeFile(statePath, original, "utf8");
+
+    const result = await runDoctor(
+      {},
+      { home, ...createStateDoctorStubs(), getDaemonStatus: async () => ({ state: "stopped" }) },
+    );
+
+    const orchestration = result.report.checks.find((check) => check.id === "orchestration");
+    const fix = orchestration?.fixes?.find((entry) => entry.id === "state.quarantine");
+    expect(fix).toBeDefined();
+    expect(fix?.withheld).toBeUndefined();
+  } finally {
+    await rm(home, { recursive: true, force: true });
   }
 });

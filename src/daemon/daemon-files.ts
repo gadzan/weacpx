@@ -41,3 +41,18 @@ export function resolveDaemonOrchestrationSocketPath(
 ): string {
   return resolveOrchestrationEndpoint(runtimeDir, platform).path;
 }
+
+/**
+ * Liveness probe via signal 0: returns true when the pid can be signalled,
+ * false when process.kill throws. Note this treats any throw (including EPERM,
+ * which actually means the process exists but is owned by another user) as "not
+ * alive"; matches the behaviour of the other isProcessRunning copies.
+ */
+export function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
