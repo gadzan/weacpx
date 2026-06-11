@@ -513,11 +513,12 @@ test("doctor orchestrator runs baseline checks in stable order and records smoke
       checkWechat: createCheck("wechat"),
       checkAcpx: createCheck("acpx"),
       checkBridge: createCheck("bridge"),
+      checkPlugins: createCheck("plugins") as never,
       checkOrchestrationHealth: createCheck("orchestration"),
     },
   );
 
-  expect(calls).toEqual(["config", "runtime", "daemon", "wechat", "acpx", "bridge", "orchestration"]);
+  expect(calls).toEqual(["config", "runtime", "daemon", "wechat", "acpx", "bridge", "plugins", "orchestration"]);
   expect(result.report.checks.map((check) => check.id)).toEqual([
     "config",
     "runtime",
@@ -525,6 +526,7 @@ test("doctor orchestrator runs baseline checks in stable order and records smoke
     "wechat",
     "acpx",
     "bridge",
+    "plugins",
     "orchestration",
     "smoke",
   ]);
@@ -639,12 +641,13 @@ test("doctor orchestrator returns exit code 1 when any check fails", async () =>
       checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
       checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
       checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "skip", summary: "skip" }),
+      checkPlugins: async () => ({ id: "plugins", label: "Plugins", severity: "skip", summary: "skip" }),
       checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }),
     },
   );
 
   expect(result.exitCode).toBe(1);
-  expect(result.output).toContain("Summary: PASS 4, WARN 1, FAIL 1, SKIP 2");
+  expect(result.output).toContain("Summary: PASS 4, WARN 1, FAIL 1, SKIP 3");
 });
 
 test("doctor orchestrator returns exit code 0 when report only contains pass warn and skip", async () => {
@@ -657,12 +660,13 @@ test("doctor orchestrator returns exit code 0 when report only contains pass war
       checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
       checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
       checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "skip", summary: "skip" }),
+      checkPlugins: async () => ({ id: "plugins", label: "Plugins", severity: "skip", summary: "skip" }),
       checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }),
     },
   );
 
   expect(result.exitCode).toBe(0);
-  expect(result.output).toContain("Summary: PASS 5, WARN 1, FAIL 0, SKIP 2");
+  expect(result.output).toContain("Summary: PASS 5, WARN 1, FAIL 0, SKIP 3");
 });
 
 test("runDoctor includes the orchestration-health check result", async () => {
@@ -685,6 +689,38 @@ test("runDoctor includes the orchestration-health check result", async () => {
 
   expect(called).toBe(true);
   expect(result.report.checks.some((c) => c.id === "orchestration")).toBe(true);
+});
+
+test("runDoctor places the plugins check between bridge and orchestration and honors the checkPlugins override", async () => {
+  let called = false;
+  const result = await runDoctor(
+    {},
+    {
+      checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }),
+      checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "pass", summary: "ok" }),
+      checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "pass", summary: "ok" }),
+      checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
+      checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
+      checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "pass", summary: "ok" }),
+      checkPlugins: (async () => {
+        called = true;
+        return { id: "plugins", label: "Plugins", severity: "warn", summary: "1 plugin issue(s)" };
+      }) as never,
+      checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }),
+    },
+  );
+
+  expect(called).toBe(true);
+  const ids = result.report.checks.map((check) => check.id);
+  const bridgeIndex = ids.indexOf("bridge");
+  const pluginsIndex = ids.indexOf("plugins");
+  const orchestrationIndex = ids.indexOf("orchestration");
+  expect(pluginsIndex).toBe(bridgeIndex + 1);
+  expect(orchestrationIndex).toBe(pluginsIndex + 1);
+  expect(result.report.checks.find((check) => check.id === "plugins")).toMatchObject({
+    severity: "warn",
+    summary: "1 plugin issue(s)",
+  });
 });
 
 test("runDoctor skips orchestration-health instead of throwing when config cannot be loaded", async () => {
@@ -725,6 +761,7 @@ function createStateDoctorStubs() {
     checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }) as DoctorCheckResult,
     checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }) as DoctorCheckResult,
     checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkPlugins: (async () => ({ id: "plugins", label: "Plugins", severity: "skip", summary: "skip" })) as never,
     loadConfig: async () => ({ orchestration: { progressHeartbeatSeconds: 300 } }) as never,
   };
 }
@@ -787,6 +824,7 @@ function createFixDoctorStubs() {
     checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }) as DoctorCheckResult,
     checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }) as DoctorCheckResult,
     checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkPlugins: (async () => ({ id: "plugins", label: "Plugins", severity: "skip", summary: "skip" })) as never,
     checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }) as DoctorCheckResult,
   };
 }

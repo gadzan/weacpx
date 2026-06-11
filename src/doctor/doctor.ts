@@ -14,6 +14,7 @@ import { checkBridge } from "./checks/bridge-check";
 import { checkConfig } from "./checks/config-check";
 import { checkDaemon } from "./checks/daemon-check";
 import { checkOrchestrationHealth } from "./checks/orchestration-health";
+import { checkPlugins } from "./checks/plugin-check";
 import { checkRuntime } from "./checks/runtime-check";
 import { checkSmoke } from "./checks/smoke-check";
 import { checkWechat } from "./checks/wechat-check";
@@ -43,6 +44,7 @@ interface DoctorDeps {
   checkWechat?: typeof checkWechat;
   checkAcpx?: typeof checkAcpx;
   checkBridge?: typeof checkBridge;
+  checkPlugins?: typeof checkPlugins;
   checkOrchestrationHealth?: () => Promise<DoctorCheckResult>;
   checkSmoke?: (options: DoctorRunOptions) => Promise<DoctorCheckResult>;
   /**
@@ -108,6 +110,15 @@ export async function runDoctor(options: DoctorRunOptions = {}, deps: DoctorDeps
       run: () =>
         (deps.checkBridge ?? checkBridge)({
           verbose: options.verbose,
+          loadConfig: sharedLoadConfig,
+          resolveRuntimePaths: () => runtimePaths,
+        }),
+    },
+    {
+      id: "plugins",
+      run: () =>
+        (deps.checkPlugins ?? checkPlugins)({
+          home,
           loadConfig: sharedLoadConfig,
           resolveRuntimePaths: () => runtimePaths,
         }),
