@@ -114,6 +114,8 @@ interface BridgeRuntimeOptions {
   queueOwnerTtlSeconds?: number;
   /** Time bound for session-creation spawns (ensure/new/resume); defaults to 120s like acpx-cli. */
   sessionInitTimeoutMs?: number;
+  /** Test seam: clock used for the shared session-init deadline. */
+  now?: () => number;
 }
 
 export class BridgeRuntime {
@@ -263,6 +265,19 @@ export class BridgeRuntime {
   ): Promise<Record<string, never>> {
     onProgress?.("spawn");
     const timeoutMs = this.sessionInitTimeoutMs();
+    // One shared deadline for every subprocess step (ensure, show probe, new,
+    // verbose-fallback retry): each step only gets the remaining budget so the
+    // whole ensure path is bounded by sessionInitTimeoutMs end-to-end, like
+    // acpx-cli. The 1ms floor makes an already-expired deadline fail fast via
+    // the normal per-spawn timeout instead of granting a fresh slice.
+    const now = this.options.now ?? Date.now;
+    const deadline = now() + timeoutMs;
+    const remainingTimeoutMs = () => Math.max(deadline - now(), 1);
+    const sessionInitTimedOutError = () =>
+      new EnsureSessionFailedError(
+        `session initialization timed out after ${timeoutMs / 1000}s`,
+        "generic",
+      );
     const onStderrLine = onProgress
       ? (line: string) => {
           const trimmed = line.replace(/\r$/, "").trimEnd();
@@ -300,10 +315,7 @@ export class BridgeRuntime {
         // killed by the runner; surface a clear, user-facing error instead of
         // blocking this session's bridge lane forever.
         if (error instanceof CommandTimeoutError) {
-          throw new EnsureSessionFailedError(
-            `session initialization timed out after ${timeoutMs / 1000}s`,
-            "generic",
-          );
+          throw sessionInitTimedOutError();
         }
         throw error;
       }
@@ -311,7 +323,7 @@ export class BridgeRuntime {
 
     const ensured = await runWithVerboseFallback(
       ["sessions", "ensure", "--name", input.name],
-      (command, args) => this.run(command, args, { onStderrLine, timeoutMs }),
+      (command, args) => this.run(command, args, { onStderrLine, timeoutMs: remainingTimeoutMs() }),
     );
     if (ensured.code === 0) {
       onProgress?.("ready");
@@ -319,7 +331,17 @@ export class BridgeRuntime {
     }
 
     const existingSpec = resolveSpawnCommand(this.command, this.buildSessionArgs(input, ["sessions", "show", input.name]));
-    const existing = await this.run(existingSpec.command, existingSpec.args);
+    const runShowProbe = async (): Promise<CommandResult> => {
+      try {
+        return await this.run(existingSpec.command, existingSpec.args, { timeoutMs: remainingTimeoutMs() });
+      } catch (error) {
+        if (error instanceof CommandTimeoutError) {
+          throw sessionInitTimedOutError();
+        }
+        throw error;
+      }
+    };
+    const existing = await runShowProbe();
     if (existing.code === 0) {
       onProgress?.("ready");
       return {};
@@ -328,7 +350,7 @@ export class BridgeRuntime {
     onProgress?.("initializing");
     const created = await runWithVerboseFallback(
       ["sessions", "new", "--name", input.name],
-      (command, args) => this.runSessionCreate(command, args, input.cwd, { onStderrLine, timeoutMs }),
+      (command, args) => this.runSessionCreate(command, args, input.cwd, { onStderrLine, timeoutMs: remainingTimeoutMs() }),
     );
 
     if (created.code === 0) {
@@ -338,7 +360,7 @@ export class BridgeRuntime {
 
     const output = created.stderr || created.stdout || "";
     if (output.includes("EPERM") && await this.repairSessionIndex()) {
-      const repaired = await this.run(existingSpec.command, existingSpec.args);
+      const repaired = await runShowProbe();
       if (repaired.code === 0) {
         onProgress?.("ready");
         return {};

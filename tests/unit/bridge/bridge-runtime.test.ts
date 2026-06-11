@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import {
   BridgeRuntime,
+  CommandTimeoutError,
   runStreamingPrompt,
   selectLatestAcpxSessionIndexTmp,
   spawnCapture,
@@ -333,6 +334,8 @@ test("ensureSession defaults the session init timeout to 120s and threads it int
       if (args.includes("ensure")) ensureTimeouts.push(options?.timeoutMs);
       return { code: args.includes("ensure") ? 0 : 1, stdout: "", stderr: "" };
     },
+    undefined,
+    { now: () => 0 },
   );
   await defaultedRuntime.ensureSession({ agent: "codex", cwd: "/repo", name: "demo" });
   expect(ensureTimeouts).toEqual([120_000]);
@@ -347,11 +350,114 @@ test("ensureSession defaults the session init timeout to 120s and threads it int
       createTimeouts.push(options?.timeoutMs);
       return { code: 0, stdout: "", stderr: "" };
     },
-    { sessionInitTimeoutMs: 45_000 },
+    { sessionInitTimeoutMs: 45_000, now: () => 0 },
   );
   await configuredRuntime.ensureSession({ agent: "codex", cwd: "/repo", name: "demo" });
   expect(ensureTimeouts).toEqual([120_000, 45_000]);
   expect(createTimeouts).toEqual([45_000]);
+});
+
+test("ensureSession shares one deadline: later steps only get the remaining budget", async () => {
+  let clock = 0;
+  const captured: Array<{ step: string; timeoutMs: number | undefined }> = [];
+  const runtime = new BridgeRuntime(
+    "acpx",
+    async (_command, args, options?: CommandRunnerOptions) => {
+      if (args.includes("ensure")) {
+        captured.push({ step: "ensure", timeoutMs: options?.timeoutMs });
+        clock += 80_000;
+        return { code: 1, stdout: "", stderr: "ensure failed" };
+      }
+      captured.push({ step: "show", timeoutMs: options?.timeoutMs });
+      clock += 15_000;
+      return { code: 1, stdout: "", stderr: "show failed" };
+    },
+    async (_command, _args, _cwd, options?: CommandRunnerOptions) => {
+      captured.push({ step: "new", timeoutMs: options?.timeoutMs });
+      return { code: 0, stdout: "", stderr: "" };
+    },
+    { sessionInitTimeoutMs: 100_000, now: () => clock },
+  );
+
+  await runtime.ensureSession({ agent: "codex", cwd: "/repo", name: "demo" });
+
+  expect(captured).toEqual([
+    { step: "ensure", timeoutMs: 100_000 },
+    { step: "show", timeoutMs: 20_000 },
+    { step: "new", timeoutMs: 5_000 },
+  ]);
+});
+
+test("ensureSession floors the per-step timeout at 1ms once the deadline is spent", async () => {
+  let clock = 0;
+  const captured: Array<number | undefined> = [];
+  const runtime = new BridgeRuntime(
+    "acpx",
+    async (_command, args, options?: CommandRunnerOptions) => {
+      captured.push(options?.timeoutMs);
+      if (args.includes("ensure")) clock += 150_000; // burns past the whole budget
+      return { code: 1, stdout: "", stderr: "failed" };
+    },
+    async (_command, _args, _cwd, options?: CommandRunnerOptions) => {
+      captured.push(options?.timeoutMs);
+      return { code: 0, stdout: "", stderr: "" };
+    },
+    { sessionInitTimeoutMs: 100_000, now: () => clock },
+  );
+
+  await runtime.ensureSession({ agent: "codex", cwd: "/repo", name: "demo" });
+
+  expect(captured).toEqual([100_000, 1, 1]);
+});
+
+test("ensureSession verbose-fallback retry draws from the same shared deadline", async () => {
+  let clock = 0;
+  const ensureTimeouts: Array<number | undefined> = [];
+  const runtime = new BridgeRuntime(
+    "acpx",
+    async (_command, args, options?: CommandRunnerOptions) => {
+      ensureTimeouts.push(options?.timeoutMs);
+      clock += 30_000;
+      if (args.includes("--verbose")) {
+        return { code: 1, stdout: "", stderr: "error: unknown option '--verbose'" };
+      }
+      return { code: 0, stdout: "", stderr: "" };
+    },
+    undefined,
+    { sessionInitTimeoutMs: 100_000, now: () => clock },
+  );
+
+  await runtime.ensureSession({ agent: "codex", cwd: "/repo", name: "demo" });
+
+  expect(ensureTimeouts).toEqual([100_000, 70_000]);
+});
+
+test("ensureSession surfaces the configured total when a later step times out", async () => {
+  let clock = 0;
+  const runtime = new BridgeRuntime(
+    "acpx",
+    async (_command, args) => {
+      if (args.includes("ensure")) {
+        clock += 90_000;
+        return { code: 1, stdout: "", stderr: "ensure failed" };
+      }
+      // Show probe hangs until its (remaining) slice expires.
+      clock += 10_000;
+      throw new CommandTimeoutError(10_000, "acpx sessions show demo");
+    },
+    undefined,
+    { sessionInitTimeoutMs: 100_000, now: () => clock },
+  );
+
+  let caught: unknown;
+  try {
+    await runtime.ensureSession({ agent: "codex", cwd: "/repo", name: "demo" });
+  } catch (error) {
+    caught = error;
+  }
+
+  expect((caught as Error).name).toBe("EnsureSessionFailedError");
+  expect((caught as Error).message).toBe("session initialization timed out after 100s");
 });
 
 test("prompt and other session commands are not subject to the session init timeout", async () => {
