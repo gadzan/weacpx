@@ -7,6 +7,8 @@ export const pluginCli: PluginCliMessages = {
 
   // addPlugin
   unrecognizedArgs: (args) => `Unrecognized arguments: ${args}`,
+  pluginSpecHasDoubleQuote: (spec) => `Invalid plugin spec ${spec}: double quotes (") are never valid in an npm package spec.`,
+  pluginSpecHasPercentOnWindows: (spec) => `Invalid plugin spec ${spec}: "%" would be mangled by cmd.exe on Windows. Install the package with npm directly instead.`,
   pluginInstallFailed: (packageSpec, error) => `Plugin ${packageSpec} install failed: ${error}`,
   pluginValidateFailed: (recordedName, error) => `Plugin ${recordedName} validation failed: ${error}`,
   pluginInstalled: (recordedName) => `Plugin ${recordedName} installed`,

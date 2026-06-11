@@ -7,6 +7,8 @@ export const pluginCli: PluginCliMessages = {
 
   // addPlugin
   unrecognizedArgs: (args) => `未识别的参数：${args}`,
+  pluginSpecHasDoubleQuote: (spec) => `非法插件 spec ${spec}：npm 包 spec 不允许包含双引号 (")。`,
+  pluginSpecHasPercentOnWindows: (spec) => `非法插件 spec ${spec}：Windows 上 cmd.exe 会展开 %，无法安全传递。请改用 npm 直接安装该包。`,
   pluginInstallFailed: (packageSpec, error) => `插件 ${packageSpec} 安装失败：${error}`,
   pluginValidateFailed: (recordedName, error) => `插件 ${recordedName} 校验失败：${error}`,
   pluginInstalled: (recordedName) => `插件 ${recordedName} 已安装`,

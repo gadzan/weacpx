@@ -12,6 +12,30 @@ import { listKnownPlugins } from "./known-plugins.js";
 import { normalizePluginPackageName } from "./plugin-renames.js";
 import { t } from "../i18n";
 
+// User-supplied install specs reach the package manager through cmd.exe on
+// win32 (shellSpawnPlan in package-manager.ts wraps args in bare double
+// quotes), so reject what that wrapper cannot carry safely: `"` escapes the
+// wrapper (and is never valid in an npm spec anywhere), and `%VAR%` is
+// expanded by cmd.exe even inside quotes.
+export function findPluginSpecViolation(
+  spec: string,
+  platform: NodeJS.Platform,
+): "double-quote" | "percent-on-windows" | null {
+  if (spec.includes('"')) return "double-quote";
+  if (platform === "win32" && spec.includes("%")) return "percent-on-windows";
+  return null;
+}
+
+function invalidSpecMessage(specs: Array<string | undefined>, platform: NodeJS.Platform): string | null {
+  for (const spec of specs) {
+    if (!spec) continue;
+    const violation = findPluginSpecViolation(spec, platform);
+    if (violation === "double-quote") return t().pluginCli.pluginSpecHasDoubleQuote(spec);
+    if (violation === "percent-on-windows") return t().pluginCli.pluginSpecHasPercentOnWindows(spec);
+  }
+  return null;
+}
+
 export function looksLikePath(spec: string): boolean {
   return (
     spec === "." ||
@@ -86,6 +110,8 @@ export interface PluginCliDeps {
   removePackage?: (packageName: string) => Promise<void>;
   validateInstalledPlugin?: (packageName: string) => Promise<{ name: string; channels: string[] }>;
   inspectPlugins?: (input: { config: AppConfig; pluginHome: string; pluginName?: string }) => Promise<PluginDoctorIssue[]>;
+  /** Test seam: spec validation depends on the target shell (cmd.exe on win32). */
+  platform?: NodeJS.Platform;
 }
 
 export async function handlePluginCli(args: string[], deps: PluginCliDeps): Promise<number | null> {
@@ -235,6 +261,11 @@ async function addPlugin(packageSpec: string, rawArgs: string[], deps: PluginCli
     deps.print(t().pluginCli.unrecognizedArgs(flags.rest.join(" ")));
     return 1;
   }
+  const invalidSpec = invalidSpecMessage([packageSpec, flags.version], deps.platform ?? process.platform);
+  if (invalidSpec) {
+    deps.print(invalidSpec);
+    return 1;
+  }
 
   const pluginHome = deps.pluginHome ?? resolvePluginHome();
   await ensurePluginHome(pluginHome);
@@ -355,6 +386,11 @@ async function updatePlugins(args: string[], deps: PluginCliDeps): Promise<numbe
   }
   if (target === "--all" && flags.version) {
     deps.print("--all cannot be combined with --version");
+    return 1;
+  }
+  const invalidSpec = invalidSpecMessage([flags.version], deps.platform ?? process.platform);
+  if (invalidSpec) {
+    deps.print(invalidSpec);
     return 1;
   }
 
