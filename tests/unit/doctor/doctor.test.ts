@@ -515,10 +515,21 @@ test("doctor orchestrator runs baseline checks in stable order and records smoke
       checkBridge: createCheck("bridge"),
       checkPlugins: createCheck("plugins") as never,
       checkOrchestrationHealth: createCheck("orchestration"),
+      checkOrchestrationSocket: createCheck("orchestration-socket") as never,
     },
   );
 
-  expect(calls).toEqual(["config", "runtime", "daemon", "wechat", "acpx", "bridge", "plugins", "orchestration"]);
+  expect(calls).toEqual([
+    "config",
+    "runtime",
+    "daemon",
+    "wechat",
+    "acpx",
+    "bridge",
+    "plugins",
+    "orchestration",
+    "orchestration-socket",
+  ]);
   expect(result.report.checks.map((check) => check.id)).toEqual([
     "config",
     "runtime",
@@ -528,6 +539,7 @@ test("doctor orchestrator runs baseline checks in stable order and records smoke
     "bridge",
     "plugins",
     "orchestration",
+    "orchestration-socket",
     "smoke",
   ]);
   expect(result.report.checks.at(-1)).toMatchObject({
@@ -643,11 +655,12 @@ test("doctor orchestrator returns exit code 1 when any check fails", async () =>
       checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "skip", summary: "skip" }),
       checkPlugins: async () => ({ id: "plugins", label: "Plugins", severity: "skip", summary: "skip" }),
       checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }),
+      checkOrchestrationSocket: (async () => ({ id: "orchestration-socket", label: "Orchestration IPC", severity: "skip", summary: "skip" })) as never,
     },
   );
 
   expect(result.exitCode).toBe(1);
-  expect(result.output).toContain("Summary: PASS 4, WARN 1, FAIL 1, SKIP 3");
+  expect(result.output).toContain("Summary: PASS 4, WARN 1, FAIL 1, SKIP 4");
 });
 
 test("doctor orchestrator returns exit code 0 when report only contains pass warn and skip", async () => {
@@ -662,11 +675,12 @@ test("doctor orchestrator returns exit code 0 when report only contains pass war
       checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "skip", summary: "skip" }),
       checkPlugins: async () => ({ id: "plugins", label: "Plugins", severity: "skip", summary: "skip" }),
       checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }),
+      checkOrchestrationSocket: (async () => ({ id: "orchestration-socket", label: "Orchestration IPC", severity: "skip", summary: "skip" })) as never,
     },
   );
 
   expect(result.exitCode).toBe(0);
-  expect(result.output).toContain("Summary: PASS 5, WARN 1, FAIL 0, SKIP 3");
+  expect(result.output).toContain("Summary: PASS 5, WARN 1, FAIL 0, SKIP 4");
 });
 
 test("runDoctor includes the orchestration-health check result", async () => {
@@ -723,6 +737,39 @@ test("runDoctor places the plugins check between bridge and orchestration and ho
   });
 });
 
+test("runDoctor places the orchestration-socket check after orchestration and before smoke and honors the override", async () => {
+  let called = false;
+  const result = await runDoctor(
+    {},
+    {
+      checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }),
+      checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "pass", summary: "ok" }),
+      checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "pass", summary: "ok" }),
+      checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
+      checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
+      checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "pass", summary: "ok" }),
+      checkPlugins: (async () => ({ id: "plugins", label: "Plugins", severity: "skip", summary: "skip" })) as never,
+      checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }),
+      checkOrchestrationSocket: (async () => {
+        called = true;
+        return { id: "orchestration-socket", label: "Orchestration IPC", severity: "fail", summary: "ipc down" };
+      }) as never,
+    },
+  );
+
+  expect(called).toBe(true);
+  const ids = result.report.checks.map((check) => check.id);
+  const orchestrationIndex = ids.indexOf("orchestration");
+  const socketIndex = ids.indexOf("orchestration-socket");
+  const smokeIndex = ids.indexOf("smoke");
+  expect(socketIndex).toBe(orchestrationIndex + 1);
+  expect(smokeIndex).toBe(socketIndex + 1);
+  expect(result.report.checks.find((check) => check.id === "orchestration-socket")).toMatchObject({
+    severity: "fail",
+    summary: "ipc down",
+  });
+});
+
 test("runDoctor skips orchestration-health instead of throwing when config cannot be loaded", async () => {
   const home = await createTempHome();
   const configPath = join(home, ".weacpx", "config.json");
@@ -762,6 +809,7 @@ function createStateDoctorStubs() {
     checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }) as DoctorCheckResult,
     checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "pass", summary: "ok" }) as DoctorCheckResult,
     checkPlugins: (async () => ({ id: "plugins", label: "Plugins", severity: "skip", summary: "skip" })) as never,
+    checkOrchestrationSocket: (async () => ({ id: "orchestration-socket", label: "Orchestration IPC", severity: "skip", summary: "skip" })) as never,
     loadConfig: async () => ({ orchestration: { progressHeartbeatSeconds: 300 } }) as never,
   };
 }
@@ -826,6 +874,7 @@ function createFixDoctorStubs() {
     checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "pass", summary: "ok" }) as DoctorCheckResult,
     checkPlugins: (async () => ({ id: "plugins", label: "Plugins", severity: "skip", summary: "skip" })) as never,
     checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkOrchestrationSocket: (async () => ({ id: "orchestration-socket", label: "Orchestration IPC", severity: "skip", summary: "skip" })) as never,
   };
 }
 

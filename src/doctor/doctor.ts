@@ -14,6 +14,7 @@ import { checkBridge } from "./checks/bridge-check";
 import { checkConfig } from "./checks/config-check";
 import { checkDaemon } from "./checks/daemon-check";
 import { checkOrchestrationHealth } from "./checks/orchestration-health";
+import { checkOrchestrationSocket } from "./checks/orchestration-socket-check";
 import { checkPlugins } from "./checks/plugin-check";
 import { checkRuntime } from "./checks/runtime-check";
 import { checkSmoke } from "./checks/smoke-check";
@@ -46,6 +47,7 @@ interface DoctorDeps {
   checkBridge?: typeof checkBridge;
   checkPlugins?: typeof checkPlugins;
   checkOrchestrationHealth?: () => Promise<DoctorCheckResult>;
+  checkOrchestrationSocket?: typeof checkOrchestrationSocket;
   checkSmoke?: (options: DoctorRunOptions) => Promise<DoctorCheckResult>;
   /**
    * Whether a daemon currently owns the runtime. Injected so the state-mutating
@@ -131,6 +133,14 @@ export async function runDoctor(options: DoctorRunOptions = {}, deps: DoctorDeps
           loadConfig: sharedLoadConfig,
           isDaemonRunning: deps.isDaemonRunning ?? (() => defaultIsDaemonRunning(home, runtimePaths)),
         })))(),
+    },
+    {
+      id: "orchestration-socket",
+      run: () =>
+        (deps.checkOrchestrationSocket ?? checkOrchestrationSocket)({
+          home,
+          configPath: runtimePaths.configPath,
+        }),
     },
     {
       id: "smoke",
