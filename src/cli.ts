@@ -1346,6 +1346,9 @@ function parseDoctorArgs(args: string[]): { ok: true; options: DoctorRunOptions 
       case "--smoke":
         options.smoke = true;
         break;
+      case "--fix":
+        options.fix = true;
+        break;
       case "--agent": {
         const value = args[index + 1];
         if (!value || value.startsWith("--")) {

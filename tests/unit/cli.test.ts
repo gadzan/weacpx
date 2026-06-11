@@ -429,6 +429,36 @@ test("passes doctor options through unchanged", async () => {
   ]);
 });
 
+test("passes the --fix flag through to doctor", async () => {
+  const received: Array<Record<string, unknown>> = [];
+
+  await expect(
+    runCli(["doctor", "--fix"], {
+      doctor: async (options) => {
+        received.push(options);
+        return 0;
+      },
+    }),
+  ).resolves.toBe(0);
+
+  expect(received).toEqual([{ fix: true }]);
+});
+
+test("combines --fix with --verbose and --smoke", async () => {
+  const received: Array<Record<string, unknown>> = [];
+
+  await expect(
+    runCli(["doctor", "--fix", "--verbose", "--smoke"], {
+      doctor: async (options) => {
+        received.push(options);
+        return 0;
+      },
+    }),
+  ).resolves.toBe(0);
+
+  expect(received).toEqual([{ fix: true, verbose: true, smoke: true }]);
+});
+
 test("adds a workspace from the current directory with basename as default name", async () => {
   setLocale("zh");
   await withTempHome(async (home) => {

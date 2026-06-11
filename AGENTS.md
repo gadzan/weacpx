@@ -119,6 +119,7 @@ There are two session concepts:
 - Daemon subsystem notes: [`docs/daemon-module.md`](docs/daemon-module.md)
 - Commands module notes: [`docs/commands-module.md`](docs/commands-module.md)
 - MCP integration (external coordinators): [`docs/external-mcp.md`](docs/external-mcp.md)
+- `xacpx doctor` diagnostics and `--fix` repairs: [`docs/doctor-command.md`](docs/doctor-command.md)
 - Code Wiki (architecture map): [`docs/code-wiki.md`](docs/code-wiki.md)
 
 ## Package Manager
@@ -133,6 +134,7 @@ Uses **Bun** for development scripts and builds. Dependencies are in `package.js
 - 配置文件详解 [docs/config-reference.md](docs/config-reference.md)
 - `/config` 命令说明 [docs/config-command.md](docs/config-command.md)
 - `/later` 定时任务命令说明 [docs/later-command.md](docs/later-command.md)
+- `xacpx doctor` 命令说明 [docs/doctor-command.md](docs/doctor-command.md)
 - `src/commands` 模块说明 [commands-module.md](docs/commands-module.md)
 - `src/daemon` 模块说明 [daemon-module.md](docs/daemon-module.md)
 - 计划文档 [superpower/plans](docs/superpowers/plans/)
