@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-import { writePrivateFileAtomic } from "../util/private-file.js";
+import { withPrivateFileLock } from "../util/private-file.js";
 
 import { loadConfig, parseConfig } from "./load-config";
 import type { AgentConfig, AppConfig, ChannelRuntimeConfig, PluginConfig } from "./types";
@@ -119,20 +119,25 @@ export class ConfigStore {
     });
   }
 
+  // The whole read→patch→write span runs under ONE file lock: locking only
+  // the write (the old shape) let two concurrent mutations read the same
+  // snapshot, so the last writer silently erased the other's change.
   private async patchRaw(mutate: (raw: RawConfig) => void): Promise<AppConfig> {
-    const { raw, existed } = await this.readRaw();
-    // For a brand-new file, seed the required sections into the WRITTEN doc so
-    // the file round-trips through load() (parseConfig requires transport/
-    // agents/workspaces to be objects). For an existing file we only patch the
-    // targeted subtree and never inject these sections.
-    const doc: RawConfig = existed ? raw : { transport: {}, agents: {}, workspaces: {} };
-    mutate(doc);
-    // Validate the patched document before it lands on disk. The required
-    // sections are backfilled for validation so a sparse existing file still
-    // parses with defaults, without pinning those defaults into the file.
-    const parsed = parseConfig({ transport: {}, agents: {}, workspaces: {}, ...doc });
-    await writePrivateFileAtomic(this.path, serializeRawConfig(doc));
-    return parsed;
+    return await withPrivateFileLock(this.path, async (writeLocked) => {
+      const { raw, existed } = await this.readRaw();
+      // For a brand-new file, seed the required sections into the WRITTEN doc so
+      // the file round-trips through load() (parseConfig requires transport/
+      // agents/workspaces to be objects). For an existing file we only patch the
+      // targeted subtree and never inject these sections.
+      const doc: RawConfig = existed ? raw : { transport: {}, agents: {}, workspaces: {} };
+      mutate(doc);
+      // Validate the patched document before it lands on disk. The required
+      // sections are backfilled for validation so a sparse existing file still
+      // parses with defaults, without pinning those defaults into the file.
+      const parsed = parseConfig({ transport: {}, agents: {}, workspaces: {}, ...doc });
+      await writeLocked(serializeRawConfig(doc));
+      return parsed;
+    });
   }
 
   private async readRaw(): Promise<{ raw: RawConfig; existed: boolean }> {

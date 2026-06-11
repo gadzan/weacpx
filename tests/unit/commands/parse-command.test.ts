@@ -395,6 +395,53 @@ test("parses orchestration delegate commands", () => {
   });
 });
 
+test("free-text bodies keep quotes and internal spacing verbatim", () => {
+  // Curly quotes (Chinese IME default) stay in the delegate task text.
+  expect(parseCommand("/delegate claude 审查“报告”初稿")).toEqual({
+    kind: "delegate.request",
+    targetAgent: "claude",
+    task: "审查“报告”初稿",
+  });
+  // Straight quotes stay; structured flag prefix still parses.
+  expect(parseCommand('/dg claude --role reviewer remind me to say "hello"')).toEqual({
+    kind: "delegate.request",
+    targetAgent: "claude",
+    role: "reviewer",
+    task: 'remind me to say "hello"',
+  });
+  // A body that STARTS with a quoted word keeps its opening quote.
+  expect(parseCommand('/delegate claude "hello world" now')).toEqual({
+    kind: "delegate.request",
+    targetAgent: "claude",
+    task: '"hello world" now',
+  });
+  // Runs of internal spaces survive.
+  expect(parseCommand("/delegate claude keep  two   spaces")).toEqual({
+    kind: "delegate.request",
+    targetAgent: "claude",
+    task: "keep  two   spaces",
+  });
+  // Mixed straight + full-width quotes survive.
+  expect(parseCommand('/delegate claude 检查＂版本＂和 "tag"')).toEqual({
+    kind: "delegate.request",
+    targetAgent: "claude",
+    task: '检查＂版本＂和 "tag"',
+  });
+  // /group new title is verbatim.
+  expect(parseCommand("/group new “并行 评审” v2")).toEqual({
+    kind: "group.new",
+    title: "“并行 评审” v2",
+  });
+  // /group add task tail is verbatim after the --role flag.
+  expect(parseCommand('/group add g1 claude --role reviewer say "hi"  there')).toEqual({
+    kind: "group.delegate",
+    groupId: "g1",
+    targetAgent: "claude",
+    role: "reviewer",
+    task: 'say "hi"  there',
+  });
+});
+
 test("parses orchestration group commands", () => {
   expect(parseCommand("/groups")).toEqual({
     kind: "groups",
@@ -403,9 +450,10 @@ test("parses orchestration group commands", () => {
     kind: "group.new",
     title: "parallel-review",
   });
+  // The title is a free-text tail: it is stored verbatim, quotes included.
   expect(parseCommand('/group new "parallel review"')).toEqual({
     kind: "group.new",
-    title: "parallel review",
+    title: '"parallel review"',
   });
   expect(parseCommand("/group group-review")).toEqual({
     kind: "group.get",
@@ -798,6 +846,36 @@ test("parses later commands", () => {
   expect(parseCommand("/lt in 2h 检查 CI")).toEqual({
     kind: "later.create",
     tokens: ["in", "2h", "检查", "CI"],
+    tails: ["in 2h 检查 CI", "2h 检查 CI", "检查 CI", "CI"],
+  });
+});
+
+test("later.create tails keep quotes and internal spacing verbatim", () => {
+  // Curly quotes (Chinese IME default) survive in the tail even though the
+  // tokenized values strip them.
+  expect(parseCommand("/later in 2h 提醒我看“报告”")).toEqual({
+    kind: "later.create",
+    tokens: ["in", "2h", "提醒我看报告"],
+    tails: ["in 2h 提醒我看“报告”", "2h 提醒我看“报告”", "提醒我看“报告”"],
+  });
+  // Straight quotes and a multi-space run survive; a tail that starts with a
+  // quoted word keeps its opening quote.
+  expect(parseCommand('/later in 2h say "hello"  twice')).toEqual({
+    kind: "later.create",
+    tokens: ["in", "2h", "say", "hello", "twice"],
+    tails: [
+      'in 2h say "hello"  twice',
+      '2h say "hello"  twice',
+      'say "hello"  twice',
+      '"hello"  twice',
+      "twice",
+    ],
+  });
+  // Full-width quotes survive too.
+  expect(parseCommand("/lt in 2h 检查＂版本＂号")).toEqual({
+    kind: "later.create",
+    tokens: ["in", "2h", "检查版本号"],
+    tails: ["in 2h 检查＂版本＂号", "2h 检查＂版本＂号", "检查＂版本＂号"],
   });
 });
 

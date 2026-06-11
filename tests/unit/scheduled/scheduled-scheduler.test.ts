@@ -392,6 +392,99 @@ test("tick survives claimDueTasks throwing — no unhandled rejection", async ()
   expect(dispatchTask).toHaveBeenCalledTimes(0);
 });
 
+test("tick leaves a dispatched task alone when markExecuted throws — no markFailed", async () => {
+  // Dispatch SUCCEEDS, then markExecuted's state save throws. The task was
+  // delivered, so it must NOT be recorded as failed; startup reconciliation
+  // handles the stale "triggering" record.
+  const events: Array<{ event: string; context?: Record<string, unknown> }> = [];
+  const logger = {
+    debug: async () => {},
+    info: async () => {},
+    error: async (event: string, _message: string, context?: Record<string, unknown>) => {
+      events.push({ event, ...(context ? { context } : {}) });
+    },
+    cleanup: async () => {},
+    flush: async () => {},
+  };
+
+  const task = {
+    id: "ok-but-save-fails",
+    chat_key: "c",
+    session_alias: "s",
+    execute_at: "2026-05-23T09:59:00.000Z",
+    message: "delivered",
+    status: "triggering",
+    created_at: "2026-05-23T09:00:00.000Z",
+  };
+  const markFailed = mock(async () => {});
+  const service = {
+    markStartupMissed: async () => {},
+    claimDueTasks: async () => [task],
+    markExecuted: async () => {
+      throw new Error("disk full");
+    },
+    markFailed,
+  } as unknown as ScheduledTaskService;
+
+  const dispatchTask = mock(async () => {});
+  const { setIntervalFn, clearIntervalFn } = createFakeSetInterval();
+
+  const scheduler = new ScheduledTaskScheduler(service, {
+    dispatchTask,
+    setIntervalFn,
+    clearIntervalFn,
+    logger,
+  });
+
+  await expect(scheduler.tick()).resolves.toBeUndefined();
+
+  expect(dispatchTask).toHaveBeenCalledTimes(1);
+  expect(markFailed).toHaveBeenCalledTimes(0);
+  const markExecutedFailures = events.filter((entry) => entry.event === "scheduled.dispatch.mark_executed_failed");
+  expect(markExecutedFailures).toHaveLength(1);
+  expect(markExecutedFailures[0]?.context?.taskId).toBe("ok-but-save-fails");
+  expect(events.filter((entry) => entry.event === "scheduled.dispatch.failed")).toHaveLength(0);
+
+  // Ticking lock released — a later tick still runs.
+  await expect(scheduler.tick()).resolves.toBeUndefined();
+});
+
+test("tick still marks the task failed when the dispatch itself throws", async () => {
+  const task = {
+    id: "dispatch-throws",
+    chat_key: "c",
+    session_alias: "s",
+    execute_at: "2026-05-23T09:59:00.000Z",
+    message: "boom",
+    status: "triggering",
+    created_at: "2026-05-23T09:00:00.000Z",
+  };
+  const markExecuted = mock(async () => {});
+  const markFailed = mock(async () => {});
+  const service = {
+    markStartupMissed: async () => {},
+    claimDueTasks: async () => [task],
+    markExecuted,
+    markFailed,
+  } as unknown as ScheduledTaskService;
+
+  const dispatchTask = mock(async () => {
+    throw new Error("channel unavailable");
+  });
+  const { setIntervalFn, clearIntervalFn } = createFakeSetInterval();
+
+  const scheduler = new ScheduledTaskScheduler(service, {
+    dispatchTask,
+    setIntervalFn,
+    clearIntervalFn,
+  });
+
+  await expect(scheduler.tick()).resolves.toBeUndefined();
+
+  expect(markFailed).toHaveBeenCalledTimes(1);
+  expect(markExecuted).toHaveBeenCalledTimes(0);
+});
+
 test("tick survives dispatch failure AND markFailed throwing — no unhandled rejection", async () => {
   // Simulate: dispatch throws, then markFailed also throws (e.g. disk full during
   // the error-recording write). Neither error should escape tick().

@@ -76,7 +76,6 @@ export class ScheduledTaskScheduler {
       for (const task of dueTasks) {
         try {
           await this.dispatchWithTimeout(task);
-          await this.service.markExecuted(task.id);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           await this.logger?.error("scheduled.dispatch.failed", "failed to dispatch scheduled task", {
@@ -98,6 +97,23 @@ export class ScheduledTaskScheduler {
               },
             );
           }
+          continue;
+        }
+        try {
+          await this.service.markExecuted(task.id);
+        } catch (markError) {
+          // The dispatch SUCCEEDED — only the bookkeeping write failed, so the
+          // task must not be recorded as failed. Leave its state alone (disk
+          // likely still says "triggering"); startup reconciliation handles
+          // the stale record.
+          await this.logger?.error(
+            "scheduled.dispatch.mark_executed_failed",
+            "markExecuted threw after a successful dispatch; leaving task state for startup reconciliation",
+            {
+              taskId: task.id,
+              message: markError instanceof Error ? markError.message : String(markError),
+            },
+          );
         }
       }
     } finally {

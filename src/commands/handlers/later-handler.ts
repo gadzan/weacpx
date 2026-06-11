@@ -44,6 +44,10 @@ export function handleLaterHelp(): RouterResponse {
 
 export async function handleLaterCreate(
   tokens: string[],
+  // Parallel to `tokens`: tails[i] is the verbatim input from token i to the
+  // end (quotes and internal spacing intact). The stored message must come
+  // from here so user content is never rewritten by tokenization.
+  tails: string[],
   scheduled: ScheduledRouterOps,
   chatKey: string,
   currentSession: { alias: string; agent: string; workspace: string } | null,
@@ -54,14 +58,15 @@ export async function handleLaterCreate(
   const l = t().later;
 
   // Consume any leading --bind / --temp flags (mutually exclusive).
-  let rest = tokens;
+  let restStart = 0;
   const seenFlags = new Set<string>();
   let flagMode: ScheduledSessionMode | undefined;
-  while (rest.length > 0 && (rest[0] === "--bind" || rest[0] === "--temp")) {
-    seenFlags.add(rest[0]);
-    flagMode = rest[0] === "--bind" ? "bound" : "temp";
-    rest = rest.slice(1);
+  while (restStart < tokens.length && (tokens[restStart] === "--bind" || tokens[restStart] === "--temp")) {
+    seenFlags.add(tokens[restStart] ?? "");
+    flagMode = tokens[restStart] === "--bind" ? "bound" : "temp";
+    restStart += 1;
   }
+  const rest = tokens.slice(restStart);
   if (seenFlags.size > 1) {
     return { text: l.bindAndTempMutuallyExclusive };
   }
@@ -84,7 +89,9 @@ export async function handleLaterCreate(
     return { text: renderTimeParseError(result.code, result.value) };
   }
 
-  const message = rest.slice(result.messageStartIndex).join(" ").trim();
+  // Verbatim message body: take the raw tail at the first body token instead
+  // of re-joining tokens (which would strip quotes and collapse spacing).
+  const message = (tails[restStart + result.messageStartIndex] ?? "").trim();
   if (message.startsWith("/")) {
     return {
       text: [

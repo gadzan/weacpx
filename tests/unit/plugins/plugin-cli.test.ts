@@ -105,6 +105,78 @@ test("plugin add installs, validates, saves config, and does not enable channel"
   expect(harness.lines).toContain(t().pluginCli.providesChannels("demo"));
 });
 
+test("plugin add rejects specs containing double quotes on all platforms", async () => {
+  for (const platform of ["linux", "darwin", "win32"] as NodeJS.Platform[]) {
+    const harness = createHarness(baseConfig());
+
+    const code = await handlePluginCli(["add", 'evil"pkg'], { ...harness.deps, platform });
+
+    expect(code).toBe(1);
+    expect(harness.calls).toEqual([]);
+    expect(harness.lines).toContain(t().pluginCli.pluginSpecHasDoubleQuote('evil"pkg'));
+  }
+});
+
+test("plugin add rejects specs containing % on win32 with an npm workaround hint", async () => {
+  const harness = createHarness(baseConfig());
+
+  const code = await handlePluginCli(["add", "pkg%PATH%"], { ...harness.deps, platform: "win32" });
+
+  expect(code).toBe(1);
+  expect(harness.calls).toEqual([]);
+  expect(harness.lines).toContain(t().pluginCli.pluginSpecHasPercentOnWindows("pkg%PATH%"));
+});
+
+test("plugin add allows specs containing % on posix", async () => {
+  const harness = createHarness(baseConfig());
+
+  const code = await handlePluginCli(["add", "https://example.com/p%20kg.tgz"], { ...harness.deps, platform: "linux" });
+
+  expect(code).toBe(0);
+  expect(harness.calls).toEqual(["install:https://example.com/p%20kg.tgz:"]);
+});
+
+test("plugin add validates the --version value like a spec", async () => {
+  const quoteHarness = createHarness(baseConfig());
+  const quoteCode = await handlePluginCli(
+    ["add", "demo", "--version", '1.0.0"'],
+    { ...quoteHarness.deps, platform: "linux" },
+  );
+  expect(quoteCode).toBe(1);
+  expect(quoteHarness.calls).toEqual([]);
+  expect(quoteHarness.lines).toContain(t().pluginCli.pluginSpecHasDoubleQuote('1.0.0"'));
+
+  const percentHarness = createHarness(baseConfig());
+  const percentCode = await handlePluginCli(
+    ["add", "demo", "--version", "%VER%"],
+    { ...percentHarness.deps, platform: "win32" },
+  );
+  expect(percentCode).toBe(1);
+  expect(percentHarness.calls).toEqual([]);
+  expect(percentHarness.lines).toContain(t().pluginCli.pluginSpecHasPercentOnWindows("%VER%"));
+});
+
+test("plugin update validates the --version value like a spec", async () => {
+  const harness = createHarness(baseConfig({ plugins: [{ name: "demo", version: "1.0.0", enabled: true }] }));
+
+  const code = await handlePluginCli(["update", "demo", "--version", "%VER%"], { ...harness.deps, platform: "win32" });
+
+  expect(code).toBe(1);
+  expect(harness.calls).toEqual([]);
+  expect(harness.lines).toContain(t().pluginCli.pluginSpecHasPercentOnWindows("%VER%"));
+});
+
+test("plugin add accepts normal npm specs on win32", async () => {
+  for (const spec of ["demo", "@scope/demo", "demo@^1.2.3", "demo@latest"]) {
+    const harness = createHarness(baseConfig());
+
+    const code = await handlePluginCli(["add", spec], { ...harness.deps, platform: "win32" });
+
+    expect(code).toBe(0);
+    expect(harness.calls).toEqual([`install:${spec}:`]);
+  }
+});
+
 test("plugin add replaces legacy weacpx package config with canonical xacpx package", async () => {
   const harness = createHarness(baseConfig({
     plugins: [{ name: "@ganglion/weacpx-channel-feishu", version: "0.2.2", enabled: true }],
@@ -196,6 +268,9 @@ test("plugin rm with legacy name removes the normalized config entry (Bug A)", a
   // npm (config gone, package orphaned) and a hard failure with bun.
   expect(harness.calls).toEqual(["remove:@ganglion/xacpx-channel-feishu"]);
   expect(validatedNames).toEqual(["@ganglion/xacpx-channel-feishu"]);
+  // The success message must name the actually removed (normalized) package,
+  // not the raw legacy input — consistent with the failure path.
+  expect(harness.lines).toContain(t().pluginCli.pluginRemoved("@ganglion/xacpx-channel-feishu"));
 });
 
 test("plugin disable and enable toggle config", async () => {

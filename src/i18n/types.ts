@@ -1028,6 +1028,8 @@ export interface PluginCliMessages {
 
   // addPlugin
   unrecognizedArgs: (args: string) => string;
+  pluginSpecHasDoubleQuote: (spec: string) => string;
+  pluginSpecHasPercentOnWindows: (spec: string) => string;
   pluginInstallFailed: (packageSpec: string, error: string) => string;
   pluginValidateFailed: (recordedName: string, error: string) => string;
   pluginInstalled: (recordedName: string) => string;

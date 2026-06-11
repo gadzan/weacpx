@@ -62,7 +62,10 @@ export type ParsedCommand =
   | { kind: "session.native.select"; identifier: string; alias?: string }
   | { kind: "session.native.attach"; identifier: string; alias?: string }
   | { kind: "later.help" }
-  | { kind: "later.create"; tokens: string[] }
+  // tokens: quote-stripped values for structured parsing (flags, time spec).
+  // tails: parallel array; tails[i] is the verbatim input from token i to the
+  // end — the message body must be taken from here, never re-joined from tokens.
+  | { kind: "later.create"; tokens: string[]; tails: string[] }
   | { kind: "later.list" }
   | { kind: "later.cancel"; id: string }
   | { kind: "invalid"; text: string; recognizedCommand: string }
@@ -74,7 +77,14 @@ export function parseCommand(input: string): ParsedCommand {
     return { kind: "prompt", text: trimmed };
   }
 
-  const parts = tokenizeCommand(trimmed);
+  const tokens = tokenizeCommand(trimmed);
+  const parts = tokens.map((token) => token.value);
+  // Verbatim tail of the input starting at token `index` — quote characters
+  // and internal spacing intact. Free-text bodies (messages, task texts,
+  // titles) MUST use this; rebuilding them via parts.join(" ") silently
+  // rewrites user content (tokenization strips quotes and collapses spaces).
+  const rawTail = (index: number): string =>
+    index < tokens.length ? trimmed.slice(tokens[index]?.start ?? 0) : "";
   const command = normalizeCommand(parts[0] ?? "");
 
   if (command === "/help" && parts.length === 1) return { kind: "help" };
@@ -186,7 +196,7 @@ export function parseCommand(input: string): ParsedCommand {
   }
 
   if (command === "/group" && parts[1] === "new" && parts.length > 2) {
-    const title = parts.slice(2).join(" ");
+    const title = rawTail(2);
     if (title.trim().length > 0) {
       return { kind: "group.new", title };
     }
@@ -212,7 +222,7 @@ export function parseCommand(input: string): ParsedCommand {
       }
       break;
     }
-    const task = parts.slice(index).join(" ");
+    const task = rawTail(index);
     if (groupId.trim().length > 0 && targetAgent.trim().length > 0 && task.trim().length > 0) {
       return {
         kind: "group.delegate",
@@ -278,7 +288,7 @@ export function parseCommand(input: string): ParsedCommand {
   }
 
   if ((command === "/delegate" || command === "/dg") && parts[1]) {
-    const parsedDelegate = parseDelegateRequest(parts);
+    const parsedDelegate = parseDelegateRequest(parts, rawTail);
     if (parsedDelegate) {
       return parsedDelegate;
     }
@@ -306,7 +316,11 @@ export function parseCommand(input: string): ParsedCommand {
     if (parts[1] === "cancel" && parts[2] && parts.length === 3) {
       return { kind: "later.cancel", id: parts[2] };
     }
-    return { kind: "later.create", tokens: parts.slice(1) };
+    return {
+      kind: "later.create",
+      tokens: parts.slice(1),
+      tails: tokens.slice(1).map((_, index) => rawTail(index + 1)),
+    };
   }
 
   if (command === "/workspace" && parts[1] === "new" && parts[2]) {
@@ -664,12 +678,28 @@ const QUOTE_PAIRS: Record<string, string> = {
   "＂": "＂", // ＂ … ＂
 };
 
-function tokenizeCommand(input: string): string[] {
-  const tokens: string[] = [];
+interface CommandToken {
+  /** Token value with quote characters stripped (structured-arg semantics). */
+  value: string;
+  /**
+   * Code-unit offset of the token's first source character in the tokenized
+   * string — the opening quote itself when the token starts quoted. Lets
+   * free-text consumers slice the original input verbatim from a token.
+   */
+  start: number;
+}
+
+function tokenizeCommand(input: string): CommandToken[] {
+  const tokens: CommandToken[] = [];
   let current = "";
+  let start = -1;
   let closingQuote: string | null = null;
+  let offset = 0;
 
   for (const char of input) {
+    const charStart = offset;
+    offset += char.length;
+
     if (closingQuote) {
       if (char === closingQuote) {
         closingQuote = null;
@@ -681,23 +711,27 @@ function tokenizeCommand(input: string): string[] {
 
     const close = QUOTE_PAIRS[char];
     if (close) {
+      if (start === -1) start = charStart;
       closingQuote = close;
       continue;
     }
 
     if (/\s/.test(char)) {
       if (current.length > 0) {
-        tokens.push(current);
+        tokens.push({ value: current, start });
         current = "";
       }
+      // An empty quoted pair ("" etc.) produces no token; drop its offset too.
+      start = -1;
       continue;
     }
 
+    if (start === -1) start = charStart;
     current += char;
   }
 
   if (current.length > 0) {
-    tokens.push(current);
+    tokens.push({ value: current, start });
   }
 
   return tokens;
@@ -755,7 +789,10 @@ function parseListFilterFlags(
   return { filter, ok: true };
 }
 
-function parseDelegateRequest(parts: string[]): Extract<ParsedCommand, { kind: "delegate.request" }> | null {
+function parseDelegateRequest(
+  parts: string[],
+  rawTail: (index: number) => string,
+): Extract<ParsedCommand, { kind: "delegate.request" }> | null {
   const targetAgent = parts[1];
   if (!targetAgent) {
     return null;
@@ -785,7 +822,7 @@ function parseDelegateRequest(parts: string[]): Extract<ParsedCommand, { kind: "
     break;
   }
 
-  const task = parts.slice(index).join(" ");
+  const task = rawTail(index);
   if (task.trim().length === 0) {
     return null;
   }
