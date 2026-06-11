@@ -6,7 +6,7 @@ import { coreEnv } from "../runtime/core-env";
 import { loadConfig } from "../config/load-config";
 import type { AppConfig } from "../config/types";
 import { createDaemonController } from "../daemon/create-daemon-controller";
-import { resolveDaemonPaths, resolveRuntimeDirFromConfigPath } from "../daemon/daemon-files";
+import { isProcessAlive, resolveDaemonPaths, resolveRuntimeDirFromConfigPath } from "../daemon/daemon-files";
 import { resolveRuntimePaths, type RuntimePaths } from "../main";
 import { StateStore, type StateLoadReport } from "../state/state-store";
 import { checkAcpx } from "./checks/acpx-check";
@@ -402,14 +402,7 @@ async function defaultIsDaemonRunning(home: string, runtimePaths: RuntimePaths):
       cliEntryPath: process.argv[1] ?? "",
       cwd: process.cwd(),
       env: process.env,
-      isProcessRunning: (pid: number) => {
-        try {
-          process.kill(pid, 0);
-          return true;
-        } catch {
-          return false;
-        }
-      },
+      isProcessRunning: isProcessAlive,
     });
     const status = await controller.getStatus();
     return status.state === "running";

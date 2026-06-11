@@ -41,3 +41,17 @@ export function resolveDaemonOrchestrationSocketPath(
 ): string {
   return resolveOrchestrationEndpoint(runtimeDir, platform).path;
 }
+
+/**
+ * Liveness probe via signal 0: succeeds when the pid exists (and is signalable),
+ * throws otherwise. EPERM still means the process exists, so only a thrown
+ * error is treated as "not alive".
+ */
+export function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}

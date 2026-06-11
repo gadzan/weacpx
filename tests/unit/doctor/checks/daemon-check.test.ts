@@ -12,14 +12,14 @@ async function createTempHome(): Promise<string> {
   return await mkdtemp(join(tmpdir(), "xacpx-daemon-check-"));
 }
 
-function lockPath(runtimeDir: string): string {
-  return join(runtimeDir, "weixin-consumer.lock.json");
+function lockPath(runtimeDir: string, channel = "weixin"): string {
+  return join(runtimeDir, `${channel}-consumer.lock.json`);
 }
 
-async function writeLock(runtimeDir: string, pid: number): Promise<void> {
+async function writeLock(runtimeDir: string, pid: number, channel = "weixin"): Promise<void> {
   await mkdir(runtimeDir, { recursive: true });
   await writeFile(
-    lockPath(runtimeDir),
+    lockPath(runtimeDir, channel),
     JSON.stringify({
       pid,
       mode: "daemon",
@@ -84,7 +84,7 @@ test("daemon check does not attach the lock fix when the lock pid is alive", asy
 
 test("daemon check does not attach the lock fix when the daemon is running", async () => {
   const home = await createTempHome();
-  const runtimeDir = join(home, ".weacpx", "runtime");
+  const runtimeDir = join(home, ".xacpx", "runtime");
   const daemonPid = 12345;
   const stalePid = 99999;
 
@@ -136,9 +136,89 @@ test("daemon check ignores a missing consumer lock", async () => {
   }
 });
 
+test("daemon check detects a stale non-weixin (feishu) consumer lock", async () => {
+  const home = await createTempHome();
+  const runtimeDir = join(home, ".xacpx", "runtime");
+  const stalePid = 99999;
+
+  try {
+    await writeLock(runtimeDir, stalePid, "feishu");
+
+    const removed: string[] = [];
+    const result = await checkDaemon({
+      home,
+      isProcessRunning: () => false,
+      removeConsumerLock: async (path) => {
+        removed.push(path);
+      },
+    });
+
+    const fix = result.fixes?.find((entry) => entry.id === "daemon.clear-stale-lock");
+    expect(fix).toBeDefined();
+
+    const outcome = await fix!.run();
+    expect(outcome.ok).toBe(true);
+    expect(removed).toEqual([lockPath(runtimeDir, "feishu")]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("daemon check removes only the dead-pid lock when multiple consumer locks exist", async () => {
+  const home = await createTempHome();
+  const runtimeDir = join(home, ".xacpx", "runtime");
+  const livePid = 4242;
+  const stalePid = 99999;
+
+  try {
+    await writeLock(runtimeDir, livePid, "weixin");
+    await writeLock(runtimeDir, stalePid, "feishu");
+
+    const removed: string[] = [];
+    const result = await checkDaemon({
+      home,
+      // Only the feishu owner is dead.
+      isProcessRunning: (pid) => pid === livePid,
+      removeConsumerLock: async (path) => {
+        removed.push(path);
+      },
+    });
+
+    const fix = result.fixes?.find((entry) => entry.id === "daemon.clear-stale-lock");
+    expect(fix).toBeDefined();
+
+    const outcome = await fix!.run();
+    expect(outcome.ok).toBe(true);
+    // The live weixin lock is left alone; only the stale feishu lock is removed.
+    expect(removed).toEqual([lockPath(runtimeDir, "feishu")]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("daemon check attaches no lock fix when all consumer locks have live pids", async () => {
+  const home = await createTempHome();
+  const runtimeDir = join(home, ".xacpx", "runtime");
+  const livePid = 4242;
+
+  try {
+    await writeLock(runtimeDir, livePid, "weixin");
+    await writeLock(runtimeDir, livePid, "feishu");
+
+    const result = await checkDaemon({
+      home,
+      isProcessRunning: (pid) => pid === livePid,
+    });
+
+    expect(result.fixes?.some((entry) => entry.id === "daemon.clear-stale-lock") ?? false).toBe(false);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("daemon check does not attach the lock fix when status is indeterminate (live daemon pid)", async () => {
   const home = await createTempHome();
-  const runtimeDir = join(home, ".weacpx", "runtime");
+  const runtimeDir = join(home, ".xacpx", "runtime");
   const daemonPid = 12345;
   const stalePid = 99999;
 
