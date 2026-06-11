@@ -135,3 +135,36 @@ test("daemon check ignores a missing consumer lock", async () => {
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test("daemon check does not attach the lock fix when status is indeterminate (live daemon pid)", async () => {
+  const home = await createTempHome();
+  const runtimeDir = join(home, ".weacpx", "runtime");
+  const daemonPid = 12345;
+  const stalePid = 99999;
+
+  try {
+    // pid file present but status.json absent => getStatus() reports
+    // "indeterminate" ONLY after confirming the pid is alive. That is a LIVE
+    // daemon, so a stale lock must not be removed.
+    await mkdir(runtimeDir, { recursive: true });
+    await writeFile(join(runtimeDir, "daemon.pid"), `${daemonPid}\n`, "utf8");
+    await writeLock(runtimeDir, stalePid);
+
+    const removed: string[] = [];
+    const result = await checkDaemon({
+      home,
+      // daemon pid alive (indeterminate), lock pid dead
+      isProcessRunning: (pid) => pid === daemonPid,
+      removeConsumerLock: async (path) => {
+        removed.push(path);
+      },
+    });
+
+    expect(result.severity).toBe("fail");
+    expect(result.summary).toContain("indeterminate");
+    expect(result.fixes?.some((entry) => entry.id === "daemon.clear-stale-lock") ?? false).toBe(false);
+    expect(removed).toEqual([]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

@@ -44,13 +44,15 @@ export async function checkDaemon(options: DaemonCheckOptions = {}): Promise<Doc
 
   try {
     const status = await controller.getStatus();
-    // A stale consumer lock can only be safely cleared when no daemon owns it.
-    // When the daemon is running it owns the lock, so we never offer a removal
-    // there (no staleness is possible).
+    // A stale consumer lock can only be safely cleared when there is genuinely
+    // no live daemon. Only "stopped" qualifies: "running" obviously owns the
+    // lock, and "indeterminate" is also a LIVE pid (getStatus reports it only
+    // after confirming the daemon process is alive but status.json is missing),
+    // so removing the lock there would race a live daemon.
     const staleLockFix =
-      status.state === "running"
-        ? undefined
-        : await detectStaleConsumerLockFix(paths.runtimeDir, isProcessRunning, readConsumerLock, removeConsumerLock);
+      status.state === "stopped"
+        ? await detectStaleConsumerLockFix(paths.runtimeDir, isProcessRunning, readConsumerLock, removeConsumerLock)
+        : undefined;
     switch (status.state) {
       case "running":
         return {
@@ -79,13 +81,14 @@ export async function checkDaemon(options: DaemonCheckOptions = {}): Promise<Doc
           },
         };
       case "indeterminate":
+        // indeterminate = a LIVE daemon pid (status.json missing). Never offer
+        // a lock removal here; it would race the live daemon.
         return {
           id: "daemon",
           label: "Daemon",
           severity: "fail",
           summary: "daemon status is indeterminate",
           details: [`pid: ${status.pid}`, `reason: ${status.reason}`],
-          ...(staleLockFix ? { fixes: [staleLockFix] } : {}),
           metadata: {
             paths,
             status,
