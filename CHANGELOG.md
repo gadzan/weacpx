@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.10.1] - 2026-06-11
+
+A daemon-startup fix plus a substantial `xacpx doctor` upgrade (#24, #25, #26).
+
+### Added
+
+- **`xacpx doctor --fix` repair mode (#25, #26):** doctor can now apply a small set of safe, local repairs and then re-run the affected checks. Repairs are conservative and lazily executed: only safe/local fixes run, a failing repair is recorded as `failed` rather than crashing doctor, and the exit code reflects the post-repair state. Auto-applied fixes are `runtime.ensure-private-dir` (create/chmod the runtime dir to `0700`), `state.quarantine` (quarantine invalid/corrupt `state.json` records), and `daemon.clear-stale-lock` (remove `*-consumer.lock.json` files whose recorded pid is dead). State-mutating repairs are **gated on the daemon being stopped** and are withheld (reported `skipped`) while it runs; without `--fix`, a fixable check is flagged inline. Missing/broken plugins, disabled plugins, invalid config, and WeChat logout stay suggestion-only (network/intent/interactive).
+- **`xacpx doctor` plugin/channel health check (#25):** the plugin-load diagnostics previously reachable only via `xacpx plugin doctor` are now folded into `xacpx doctor` as the `plugins` check — this is the check that catches a channel plugin failing to load after a core update (e.g. `Cannot find module '@ganglion/xacpx-channel-feishu'`). Carries structured `xacpx plugin …` remediation suggestions.
+- **`xacpx doctor` orchestration IPC liveness check (#25):** when the daemon is live, doctor probes whether the orchestration IPC endpoint actually accepts connections, catching a daemon whose heartbeat is fresh but whose orchestration server has died. Conservative: only a definitive no-listener fails.
+- **`xacpx doctor` log/disk growth check (#25):** sums the daemon log files (and rotation siblings) and warns when a single file exceeds 50 MB or the total exceeds 200 MB.
+- **PR test CI (#26):** added a GitHub Actions workflow that runs `npm test` and `bun run build` on every pull request and push to `main` — the repo previously ran no tests on PRs.
+
+### Fixed
+
+- **Daemon `start`/`restart` no longer falsely reports "did not report ready" (#24):** the warm queue-owner orphan sweep is decoupled from the daemon readiness signal. The sweep used to run before the status write, so whenever it used its full ~5s budget the controller's startup timeout could fire on a perfectly healthy daemon. The daemon now writes its ready status promptly and joins the (best-effort) sweep before channels begin serving; the controller startup backstop was widened to 10s.
+- **`doctor --fix` repair gating hardened (#26):** `isProcessAlive` now treats `EPERM` (process exists but is owned by another user) as alive — for repair gating the unsafe direction is reading a live process as dead, so only a definitive `ESRCH` reads as dead. State-mutating repairs also re-verify daemon liveness at apply time, closing the window where a daemon starts between detection and `--fix`: `state.quarantine` refuses, and `daemon.clear-stale-lock` re-checks each lock and skips any whose owner is alive again.
+- **`doctor` logs-check messaging (#26):** an unreadable runtime dir is no longer reported as "no runtime logs yet"; it skips with a could-not-read summary and the underlying error.
+
+### Docs
+
+- New `docs/doctor-command.md` (and Chinese `docs/zh/doctor-command_zh.md`) documenting the full check matrix, severities, and the `--fix` safety/gating model; `--fix` added to the doctor sections of `README.md`, `docs/zh/README_zh.md`, and the VitePress CLI reference (en + zh). (#25, #26)
+
 ## [0.10.0] - 2026-06-11
 
 A large hardening release covering three review batches: a codebase-review fix batch (#20), a deferred security/group-auth/persistence batch (#22), and a follow-up batch (#23).
