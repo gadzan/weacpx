@@ -143,12 +143,24 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
 
     // Sweep warm acpx queue owners orphaned by a previous daemon that exited without a
     // clean shutdown (Windows `stop` force-kills the daemon via taskkill /F before
-    // dispose() can reap; crashes and reboots skip dispose entirely). Runs after the
-    // consumer lock is held — so no peer instance owns these — and before channels start
-    // serving, so it cannot kill an owner this run just launched. Best-effort.
-    await runtime.reapStaleQueueOwners();
+    // dispose() can reap; crashes and reboots skip dispose entirely). Kicked off after
+    // the consumer lock is held — so no peer instance owns these — and its target set is
+    // snapshotted synchronously here, before this run launches any owner, so it can never
+    // target a current-run owner regardless of when the bounded (~5s) sweep finishes.
+    //
+    // Deliberately NOT awaited before the ready signal: the sweep is best-effort orphan
+    // cleanup, and awaiting it used to push the daemonRuntime.start() status write past
+    // the controller's startup timeout whenever the sweep used its full budget, making
+    // `xacpx start`/`restart` falsely report "did not report ready". We join it before
+    // channels begin serving so it still finishes before any current-run owner of a
+    // stale session identity could be launched. Best-effort: never rejects.
+    const reapPromise = Promise.resolve(runtime.reapStaleQueueOwners()).catch(() => {});
 
     if (deps.beforeReady) {
+      // First-run onboarding creates a session and its warm owner; let the sweep finish
+      // first so it can never target that owner. Gated by the generous onboarding startup
+      // timeout, not the 5s default, so blocking here is safe.
+      await reapPromise;
       await deps.beforeReady(runtime);
     }
 
@@ -166,6 +178,10 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
         deps.heartbeatIntervalMs ?? 30_000,
       );
     }
+
+    // Join the orphan sweep before channels begin serving so it cannot race a current-run
+    // owner that reuses a stale session identity. By now the ready signal is already out.
+    await reapPromise;
 
     const channelStartPromise = deps.channels.startAll({
       agent: runtime.agent,
