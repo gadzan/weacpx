@@ -509,6 +509,7 @@ test("doctor orchestrator runs baseline checks in stable order and records smoke
     {
       checkConfig: createCheck("config"),
       checkRuntime: createCheck("runtime"),
+      checkLogs: createCheck("logs") as never,
       checkDaemon: createCheck("daemon"),
       checkWechat: createCheck("wechat"),
       checkAcpx: createCheck("acpx"),
@@ -522,6 +523,7 @@ test("doctor orchestrator runs baseline checks in stable order and records smoke
   expect(calls).toEqual([
     "config",
     "runtime",
+    "logs",
     "daemon",
     "wechat",
     "acpx",
@@ -533,6 +535,7 @@ test("doctor orchestrator runs baseline checks in stable order and records smoke
   expect(result.report.checks.map((check) => check.id)).toEqual([
     "config",
     "runtime",
+    "logs",
     "daemon",
     "wechat",
     "acpx",
@@ -545,6 +548,40 @@ test("doctor orchestrator runs baseline checks in stable order and records smoke
   expect(result.report.checks.at(-1)).toMatchObject({
     id: "smoke",
     severity: "skip",
+  });
+});
+
+test("runDoctor places the logs check after runtime and before daemon and honors the checkLogs override", async () => {
+  let called = false;
+  const result = await runDoctor(
+    {},
+    {
+      checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }),
+      checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "pass", summary: "ok" }),
+      checkLogs: (async () => {
+        called = true;
+        return { id: "logs", label: "Logs", severity: "warn", summary: "log growth high" };
+      }) as never,
+      checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "pass", summary: "ok" }),
+      checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
+      checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
+      checkBridge: async () => ({ id: "bridge", label: "Bridge", severity: "pass", summary: "ok" }),
+      checkPlugins: (async () => ({ id: "plugins", label: "Plugins", severity: "skip", summary: "skip" })) as never,
+      checkOrchestrationHealth: async () => ({ id: "orchestration", label: "Orchestration", severity: "pass", summary: "ok" }),
+      checkOrchestrationSocket: (async () => ({ id: "orchestration-socket", label: "Orchestration IPC", severity: "skip", summary: "skip" })) as never,
+    },
+  );
+
+  expect(called).toBe(true);
+  const ids = result.report.checks.map((check) => check.id);
+  const runtimeIndex = ids.indexOf("runtime");
+  const logsIndex = ids.indexOf("logs");
+  const daemonIndex = ids.indexOf("daemon");
+  expect(logsIndex).toBe(runtimeIndex + 1);
+  expect(daemonIndex).toBe(logsIndex + 1);
+  expect(result.report.checks.find((check) => check.id === "logs")).toMatchObject({
+    severity: "warn",
+    summary: "log growth high",
   });
 });
 
@@ -649,6 +686,7 @@ test("doctor orchestrator returns exit code 1 when any check fails", async () =>
     {
       checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }),
       checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "fail", summary: "broken" }),
+      checkLogs: (async () => ({ id: "logs", label: "Logs", severity: "skip", summary: "skip" })) as never,
       checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "warn", summary: "warn" }),
       checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
       checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
@@ -660,7 +698,7 @@ test("doctor orchestrator returns exit code 1 when any check fails", async () =>
   );
 
   expect(result.exitCode).toBe(1);
-  expect(result.output).toContain("Summary: PASS 4, WARN 1, FAIL 1, SKIP 4");
+  expect(result.output).toContain("Summary: PASS 4, WARN 1, FAIL 1, SKIP 5");
 });
 
 test("doctor orchestrator returns exit code 0 when report only contains pass warn and skip", async () => {
@@ -669,6 +707,7 @@ test("doctor orchestrator returns exit code 0 when report only contains pass war
     {
       checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }),
       checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "warn", summary: "warn" }),
+      checkLogs: (async () => ({ id: "logs", label: "Logs", severity: "skip", summary: "skip" })) as never,
       checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "pass", summary: "ok" }),
       checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }),
       checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }),
@@ -680,7 +719,7 @@ test("doctor orchestrator returns exit code 0 when report only contains pass war
   );
 
   expect(result.exitCode).toBe(0);
-  expect(result.output).toContain("Summary: PASS 5, WARN 1, FAIL 0, SKIP 4");
+  expect(result.output).toContain("Summary: PASS 5, WARN 1, FAIL 0, SKIP 5");
 });
 
 test("runDoctor includes the orchestration-health check result", async () => {
@@ -804,6 +843,7 @@ function createStateDoctorStubs() {
   return {
     checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }) as DoctorCheckResult,
     checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkLogs: (async () => ({ id: "logs", label: "Logs", severity: "skip", summary: "skip" })) as never,
     checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "pass", summary: "ok" }) as DoctorCheckResult,
     checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }) as DoctorCheckResult,
     checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }) as DoctorCheckResult,
@@ -868,6 +908,7 @@ function createFixDoctorStubs() {
   return {
     checkConfig: async () => ({ id: "config", label: "Config", severity: "pass", summary: "ok" }) as DoctorCheckResult,
     checkRuntime: async () => ({ id: "runtime", label: "Runtime", severity: "pass", summary: "ok" }) as DoctorCheckResult,
+    checkLogs: (async () => ({ id: "logs", label: "Logs", severity: "skip", summary: "skip" })) as never,
     checkDaemon: async () => ({ id: "daemon", label: "Daemon", severity: "pass", summary: "ok" }) as DoctorCheckResult,
     checkWechat: async () => ({ id: "wechat", label: "WeChat", severity: "pass", summary: "ok" }) as DoctorCheckResult,
     checkAcpx: async () => ({ id: "acpx", label: "acpx", severity: "pass", summary: "ok" }) as DoctorCheckResult,

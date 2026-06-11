@@ -13,6 +13,7 @@ import { checkAcpx } from "./checks/acpx-check";
 import { checkBridge } from "./checks/bridge-check";
 import { checkConfig } from "./checks/config-check";
 import { checkDaemon } from "./checks/daemon-check";
+import { checkLogs } from "./checks/logs-check";
 import { checkOrchestrationHealth } from "./checks/orchestration-health";
 import { checkOrchestrationSocket } from "./checks/orchestration-socket-check";
 import { checkPlugins } from "./checks/plugin-check";
@@ -42,6 +43,7 @@ interface DoctorDeps {
   checkConfig?: typeof checkConfig;
   checkRuntime?: typeof checkRuntime;
   checkDaemon?: typeof checkDaemon;
+  checkLogs?: typeof checkLogs;
   checkWechat?: typeof checkWechat;
   checkAcpx?: typeof checkAcpx;
   checkBridge?: typeof checkBridge;
@@ -79,6 +81,14 @@ export async function runDoctor(options: DoctorRunOptions = {}, deps: DoctorDeps
       id: "runtime",
       run: () =>
         (deps.checkRuntime ?? checkRuntime)({
+          home,
+          configPath: runtimePaths.configPath,
+        }),
+    },
+    {
+      id: "logs",
+      run: () =>
+        (deps.checkLogs ?? checkLogs)({
           home,
           configPath: runtimePaths.configPath,
         }),
