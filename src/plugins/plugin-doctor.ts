@@ -18,6 +18,13 @@ export interface PluginDoctorIssue {
   level: PluginDoctorLevel;
   plugin?: string;
   message: string;
+  /**
+   * Precise remediation command for this issue (e.g.
+   * `xacpx plugin add <name> && xacpx restart`). Populated at the error/warn
+   * site where the exact target is known, so consumers (e.g. `xacpx doctor`)
+   * surface actionable suggestions without parsing the human-readable message.
+   */
+  suggestion?: string;
 }
 
 export interface InspectPluginsInput {
@@ -69,7 +76,7 @@ export async function inspectPlugins(input: InspectPluginsInput): Promise<Plugin
 
   for (const configPlugin of allConfigured) {
     if (!(configPlugin.name in dependencies)) {
-      pushIfRelevant({ level: "error", plugin: configPlugin.name, message: `package not installed in plugin home; run xacpx plugin add ${configPlugin.name}` });
+      pushIfRelevant({ level: "error", plugin: configPlugin.name, message: `package not installed in plugin home; run xacpx plugin add ${configPlugin.name}`, suggestion: `xacpx plugin add ${configPlugin.name} && xacpx restart` });
       continue;
     }
 
@@ -78,7 +85,7 @@ export async function inspectPlugins(input: InspectPluginsInput): Promise<Plugin
       moduleValue = await importPlugin(configPlugin.name, input.pluginHome);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      pushIfRelevant({ level: "error", plugin: configPlugin.name, message: `failed to import plugin: ${message}` });
+      pushIfRelevant({ level: "error", plugin: configPlugin.name, message: `failed to import plugin: ${message}`, suggestion: `xacpx plugin add ${configPlugin.name} && xacpx restart` });
       continue;
     }
 
@@ -102,6 +109,7 @@ export async function inspectPlugins(input: InspectPluginsInput): Promise<Plugin
         message: configPlugin.enabled
           ? `plugin is installed and valid; channels: ${channelTypes.length > 0 ? channelTypes.join(", ") : "none"}`
           : `plugin is installed and valid but disabled; run xacpx plugin enable ${configPlugin.name}`,
+        ...(configPlugin.enabled ? {} : { suggestion: `xacpx plugin enable ${configPlugin.name}` }),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -116,9 +124,11 @@ export async function inspectPlugins(input: InspectPluginsInput): Promise<Plugin
     const provider = channelProviders.get(channel.type);
     if (!provider) {
       if (!filterByName) {
+        const suggestedPackage = suggestedPluginPackageForChannel(channel.type);
         issues.push({
           level: "error",
-          message: `channel ${channel.type} is configured but no enabled plugin provides it; run xacpx plugin add ${suggestedPluginPackageForChannel(channel.type)} or another plugin that provides type "${channel.type}"`,
+          message: `channel ${channel.type} is configured but no enabled plugin provides it; run xacpx plugin add ${suggestedPackage} or another plugin that provides type "${channel.type}"`,
+          suggestion: `xacpx plugin add ${suggestedPackage}`,
         });
       }
       continue;
@@ -128,6 +138,7 @@ export async function inspectPlugins(input: InspectPluginsInput): Promise<Plugin
         level: "error",
         plugin: provider.plugin,
         message: `channel ${channel.type} is configured but provider plugin is disabled; run xacpx plugin enable ${provider.plugin}`,
+        suggestion: `xacpx plugin enable ${provider.plugin}`,
       });
     }
   }

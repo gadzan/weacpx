@@ -57,7 +57,7 @@ test("doctor reports missing dependency error", async () => {
       importPlugin: async () => ({ default: { apiVersion: 1, name: "weacpx-channel-demo", channels: [] } }),
     });
 
-    expect(issues).toContainEqual({ level: "error", plugin: "weacpx-channel-demo", message: "package not installed in plugin home; run xacpx plugin add weacpx-channel-demo" });
+    expect(issues).toContainEqual({ level: "error", plugin: "weacpx-channel-demo", message: "package not installed in plugin home; run xacpx plugin add weacpx-channel-demo", suggestion: "xacpx plugin add weacpx-channel-demo && xacpx restart" });
   } finally {
     await rm(pluginHome, { recursive: true, force: true });
   }
@@ -71,7 +71,7 @@ test("doctor reports import and validation failures", async () => {
       config: baseConfig({ plugins: [{ name: "weacpx-channel-demo", enabled: true }] }),
       importPlugin: async () => { throw new Error("module not found"); },
     });
-    expect(importIssues).toContainEqual({ level: "error", plugin: "weacpx-channel-demo", message: "failed to import plugin: module not found" });
+    expect(importIssues).toContainEqual({ level: "error", plugin: "weacpx-channel-demo", message: "failed to import plugin: module not found", suggestion: "xacpx plugin add weacpx-channel-demo && xacpx restart" });
 
     const validationIssues = await inspectPlugins({
       pluginHome,
@@ -114,7 +114,7 @@ test("doctor reports error when configured channel has no provider plugin", asyn
       importPlugin: async () => ({ default: { apiVersion: 1, channels: [] } }),
     });
 
-    expect(issues).toContainEqual({ level: "error", message: "channel yuanbao is configured but no enabled plugin provides it; run xacpx plugin add @ganglion/xacpx-channel-yuanbao or another plugin that provides type \"yuanbao\"" });
+    expect(issues).toContainEqual({ level: "error", message: "channel yuanbao is configured but no enabled plugin provides it; run xacpx plugin add @ganglion/xacpx-channel-yuanbao or another plugin that provides type \"yuanbao\"", suggestion: "xacpx plugin add @ganglion/xacpx-channel-yuanbao" });
   } finally {
     await rm(pluginHome, { recursive: true, force: true });
   }
@@ -206,7 +206,7 @@ test("doctor errors when configured channel provider plugin is disabled", async 
       importPlugin: async () => ({ default: { apiVersion: 1, name: "weacpx-channel-demo", channels: [{ type: "demo", factory: () => ({ id: "demo", start: async () => {}, stop: async () => {} }) }] } }),
     });
 
-    expect(issues).toContainEqual({ level: "error", plugin: "weacpx-channel-demo", message: "channel demo is configured but provider plugin is disabled; run xacpx plugin enable weacpx-channel-demo" });
+    expect(issues).toContainEqual({ level: "error", plugin: "weacpx-channel-demo", message: "channel demo is configured but provider plugin is disabled; run xacpx plugin enable weacpx-channel-demo", suggestion: "xacpx plugin enable weacpx-channel-demo" });
   } finally {
     await rm(pluginHome, { recursive: true, force: true });
   }

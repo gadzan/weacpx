@@ -60,6 +60,12 @@ test("checkPlugins fails when any issue is an error", async () => {
 
   expect(result.severity).toBe("fail");
   expect(result.summary).toContain("issue");
+  // metadata is trimmed: counts + pluginHome only, never the raw issues array
+  expect(result.metadata).toEqual({ pluginHome: "/home/.xacpx/plugins", errorCount: 1, warnCount: 0 });
+  // duplicate-provider error carries no suggestion
+  expect(result.suggestions).toEqual([]);
+  // ok issues are not listed in details
+  expect(result.details?.join("\n") ?? "").not.toContain("a: ok");
 });
 
 test("checkPlugins surfaces an import failure as fail with the package name and an actionable suggestion", async () => {
@@ -69,6 +75,7 @@ test("checkPlugins surfaces an import failure as fail with the package name and 
         level: "error",
         plugin: "@ganglion/xacpx-channel-feishu",
         message: "failed to import plugin: Cannot find module '@ganglion/xacpx-channel-feishu'",
+        suggestion: "xacpx plugin add @ganglion/xacpx-channel-feishu && xacpx restart",
       },
     ]),
   );
@@ -76,7 +83,24 @@ test("checkPlugins surfaces an import failure as fail with the package name and 
   expect(result.severity).toBe("fail");
   expect(result.details?.join("\n") ?? "").toContain("@ganglion/xacpx-channel-feishu");
   const suggestions = result.suggestions ?? [];
-  expect(suggestions.some((s) => s.includes("xacpx plugin add @ganglion/xacpx-channel-feishu"))).toBe(true);
+  expect(suggestions).toContain("run: xacpx plugin add @ganglion/xacpx-channel-feishu && xacpx restart");
+});
+
+test("checkPlugins degrades to fail without throwing when inspectPlugins throws", async () => {
+  const result = await checkPlugins({
+    home: "/home",
+    loadConfig: async () => makeConfig(),
+    resolveRuntimePaths: () => ({ configPath: CONFIG_PATH, statePath: "/home/.xacpx/state.json" }),
+    resolvePluginHome: () => "/home/.xacpx/plugins",
+    inspectPlugins: async () => {
+      throw new Error("inspect exploded");
+    },
+    currentXacpxVersion: "9.9.9",
+  });
+
+  expect(result.severity).toBe("fail");
+  expect(result.summary).toContain("plugin health check failed");
+  expect(result.details?.join("\n") ?? "").toContain("inspect exploded");
 });
 
 test("checkPlugins skips when config cannot be loaded and points at the Config check", async () => {
@@ -122,7 +146,7 @@ test("checkPlugins inspects when a plugin-provided channel is configured even wi
     resolveRuntimePaths: () => ({ configPath: CONFIG_PATH, statePath: "/home/.xacpx/state.json" }),
     resolvePluginHome: () => "/home/.xacpx/plugins",
     inspectPlugins: async () => [
-      { level: "error", message: "channel feishu is configured but no enabled plugin provides it; run xacpx plugin add @ganglion/xacpx-channel-feishu" },
+      { level: "error", message: "channel feishu is configured but no enabled plugin provides it; run xacpx plugin add @ganglion/xacpx-channel-feishu", suggestion: "xacpx plugin add @ganglion/xacpx-channel-feishu" },
     ],
     currentXacpxVersion: "9.9.9",
   });
@@ -130,17 +154,38 @@ test("checkPlugins inspects when a plugin-provided channel is configured even wi
   expect(result.severity).toBe("fail");
 });
 
+test("checkPlugins surfaces a clean channel-not-provided suggestion with no mangled tail", async () => {
+  const result = await checkPlugins({
+    home: "/home",
+    loadConfig: async () => makeConfig({ plugins: [], channels: [{ id: "feishu", type: "feishu", enabled: true }] }),
+    resolveRuntimePaths: () => ({ configPath: CONFIG_PATH, statePath: "/home/.xacpx/state.json" }),
+    resolvePluginHome: () => "/home/.xacpx/plugins",
+    inspectPlugins: async () => [
+      {
+        level: "error",
+        message: "channel feishu is configured but no enabled plugin provides it; run xacpx plugin add @ganglion/xacpx-channel-feishu or another plugin that provides type \"feishu\"",
+        suggestion: "xacpx plugin add @ganglion/xacpx-channel-feishu",
+      },
+    ],
+    currentXacpxVersion: "9.9.9",
+  });
+
+  expect(result.suggestions).toContain("run: xacpx plugin add @ganglion/xacpx-channel-feishu");
+  expect((result.suggestions ?? []).join("\n")).not.toContain("or another plugin");
+});
+
 test("checkPlugins dedups suggestions", async () => {
   const result = await checkPlugins(
     baseDeps([
-      { level: "error", plugin: "a", message: "package not installed in plugin home; run xacpx plugin add a" },
-      { level: "error", plugin: "a", message: "failed to import plugin: Cannot find module 'a'" },
+      { level: "error", plugin: "a", message: "package not installed in plugin home; run xacpx plugin add a", suggestion: "xacpx plugin add a && xacpx restart" },
+      { level: "error", plugin: "a", message: "failed to import plugin: Cannot find module 'a'", suggestion: "xacpx plugin add a && xacpx restart" },
     ]),
   );
 
   const suggestions = result.suggestions ?? [];
   const unique = new Set(suggestions);
   expect(unique.size).toBe(suggestions.length);
+  expect(suggestions).toEqual(["run: xacpx plugin add a && xacpx restart"]);
 });
 
 test("checkPlugins passes currentXacpxVersion and resolved plugin home to inspectPlugins", async () => {

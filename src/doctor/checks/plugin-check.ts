@@ -59,11 +59,25 @@ export async function checkPlugins(options: PluginCheckOptions = {}): Promise<Do
 
   const pluginHome = (options.resolvePluginHome ?? defaultResolvePluginHome)({ home: options.home });
   const inspect = options.inspectPlugins ?? defaultInspectPlugins;
-  const issues = await inspect({
-    config,
-    pluginHome,
-    currentXacpxVersion: options.currentXacpxVersion ?? XACPX_CORE_VERSION,
-  });
+
+  let issues: PluginDoctorIssue[];
+  try {
+    issues = await inspect({
+      config,
+      pluginHome,
+      currentXacpxVersion: options.currentXacpxVersion ?? XACPX_CORE_VERSION,
+    });
+  } catch (error) {
+    // A throw here must never crash runDoctor — degrade to a fail, mirroring
+    // the orchestration sibling's inspect guard.
+    return {
+      id: "plugins",
+      label: "Plugins",
+      severity: "fail",
+      summary: "plugin health check failed",
+      details: [`plugin home: ${pluginHome}`, `error: ${formatError(error)}`],
+    };
+  }
 
   const errorCount = issues.filter((issue) => issue.level === "error").length;
   const warnCount = issues.filter((issue) => issue.level === "warn").length;
@@ -78,9 +92,11 @@ export async function checkPlugins(options: PluginCheckOptions = {}): Promise<Do
       problemCount > 0
         ? `${problemCount} plugin issue(s)`
         : "all plugins healthy",
-    details: issues.map(formatIssueDetail),
+    // Match the sibling checks' altitude: only surface the problems, not the
+    // healthy plugins (the summary already says "all plugins healthy").
+    details: issues.filter((issue) => issue.level !== "ok").map(formatIssueDetail),
     suggestions: collectSuggestions(issues),
-    metadata: { pluginHome, issues },
+    metadata: { pluginHome, errorCount, warnCount },
   };
 }
 
@@ -104,49 +120,23 @@ function formatIssueDetail(issue: PluginDoctorIssue): string {
 }
 
 /**
- * Build a deduped, actionable suggestion list. Common errors (package not
- * installed / failed to import) get an explicit add+restart hint keyed by the
- * affected package; other messages that already embed an `xacpx plugin ...`
- * remediation hint are surfaced verbatim.
+ * Collect the structured `suggestion` remediation commands the issues already
+ * carry (deduped, in order). The precise command is set at the source in
+ * `inspectPlugins`, so there is no message parsing here.
  */
 function collectSuggestions(issues: PluginDoctorIssue[]): string[] {
   const suggestions: string[] = [];
   const seen = new Set<string>();
-  const push = (suggestion: string) => {
-    if (!seen.has(suggestion)) {
-      seen.add(suggestion);
-      suggestions.push(suggestion);
-    }
-  };
 
   for (const issue of issues) {
-    if (issue.level === "ok") {
-      continue;
-    }
-    if (
-      issue.plugin &&
-      (issue.message.startsWith("package not installed") ||
-        issue.message.startsWith("failed to import plugin"))
-    ) {
-      push(`run: xacpx plugin add ${issue.plugin} && xacpx restart`);
-      continue;
-    }
-    const embedded = extractPluginCommand(issue.message);
-    if (embedded) {
-      push(`run: ${embedded}`);
+    const suggestion = issue.suggestion;
+    if (suggestion && !seen.has(suggestion)) {
+      seen.add(suggestion);
+      suggestions.push(`run: ${suggestion}`);
     }
   }
 
   return suggestions;
-}
-
-/**
- * Pull the first `xacpx plugin ...` remediation command embedded in a message
- * (the issue strings already carry these). Returns null when none is present.
- */
-function extractPluginCommand(message: string): string | null {
-  const match = message.match(/xacpx plugin [^;]+/);
-  return match ? match[0].trim() : null;
 }
 
 function formatError(error: unknown): string {
