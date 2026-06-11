@@ -139,6 +139,52 @@ test("reaps stale queue owners at startup after the consumer lock, before channe
   expect(events).toEqual(["lock:acquire", "reap", "channel:start", "lock:release"]);
 });
 
+test("reports daemon ready before the queue-owner sweep finishes, and channels wait for it", async () => {
+  const events: string[] = [];
+  let releaseReap!: () => void;
+  const reapGate = new Promise<void>((resolve) => {
+    releaseReap = resolve;
+  });
+
+  const runPromise = runConsole({ configPath: "/cfg", statePath: "/state" }, {
+    buildApp: async () => ({
+      ...createRuntime(),
+      reapStaleQueueOwners: async () => {
+        events.push("reap:start");
+        await reapGate;
+        events.push("reap:done");
+      },
+    }),
+    channels: {
+      startAll: async () => { events.push("channel:start"); },
+    },
+    daemonRuntime: {
+      start: async () => { events.push("daemon:start"); },
+      heartbeat: async () => {},
+      stop: async () => { events.push("daemon:stop"); },
+    },
+    addProcessListener: () => {},
+    removeProcessListener: () => {},
+  });
+
+  // Let startup run as far as it can while the sweep is still gated open.
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  // The ready signal must be out even though the sweep has not finished...
+  expect(events).toContain("daemon:start");
+  expect(events).toContain("reap:start");
+  expect(events).not.toContain("reap:done");
+  // ...and channels must NOT begin serving until the sweep is joined.
+  expect(events).not.toContain("channel:start");
+
+  releaseReap();
+  await runPromise;
+
+  // The sweep is joined before channels serve; ready was already signalled above.
+  expect(events.indexOf("daemon:start")).toBeLessThan(events.indexOf("reap:done"));
+  expect(events.indexOf("reap:done")).toBeLessThan(events.indexOf("channel:start"));
+});
+
 test("runs afterBuild before beforeReady and channel startup", async () => {
   const events: string[] = [];
   const runtime = createRuntime();
