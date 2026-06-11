@@ -464,3 +464,50 @@ test("writes with 2-space indent, trailing newline, and owner-only permissions",
 
   await rm(dir, { recursive: true, force: true });
 });
+
+test("concurrent patchRaw mutations all land — lock spans read→patch→write", async () => {
+  // Pre-fix, the proper-lockfile lock only covered the WRITE inside
+  // writePrivateFileAtomic: concurrent mutations all read the same snapshot
+  // and the last writer erased the others' keys (lost update).
+  const { dir, path } = await makeConfigFile({
+    transport: { type: "acpx-bridge" },
+    agents: { codex: { driver: "codex" } },
+    workspaces: {},
+  });
+  const store = new ConfigStore(path);
+
+  const names = ["w1", "w2", "w3", "w4", "w5"];
+  await Promise.all(names.map((name) => store.upsertWorkspace(name, `/repo/${name}`)));
+
+  const raw = await readRaw(path);
+  const workspaces = raw.workspaces as Record<string, { cwd: string }>;
+  expect(Object.keys(workspaces).sort()).toEqual(names);
+  for (const name of names) {
+    expect(workspaces[name]).toEqual({ cwd: `/repo/${name}` });
+  }
+
+  await rm(dir, { recursive: true, force: true });
+});
+
+test("concurrent mutations from two ConfigStore instances on the same file all land", async () => {
+  // Same race across separate store instances (e.g. /pm set during /config
+  // set in two processes) — the file lock, not instance state, must serialize.
+  const { dir, path } = await makeConfigFile({
+    transport: { type: "acpx-bridge" },
+    agents: {},
+    workspaces: {},
+  });
+  const storeA = new ConfigStore(path);
+  const storeB = new ConfigStore(path);
+
+  await Promise.all([
+    storeA.upsertAgent("codex", { driver: "codex" }),
+    storeB.upsertWorkspace("backend", "/repo/backend"),
+  ]);
+
+  const raw = await readRaw(path);
+  expect((raw.agents as Record<string, unknown>).codex).toEqual({ driver: "codex" });
+  expect((raw.workspaces as Record<string, unknown>).backend).toEqual({ cwd: "/repo/backend" });
+
+  await rm(dir, { recursive: true, force: true });
+});
