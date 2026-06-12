@@ -6,7 +6,12 @@ import type {
   ScheduledTaskService,
 } from "../scheduled/scheduled-service";
 import type { ScheduledTaskRecord } from "../scheduled/scheduled-types";
-import type { OrchestrationService } from "../orchestration/orchestration-service";
+import type {
+  CancelTaskInput,
+  OrchestrationService,
+  OrchestrationTaskFilter,
+} from "../orchestration/orchestration-service";
+import type { OrchestrationTaskRecord } from "../orchestration/orchestration-types";
 import type { ControlEventBus } from "./control-event-bus";
 
 export interface ControlSessionInfo {
@@ -82,5 +87,19 @@ export class ControlService {
       this.deps.events.emit({ type: "scheduled-changed", chatKey });
     }
     return cancelled;
+  }
+
+  listOrchestrationTasks(filter?: OrchestrationTaskFilter): Promise<OrchestrationTaskRecord[]> {
+    return this.deps.orchestration.listTasks(filter);
+  }
+
+  getOrchestrationTask(taskId: string): Promise<OrchestrationTaskRecord | null> {
+    return this.deps.orchestration.getTask(taskId);
+  }
+
+  async cancelOrchestrationTask(input: CancelTaskInput): Promise<OrchestrationTaskRecord> {
+    const task = await this.deps.orchestration.requestTaskCancellation(input);
+    this.deps.events.emit({ type: "orchestration-changed" });
+    return task;
   }
 }
