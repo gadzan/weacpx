@@ -1,0 +1,25 @@
+{
+  "name": "@ganglion/xacpx-relay-protocol",
+  "version": "0.1.0",
+  "description": "Shared wire protocol types and codecs for the xacpx relay hub.",
+  "license": "MIT",
+  "keywords": ["xacpx", "relay", "protocol"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gadzan/xacpx.git",
+    "directory": "packages/relay-protocol"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "publishConfig": {
+    "access": "public"
+  }
+}
