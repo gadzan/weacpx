@@ -194,6 +194,7 @@ export async function runConsole(paths: RuntimePaths, deps: RunConsoleDeps): Pro
       commandHints: listXacpxCommandHints(),
       coreVersion: XACPX_CORE_VERSION,
       locale: getLocale(),
+      control: runtime.control,
     });
     // Observe rejections immediately so a channel failure cannot become an
     // unhandled rejection while the scheduler startup path is still running.

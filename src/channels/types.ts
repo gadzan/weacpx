@@ -7,6 +7,7 @@ import type { PerfTracer } from "../perf/perf-tracer.js";
 import type { SessionService } from "../sessions/session-service.js";
 import type { ActiveTurnRegistry } from "../sessions/active-turn-registry.js";
 import type { Locale } from "../i18n/index.js";
+import type { ControlService } from "../control/control-service.js";
 
 export type { ChatAgent };
 
@@ -80,6 +81,12 @@ export interface ChannelStartInput {
    * the active locale via `getLocale()` from `xacpx/plugin-api`.
    */
   locale?: Locale;
+  /**
+   * Structured control facade (sessions / prompt / scheduler / orchestration)
+   * for structured consumers such as the relay connector. Optional: text-only
+   * channels ignore it.
+   */
+  control?: ControlService;
 }
 
 export interface OrchestrationDeliveryCallbacks {

@@ -49,6 +49,8 @@ import { normalizeWeixinUserIdFromChatKey } from "./weixin/messaging/inbound.js"
 import { ProgressLineBuffer } from "./orchestration/progress-line-parser";
 import { renderTaskHeartbeat, renderTaskProgress } from "./formatting/render-text";
 import { QuotaManager } from "./weixin/messaging/quota-manager";
+import { createControlEventBus } from "./control/control-event-bus";
+import { ControlService } from "./control/control-service";
 
 export interface RuntimePaths {
   configPath: string;
@@ -77,6 +79,7 @@ export interface AppRuntime {
     service: ScheduledTaskService;
     scheduler: ScheduledTaskScheduler;
   };
+  control: ControlService;
   /**
    * Terminate warm acpx queue owners orphaned by a previous daemon that exited
    * without a clean shutdown (Windows `stop` force-kills via taskkill /F, crashes,
@@ -756,6 +759,15 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     activeTurns,
   );
   const agent = new ConsoleAgent(router, logger);
+  const controlEvents = createControlEventBus(logger);
+  const control = new ControlService({
+    agent,
+    sessions,
+    activeTurns,
+    scheduled: scheduledService,
+    orchestration,
+    events: controlEvents,
+  });
   const scheduledScheduler = new ScheduledTaskScheduler(scheduledService, {
     dispatchTask: buildScheduledDispatchTask({
       getSession: (alias) => sessions.getSession(alias),
@@ -827,6 +839,7 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
       service: scheduledService,
       scheduler: scheduledScheduler,
     },
+    control,
     reapStaleQueueOwners: () => reapWarmQueueOwners("startup"),
     dispose: async () => {
       scheduledScheduler.stop();

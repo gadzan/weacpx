@@ -30,6 +30,7 @@ function createRuntime() {
       },
       endpoint: {} as never,
     },
+    control: {} as never,
     reapStaleQueueOwners: async () => {},
     dispose: async () => {},
   };
@@ -687,6 +688,7 @@ test("handles SIGINT by aborting the sdk start and running cleanup", async () =>
             reconcileParallelSlots: async () => {},
           },
         },
+        control: {} as never,
         reapStaleQueueOwners: async () => {},
         dispose: async () => {
           events.push("dispose");
@@ -730,4 +732,34 @@ test("handles SIGINT by aborting the sdk start and running cleanup", async () =>
 
   expect(events).toEqual(["daemon:start", "orchestration:start", "channel:start", "channel:abort", "orchestration:stop", "dispose", "daemon:stop"]);
   expect(signalHandlers.size).toBe(0);
+});
+
+test("passes the control facade through to channel startup", async () => {
+  const signalHandlers = new Map<string, () => void>();
+  let startInput: { control?: unknown } | undefined;
+
+  const runPromise = runConsole(
+    { configPath: "/cfg", statePath: "/state" },
+    {
+      buildApp: async () => ({
+        ...createRuntime(),
+        control: { marker: "control-facade" } as never,
+      }),
+      channels: {
+        startAll: async (input) => {
+          startInput = input as { control?: unknown };
+        },
+      },
+      addProcessListener: (signal, handler) => {
+        signalHandlers.set(signal, handler);
+      },
+      removeProcessListener: () => {},
+    },
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(startInput?.control).toEqual({ marker: "control-facade" });
+
+  signalHandlers.get("SIGTERM")?.();
+  await runPromise;
 });

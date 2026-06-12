@@ -53,3 +53,14 @@ export type { ChatRequestMetadata } from "./weixin/agent/interface.js";
 // locale here, or take it from `ChannelStartInput.locale` for explicit threading.
 export { getLocale } from "./i18n/index.js";
 export type { Locale } from "./i18n/index.js";
+
+// Structured control facade — for relay connectors and other non-text consumers
+// that need programmatic access to sessions, prompt, scheduler, and orchestration.
+export type {
+  ControlExecuteCommandInput,
+  ControlPromptInput,
+  ControlPromptResult,
+  ControlService,
+  ControlSessionInfo,
+} from "./control/control-service.js";
+export type { ControlEvent, ControlEventBus, ControlEventListener } from "./control/control-event-bus.js";
