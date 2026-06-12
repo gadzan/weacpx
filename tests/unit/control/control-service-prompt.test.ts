@@ -1,0 +1,190 @@
+import { expect, test } from "bun:test";
+
+import { ControlService } from "../../../src/control/control-service";
+import { createControlEventBus, type ControlEvent } from "../../../src/control/control-event-bus";
+import type { ChatRequest, ChatResponse } from "../../../src/weixin/agent/interface";
+
+function makeControl(chatImpl: (request: ChatRequest) => Promise<ChatResponse>) {
+  const events = createControlEventBus();
+  const seen: ControlEvent[] = [];
+  events.subscribe((event) => seen.push(event));
+  const used: string[] = [];
+  const control = new ControlService({
+    agent: { chat: chatImpl },
+    sessions: {
+      listAllResolvedSessions: () => [],
+      createSession: async () => {
+        throw new Error("unused");
+      },
+      removeSession: async () => ({ wasActive: false }),
+      useSession: async (chatKey: string, alias: string) => {
+        if (alias === "missing") throw new Error("unknown session");
+        used.push(`${chatKey}:${alias}`);
+        return { alias, agent: "claude", workspace: "/ws" };
+      },
+    },
+    activeTurns: { isActiveAnywhere: () => false },
+    scheduled: {} as never,
+    orchestration: {} as never,
+    events,
+  } as never);
+  return { control, seen, used };
+}
+
+test("prompt binds session, streams chunks as events, and reports completion", async () => {
+  let captured: ChatRequest | undefined;
+  const { control, seen, used } = makeControl(async (request) => {
+    captured = request;
+    await request.reply?.("chunk-1");
+    return { text: "final" };
+  });
+
+  const result = await control.prompt({
+    chatKey: "relay:acct-1",
+    sessionAlias: "backend",
+    text: "run tests",
+    senderId: "acct-1",
+    isOwner: true,
+  });
+
+  expect(result).toEqual({ ok: true, text: "final" });
+  expect(used).toEqual(["relay:acct-1:backend"]);
+  expect(captured?.conversationId).toBe("relay:acct-1");
+  expect(captured?.metadata).toEqual({
+    channel: "control",
+    chatType: "direct",
+    senderId: "acct-1",
+    isOwner: true,
+  });
+  expect(seen).toEqual([
+    { type: "turn-output", chatKey: "relay:acct-1", sessionAlias: "backend", chunk: "chunk-1" },
+    { type: "turn-output", chatKey: "relay:acct-1", sessionAlias: "backend", chunk: "final" },
+    { type: "turn-finished", chatKey: "relay:acct-1", sessionAlias: "backend", ok: true },
+  ]);
+});
+
+test("prompt rejects unknown session without emitting turn events", async () => {
+  const { control, seen } = makeControl(async () => ({ text: "" }));
+  const result = await control.prompt({
+    chatKey: "relay:acct-1",
+    sessionAlias: "missing",
+    text: "hi",
+    senderId: "acct-1",
+  });
+  expect(result.ok).toBe(false);
+  expect(result.errorMessage).toContain("unknown session");
+  expect(seen).toHaveLength(0);
+});
+
+test("second concurrent prompt on the same session is rejected; cancelTurn aborts", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { control } = makeControl(async (request) => {
+    await new Promise<void>((resolve) => {
+      request.abortSignal?.addEventListener("abort", () => resolve(), { once: true });
+      void gate.then(resolve);
+    });
+    if (request.abortSignal?.aborted) throw new Error("aborted");
+    return { text: "done" };
+  });
+
+  const first = control.prompt({
+    chatKey: "relay:acct-1",
+    sessionAlias: "backend",
+    text: "long task",
+    senderId: "acct-1",
+  });
+  await Promise.resolve();
+
+  const second = await control.prompt({
+    chatKey: "relay:acct-1",
+    sessionAlias: "backend",
+    text: "again",
+    senderId: "acct-1",
+  });
+  expect(second).toEqual({ ok: false, errorMessage: "turn-already-running" });
+
+  expect(control.cancelTurn("relay:acct-1", "backend")).toBe(true);
+  const result = await first;
+  expect(result.ok).toBe(false);
+  release();
+
+  expect(control.cancelTurn("relay:acct-1", "backend")).toBe(false);
+});
+
+test("prompt failure emits turn-finished with the error", async () => {
+  const { control, seen } = makeControl(async () => {
+    throw new Error("transport exploded");
+  });
+  const result = await control.prompt({
+    chatKey: "relay:acct-1",
+    sessionAlias: "backend",
+    text: "hi",
+    senderId: "acct-1",
+  });
+  expect(result).toEqual({ ok: false, errorMessage: "transport exploded" });
+  expect(seen).toContainEqual({
+    type: "turn-finished",
+    chatKey: "relay:acct-1",
+    sessionAlias: "backend",
+    ok: false,
+    errorMessage: "transport exploded",
+  });
+});
+
+test("executeCommand concatenates reply chunks and final text", async () => {
+  const { control } = makeControl(async (request) => {
+    expect(request.text).toBe("/status");
+    await request.reply?.("part-1");
+    await request.reply?.("part-2");
+    return { text: "tail" };
+  });
+  const output = await control.executeCommand({
+    chatKey: "relay:acct-1",
+    text: "/status",
+    senderId: "acct-1",
+  });
+  expect(output).toBe("part-1\npart-2\ntail");
+});
+
+test("two prompts issued in the same tick: exactly one wins, the other is rejected", async () => {
+  // Regression for the TOCTOU race between `inFlight.has` and `inFlight.set`.
+  // The guard must register synchronously, BEFORE the `await useSession`,
+  // otherwise both calls slip past the guard while awaiting the session bind.
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const { control } = makeControl(async (request) => {
+    await new Promise<void>((resolve) => {
+      request.abortSignal?.addEventListener("abort", () => resolve(), { once: true });
+      void gate.then(resolve);
+    });
+    return { text: "done" };
+  });
+
+  // Both invoked in the SAME synchronous tick — no await in between. With the
+  // race present, both would pass the `has` guard before either ran `set`.
+  const promiseA = control.prompt({
+    chatKey: "relay:acct-1",
+    sessionAlias: "backend",
+    text: "first",
+    senderId: "acct-1",
+  });
+  const promiseB = control.prompt({
+    chatKey: "relay:acct-1",
+    sessionAlias: "backend",
+    text: "second",
+    senderId: "acct-1",
+  });
+
+  // Let the winning (gated) turn's agent.chat complete so neither promise hangs.
+  release();
+  const [resultA, resultB] = await Promise.all([promiseA, promiseB]);
+  const rejected = [resultA, resultB].filter(
+    (r) => r.ok === false && r.errorMessage === "turn-already-running",
+  );
+  expect(rejected).toHaveLength(1);
+});
