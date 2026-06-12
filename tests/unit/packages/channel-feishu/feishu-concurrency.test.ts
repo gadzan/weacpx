@@ -81,7 +81,7 @@ function wireStubs(
     },
   };
   (channel as any).sessions = { peekCurrentSessionAlias: () => currentAlias };
-  (channel as any).activeTurns = { markActive() {}, markInactive() {}, isActive: () => false };
+  (channel as any).activeTurns = { markActive() {}, markInactive() {}, isActive: () => false, isActiveAnywhere: () => false };
   (channel as any).agent = { chat: async () => ({ text: "ok" }) };
   (channel as any).quota = createNoopQuota();
   (channel as any).logger = createNoopLogger();

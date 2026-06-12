@@ -6,6 +6,8 @@ export interface ActiveTurnRegistry {
   markActive(chatKey: string, alias: string): void;
   markInactive(chatKey: string, alias: string): void;
   isActive(chatKey: string, alias: string): boolean;
+  /** True when any chat currently has a turn running for this alias. */
+  isActiveAnywhere(alias: string): boolean;
 }
 
 export function createActiveTurnRegistry(): ActiveTurnRegistry {
@@ -24,6 +26,12 @@ export function createActiveTurnRegistry(): ActiveTurnRegistry {
     },
     isActive(chatKey, alias) {
       return byChat.get(chatKey)?.has(alias) ?? false;
+    },
+    isActiveAnywhere(alias) {
+      for (const set of byChat.values()) {
+        if (set.has(alias)) return true;
+      }
+      return false;
     },
   };
 }

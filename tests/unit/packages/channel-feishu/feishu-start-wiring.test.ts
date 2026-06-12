@@ -55,7 +55,7 @@ test("start() captures sessions and activeTurns from ChannelStartInput", async (
     listBackgroundResultAliases: () => [],
     resolveFuzzyAlias: () => ({ kind: "none" }),
   } as any;
-  const activeTurns = { markActive() {}, markInactive() {}, isActive: () => false } as any;
+  const activeTurns = { markActive() {}, markInactive() {}, isActive: () => false, isActiveAnywhere: () => false } as any;
 
   const channel = makeChannel();
 

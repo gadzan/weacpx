@@ -20,3 +20,15 @@ test("tracks two sessions in the same chat independently", () => {
   expect(reg.isActive(chatKey, "a")).toBe(false);
   expect(reg.isActive(chatKey, "b")).toBe(true);
 });
+
+test("isActiveAnywhere reports activity across chat keys", () => {
+  const registry = createActiveTurnRegistry();
+  expect(registry.isActiveAnywhere("backend")).toBe(false);
+
+  registry.markActive("weixin:user-1", "backend");
+  expect(registry.isActiveAnywhere("backend")).toBe(true);
+  expect(registry.isActiveAnywhere("docs")).toBe(false);
+
+  registry.markInactive("weixin:user-1", "backend");
+  expect(registry.isActiveAnywhere("backend")).toBe(false);
+});

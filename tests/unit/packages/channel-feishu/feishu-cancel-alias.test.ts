@@ -61,7 +61,7 @@ function wireForDispatch(channel, calls) {
     },
   };
   channel.sessions = { peekCurrentSessionAlias: () => "feishu:acct:c:codex" };
-  channel.activeTurns = { markActive() {}, markInactive() {}, isActive: () => false };
+  channel.activeTurns = { markActive() {}, markInactive() {}, isActive: () => false, isActiveAnywhere: () => false };
   channel.agent = { chat: async () => ({ text: "cancelled" }) };
   channel.quota = {
     onInbound() {}, reserveMidSegment: () => true, reserveFinal: () => true,
