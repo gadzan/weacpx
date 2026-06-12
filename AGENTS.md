@@ -120,6 +120,7 @@ There are two session concepts:
 - Commands module notes: [`docs/commands-module.md`](docs/commands-module.md)
 - MCP integration (external coordinators): [`docs/external-mcp.md`](docs/external-mcp.md)
 - `xacpx doctor` diagnostics and `--fix` repairs: [`docs/doctor-command.md`](docs/doctor-command.md)
+- Control API（结构化控制面，relay 等结构化消费者入口）: [`docs/control-module.md`](docs/control-module.md)
 - Code Wiki (architecture map): [`docs/code-wiki.md`](docs/code-wiki.md)
 
 ## Package Manager
