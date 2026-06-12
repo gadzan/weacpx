@@ -1,7 +1,11 @@
 import type { Agent as ChatAgent } from "../weixin/agent/interface";
 import type { SessionService } from "../sessions/session-service";
 import type { ActiveTurnRegistry } from "../sessions/active-turn-registry";
-import type { ScheduledTaskService } from "../scheduled/scheduled-service";
+import type {
+  CreateScheduledTaskInput,
+  ScheduledTaskService,
+} from "../scheduled/scheduled-service";
+import type { ScheduledTaskRecord } from "../scheduled/scheduled-types";
 import type { OrchestrationService } from "../orchestration/orchestration-service";
 import type { ControlEventBus } from "./control-event-bus";
 
@@ -60,5 +64,23 @@ export class ControlService {
     const result = await this.deps.sessions.removeSession(alias);
     this.deps.events.emit({ type: "sessions-changed" });
     return result;
+  }
+
+  listScheduledTasks(chatKey: string): ScheduledTaskRecord[] {
+    return this.deps.scheduled.listPending(chatKey);
+  }
+
+  async createScheduledTask(input: CreateScheduledTaskInput): Promise<ScheduledTaskRecord> {
+    const task = await this.deps.scheduled.createTask(input);
+    this.deps.events.emit({ type: "scheduled-changed", chatKey: input.chatKey });
+    return task;
+  }
+
+  async cancelScheduledTask(id: string, chatKey: string): Promise<boolean> {
+    const cancelled = await this.deps.scheduled.cancelPending(id, chatKey);
+    if (cancelled) {
+      this.deps.events.emit({ type: "scheduled-changed", chatKey });
+    }
+    return cancelled;
   }
 }
