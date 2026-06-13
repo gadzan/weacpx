@@ -1,0 +1,26 @@
+export class ApiError extends Error {
+  constructor(public readonly code: string, public readonly status: number) {
+    super(code);
+  }
+}
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    credentials: "include",
+    headers: body === undefined ? {} : { "content-type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = res.status === 204 ? undefined : await res.json().catch(() => undefined);
+  if (!res.ok) throw new ApiError((data as { error?: string })?.error ?? "request-failed", res.status);
+  return data as T;
+}
+
+export const api = {
+  get: <T>(path: string) => request<T>("GET", path),
+  post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),
+  del: <T>(path: string) => request<T>("DELETE", path),
+  /** Proxy a control RPC to an instance via the relay. */
+  rpc: <T>(instanceId: string, type: string, payload: unknown = {}) =>
+    request<{ result: T }>("POST", `/api/instances/${instanceId}/rpc`, { type, payload }).then((r) => r.result),
+};
