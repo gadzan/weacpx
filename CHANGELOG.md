@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.11.0] - 2026-06-13
+
+The **relay hub** release: a self-hosted, multi-tenant remote-control panel for xacpx. Instances dial out over WSS to register; account-holders log in to a three-column web dashboard to cross-manage their instances' sessions — chat, scheduled tasks, and orchestration. The source of truth stays in each xacpx instance; the relay only handles accounts, routing, fan-out, and a display cache. Built and reviewed in five phases; ships the core Control API seam that the `@ganglion/xacpx-channel-relay` connector requires (`minXacpxVersion: 0.11.0`).
+
+### Added
+
+- **Core Control API (`src/control/`):** a typed control surface (`ControlService`) collecting sessions, prompt, scheduler, and orchestration operations plus an `executeCommand` fallback, alongside a structured `ControlEventBus` (turn output/finished, sessions/scheduled/orchestration changed). Injected into channels via the optional `ChannelStartInput.control` field, parallel to the existing command router and sharing the same underlying services. This is the seam structured consumers (the relay connector) build on.
+- **`@ganglion/xacpx-relay-protocol`:** a zero-runtime-dependency shared package — a versioned JSON envelope (`{ protocolVersion, kind, id?, type, payload }`), instance↔relay and web↔relay DTOs, and validating type guards. A `protocolVersion` mismatch produces an explicit error rather than a silent downgrade.
+- **`@ganglion/xacpx-relay`:** the hub server — SQLite via a `bun:sqlite`/`node:sqlite` adapter (accounts, invites, instances, pairing tokens, web sessions, message cache), scrypt password hashing, a WS instance gateway (credential auth, heartbeat, request/response routing, per-account event fan-out), a Hono HTTP API (login with rate limiting, admin invites, instance pairing, an RPC proxy that stamps `chatKey`/`senderId`/`isOwner` server-side and only forwards `control.*`), cookie-authenticated `/ws`, a retention/GC maintenance loop, and an `xacpx-relay` CLI (`start`/`init-admin`/`token new`) on dual ports (8787 HTTP / 8788 instance WS).
+- **`@ganglion/xacpx-channel-relay`:** the xacpx-side connector plugin (channel type `relay`). Pairs with a one-time token, exchanges it for a long-lived instance credential stored at `<xacpx-home>/relay/credential.json` (mode `0600`, never `config.json`), reconnects with exponential backoff, bridges relay RPCs to `ControlService`, and forwards control events. Added via `xacpx channel add relay --url <wss-url> --token <pairing-token>`.
+- **`@ganglion/xacpx-relay-web`:** the Vue 3 + Pinia + Tailwind dashboard — login + route guard, a three-column IM layout (instance/session tree, streaming chat with `/command` fallback and cancel, per-session scheduler + orchestration panels), instance-notice toasts, a settings page (account invites, instance pairing, history-retention display), and a snapshot-plus-event-delta model that re-pulls on reconnect to avoid ghost state.
+
+### Security
+
+- **Multi-tenant isolation** is enforced at every layer: all instance/session/message/task access is `account_id`-scoped (stores, HTTP routes, and the `/ws` fan-out).
+- **Unforgeable identity:** the relay stamps `chatKey=relay:<accountId>`/`senderId`/`isOwner` server-side after spreading the client payload, and only `control.*` RPC types are proxied — clients cannot forge identity or reach non-control surfaces.
+- **Secrets at rest:** passwords (scrypt), invite/pairing tokens, instance credentials, and web-session tokens are all hashed; pairing/invite tokens are single-use; nothing secret is logged or returned in a response/DTO.
+- **CSRF:** body-parsing mutating routes require `application/json` (returning `415` otherwise), forcing a CORS preflight on cross-site forgery; web sessions are `HttpOnly`, `SameSite=Lax` cookies. A timing-safe credential comparison and a bounded login-failure map round out the hardening.
+
+### Docs
+
+- New module guides — `docs/control-module.md`, `docs/relay-module.md`, `docs/relay-web-module.md` — and a relay-hub design spec under `docs/superpowers/specs/`.
+
 ## [0.10.1] - 2026-06-11
 
 A daemon-startup fix plus a substantial `xacpx doctor` upgrade (#24, #25, #26).
