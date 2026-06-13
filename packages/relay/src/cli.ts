@@ -7,7 +7,7 @@ export interface RelayCliIo {
 
 const USAGE = [
   "Usage: xacpx-relay <command>",
-  "  start       --db <path> [--http-port 8787] [--ws-port 8788] [--host 0.0.0.0]",
+  "  start       --db <path> [--http-port 8787] [--ws-port 8788] [--host 0.0.0.0] [--web-root <dir>]",
   "  init-admin  --username <name> [--password <pw>] --db <path>",
   "  token new   --account <username> [--name <label>] [--ttl-minutes 10] --db <path>",
 ].join("\n");
@@ -74,6 +74,7 @@ export async function runRelayCli(args: string[], io: RelayCliIo): Promise<numbe
       httpPort: Number(flag(args, "--http-port") ?? "8787"),
       wsPort: Number(flag(args, "--ws-port") ?? "8788"),
       host: flag(args, "--host"),
+      webRoot: flag(args, "--web-root"),
     });
     io.print(`xacpx-relay listening: http :${running.httpPort}, instance ws :${running.wsPort}, db ${dbPath}`);
     return await new Promise<number>((resolve) => {

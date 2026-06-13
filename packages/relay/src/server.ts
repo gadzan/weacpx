@@ -1,3 +1,5 @@
+import type { IncomingMessage } from "node:http";
+import type { Duplex } from "node:stream";
 import { serve, type ServerType } from "@hono/node-server";
 import { WebSocketServer } from "ws";
 
@@ -78,6 +80,7 @@ export interface StartRelayOptions {
   httpPort: number;
   wsPort: number;
   host?: string;
+  webRoot?: string;
 }
 
 export interface RunningRelay {
@@ -88,7 +91,7 @@ export interface RunningRelay {
 }
 
 export async function startRelayServer(options: StartRelayOptions): Promise<RunningRelay> {
-  const runtime = await createRelayRuntime(options.dbPath);
+  const runtime = await createRelayRuntime(options.dbPath, { webRoot: options.webRoot });
   const host = options.host ?? "0.0.0.0";
 
   // serve() returns the server synchronously; listeningListener fires when bound.
@@ -108,6 +111,16 @@ export async function startRelayServer(options: StartRelayOptions): Promise<Runn
   await new Promise<void>((resolve) => wss.on("listening", () => resolve()));
   wss.on("connection", (socket) => runtime.gateway.handleConnection(socket));
 
+  const webWss = new WebSocketServer({ noServer: true });
+  httpServer.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+    const path = (req.url ?? "").split("?")[0];
+    if (path !== "/ws") { socket.destroy(); return; }
+    const token = parseCookie(req.headers.cookie ?? "")["xrelay_session"];
+    const account = token ? runtime.accounts.getSessionAccount(token) : null;
+    if (!account) { socket.destroy(); return; }
+    webWss.handleUpgrade(req, socket, head, (ws) => runtime.webGateway.register(account.id, ws));
+  });
+
   const httpPort = (httpServer.address() as { port: number }).port;
   const wsPort = (wss.address() as { port: number }).port;
   return {
@@ -115,9 +128,20 @@ export async function startRelayServer(options: StartRelayOptions): Promise<Runn
     httpPort,
     wsPort,
     close: async () => {
+      await new Promise<void>((resolve) => webWss.close(() => resolve()));
       await new Promise<void>((resolve) => wss.close(() => resolve()));
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));
       runtime.close();
     },
   };
+}
+
+function parseCookie(header: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const part of header.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx === -1) continue;
+    out[part.slice(0, idx).trim()] = decodeURIComponent(part.slice(idx + 1).trim());
+  }
+  return out;
 }
