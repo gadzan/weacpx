@@ -37,6 +37,20 @@
         "xacpx",
       ],
     },
+    "packages/channel-relay": {
+      "name": "@ganglion/xacpx-channel-relay",
+      "version": "0.1.0",
+      "dependencies": {
+        "@ganglion/xacpx-relay-protocol": "^0.1.0",
+        "ws": "^8.20.0",
+      },
+      "peerDependencies": {
+        "xacpx": ">=0.11.0-0",
+      },
+      "optionalPeers": [
+        "xacpx",
+      ],
+    },
     "packages/channel-yuanbao": {
       "name": "@ganglion/xacpx-channel-yuanbao",
       "version": "0.5.0",
@@ -187,6 +201,8 @@
     "@esbuild/win32-x64": ["@esbuild/win32-x64@0.28.0", "", { "os": "win32", "cpu": "x64" }, "sha512-pEl1bO9mfAmIC+tW5btTmrKaujg3zGtUmWNdCw/xs70FBjwAL3o9OEKNHvNmnyylD6ubxUERiEhdsL0xBQ9efw=="],
 
     "@ganglion/xacpx-channel-feishu": ["@ganglion/xacpx-channel-feishu@workspace:packages/channel-feishu"],
+
+    "@ganglion/xacpx-channel-relay": ["@ganglion/xacpx-channel-relay@workspace:packages/channel-relay"],
 
     "@ganglion/xacpx-channel-yuanbao": ["@ganglion/xacpx-channel-yuanbao@workspace:packages/channel-yuanbao"],
 
