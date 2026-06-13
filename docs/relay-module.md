@@ -47,8 +47,22 @@
   分离），校验 `xrelay_session` cookie → 账号后 `webGateway.register(accountId, ws)`。
 - **`GET /api/instances/:id/sessions/:alias/messages`**：按登录账号返回该会话的缓存历史。
 - **prompt 回显历史**：`control.prompt` 经 RPC 代理时，把 prompt 文本 append 为一条 `in` 历史消息。
+- **command 回显历史（阶段四）**：`control.command.execute` 经 RPC 代理时，把输入文本 append 为 `in`、
+  把返回 `output` append 为 `out`（与 `control.prompt` 的 `in` 回显并列），使 `/命令` 结果也能跨 reload 存活。
 - **`--web-root` 静态托管**：`createRelayRuntime({ webRoot })` → Hono `serveStatic` 托管 SPA
   构建产物（含 index.html SPA fallback）；CLI `xacpx-relay start --web-root <dir>`。
+
+## 阶段四服务端接缝（维护循环与配置）
+
+- **`GET /api/config`（authed）**：返回 `{ historyRetention: { days, maxPerSession } }` 供设置页展示；
+  历史保留是服务端配置（只读），v1 不在 Web 端可改。
+- **维护子系统 `src/maintenance.ts`**：`runMaintenance(stores, opts)` 跑一遍清理，
+  `startMaintenanceLoop(...)` 每小时一次（`setInterval` 并 `unref`，不挡进程退出）：
+  - 按账龄裁剪 `messages`（`--history-retention-days`，默认 30 天）+ 每会话硬上限
+    `MAX_MESSAGES_PER_SESSION = 2000`（保最新）——`MessageStore.prune({ maxAgeMs?, maxPerSession? })`；
+  - GC 过期/已用的 `web_sessions`、`invites`（`AccountStore.pruneExpired(now)`）与
+    `pairing_tokens`（`InstanceStore.prunePairingTokens(now)`）。
+- **CLI**：`xacpx-relay start --history-retention-days <n>`（透传给维护循环）。
 
 ## 测试
 
