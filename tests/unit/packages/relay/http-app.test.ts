@@ -127,6 +127,32 @@ test("rpc command.execute echoes input and output into history", async () => {
   expect(cached.map((m) => [m.direction, m.text])).toEqual([["in", "/status"], ["out", "ran ok"]]);
 });
 
+test("GET /api/config returns the retention policy from deps", async () => {
+  const db = await createSqlDriver(":memory:");
+  initSchema(db);
+  const accounts = new AccountStore(db);
+  const instances = new InstanceStore(db);
+  accounts.createAccount("admin", "admin-pw", "admin");
+  const messages = new MessageStore(db);
+  const gateway = {
+    isOnline: () => true,
+    sendRequest: async () => ({}),
+  };
+  const app = createApp({
+    accounts, instances, gateway, messages,
+    historyRetentionDays: 14, maxMessagesPerSession: 500,
+  });
+  const loginRes = await app.request("/api/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ username: "admin", password: "admin-pw" }),
+  });
+  const cookie = loginRes.headers.get("set-cookie")?.split(";")[0] ?? "";
+  const res = await app.request("/api/config", { headers: { cookie } });
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ historyRetention: { days: 14, maxPerSession: 500 } });
+});
+
 test("rpc rejects non-JSON content-type (CSRF backstop) but accepts application/json", async () => {
   const { app, instances, login, rpcCalls } = await makeApp();
   const { cookie } = await login("admin", "admin-pw");

@@ -103,4 +103,14 @@ export class AccountStore {
   deleteWebSession(token: string): void {
     this.db.run("DELETE FROM web_sessions WHERE token_hash = ?", [hashToken(token)]);
   }
+
+  /** Deletes expired web sessions and expired/used invites. Returns total rows removed. */
+  pruneExpired(now: Date): number {
+    const iso = now.toISOString();
+    const ws = this.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM web_sessions WHERE expires_at <= ?", [iso]);
+    this.db.run("DELETE FROM web_sessions WHERE expires_at <= ?", [iso]);
+    const inv = this.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM invites WHERE expires_at <= ? OR used_by IS NOT NULL", [iso]);
+    this.db.run("DELETE FROM invites WHERE expires_at <= ? OR used_by IS NOT NULL", [iso]);
+    return (ws?.n ?? 0) + (inv?.n ?? 0);
+  }
 }

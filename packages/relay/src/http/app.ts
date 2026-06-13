@@ -22,6 +22,8 @@ export interface AppDeps {
   sessionTtlMs?: number;
   inviteTtlMs?: number;
   pairingTtlMs?: number;
+  historyRetentionDays?: number;
+  maxMessagesPerSession?: number;
   now?: () => Date;
 }
 
@@ -105,6 +107,15 @@ export function createApp(deps: AppDeps): Hono<Vars> {
   app.get("/api/me", (c) => {
     const account = c.get("account");
     return c.json({ username: account.username, role: account.role });
+  });
+
+  app.get("/api/config", (c) => {
+    return c.json({
+      historyRetention: {
+        days: deps.historyRetentionDays ?? 30,
+        maxPerSession: deps.maxMessagesPerSession ?? 2000,
+      },
+    });
   });
 
   app.post("/api/invites", (c) => {

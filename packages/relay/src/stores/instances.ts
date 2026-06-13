@@ -103,6 +103,14 @@ export class InstanceStore {
     this.db.run("DELETE FROM instances WHERE id = ?", [instanceId]);
     return true;
   }
+
+  /** Deletes expired or already-used pairing tokens. Returns rows removed. */
+  prunePairingTokens(now: Date): number {
+    const iso = now.toISOString();
+    const row = this.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM pairing_tokens WHERE expires_at <= ? OR used_at IS NOT NULL", [iso]);
+    this.db.run("DELETE FROM pairing_tokens WHERE expires_at <= ? OR used_at IS NOT NULL", [iso]);
+    return row?.n ?? 0;
+  }
 }
 
 function toInstanceRow(row: {

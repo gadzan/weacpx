@@ -14,6 +14,9 @@ import { MessageStore } from "./stores/messages.js";
 import { InstanceGateway } from "./gateway/instance-gateway.js";
 import { WebGateway } from "./gateway/web-gateway.js";
 import { createApp } from "./http/app.js";
+import { startMaintenanceLoop } from "./maintenance.js";
+
+const MAX_MESSAGES_PER_SESSION = 2000;
 
 export interface RelayRuntime {
   db: SqlDriver;
@@ -28,6 +31,7 @@ export interface RelayRuntime {
 
 export interface CreateRuntimeOptions {
   webRoot?: string;
+  historyRetentionDays?: number;
 }
 
 /** Testable assembly without any network listener. */
@@ -71,7 +75,11 @@ export async function createRelayRuntime(dbPath: string, options: CreateRuntimeO
     },
   });
 
-  const app = createApp({ accounts, instances, messages, gateway, webRoot: options.webRoot });
+  const app = createApp({
+    accounts, instances, messages, gateway, webRoot: options.webRoot,
+    historyRetentionDays: options.historyRetentionDays ?? 30,
+    maxMessagesPerSession: MAX_MESSAGES_PER_SESSION,
+  });
   return { db, accounts, instances, messages, gateway, webGateway, app, close: () => db.close() };
 }
 
@@ -81,6 +89,7 @@ export interface StartRelayOptions {
   wsPort: number;
   host?: string;
   webRoot?: string;
+  historyRetentionDays?: number;
 }
 
 export interface RunningRelay {
@@ -91,8 +100,18 @@ export interface RunningRelay {
 }
 
 export async function startRelayServer(options: StartRelayOptions): Promise<RunningRelay> {
-  const runtime = await createRelayRuntime(options.dbPath, { webRoot: options.webRoot });
+  const runtime = await createRelayRuntime(options.dbPath, {
+    webRoot: options.webRoot,
+    historyRetentionDays: options.historyRetentionDays,
+  });
   const host = options.host ?? "0.0.0.0";
+
+  const retention = { historyRetentionDays: options.historyRetentionDays ?? 30, maxPerSession: MAX_MESSAGES_PER_SESSION };
+  const stopMaintenance = startMaintenanceLoop(
+    { accounts: runtime.accounts, instances: runtime.instances, messages: runtime.messages },
+    retention,
+    60 * 60 * 1000,
+  );
 
   // serve() returns the server synchronously; listeningListener fires when bound.
   const httpServer: ServerType = await new Promise((resolve, reject) => {
@@ -128,6 +147,7 @@ export async function startRelayServer(options: StartRelayOptions): Promise<Runn
     httpPort,
     wsPort,
     close: async () => {
+      stopMaintenance();
       await new Promise<void>((resolve) => webWss.close(() => resolve()));
       await new Promise<void>((resolve) => wss.close(() => resolve()));
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));

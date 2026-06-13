@@ -37,4 +37,35 @@ export class MessageStore {
       createdAt: r.created_at,
     }));
   }
+
+  /** Deletes messages older than maxAgeMs and/or beyond the newest maxPerSession per (instance, session). Returns rows deleted. */
+  prune(opts: { maxAgeMs?: number; maxPerSession?: number }): number {
+    let deleted = 0;
+    if (opts.maxAgeMs !== undefined) {
+      const cutoff = new Date(this.now().getTime() - opts.maxAgeMs).toISOString();
+      const before = this.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM messages WHERE created_at < ?", [cutoff]);
+      this.db.run("DELETE FROM messages WHERE created_at < ?", [cutoff]);
+      deleted += before?.n ?? 0;
+    }
+    if (opts.maxPerSession !== undefined) {
+      const groups = this.db.all<{ instance_id: string; session_alias: string }>(
+        "SELECT instance_id, session_alias FROM messages GROUP BY instance_id, session_alias HAVING COUNT(*) > ?",
+        [opts.maxPerSession],
+      );
+      for (const g of groups) {
+        const before = this.db.get<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM messages WHERE instance_id = ? AND session_alias = ?",
+          [g.instance_id, g.session_alias],
+        );
+        this.db.run(
+          `DELETE FROM messages WHERE instance_id = ? AND session_alias = ? AND id NOT IN (
+             SELECT id FROM messages WHERE instance_id = ? AND session_alias = ? ORDER BY id DESC LIMIT ?
+           )`,
+          [g.instance_id, g.session_alias, g.instance_id, g.session_alias, opts.maxPerSession],
+        );
+        deleted += Math.max(0, (before?.n ?? 0) - opts.maxPerSession);
+      }
+    }
+    return deleted;
+  }
 }
