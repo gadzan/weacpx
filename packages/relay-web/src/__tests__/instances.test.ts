@@ -1,5 +1,5 @@
 import { setActivePinia, createPinia } from "pinia";
-import { beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { useInstancesStore } from "../stores/instances";
 
 beforeEach(() => setActivePinia(createPinia()));
@@ -28,6 +28,54 @@ test("loadSessions caches sessions under the instance", async () => {
   store.instances = [{ id: "i1", name: "pc", online: true, lastSeenAt: null, sessions: [], agents: [], workspaces: [] }];
   await store.loadSessions("i1");
   expect(store.instances[0]?.sessions.map((s) => s.alias)).toEqual(["backend"]);
+});
+
+describe("createSession timeout handling", () => {
+  beforeEach(() => setActivePinia(createPinia()));
+
+  function seed() {
+    const store = useInstancesStore();
+    store.instances = [{ id: "i1", name: "pc", online: true, lastSeenAt: null, sessions: [], agents: [], workspaces: [] }];
+    return store;
+  }
+
+  test("resolves {pending:false} on success", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo) => {
+      const url = typeof input === "string" ? input : String(input);
+      // First call: control.sessions.create. Second: control.sessions.list reload.
+      const body = url.includes("/rpc") ? { result: { sessions: [] } } : {};
+      return new Response(JSON.stringify(body), { status: 200 });
+    }));
+    const store = seed();
+    await expect(store.createSession("i1", "backend", "codex", "home")).resolves.toEqual({ pending: false });
+    vi.unstubAllGlobals();
+  });
+
+  test("resolves {pending:true} when the create RPC times out (504)", async () => {
+    const store = seed();
+    const { api } = await import("../api/client");
+    const { ApiError } = await import("../api/client");
+    vi.spyOn(api, "rpc").mockRejectedValueOnce(new ApiError("timeout", 504));
+    await expect(store.createSession("i1", "backend", "codex", "home")).resolves.toEqual({ pending: true });
+    vi.restoreAllMocks();
+  });
+
+  test("rejects when the create RPC fails with a non-timeout ApiError", async () => {
+    const store = seed();
+    const { api } = await import("../api/client");
+    const { ApiError } = await import("../api/client");
+    vi.spyOn(api, "rpc").mockRejectedValueOnce(new ApiError("instance-offline", 503));
+    await expect(store.createSession("i1", "backend", "codex", "home")).rejects.toBeInstanceOf(ApiError);
+    vi.restoreAllMocks();
+  });
+
+  test("rejects on an instance-side {error} payload (unwrap path)", async () => {
+    const store = seed();
+    const { api } = await import("../api/client");
+    vi.spyOn(api, "rpc").mockResolvedValueOnce({ error: { code: "bad", message: "workspace not registered" } });
+    await expect(store.createSession("i1", "backend", "codex", "home")).rejects.toThrow("workspace not registered");
+    vi.restoreAllMocks();
+  });
 });
 
 import { mount } from "@vue/test-utils";

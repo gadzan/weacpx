@@ -14,6 +14,7 @@ const NEW_WS = "__new__";
 const loading = ref(true);
 const submitting = ref(false);
 const error = ref("");
+const pending = ref(false);
 
 const alias = ref("");
 const agent = ref("");
@@ -58,7 +59,13 @@ async function submit(): Promise<void> {
       );
       workspace = ws.name;
     }
-    await store.createSession(props.instanceId, alias.value.trim(), agent.value, workspace);
+    const result = await store.createSession(props.instanceId, alias.value.trim(), agent.value, workspace);
+    if (result.pending) {
+      // The create RPC timed out; the session is still being created and will appear
+      // via the `sessions-changed` event. Keep the dialog open showing the notice.
+      pending.value = true;
+      return;
+    }
     emit("created", alias.value.trim());
     emit("close");
   } catch (e) {
@@ -78,7 +85,10 @@ async function submit(): Promise<void> {
       </header>
 
       <div class="space-y-4 px-5 py-4">
-        <div v-if="loading" class="py-6 text-center text-sm text-slate-400">Loading options…</div>
+        <div v-if="pending" data-test="ns-pending" class="rounded-lg bg-blue-50 px-3 py-3 text-xs text-blue-700">
+          Session is being created and will appear in the list shortly…
+        </div>
+        <div v-else-if="loading" class="py-6 text-center text-sm text-slate-400">Loading options…</div>
         <template v-else>
           <label class="block">
             <span class="mb-1 block text-xs font-medium text-slate-600">Session alias</span>
@@ -119,10 +129,17 @@ async function submit(): Promise<void> {
       </div>
 
       <footer class="flex justify-end gap-2 border-t px-5 py-3">
-        <button class="rounded-lg px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100" @click="emit('close')">Cancel</button>
-        <button data-test="ns-create" :disabled="!canSubmit"
-                class="rounded-lg bg-slate-800 px-4 py-1.5 text-sm font-medium text-white enabled:hover:bg-slate-700 disabled:opacity-40"
-                @click="submit">{{ submitting ? "Creating…" : "Create" }}</button>
+        <template v-if="pending">
+          <button data-test="ns-pending-close"
+                  class="rounded-lg bg-slate-800 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
+                  @click="emit('created', alias.trim()); emit('close')">OK</button>
+        </template>
+        <template v-else>
+          <button class="rounded-lg px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100" @click="emit('close')">Cancel</button>
+          <button data-test="ns-create" :disabled="!canSubmit"
+                  class="rounded-lg bg-slate-800 px-4 py-1.5 text-sm font-medium text-white enabled:hover:bg-slate-700 disabled:opacity-40"
+                  @click="submit">{{ submitting ? "Creating…" : "Create" }}</button>
+        </template>
       </footer>
     </div>
   </div>

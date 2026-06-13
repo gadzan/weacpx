@@ -34,7 +34,7 @@ describe("NewSessionDialog", () => {
 
   it("creates a session against an existing workspace", async () => {
     const store = seedStore();
-    const createSession = vi.spyOn(store, "createSession").mockResolvedValue();
+    const createSession = vi.spyOn(store, "createSession").mockResolvedValue({ pending: false });
     const w = mountDialog();
     await flushPromises();
     await w.find('[data-test="ns-alias"]').setValue("backend");
@@ -43,12 +43,30 @@ describe("NewSessionDialog", () => {
     expect(createSession).toHaveBeenCalledWith("i1", "backend", "codex", "home");
     expect(w.emitted("created")?.[0]).toEqual(["backend"]);
     expect(w.emitted("close")).toBeTruthy();
+    expect(w.find('[data-test="ns-pending"]').exists()).toBe(false);
+  });
+
+  it("shows a non-error pending notice on a create timeout and defers emit until acknowledged", async () => {
+    const store = seedStore();
+    vi.spyOn(store, "createSession").mockResolvedValue({ pending: true });
+    const w = mountDialog();
+    await flushPromises();
+    await w.find('[data-test="ns-alias"]').setValue("backend");
+    await w.find('[data-test="ns-create"]').trigger("click");
+    await flushPromises();
+    expect(w.find('[data-test="ns-pending"]').exists()).toBe(true);
+    expect(w.find('[data-test="ns-error"]').exists()).toBe(false);
+    expect(w.emitted("created")).toBeFalsy();
+    expect(w.emitted("close")).toBeFalsy();
+    await w.find('[data-test="ns-pending-close"]').trigger("click");
+    expect(w.emitted("created")?.[0]).toEqual(["backend"]);
+    expect(w.emitted("close")).toBeTruthy();
   });
 
   it("creates a new workspace by path, then the session in it", async () => {
     const store = seedStore();
     const createWorkspace = vi.spyOn(store, "createWorkspace").mockResolvedValue({ name: "api", cwd: "/srv/api" });
-    const createSession = vi.spyOn(store, "createSession").mockResolvedValue();
+    const createSession = vi.spyOn(store, "createSession").mockResolvedValue({ pending: false });
     const w = mountDialog();
     await flushPromises();
     await w.find('[data-test="ns-alias"]').setValue("svc");

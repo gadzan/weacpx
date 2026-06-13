@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import { isErrorPayload, type AgentDto, type SessionDto, type WebServerEvent, type WorkspaceDto } from "@ganglion/xacpx-relay-protocol";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 
 // An instance-side RPC error comes back as a 200 with an `{error:{code,message}}`
 // payload (the gateway resolves, it does not reject), so api.rpc won't throw.
@@ -59,9 +59,21 @@ export const useInstancesStore = defineStore("instances", () => {
     return workspace;
   }
 
-  async function createSession(instanceId: string, alias: string, agent: string, workspace: string): Promise<void> {
-    unwrap(await api.rpc(instanceId, "control.sessions.create", { alias, agent, workspace }));
+  // A dashboard-created session now runs the full acpx transport lifecycle, so a cold
+  // agent start can block the create RPC past the gateway's 120s timeout (504). The
+  // session is usually still created server-side and arrives via `sessions-changed`,
+  // so a timeout is reported as `{pending:true}` (not a hard error). Every other
+  // failure — including the instance-side `{error}` payload surfaced by `unwrap` —
+  // is a real failure and rethrows.
+  async function createSession(instanceId: string, alias: string, agent: string, workspace: string): Promise<{ pending: boolean }> {
+    try {
+      unwrap(await api.rpc(instanceId, "control.sessions.create", { alias, agent, workspace }));
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 504 || e.code === "timeout")) return { pending: true };
+      throw e;
+    }
     await loadSessions(instanceId);
+    return { pending: false };
   }
 
   async function removeSession(instanceId: string, alias: string): Promise<void> {
