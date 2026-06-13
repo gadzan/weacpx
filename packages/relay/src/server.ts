@@ -11,7 +11,7 @@ import { createSqlDriver, initSchema, type SqlDriver } from "./db.js";
 import { AccountStore } from "./stores/accounts.js";
 import { InstanceStore } from "./stores/instances.js";
 import { MessageStore } from "./stores/messages.js";
-import { InstanceGateway } from "./gateway/instance-gateway.js";
+import { DEFAULT_REQUEST_TIMEOUT_MS, InstanceGateway } from "./gateway/instance-gateway.js";
 import { WebGateway } from "./gateway/web-gateway.js";
 import { createApp } from "./http/app.js";
 import { startMaintenanceLoop } from "./maintenance.js";
@@ -50,7 +50,7 @@ export async function createRelayRuntime(dbPath: string, options: CreateRuntimeO
 
   const gateway = new InstanceGateway({
     instances,
-    requestTimeoutMs: options.requestTimeoutMs ?? 120_000,
+    requestTimeoutMs: options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
     onStatusChange: (instanceId, accountId, online) => {
       if (!online) {
         const prefix = `${instanceId}\0`;

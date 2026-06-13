@@ -11,6 +11,9 @@ import {
 
 import type { InstanceStore } from "../stores/instances.js";
 
+/** Single authoritative default for the gateway RPC timeout, shared by the server layer. */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
+
 export interface GatewaySocket {
   send(data: string): void;
   close(code?: number, reason?: string): void;
@@ -145,7 +148,7 @@ export class InstanceGateway {
       throw new Error("instance-offline");
     }
     const id = `relay-${++this.seq}`;
-    const timeoutMs = this.deps.requestTimeoutMs ?? 15_000;
+    const timeoutMs = this.deps.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     return await new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
