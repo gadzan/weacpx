@@ -1,0 +1,63 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mount, flushPromises } from "@vue/test-utils";
+import { createPinia, setActivePinia } from "pinia";
+
+vi.mock("../api/client", () => ({
+  api: { get: vi.fn(), post: vi.fn(), del: vi.fn() },
+  ApiError: class extends Error {},
+}));
+
+import { api } from "../api/client";
+import SettingsView from "../views/SettingsView.vue";
+import { useAuthStore } from "../stores/auth";
+
+const get = api.get as unknown as ReturnType<typeof vi.fn>;
+const post = api.post as unknown as ReturnType<typeof vi.fn>;
+
+describe("SettingsView", () => {
+  beforeEach(() => { setActivePinia(createPinia()); get.mockReset(); post.mockReset(); });
+
+  it("loads and shows the retention policy", async () => {
+    get.mockResolvedValueOnce({ historyRetention: { days: 30, maxPerSession: 2000 } });
+    const w = mount(SettingsView, { global: { stubs: { "router-link": true } } });
+    await flushPromises();
+    expect(get).toHaveBeenCalledWith("/api/config");
+    expect(w.text()).toContain("30");
+  });
+
+  it("hides the invite section for members", async () => {
+    get.mockResolvedValueOnce({ historyRetention: { days: 30, maxPerSession: 2000 } });
+    const auth = useAuthStore();
+    auth.account = { username: "m", role: "member" };
+    const w = mount(SettingsView, { global: { stubs: { "router-link": true } } });
+    await flushPromises();
+    expect(w.find('[data-test="invite-section"]').exists()).toBe(false);
+  });
+
+  it("admin can generate an invite", async () => {
+    get.mockResolvedValueOnce({ historyRetention: { days: 30, maxPerSession: 2000 } });
+    post.mockResolvedValueOnce({ invite: "INV123", expiresAt: "2030-01-01T00:00:00Z" });
+    const auth = useAuthStore();
+    auth.account = { username: "a", role: "admin" };
+    const w = mount(SettingsView, { global: { stubs: { "router-link": true } } });
+    await flushPromises();
+    await w.find('[data-test="gen-invite"]').trigger("click");
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith("/api/invites");
+    expect(w.text()).toContain("INV123");
+  });
+
+  it("generates a pairing token and shows the install command", async () => {
+    get.mockResolvedValueOnce({ historyRetention: { days: 30, maxPerSession: 2000 } });
+    post.mockResolvedValueOnce({ token: "PAIR9", expiresAt: "2030-01-01T00:00:00Z" });
+    const auth = useAuthStore();
+    auth.account = { username: "a", role: "admin" };
+    const w = mount(SettingsView, { global: { stubs: { "router-link": true } } });
+    await flushPromises();
+    await w.find('[data-test="gen-pairing"]').trigger("click");
+    await flushPromises();
+    expect(post).toHaveBeenCalledWith("/api/instances/pairing-token", { name: "" });
+    expect(w.text()).toContain("PAIR9");
+    expect(w.text()).toContain("channel add relay");
+  });
+});

@@ -7,6 +7,9 @@ import { mount, flushPromises } from "@vue/test-utils";
 const disconnect = vi.fn();
 vi.mock("../api/events", () => ({ connectEvents: () => disconnect }));
 
+// DashboardView now uses useRouter()/<router-link>; mock to avoid a real router.
+vi.mock("vue-router", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+
 import DashboardView from "../views/DashboardView.vue";
 import { useInstancesStore } from "../stores/instances";
 import { useChatStore } from "../stores/chat";
@@ -19,7 +22,7 @@ beforeEach(() => {
 test("dashboard renders three columns and loads instances on mount", async () => {
   const store = useInstancesStore();
   const spy = vi.spyOn(store, "loadInstances");
-  const wrapper = mount(DashboardView, { global: { stubs: { ChatPane: true, InstanceTree: true } } });
+  const wrapper = mount(DashboardView, { global: { stubs: { ChatPane: true, InstanceTree: true, "router-link": true } } });
   await flushPromises();
   expect(spy).toHaveBeenCalled();
   expect(wrapper.findAll('[data-test="column"]').length).toBe(3);
@@ -27,7 +30,7 @@ test("dashboard renders three columns and loads instances on mount", async () =>
 
 test("selecting a session routes it into the chat store", async () => {
   const chat = useChatStore();
-  const wrapper = mount(DashboardView, { global: { stubs: { ChatPane: true } } });
+  const wrapper = mount(DashboardView, { global: { stubs: { ChatPane: true, "router-link": true } } });
   await flushPromises();
   wrapper.findComponent({ name: "InstanceTree" }).vm.$emit("select", "i1", "backend");
   expect(chat.instanceId).toBe("i1");
