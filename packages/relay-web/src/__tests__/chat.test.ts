@@ -140,6 +140,28 @@ it("marks the optimistic message failed when send rejects", async () => {
   expect(chat.error).toBe("instance-offline");
 });
 
+it("cancel sends control.prompt.cancel for the selected session", async () => {
+  rpc.mockResolvedValueOnce({ cancelled: true });
+  const chat = useChatStore();
+  chat.select("inst", "A");
+  await chat.cancel();
+  expect(rpc).toHaveBeenCalledWith("inst", "control.prompt.cancel", { sessionAlias: "A" });
+});
+
+it("cancel surfaces an error code on failure", async () => {
+  rpc.mockRejectedValueOnce(new ApiError("instance-offline", 503));
+  const chat = useChatStore();
+  chat.select("inst", "A");
+  await chat.cancel();
+  expect(chat.error).toBe("instance-offline");
+});
+
+it("cancel is a no-op with no session selected", async () => {
+  const chat = useChatStore();
+  await chat.cancel();
+  expect(rpc).not.toHaveBeenCalled();
+});
+
 test("PromptInput emits send with trimmed text and clears", async () => {
   const wrapper = mount(PromptInput);
   await wrapper.find("textarea").setValue("  do it  ");

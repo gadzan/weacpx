@@ -81,5 +81,14 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  return { instanceId, sessionAlias, messages, streaming, sending, error, select, loadHistory, applyEvent, send };
+  async function cancel(): Promise<void> {
+    if (!instanceId.value || !sessionAlias.value) return;
+    try {
+      await api.rpc(instanceId.value, "control.prompt.cancel", { sessionAlias: sessionAlias.value });
+    } catch (e) {
+      error.value = e instanceof ApiError ? e.code : "cancel-failed";
+    }
+  }
+
+  return { instanceId, sessionAlias, messages, streaming, sending, error, select, loadHistory, applyEvent, send, cancel };
 });

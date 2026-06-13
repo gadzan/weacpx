@@ -18,6 +18,9 @@ const chat = useChatStore();
         <button class="ml-2 underline" @click="chat.error = ''">dismiss</button>
       </div>
       <MessageList :messages="chat.messages" :streaming="chat.streaming" />
+      <div v-if="chat.sending || chat.streaming" class="px-4 pb-1">
+        <button data-test="cancel-turn" class="text-xs text-red-500 hover:underline" @click="chat.cancel">Cancel</button>
+      </div>
       <PromptInput @send="chat.send" />
     </template>
   </div>
