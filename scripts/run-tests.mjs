@@ -26,6 +26,21 @@ if (buildCode !== 0) {
   process.exit(buildCode ?? 1);
 }
 
+// relay/channel-relay tests import "@ganglion/xacpx-relay-protocol", which the
+// workspace link resolves to packages/relay-protocol/dist — build it up front
+// for the same order-independence reason as plugin-api above.
+const protocolBuildCode = await runOne("bun", [
+  "build",
+  "./packages/relay-protocol/src/index.ts",
+  "--outdir",
+  "./packages/relay-protocol/dist",
+  "--target",
+  "node",
+]);
+if (protocolBuildCode !== 0) {
+  process.exit(protocolBuildCode ?? 1);
+}
+
 const plan = buildTestPlan(root);
 
 for (const step of plan) {
