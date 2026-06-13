@@ -5,6 +5,7 @@ import { MSG } from "@ganglion/xacpx-relay-protocol";
 
 import type { AccountRow, AccountStore } from "../stores/accounts.js";
 import type { InstanceStore } from "../stores/instances.js";
+import type { MessageStore } from "../stores/messages.js";
 
 export interface GatewayForApp {
   isOnline(instanceId: string): boolean;
@@ -15,6 +16,8 @@ export interface AppDeps {
   accounts: AccountStore;
   instances: InstanceStore;
   gateway: GatewayForApp;
+  messages: MessageStore;
+  webRoot?: string;
   sessionTtlMs?: number;
   inviteTtlMs?: number;
   pairingTtlMs?: number;
