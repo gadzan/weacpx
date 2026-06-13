@@ -22,6 +22,7 @@ export interface InstanceGatewayDeps {
   instances: Pick<InstanceStore, "redeemPairingToken" | "verifyCredential" | "touch">;
   requestTimeoutMs?: number;
   onEvent?: (instanceId: string, accountId: string, envelope: RelayEnvelope) => void;
+  onStatusChange?: (instanceId: string, accountId: string, online: boolean) => void;
 }
 
 interface PendingRequest {
@@ -60,6 +61,7 @@ export class InstanceGateway {
         authed = this.handleHandshake(socket, envelope);
         if (authed) {
           this.connections.set(authed.instanceId, { socket, accountId: authed.accountId });
+          this.deps.onStatusChange?.(authed.instanceId, authed.accountId, true);
         }
         return;
       }
@@ -80,7 +82,10 @@ export class InstanceGateway {
     });
 
     socket.on("close", () => {
-      if (authed) this.connections.delete(authed.instanceId);
+      if (authed) {
+        this.connections.delete(authed.instanceId);
+        this.deps.onStatusChange?.(authed.instanceId, authed.accountId, false);
+      }
     });
   }
 
