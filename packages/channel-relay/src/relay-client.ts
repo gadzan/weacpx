@@ -123,8 +123,34 @@ export class RelayClient {
 
   private handleMessage(socket: WebSocket, raw: string): void {
     const decoded = decodeEnvelope(raw);
-    if (!decoded.ok) return;
+    if (!decoded.ok) {
+      void this.options.logger?.error(
+        "relay.decode_failed",
+        `relay sent an undecodable message: ${decoded.error}`,
+        { error: decoded.error, detail: decoded.detail ?? "" },
+      );
+      if (decoded.error === "version-mismatch") {
+        // Relay is newer than this connector; reconnecting cannot help. Operator must upgrade.
+        this.stopped = true;
+        socket.close();
+      }
+      return;
+    }
     const envelope = decoded.envelope;
+
+    if (envelope.kind === "event" && envelope.type === "relay.protocol-error") {
+      const p = envelope.payload;
+      const detail = isErrorPayload(p) ? `${p.error.code}: ${p.error.message}` : "protocol error";
+      void this.options.logger?.error(
+        "relay.protocol_error",
+        `relay reported a protocol error: ${detail}`,
+        {},
+      );
+      // Fatal: relay rejected our protocol. Operator action required.
+      this.stopped = true;
+      socket.close();
+      return;
+    }
 
     if (envelope.kind === "res" && envelope.id === HANDSHAKE_ID) {
       if (isErrorPayload(envelope.payload)) {

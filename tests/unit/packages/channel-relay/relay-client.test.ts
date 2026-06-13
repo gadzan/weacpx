@@ -90,6 +90,67 @@ test("auths with stored credential, dispatches incoming req to onRequest, sends 
   wss.close();
 });
 
+function makeFakeLogger() {
+  const errors: Array<{ code: string; message: string; meta: unknown }> = [];
+  return {
+    logger: {
+      info: () => {},
+      warn: () => {},
+      error: (code: string, message: string, meta?: unknown) => { errors.push({ code, message, meta }); },
+      debug: () => {},
+    } as never,
+    errors,
+  };
+}
+
+test("logs and stops reconnecting on a protocol version mismatch", async () => {
+  let connections = 0;
+  const wss = new WebSocketServer({ port: 0 });
+  await new Promise<void>((resolve) => wss.on("listening", () => resolve()));
+  wss.on("connection", (socket) => {
+    connections += 1;
+    // push a raw line whose protocolVersion is not RELAY_PROTOCOL_VERSION
+    socket.send(JSON.stringify({ protocolVersion: 999, kind: "event", type: "x", payload: {} }));
+  });
+  const url = `ws://127.0.0.1:${(wss.address() as { port: number }).port}`;
+  const store = new MemoryCredentialStore({ instanceId: "i-1", credential: "cred-1", relayUrl: url });
+  const { logger, errors } = makeFakeLogger();
+  const controller = new AbortController();
+  const client = new RelayClient({ url, credentialStore: store, onRequest: () => {}, reconnectDelaysMs: [0], logger });
+  client.start(controller.signal);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(connections).toBe(1); // fatal version mismatch -> no reconnect
+  expect(errors.some((e) => /decode/i.test(e.code) || /version/i.test(e.message))).toBe(true);
+  controller.abort();
+  wss.close();
+});
+
+test("logs a relay.protocol-error event and stops", async () => {
+  let connections = 0;
+  const wss = new WebSocketServer({ port: 0 });
+  await new Promise<void>((resolve) => wss.on("listening", () => resolve()));
+  wss.on("connection", (socket) => {
+    connections += 1;
+    socket.send(encodeEnvelope({
+      protocolVersion: RELAY_PROTOCOL_VERSION,
+      kind: "event",
+      type: "relay.protocol-error",
+      payload: errorPayload("version-mismatch", "relay is newer than this connector"),
+    }));
+  });
+  const url = `ws://127.0.0.1:${(wss.address() as { port: number }).port}`;
+  const store = new MemoryCredentialStore({ instanceId: "i-1", credential: "cred-1", relayUrl: url });
+  const { logger, errors } = makeFakeLogger();
+  const controller = new AbortController();
+  const client = new RelayClient({ url, credentialStore: store, onRequest: () => {}, reconnectDelaysMs: [0], logger });
+  client.start(controller.signal);
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(connections).toBe(1); // protocol-error event -> no reconnect
+  expect(errors.some((e) => e.code === "relay.protocol_error")).toBe(true);
+  controller.abort();
+  wss.close();
+});
+
 test("reconnects after a drop; fatal handshake rejection stops retrying", async () => {
   let connections = 0;
   const { wss, url } = await makeFakeRelay((envelope, reply, raw) => {

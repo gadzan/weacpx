@@ -84,6 +84,15 @@ test("scheduled list/create map records to camelCase DTOs; executeAt parsed to D
   expect(createInput.executeAt instanceof Date).toBe(true);
 });
 
+test("returns bad-request for an invalid executeAt on scheduled.create", async () => {
+  const { control, calls } = makeFakeControl();
+  const bridge = createControlBridge(control as never);
+  expect(await dispatch(bridge, req(MSG.scheduledCreate, {
+    chatKey: "relay:acct", sessionAlias: "a", executeAt: "not-a-date", message: "m",
+  }))).toEqual({ error: { code: "bad-request", message: "executeAt is not a valid ISO timestamp" } });
+  expect(calls.createScheduledTask).toBeUndefined(); // never forwarded to the control service
+});
+
 test("unknown type and thrown errors become error payloads", async () => {
   const { control } = makeFakeControl();
   const broken = { ...control, listSessions: () => { throw new Error("boom"); } };

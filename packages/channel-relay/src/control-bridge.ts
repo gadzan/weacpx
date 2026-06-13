@@ -86,10 +86,12 @@ async function dispatchControlRequest(control: ControlService, envelope: RelayEn
     }
     case MSG.scheduledCreate: {
       const input = payload as ScheduledCreatePayload;
+      const ms = Date.parse(input.executeAt);
+      if (Number.isNaN(ms)) return errorPayload("bad-request", "executeAt is not a valid ISO timestamp");
       const task = await control.createScheduledTask({
         chatKey: input.chatKey,
         sessionAlias: input.sessionAlias,
-        executeAt: new Date(input.executeAt),
+        executeAt: new Date(ms),
         message: input.message,
       });
       return scheduledTaskToDto(task);
