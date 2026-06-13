@@ -50,6 +50,11 @@ for (const step of plan) {
   }
 }
 
+if (root === "tests/unit") {
+  const webCode = await runOne("bun", ["run", "test:web"]);
+  if (webCode !== 0) process.exit(webCode ?? 1);
+}
+
 async function runOne(command, args) {
   return await new Promise((resolve) => {
     const child = spawn(command, args, {
