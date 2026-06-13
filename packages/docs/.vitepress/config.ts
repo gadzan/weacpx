@@ -60,6 +60,7 @@ export default defineConfig({
               items: [
                 { text: 'Getting Started', link: '/guide/getting-started' },
                 { text: 'Channel Management', link: '/guide/channel-management' },
+                { text: 'Self-Hosting the Relay Hub', link: '/guide/relay-self-hosting' },
                 { text: 'Scheduled Tasks', link: '/guide/scheduled-tasks' },
                 { text: 'Native Sessions', link: '/guide/native-sessions' },
                 { text: 'Group Usage', link: '/guide/group-usage' },
@@ -127,6 +128,7 @@ export default defineConfig({
               items: [
                 { text: '快速开始', link: '/zh/guide/getting-started' },
                 { text: '频道管理', link: '/zh/guide/channel-management' },
+                { text: '自托管 Relay Hub', link: '/zh/guide/relay-self-hosting' },
                 { text: '定时任务', link: '/zh/guide/scheduled-tasks' },
                 { text: '原生会话', link: '/zh/guide/native-sessions' },
                 { text: '群组使用', link: '/zh/guide/group-usage' },

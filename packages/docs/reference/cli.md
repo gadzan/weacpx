@@ -161,3 +161,21 @@ xacpx mcp-stdio --coordinator-session <session> --source-handle <handle> --works
 | `--workspace <name>` | Default workspace for delegated workers |
 
 For identity rules, `workingDirectory` semantics, the full tool list, and troubleshooting, see [External MCP Coordinator](/reference/external-mcp).
+
+## Relay hub — `xacpx-relay`
+
+A **separate** binary for [self-hosting the relay hub](/guide/relay-self-hosting) (not part of the `xacpx` CLI). It has three subcommands; until the relay packages are published to npm, invoke them as `node packages/relay/dist/cli.js <command>` from a repo checkout.
+
+```bash
+xacpx-relay init-admin --username <name> [--password <pw>] --db <path>
+xacpx-relay start --db <path> [--http-port 8787] [--ws-port 8788] [--host 0.0.0.0] [--web-root <dir>] [--history-retention-days 30]
+xacpx-relay token new --account <username> [--name <label>] [--ttl-minutes 10] --db <path>
+```
+
+| Command | Description |
+|---|---|
+| `init-admin` | Create the first admin account. Omitting `--password` prints a generated one **once**. |
+| `start` | Run the hub. `--web-root` must point at the built dashboard (`packages/relay-web/dist`) or no UI is served. No `stop`/`status` — use `SIGTERM`. |
+| `token new` | Mint a single-use, short-lived instance pairing token. |
+
+On the instance side, attach with the relay connector channel: `xacpx channel add relay --url wss://<gateway> --token <pairing-token>`. Full deployment walkthrough: [Self-Hosting the Relay Hub](/guide/relay-self-hosting).

@@ -161,3 +161,21 @@ xacpx mcp-stdio --coordinator-session <session> --source-handle <handle> --works
 | `--workspace <name>` | 被委派 worker 的默认工作区 |
 
 身份规则、`workingDirectory` 语义、完整工具列表和故障排查见[外部 MCP 协调器](/zh/reference/external-mcp)。
+
+## Relay hub — `xacpx-relay`
+
+[自托管 Relay Hub](/zh/guide/relay-self-hosting) 用的**独立**命令（不属于 `xacpx` CLI）。共三个子命令；在 relay 各包发布到 npm 之前，从仓库 checkout 用 `node packages/relay/dist/cli.js <命令>` 调用。
+
+```bash
+xacpx-relay init-admin --username <name> [--password <pw>] --db <path>
+xacpx-relay start --db <path> [--http-port 8787] [--ws-port 8788] [--host 0.0.0.0] [--web-root <dir>] [--history-retention-days 30]
+xacpx-relay token new --account <username> [--name <label>] [--ttl-minutes 10] --db <path>
+```
+
+| 命令 | 说明 |
+|---|---|
+| `init-admin` | 创建首个管理员账号。不带 `--password` 会**只打印一次**自动生成的密码。 |
+| `start` | 启动 hub。`--web-root` 必须指向已构建的看板（`packages/relay-web/dist`），否则不提供 UI。没有 `stop`/`status`——用 `SIGTERM`。 |
+| `token new` | 签发单次使用、短期有效的实例配对令牌。 |
+
+实例侧用 relay 连接器频道接入：`xacpx channel add relay --url wss://<gateway> --token <配对令牌>`。完整部署流程见[自托管 Relay Hub](/zh/guide/relay-self-hosting)。

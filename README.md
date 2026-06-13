@@ -514,6 +514,25 @@ take a look at today's API timeout issue
 
 For more filtering, aliases, and troubleshooting, see [docs/native-sessions.md](./docs/native-sessions.md).
 
+## Self-hosted relay hub (optional)
+
+If you run several xacpx instances and want to drive them all from one browser dashboard, you can self-host the **relay hub**. Each instance dials out to the hub over WebSocket and registers; you log in to a multi-tenant web dashboard and manage every instance's sessions — chat, scheduled tasks, and orchestration — from one place. Streaming agent replies render as markdown, and the layout works on mobile.
+
+> Status: the relay packages are built and audited but **not yet published to npm**, so today you deploy from a source checkout. See the full guide for the exact steps.
+
+```bash
+# Build the hub server + dashboard from a repo checkout
+git clone https://github.com/gadzan/xacpx && cd xacpx && bun install
+bun run build:relay && bun run build:relay-web
+
+# Create the first admin, then start (point --web-root at the built dashboard)
+node packages/relay/dist/cli.js init-admin --username admin --db /var/lib/xacpx-relay/relay.db
+node packages/relay/dist/cli.js start --db /var/lib/xacpx-relay/relay.db \
+  --web-root packages/relay-web/dist --host 0.0.0.0
+```
+
+Full walkthrough — pairing instances, TLS/reverse-proxy, systemd, backups, troubleshooting: **[Self-Hosting the Relay Hub](https://gadzan.github.io/xacpx/guide/relay-self-hosting)** (or [docs/relay-deployment.md](./docs/relay-deployment.md) for the terse runbook).
+
 ## Config and runtime files
 
 Default file locations:
