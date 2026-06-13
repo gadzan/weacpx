@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -21,4 +21,21 @@ test("load tolerates corrupt file content", () => {
   const filePath = join(mkdtempSync(join(tmpdir(), "relay-cred-")), "credential.json");
   writeFileSync(filePath, "{corrupt", "utf8");
   expect(new CredentialStore(filePath).load()).toBeNull();
+});
+
+test("writes the credential file with 0600 perms", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cred-"));
+  const path = join(dir, "credential.json");
+  new CredentialStore(path).save({ instanceId: "i", credential: "c", relayUrl: "ws://x" });
+  expect(statSync(path).mode & 0o777).toBe(0o600);
+});
+
+test("re-tightens perms when overwriting a loosened file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cred-"));
+  const path = join(dir, "credential.json");
+  writeFileSync(path, "{}", { mode: 0o644 });
+  const store = new CredentialStore(path);
+  store.save({ instanceId: "i", credential: "c", relayUrl: "ws://x" });
+  expect(statSync(path).mode & 0o777).toBe(0o600);
+  expect(store.load()?.instanceId).toBe("i");
 });

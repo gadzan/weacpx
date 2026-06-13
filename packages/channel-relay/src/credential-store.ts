@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -37,7 +37,10 @@ export class CredentialStore {
 
   save(credential: RelayCredential): void {
     mkdirSync(dirname(this.filePath), { recursive: true });
-    writeFileSync(this.filePath, JSON.stringify(credential, null, 2), { encoding: "utf8", mode: 0o600 });
+    const tmp = `${this.filePath}.tmp`;
+    writeFileSync(tmp, JSON.stringify(credential, null, 2), { encoding: "utf8", mode: 0o600 });
+    chmodSync(tmp, 0o600); // force perms even if the temp file pre-existed with a looser mode
+    renameSync(tmp, this.filePath);
   }
 
   clear(): void {
