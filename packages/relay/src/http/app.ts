@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { serveStatic } from "@hono/node-server/serve-static";
 
 import { MSG } from "@ganglion/xacpx-relay-protocol";
 
@@ -129,6 +130,14 @@ export function createApp(deps: AppDeps): Hono<Vars> {
     return removed ? c.json({ ok: true }) : c.json({ error: "not-found" }, 404);
   });
 
+  app.get("/api/instances/:id/sessions/:alias/messages", (c) => {
+    const account = c.get("account");
+    const instance = deps.instances.getOwned(c.req.param("id"), account.id);
+    if (!instance) return c.json({ error: "not-found" }, 404);
+    const messages = deps.messages.listBySession(account.id, instance.id, c.req.param("alias"));
+    return c.json({ messages });
+  });
+
   app.post("/api/instances/:id/rpc", async (c) => {
     const account = c.get("account");
     const instance = deps.instances.getOwned(c.req.param("id"), account.id);
@@ -146,6 +155,10 @@ export function createApp(deps: AppDeps): Hono<Vars> {
     }
     try {
       const result = await deps.gateway.sendRequest(instance.id, body.type, payload);
+      if (body.type === MSG.prompt) {
+        const p = payload as { sessionAlias?: string; text?: string };
+        if (p.sessionAlias && p.text) deps.messages.append(instance.id, p.sessionAlias, "in", p.text);
+      }
       return c.json({ result });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -154,6 +167,12 @@ export function createApp(deps: AppDeps): Hono<Vars> {
       return c.json({ error: message }, 500);
     }
   });
+
+  if (deps.webRoot) {
+    const root = deps.webRoot;
+    app.use("/*", serveStatic({ root }));
+    app.get("/*", serveStatic({ path: "index.html", root })); // SPA fallback
+  }
 
   return app;
 }

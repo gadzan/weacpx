@@ -4,6 +4,7 @@ import { MSG } from "../../../../packages/relay-protocol/src/index";
 import { createSqlDriver, initSchema } from "../../../../packages/relay/src/db";
 import { AccountStore } from "../../../../packages/relay/src/stores/accounts";
 import { InstanceStore } from "../../../../packages/relay/src/stores/instances";
+import { MessageStore } from "../../../../packages/relay/src/stores/messages";
 import { createApp } from "../../../../packages/relay/src/http/app";
 
 async function makeApp() {
@@ -20,7 +21,7 @@ async function makeApp() {
       return { sessions: [] };
     },
   };
-  const app = createApp({ accounts, instances, gateway });
+  const app = createApp({ accounts, instances, gateway, messages: new MessageStore(db) });
   const login = async (username: string, password: string) => {
     const res = await app.request("/api/login", {
       method: "POST",
