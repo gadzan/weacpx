@@ -2,10 +2,32 @@
 import { setActivePinia, createPinia } from "pinia";
 import { beforeEach, expect, test, vi } from "vitest";
 import { mount } from "@vue/test-utils";
+
+const rpc = vi.fn();
+vi.mock("../api/client", () => ({
+  ApiError: class ApiError extends Error {
+    constructor(public code: string, public status: number) {
+      super(code);
+    }
+  },
+  api: {
+    // Keep get working against the fetch stub used by loadHistory.
+    get: async (path: string) => {
+      const res = await fetch(path, { credentials: "include" });
+      return res.json();
+    },
+    rpc: (instanceId: string, type: string, payload?: unknown) => rpc(instanceId, type, payload),
+  },
+}));
+
 import { useChatStore } from "../stores/chat";
+import { ApiError } from "../api/client";
 import PromptInput from "../components/PromptInput.vue";
 
-beforeEach(() => setActivePinia(createPinia()));
+beforeEach(() => {
+  setActivePinia(createPinia());
+  rpc.mockReset();
+});
 
 test("streaming turn output accumulates then commits on finish", () => {
   const store = useChatStore();
@@ -33,6 +55,15 @@ test("loadHistory pulls cached messages for the selected session", async () => {
   store.select("i1", "backend");
   await store.loadHistory();
   expect(store.messages.map((m) => m.text)).toEqual(["hi"]);
+});
+
+test("surfaces an error when send fails", async () => {
+  rpc.mockRejectedValueOnce(new ApiError("instance-offline", 503));
+  const chat = useChatStore();
+  chat.select("inst", "backend");
+  await chat.send("hello");
+  expect(chat.error).toBe("instance-offline");
+  expect(chat.sending).toBe(false);
 });
 
 test("PromptInput emits send with trimmed text and clears", async () => {

@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import type { MessageRecordDto, WebServerEvent } from "@ganglion/xacpx-relay-protocol";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 
 export const useChatStore = defineStore("chat", () => {
   const instanceId = ref<string | null>(null);
@@ -9,6 +9,7 @@ export const useChatStore = defineStore("chat", () => {
   const messages = ref<MessageRecordDto[]>([]);
   const streaming = ref("");
   const sending = ref(false);
+  const error = ref("");
 
   function select(id: string, alias: string): void {
     instanceId.value = id;
@@ -41,6 +42,7 @@ export const useChatStore = defineStore("chat", () => {
 
   async function send(text: string): Promise<void> {
     if (!instanceId.value || !sessionAlias.value) return;
+    error.value = "";
     sending.value = true;
     messages.value.push({ instanceId: instanceId.value, sessionAlias: sessionAlias.value, direction: "in", text, createdAt: new Date().toISOString() });
     try {
@@ -50,10 +52,12 @@ export const useChatStore = defineStore("chat", () => {
       } else {
         await api.rpc(instanceId.value, "control.prompt", { sessionAlias: sessionAlias.value, text });
       }
+    } catch (e) {
+      error.value = e instanceof ApiError ? e.code : "send-failed";
     } finally {
       sending.value = false;
     }
   }
 
-  return { instanceId, sessionAlias, messages, streaming, sending, select, loadHistory, applyEvent, send };
+  return { instanceId, sessionAlias, messages, streaming, sending, error, select, loadHistory, applyEvent, send };
 });

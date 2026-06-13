@@ -40,7 +40,7 @@ export const useInstancesStore = defineStore("instances", () => {
       const inst = byId(event.instanceId);
       if (inst) inst.online = event.online;
     } else if (event.kind === "control-event" && event.event.type === "sessions-changed") {
-      void loadSessions(event.instanceId);
+      void loadSessions(event.instanceId).catch(() => {});
     }
   }
 
