@@ -3,11 +3,14 @@ import { onMounted, onUnmounted } from "vue";
 import { connectEvents } from "../api/events";
 import { useInstancesStore } from "../stores/instances";
 import { useChatStore } from "../stores/chat";
+import { useTasksStore } from "../stores/tasks";
 import InstanceTree from "../components/InstanceTree.vue";
 import ChatPane from "../components/ChatPane.vue";
+import TaskPanel from "../components/TaskPanel.vue";
 
 const instances = useInstancesStore();
 const chat = useChatStore();
+const tasks = useTasksStore();
 let disconnect: (() => void) | null = null;
 
 function onSelect(instanceId: string, alias: string) {
@@ -20,6 +23,7 @@ onMounted(async () => {
   disconnect = connectEvents((event) => {
     instances.applyEvent(event);
     chat.applyEvent(event);
+    tasks.applyEvent(event);
   });
 });
 
@@ -35,7 +39,7 @@ onUnmounted(() => disconnect?.());
       <ChatPane />
     </div>
     <div data-test="column" class="hidden w-72 shrink-0 border-l bg-white lg:block">
-      <div class="p-4 text-sm text-slate-400">Tasks panel — phase 4</div>
+      <TaskPanel />
     </div>
   </div>
 </template>
