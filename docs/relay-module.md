@@ -10,6 +10,9 @@
   1. `xacpx-relay init-admin --username admin --db ./relay.db`
   2. `xacpx-relay start --db ./relay.db`
   3. `xacpx-relay token new --account admin --name home-pc --db ./relay.db`
+- RPC 请求超时：`xacpx-relay start --request-timeout-ms <ms>` 限定网关 RPC 请求超时，默认 `120000`
+  （共享常量 `DEFAULT_REQUEST_TIMEOUT_MS = 120s`，位于 packages/relay/src/gateway/instance-gateway.ts，
+  网关回退与服务端均复用之）；agent 冷启动慢 / 长 prompt 时可调大。
 - 安全：scrypt 密码哈希（node:crypto 内置，格式含参数可迁移）；所有 token/凭证哈希落盘；登录限流（有界，见阶段五）；
   凭证比较定时安全（`hashEquals`，见 src/auth.ts）；RPC 代理只放行
   control.* 且服务端覆写 chatKey(`relay:<accountId>`)/senderId/isOwner。
@@ -33,6 +36,10 @@
   `control.workspaces.list`（name+cwd+description）、`control.workspaces.create`
   （按名+路径新建并**持久化**到实例 config，经 ConfigStore.upsertWorkspace + replaceRuntimeConfig
   同步进运行时 config 供 SessionService 校验）——三者经 control-bridge 映射到 ControlService。
+- `control.sessions.create` 走**完整 transport 生命周期**（resolve→reserve→ensure→check→attach→refresh，
+  经 `CommandRouter.createSessionWithTransport`）：解析 agent/workspace → 预留别名 → 在后端建/确认 acpx 命名会话
+  → 校验 → 绑定逻辑会话 → best-effort 刷新 agent command。看板新建的会话因此**立即可 prompt**（旧实现只建逻辑会话，
+  prompt 会以 `No named session` 失败）。
 - 阶段边界：离线不排队（实例离线时 RPC 返回 503）；事件断线期间丢弃；
   Web 看板（阶段三）消费本阶段的 HTTP API 与事件。
 

@@ -24,7 +24,7 @@ node packages/relay/dist/cli.js init-admin --username admin --db /var/lib/xacpx-
 node packages/relay/dist/cli.js start \
   --db /var/lib/xacpx-relay/relay.db \
   --web-root /opt/xacpx/packages/relay-web/dist \
-  --host 0.0.0.0 --http-port 8787 --ws-port 8788 --history-retention-days 30
+  --host 0.0.0.0 --http-port 8787 --ws-port 8788 --history-retention-days 30 --request-timeout-ms 120000
 
 # 4. 发配对令牌（单次使用、--ttl-minutes 默认 10 分钟）
 node packages/relay/dist/cli.js token new --account admin --name home-pc --db /var/lib/xacpx-relay/relay.db
@@ -41,4 +41,5 @@ xacpx restart
 - **持久化**：全部在单个 SQLite 文件（`--db`）。默认 `./relay.db` 是 **cwd 相对路径**（坑），务必用绝对路径。备份即停机/静默期 `cp` 该文件。
 - **凭证**：实例首连用一次性配对令牌换长期凭证，写入 `<xacpx-home>/relay/credential.json`（0600），不进 `config.json`。
 - **自动 GC**：每小时清理超 `--history-retention-days`（默认 30，另每会话硬上限 2000 条）的缓存消息，以及过期的 web 会话/邀请/配对令牌。
+- **RPC 超时**：`--request-timeout-ms`（默认 120000）限定网关 RPC 请求超时；agent 冷启动慢 / 长 prompt 时可调大。
 - **多租户**：账号只见自己的实例/会话；服务端盖戳身份；密钥一律哈希存储。邀请令牌在看板 Settings 页生成（单次使用）。
