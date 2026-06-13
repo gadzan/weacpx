@@ -33,6 +33,23 @@ function onSelect(instanceId: string, alias: string) {
   void chat.loadHistory().catch(() => {});
 }
 
+let everOnline = false;
+async function reloadSnapshot() {
+  await instances.loadInstances().catch(() => {});
+  if (chat.instanceId && chat.sessionAlias) {
+    await instances.loadSessions(chat.instanceId).catch(() => {});
+    await chat.loadHistory().catch(() => {});
+    await tasks.loadFor(chat.instanceId, chat.sessionAlias).catch(() => {});
+  }
+}
+function onStatus(online: boolean) {
+  conn.setOnline(online);
+  if (online) {
+    if (everOnline) void reloadSnapshot();
+    everOnline = true;
+  }
+}
+
 onMounted(async () => {
   await instances.loadInstances();
   disconnect = connectEvents((event) => {
@@ -40,7 +57,7 @@ onMounted(async () => {
     chat.applyEvent(event);
     tasks.applyEvent(event);
     notices.applyEvent(event);
-  }, (online) => conn.setOnline(online));
+  }, onStatus);
 });
 
 onUnmounted(() => disconnect?.());

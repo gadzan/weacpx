@@ -5,6 +5,7 @@ export function connectEvents(onEvent: (event: WebServerEvent) => void, onStatus
   let socket: WebSocket | null = null;
   let closed = false;
   let retry = 0;
+  let timer: ReturnType<typeof setTimeout> | null = null;
 
   const open = () => {
     const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -20,10 +21,10 @@ export function connectEvents(onEvent: (event: WebServerEvent) => void, onStatus
       onStatus?.(false);
       if (closed) return;
       retry = Math.min(retry + 1, 6);
-      setTimeout(open, 250 * 2 ** (retry - 1));
+      timer = setTimeout(() => { timer = null; if (!closed) open(); }, 250 * 2 ** (retry - 1));
     };
   };
 
   open();
-  return () => { closed = true; socket?.close(); };
+  return () => { closed = true; if (timer) { clearTimeout(timer); timer = null; } socket?.close(); };
 }
