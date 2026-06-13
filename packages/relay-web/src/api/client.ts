@@ -5,10 +5,11 @@ export class ApiError extends Error {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = method === "GET" ? {} : { "content-type": "application/json" };
   const res = await fetch(path, {
     method,
     credentials: "include",
-    headers: body === undefined ? {} : { "content-type": "application/json" },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = res.status === 204 ? undefined : await res.json().catch(() => undefined);
