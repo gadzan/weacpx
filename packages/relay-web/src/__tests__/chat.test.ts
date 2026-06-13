@@ -66,6 +66,34 @@ test("surfaces an error when send fails", async () => {
   expect(chat.sending).toBe(false);
 });
 
+test("a prompt RPC timeout does not surface an error (results stream via events)", async () => {
+  rpc.mockRejectedValueOnce(new ApiError("timeout", 504));
+  const chat = useChatStore();
+  chat.select("i1", "s1");
+  await chat.send("hi");
+  expect(chat.error).toBe("");
+  expect(chat.messages.at(-1)?.failed).toBeUndefined(); // optimistic msg not marked failed
+  expect(chat.sending).toBe(false);
+});
+
+test("a non-timeout prompt error still surfaces", async () => {
+  rpc.mockRejectedValueOnce(new ApiError("instance-offline", 503));
+  const chat = useChatStore();
+  chat.select("i1", "s1");
+  await chat.send("hi");
+  expect(chat.error).toBe("instance-offline");
+  expect(chat.messages.at(-1)?.failed).toBe(true);
+});
+
+test("a /command timeout still surfaces (request/response, no streaming)", async () => {
+  rpc.mockRejectedValueOnce(new ApiError("timeout", 504));
+  const chat = useChatStore();
+  chat.select("i1", "s1");
+  await chat.send("/status");
+  expect(chat.error).toBe("timeout");
+  expect(chat.messages.at(-1)?.failed).toBe(true);
+});
+
 test("keeps a per-session streaming buffer across selection changes", () => {
   const chat = useChatStore();
   chat.select("inst", "A");

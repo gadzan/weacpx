@@ -80,8 +80,14 @@ export const useChatStore = defineStore("chat", () => {
         }
       }
     } catch (e) {
-      error.value = e instanceof ApiError ? e.code : "send-failed";
-      optimistic.failed = true;
+      // A prompt turn can outlast any RPC timeout; its result still arrives over the
+      // /ws event stream (turn-output/turn-finished), so a timeout here is not fatal.
+      // A /command is request/response with no streaming, so its timeout must surface.
+      const isTimeout = e instanceof ApiError && (e.status === 504 || e.code === "timeout");
+      if (text.startsWith("/") || !isTimeout) {
+        error.value = e instanceof ApiError ? e.code : "send-failed";
+        optimistic.failed = true;
+      }
     } finally {
       sending.value = false;
     }
