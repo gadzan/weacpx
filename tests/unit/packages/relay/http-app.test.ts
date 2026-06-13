@@ -50,7 +50,7 @@ test("login sets HttpOnly cookie; bad password 401; rate limit kicks in", async 
 test("invite -> register -> member login; invites are admin-only", async () => {
   const { app, login } = await makeApp();
   const { cookie } = await login("admin", "admin-pw");
-  const inviteRes = await app.request("/api/invites", { method: "POST", headers: { cookie } });
+  const inviteRes = await app.request("/api/invites", { method: "POST", headers: { cookie, "content-type": "application/json" } });
   expect(inviteRes.status).toBe(200);
   const { invite } = (await inviteRes.json()) as { invite: string };
   const registerRes = await app.request("/api/register", {
@@ -60,7 +60,7 @@ test("invite -> register -> member login; invites are admin-only", async () => {
   });
   expect(registerRes.status).toBe(200);
   const { cookie: aliceCookie } = await login("alice", "alice-pw");
-  expect((await app.request("/api/invites", { method: "POST", headers: { cookie: aliceCookie } })).status).toBe(403);
+  expect((await app.request("/api/invites", { method: "POST", headers: { cookie: aliceCookie, "content-type": "application/json" } })).status).toBe(403);
   // reused invite rejected
   const reuse = await app.request("/api/register", {
     method: "POST",
@@ -151,6 +151,62 @@ test("GET /api/config returns the retention policy from deps", async () => {
   const res = await app.request("/api/config", { headers: { cookie } });
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ historyRetention: { days: 14, maxPerSession: 500 } });
+});
+
+test("pairing-token rejects non-JSON bodies with 415", async () => {
+  const { app, login } = await makeApp();
+  const { cookie } = await login("admin", "admin-pw");
+  const res = await app.request("/api/instances/pairing-token", {
+    method: "POST", headers: { cookie, "content-type": "text/plain" }, body: JSON.stringify({ name: "pc" }),
+  });
+  expect(res.status).toBe(415);
+});
+
+test("invites rejects non-JSON bodies with 415", async () => {
+  const { app, login } = await makeApp();
+  const { cookie } = await login("admin", "admin-pw");
+  const res = await app.request("/api/invites", {
+    method: "POST", headers: { cookie, "content-type": "text/plain" }, body: "whatever",
+  });
+  expect(res.status).toBe(415);
+});
+
+test("login rate-limiter evicts expired entries", async () => {
+  const db = await createSqlDriver(":memory:");
+  initSchema(db);
+  const accounts = new AccountStore(db);
+  const instances = new InstanceStore(db);
+  accounts.createAccount("admin", "admin-pw", "admin");
+  const messages = new MessageStore(db);
+  const gateway = { isOnline: () => true, sendRequest: async () => ({}) };
+  let clock = 0;
+  const app = createApp({ accounts, instances, gateway, messages, now: () => new Date(clock) });
+  const fail = (username: string) =>
+    app.request("/api/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ username, password: "nope" }),
+    });
+
+  const LOGIN_WINDOW_MS = 10 * 60 * 1000;
+  const LOGIN_MAX_FAILURES = 10;
+
+  // T=0: drive "u1" into the 429 state. The handler returns 401 on the request that reaches the
+  // Nth failure and 429 only once a *subsequent* request sees count >= MAX, so it takes
+  // LOGIN_MAX_FAILURES 401s before the next attempt is throttled.
+  for (let i = 0; i < LOGIN_MAX_FAILURES; i++) expect((await fail("u1")).status).toBe(401);
+  expect((await fail("u1")).status).toBe(429); // window is "hot"
+
+  // Advance past the window so "u1"'s entry is stale, then drive enough distinct usernames to push
+  // the failures map over the sweep threshold so the time-based eviction sweep runs and drops "u1".
+  clock += LOGIN_WINDOW_MS + 1;
+  for (let i = 0; i < 1100; i++) await fail(`flood-${i}`);
+
+  // The stale "u1" entry must no longer count: a fresh failure starts a brand-new window, so it
+  // again takes the full LOGIN_MAX_FAILURES failures before 429 (not immediately throttled). This
+  // proves the entry was treated as evicted/reset rather than retaining its old throttled state.
+  for (let i = 0; i < LOGIN_MAX_FAILURES; i++) expect((await fail("u1")).status).toBe(401);
+  expect((await fail("u1")).status).toBe(429);
 });
 
 test("rpc rejects non-JSON content-type (CSRF backstop) but accepts application/json", async () => {

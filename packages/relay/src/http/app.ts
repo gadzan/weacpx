@@ -30,6 +30,8 @@ export interface AppDeps {
 const SESSION_COOKIE = "xrelay_session";
 const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 const LOGIN_MAX_FAILURES = 10;
+const LOGIN_FAILURES_SWEEP_AT = 1024;
+const LOGIN_FAILURES_MAX = 4096;
 
 /** Chat-scoped control RPCs get chatKey/senderId/isOwner stamped server-side. */
 const CHAT_SCOPED_TYPES = new Set<string>([
@@ -56,8 +58,21 @@ export function createApp(deps: AppDeps): Hono<Vars> {
     if (!requireJson(c.req.header("content-type"))) return c.json({ error: "unsupported-media-type" }, 415);
     const body = (await c.req.json().catch(() => ({}))) as { username?: string; password?: string };
     const username = body.username ?? "";
-    const failures = loginFailures.get(username);
     const nowMs = now().getTime();
+    if (loginFailures.size > LOGIN_FAILURES_SWEEP_AT) {
+      for (const [k, v] of loginFailures) {
+        if (nowMs - v.windowStart >= LOGIN_WINDOW_MS) loginFailures.delete(k);
+      }
+      // hard backstop: if still oversized, drop oldest-window entries
+      if (loginFailures.size > LOGIN_FAILURES_MAX) {
+        const sorted = [...loginFailures.entries()].sort((a, b) => a[1].windowStart - b[1].windowStart);
+        for (let i = 0; i < sorted.length && loginFailures.size > LOGIN_FAILURES_MAX; i++) {
+          const entry = sorted[i];
+          if (entry) loginFailures.delete(entry[0]);
+        }
+      }
+    }
+    const failures = loginFailures.get(username);
     if (failures && nowMs - failures.windowStart < LOGIN_WINDOW_MS && failures.count >= LOGIN_MAX_FAILURES) {
       return c.json({ error: "too-many-attempts" }, 429);
     }
@@ -119,6 +134,7 @@ export function createApp(deps: AppDeps): Hono<Vars> {
   });
 
   app.post("/api/invites", (c) => {
+    if (!requireJson(c.req.header("content-type"))) return c.json({ error: "unsupported-media-type" }, 415);
     const account = c.get("account");
     if (account.role !== "admin") return c.json({ error: "admin-only" }, 403);
     const invite = deps.accounts.createInvite(account.id, inviteTtlMs);
@@ -135,6 +151,7 @@ export function createApp(deps: AppDeps): Hono<Vars> {
   });
 
   app.post("/api/instances/pairing-token", async (c) => {
+    if (!requireJson(c.req.header("content-type"))) return c.json({ error: "unsupported-media-type" }, 415);
     const account = c.get("account");
     const body = (await c.req.json().catch(() => ({}))) as { name?: string };
     const issued = deps.instances.issuePairingToken(account.id, body.name, pairingTtlMs);
