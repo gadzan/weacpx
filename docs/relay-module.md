@@ -10,8 +10,11 @@
   1. `xacpx-relay init-admin --username admin --db ./relay.db`
   2. `xacpx-relay start --db ./relay.db`
   3. `xacpx-relay token new --account admin --name home-pc --db ./relay.db`
-- 安全：scrypt 密码哈希（node:crypto 内置，格式含参数可迁移）；所有 token/凭证哈希落盘；登录限流；RPC 代理只放行
+- 安全：scrypt 密码哈希（node:crypto 内置，格式含参数可迁移）；所有 token/凭证哈希落盘；登录限流（有界，见阶段五）；
+  凭证比较定时安全（`hashEquals`，见 src/auth.ts）；RPC 代理只放行
   control.* 且服务端覆写 chatKey(`relay:<accountId>`)/senderId/isOwner。
+- CSRF backstop：登录/注册/RPC 以及 `POST /api/instances/pairing-token`、`POST /api/invites`
+  统一要求 `content-type: application/json`（`requireJson`），否则返回 415。
 
 ## 连接器（@ganglion/xacpx-channel-relay）
 
@@ -63,6 +66,31 @@
   - GC 过期/已用的 `web_sessions`、`invites`（`AccountStore.pruneExpired(now)`）与
     `pairing_tokens`（`InstanceStore.prunePairingTokens(now)`）。
 - **CLI**：`xacpx-relay start --history-retention-days <n>`（透传给维护循环）。
+
+## 阶段五加固（审计修复）
+
+服务端（packages/relay）：
+
+- **CSRF 415 backstop**：`POST /api/instances/pairing-token` 与 `POST /api/invites` 补上
+  `requireJson` 守卫（与登录/注册/RPC 一致），非 JSON 请求返回 415。
+- **登录限流有界**：限流表按时间淘汰过期条目 + 最旧窗口硬上限，避免无界 Map 内存 DoS。
+- **网关在线掉线即时拒绝**：`InstanceGateway` 在 socket 关闭时立即用 `instance-offline`
+  排空在途请求（原先要等到 15s 超时才返回 503）。
+- **凭证定时安全比较**：`verifyCredential` 改用定时安全哈希比较（`hashEquals`，src/auth.ts）。
+
+协议（packages/relay-protocol）：
+
+- **web 事件深度校验**：`parseWebServerEvent` 现在深度校验内层 `ControlEventDto` 的判别式/各变体字段
+  以及 notice 形状（原先只校验外层信封），收紧 web 线信任边界。
+
+连接器（packages/channel-relay）：
+
+- **凭证原子写**：`CredentialStore.save` 用临时文件（mode 0600）+ chmod + rename 原子落盘，
+  覆写时重新收紧权限，避免崩溃导致损坏/锁死。
+- **协议版本不匹配显式提示**：`RelayClient` 记录无法解码的消息，遇到 `version-mismatch` 停止重连；
+  收到 relay 的 `relay.protocol-error` 事件同样记录并停连（原先静默丢弃）。
+- **`scheduled.create` 入参校验**：`control-bridge` 校验 `executeAt`，非 ISO 值返回 `bad-request`
+  （原先抛通用 internal error）。
 
 ## 测试
 

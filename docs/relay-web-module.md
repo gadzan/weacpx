@@ -1,6 +1,6 @@
 # Relay Web 看板模块说明（packages/relay-web）
 
-relay hub 的 Web 看板（阶段三 + 阶段四）：登录后跨实例管理 acpx 会话的三栏 IM 界面。
+relay hub 的 Web 看板（阶段三 + 阶段四 + 阶段五）：登录后跨实例管理 acpx 会话的三栏 IM 界面。
 设计 spec：docs/superpowers/specs/2026-06-13-relay-hub-design.md；服务端见 docs/relay-module.md。
 
 ## 目的与形态
@@ -59,6 +59,17 @@ relay hub 的 Web 看板（阶段三 + 阶段四）：登录后跨实例管理 a
   切换会话时各自缓冲互不覆盖，能跨切换存活；某实例离线时按前缀清掉它名下所有缓冲。
 - 发送失败时设置 `error` ref 做错误浮现；`control.command.execute` 与 `control.prompt` 发送均带 `sessionAlias`。
 
+## 阶段五加固（审计修复）
+
+- **API 客户端始终带 JSON content-type**：无 body 的 mutating 请求也发 `content-type: application/json`，
+  与服务端新增的 CSRF 415 守卫对齐（不会被 415 误杀），保留 CSRF 预检属性（见 docs/relay-module.md）。
+- **重连重拉快照 + 重连定时器清理**：重连后重新拉一遍快照（实例 + 当前会话的历史/任务）避免 ghost state；
+  `connectEvents` 在 teardown 时清掉待定的重连定时器，避免泄漏 socket。
+- **聊天错误浮现**：回合失败（`turn-finished ok:false`）现在浮现 `errorMessage` 并把队尾消息标记为失败；
+  `chat.error` 渲染为可关闭的横幅；切换会话时清空错误；发送失败把乐观插入的消息标记为失败。
+- **取消运行中回合**：可从聊天面板取消在途回合（`control.prompt.cancel`）。
+- **会话创建/删除 UI**：可从左栏实例树创建/删除逻辑会话（补齐 §4.5）。
+
 ## 文件地图
 
 - `src/api/client.ts` —— REST 客户端（登录、`/api/instances`、`/api/instances/:id/rpc` 代理调用、历史）；
@@ -91,4 +102,7 @@ relay hub 的 Web 看板（阶段三 + 阶段四）：登录后跨实例管理 a
 - **阶段三**交付登录 + 实例/会话树 + 对话流。
 - **阶段四**补齐：右栏任务面板（定时/编排）、设置页（邀请/配对/保留摘要）、notice toast、
   连接恢复徽标、NUL-key 流式缓冲加固。
+- **阶段五**审计修复：API 客户端始终带 JSON content-type（对齐服务端 CSRF 415 守卫）、重连重拉快照 +
+  重连定时器清理、聊天错误横幅 + 回合失败浮现 + 失败消息样式 + 切换会话清错 + 乐观失败标记、
+  取消在途回合（`control.prompt.cancel`）、左栏实例树会话创建/删除 UI。
 - 历史保留策略为服务端配置（`--history-retention-days`），v1 在 Web 端只读、不可编辑（见 docs/relay-module.md）。
