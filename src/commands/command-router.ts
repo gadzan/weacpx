@@ -477,6 +477,14 @@ export class CommandRouter {
     agent: string,
     workspace: string,
   ): Promise<ResolvedSession> {
+    // Refuse to overwrite an existing alias: silently re-pointing it would either
+    // reuse the old transport session (stale history) or orphan it, and a native
+    // session's agent_session_id would be silently dropped. Mirrors handleSessionNew.
+    const existing = this.sessions.getResolvedSessionByInternalAlias(internalAlias);
+    if (existing) {
+      throw new Error(`session "${internalAlias}" already exists`);
+    }
+
     const session = this.sessions.resolveSession(
       internalAlias,
       agent,
@@ -491,7 +499,17 @@ export class CommandRouter {
         throw new Error(`transport session "${session.transportSession}" could not be verified`);
       }
       await this.sessions.attachSession(internalAlias, agent, workspace, session.transportSession);
-      await this.refreshSessionTransportAgentCommand(internalAlias);
+      // Best-effort: a transient refresh failure must not fail a create that has
+      // already succeeded, bound, and verified. Mirrors the chat paths' use of
+      // refreshSessionTransportAgentCommandBestEffort.
+      try {
+        await this.refreshSessionTransportAgentCommand(internalAlias);
+      } catch (error) {
+        await this.logger.error("session.agent_command_refresh_failed", "failed to refresh session agent command", {
+          alias: internalAlias,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       return session;
     } finally {
       await release();

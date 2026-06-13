@@ -117,6 +117,19 @@ test("createSessionWithTransport resolves, ensures the transport session, and bi
   expect(await sessions.getSession("relay:demo")).toBeTruthy();
 });
 
+test("createSessionWithTransport refuses to overwrite an existing logical alias", async () => {
+  const { router, transport, sessions, config } = buildRouter();
+  config.workspaces.home = { cwd: "/tmp/home" };
+  await sessions.attachSession("relay:demo", "codex", "home", "home:relay:demo");
+  const ensureCalls = (transport.ensureSession as ReturnType<typeof mock>).mock.calls.length;
+
+  await expect(router.createSessionWithTransport("relay:demo", "codex", "home")).rejects.toThrow(
+    /already exists/,
+  );
+  // The refused create must not touch the transport.
+  expect((transport.ensureSession as ReturnType<typeof mock>).mock.calls.length).toBe(ensureCalls);
+});
+
 test("/session new refuses an alias that already exists", async () => {
   const config = createConfig();
   config.agents.opencode = { driver: "opencode" };
