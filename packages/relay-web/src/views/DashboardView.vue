@@ -4,13 +4,16 @@ import { connectEvents } from "../api/events";
 import { useInstancesStore } from "../stores/instances";
 import { useChatStore } from "../stores/chat";
 import { useTasksStore } from "../stores/tasks";
+import { useNoticesStore } from "../stores/notices";
 import InstanceTree from "../components/InstanceTree.vue";
 import ChatPane from "../components/ChatPane.vue";
 import TaskPanel from "../components/TaskPanel.vue";
+import NoticeToast from "../components/NoticeToast.vue";
 
 const instances = useInstancesStore();
 const chat = useChatStore();
 const tasks = useTasksStore();
+const notices = useNoticesStore();
 let disconnect: (() => void) | null = null;
 
 function onSelect(instanceId: string, alias: string) {
@@ -24,6 +27,7 @@ onMounted(async () => {
     instances.applyEvent(event);
     chat.applyEvent(event);
     tasks.applyEvent(event);
+    notices.applyEvent(event);
   });
 });
 
@@ -41,5 +45,6 @@ onUnmounted(() => disconnect?.());
     <div data-test="column" class="hidden w-72 shrink-0 border-l bg-white lg:block">
       <TaskPanel />
     </div>
+    <NoticeToast />
   </div>
 </template>
