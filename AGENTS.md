@@ -122,6 +122,7 @@ There are two session concepts:
 - `xacpx doctor` diagnostics and `--fix` repairs: [`docs/doctor-command.md`](docs/doctor-command.md)
 - Control API（结构化控制面，relay 等结构化消费者入口）: [`docs/control-module.md`](docs/control-module.md)
 - Relay Hub（服务端 + 连接器）: [`docs/relay-module.md`](docs/relay-module.md)
+- Relay Web 看板模块说明: [`docs/relay-web-module.md`](docs/relay-web-module.md)
 - Code Wiki (architecture map): [`docs/code-wiki.md`](docs/code-wiki.md)
 
 ## Package Manager

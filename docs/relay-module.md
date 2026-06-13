@@ -29,10 +29,34 @@
 - 阶段边界：离线不排队（实例离线时 RPC 返回 503）；事件断线期间丢弃；
   Web 看板（阶段三）消费本阶段的 HTTP API 与事件。
 
+## 阶段三服务端接缝（Web 看板扇出）
+
+服务端为 Web 看板新增的接缝（见 docs/relay-web-module.md）：
+
+- **`messages` 缓存表（§5）+ `MessageStore`**：聊天回显缓存
+  （`instance_id, session_alias, direction, text, created_at`）。`append()` 写入，
+  `listBySession(accountId, ...)` 按 account 隔离、oldest-first 取最近若干条。
+- **`WebGateway` 按账号扇出**：跟踪每个账号已鉴权的浏览器 socket，把 `WebServerEvent`
+  编码为 `web.event` 信封 `broadcast(accountId, event)` 给该账号所有连接。
+- **实例网关 `onStatusChange`/`onEvent` 接线**（server.ts `createRelayRuntime`）：
+  - `onStatusChange` → web 广播 `instance-status`；离线时清空该实例的 turn 缓冲。
+  - `onEvent`（instance.event）→ web 广播 `control-event`；其中 `turn-output` 分片按
+    (instance, session) 累积进内存缓冲，`turn-finished` 时 flush 为一条 `out` 历史消息
+    写入 `MessageStore`；instance.notice → 广播 `notice`。
+- **cookie 鉴权的 `/ws` web 扇出端点**：挂在 HTTP server 的 upgrade 上（与实例网关 `wsPort`
+  分离），校验 `xrelay_session` cookie → 账号后 `webGateway.register(accountId, ws)`。
+- **`GET /api/instances/:id/sessions/:alias/messages`**：按登录账号返回该会话的缓存历史。
+- **prompt 回显历史**：`control.prompt` 经 RPC 代理时，把 prompt 文本 append 为一条 `in` 历史消息。
+- **`--web-root` 静态托管**：`createRelayRuntime({ webRoot })` → Hono `serveStatic` 托管 SPA
+  构建产物（含 index.html SPA fallback）；CLI `xacpx-relay start --web-root <dir>`。
+
 ## 测试
 
 - 单测按文件跑（tests/unit/packages/relay、tests/unit/packages/channel-relay）；
   run-tests.mjs 会预构建 relay-protocol dist。
+- 全链路：`tests/unit/packages/relay/web-dashboard-e2e.test.ts` 用真实 relay-server
+  （`startRelayServer`）+ 真实连接器（RelayClient/createControlBridge/subscribeControlEvents）
+  验证 实例事件 → relay → web 客户端 + 历史缓存的端到端路径。
 - 端到端手工验证 runbook：
   1. `bun run build:packages`
   2. `node packages/relay/dist/cli.js init-admin --username admin --db /tmp/relay.db`
