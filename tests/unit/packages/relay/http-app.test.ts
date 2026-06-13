@@ -105,3 +105,29 @@ test("instances: pairing token, list with online flag, account isolation, rpc st
     body: JSON.stringify({ type: MSG.sessionsList, payload: {} }),
   })).status).toBe(404);
 });
+
+test("rpc rejects non-JSON content-type (CSRF backstop) but accepts application/json", async () => {
+  const { app, instances, login, rpcCalls } = await makeApp();
+  const { cookie } = await login("admin", "admin-pw");
+  const tokenRes = await app.request("/api/instances/pairing-token", {
+    method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ name: "pc" }),
+  });
+  const { token } = (await tokenRes.json()) as { token: string };
+  const { instanceId } = instances.redeemPairingToken(token)!;
+
+  // text/plain simple-request is refused; gateway never called
+  const bad = await app.request(`/api/instances/${instanceId}/rpc`, {
+    method: "POST", headers: { cookie, "content-type": "text/plain" },
+    body: JSON.stringify({ type: MSG.commandExecute, payload: { text: "/danger" } }),
+  });
+  expect(bad.status).toBe(415);
+  expect(rpcCalls.length).toBe(0);
+
+  // application/json works
+  const ok = await app.request(`/api/instances/${instanceId}/rpc`, {
+    method: "POST", headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ type: MSG.sessionsList, payload: {} }),
+  });
+  expect(ok.status).toBe(200);
+  expect(rpcCalls.length).toBe(1);
+});

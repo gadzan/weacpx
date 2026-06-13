@@ -35,6 +35,10 @@ const CHAT_SCOPED_TYPES = new Set<string>([
   MSG.scheduledList, MSG.scheduledCreate, MSG.scheduledCancel,
 ]);
 
+function requireJson(contentType: string | undefined): boolean {
+  return (contentType ?? "").toLowerCase().includes("application/json");
+}
+
 type Vars = { Variables: { account: AccountRow } };
 
 export function createApp(deps: AppDeps): Hono<Vars> {
@@ -47,6 +51,7 @@ export function createApp(deps: AppDeps): Hono<Vars> {
   const app = new Hono<Vars>();
 
   app.post("/api/login", async (c) => {
+    if (!requireJson(c.req.header("content-type"))) return c.json({ error: "unsupported-media-type" }, 415);
     const body = (await c.req.json().catch(() => ({}))) as { username?: string; password?: string };
     const username = body.username ?? "";
     const failures = loginFailures.get(username);
@@ -71,6 +76,7 @@ export function createApp(deps: AppDeps): Hono<Vars> {
   });
 
   app.post("/api/register", async (c) => {
+    if (!requireJson(c.req.header("content-type"))) return c.json({ error: "unsupported-media-type" }, 415);
     const body = (await c.req.json().catch(() => ({}))) as { invite?: string; username?: string; password?: string };
     if (!body.invite || !body.username || !body.password) return c.json({ error: "missing-fields" }, 400);
     if (!deps.accounts.validateInvite(body.invite)) return c.json({ error: "invalid-invite" }, 403);
@@ -139,6 +145,7 @@ export function createApp(deps: AppDeps): Hono<Vars> {
   });
 
   app.post("/api/instances/:id/rpc", async (c) => {
+    if (!requireJson(c.req.header("content-type"))) return c.json({ error: "unsupported-media-type" }, 415);
     const account = c.get("account");
     const instance = deps.instances.getOwned(c.req.param("id"), account.id);
     if (!instance) return c.json({ error: "not-found" }, 404);
