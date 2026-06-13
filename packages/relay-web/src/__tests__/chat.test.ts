@@ -66,6 +66,24 @@ test("surfaces an error when send fails", async () => {
   expect(chat.sending).toBe(false);
 });
 
+test("keeps a per-session streaming buffer across selection changes", () => {
+  const chat = useChatStore();
+  chat.select("inst", "A");
+  chat.applyEvent({ kind: "control-event", instanceId: "inst", event: { type: "turn-output", chatKey: "relay:x", sessionAlias: "A", chunk: "partial-A" } });
+  chat.select("inst", "B");
+  expect(chat.streaming).toBe("");
+  chat.select("inst", "A");
+  expect(chat.streaming).toBe("partial-A");
+});
+
+test("command send carries sessionAlias", async () => {
+  rpc.mockResolvedValueOnce({ output: "ok" });
+  const chat = useChatStore();
+  chat.select("inst", "backend");
+  await chat.send("/status");
+  expect(rpc).toHaveBeenCalledWith("inst", "control.command.execute", { sessionAlias: "backend", text: "/status" });
+});
+
 test("PromptInput emits send with trimmed text and clears", async () => {
   const wrapper = mount(PromptInput);
   await wrapper.find("textarea").setValue("  do it  ");

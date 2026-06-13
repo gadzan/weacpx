@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import type { MessageRecordDto, WebServerEvent } from "@ganglion/xacpx-relay-protocol";
 import { api, ApiError } from "../api/client";
 
@@ -7,7 +7,11 @@ export const useChatStore = defineStore("chat", () => {
   const instanceId = ref<string | null>(null);
   const sessionAlias = ref<string | null>(null);
   const messages = ref<MessageRecordDto[]>([]);
-  const streaming = ref("");
+  const streamBuffers = ref<Record<string, string>>({});
+  const streaming = computed(() => {
+    if (!instanceId.value || !sessionAlias.value) return "";
+    return streamBuffers.value[`${instanceId.value} ${sessionAlias.value}`] ?? "";
+  });
   const sending = ref(false);
   const error = ref("");
 
@@ -15,7 +19,6 @@ export const useChatStore = defineStore("chat", () => {
     instanceId.value = id;
     sessionAlias.value = alias;
     messages.value = [];
-    streaming.value = "";
   }
 
   async function loadHistory(): Promise<void> {
@@ -29,14 +32,16 @@ export const useChatStore = defineStore("chat", () => {
   function applyEvent(event: WebServerEvent): void {
     if (event.kind !== "control-event") return;
     const e = event.event;
-    if (event.instanceId !== instanceId.value) return;
-    if (e.type === "turn-output" && e.sessionAlias === sessionAlias.value) {
-      streaming.value += e.chunk;
-    } else if (e.type === "turn-finished" && e.sessionAlias === sessionAlias.value) {
-      if (streaming.value) {
-        messages.value.push({ instanceId: event.instanceId, sessionAlias: e.sessionAlias, direction: "out", text: streaming.value, createdAt: new Date().toISOString() });
+    if (e.type === "turn-output") {
+      const k = `${event.instanceId} ${e.sessionAlias}`;
+      streamBuffers.value[k] = (streamBuffers.value[k] ?? "") + e.chunk;
+    } else if (e.type === "turn-finished") {
+      const k = `${event.instanceId} ${e.sessionAlias}`;
+      const text = streamBuffers.value[k];
+      delete streamBuffers.value[k];
+      if (text && event.instanceId === instanceId.value && e.sessionAlias === sessionAlias.value) {
+        messages.value.push({ instanceId: event.instanceId, sessionAlias: e.sessionAlias, direction: "out", text, createdAt: new Date().toISOString() });
       }
-      streaming.value = "";
     }
   }
 
@@ -47,7 +52,7 @@ export const useChatStore = defineStore("chat", () => {
     messages.value.push({ instanceId: instanceId.value, sessionAlias: sessionAlias.value, direction: "in", text, createdAt: new Date().toISOString() });
     try {
       if (text.startsWith("/")) {
-        const { output } = await api.rpc<{ output: string }>(instanceId.value, "control.command.execute", { text });
+        const { output } = await api.rpc<{ output: string }>(instanceId.value, "control.command.execute", { sessionAlias: sessionAlias.value, text });
         messages.value.push({ instanceId: instanceId.value, sessionAlias: sessionAlias.value, direction: "out", text: output, createdAt: new Date().toISOString() });
       } else {
         await api.rpc(instanceId.value, "control.prompt", { sessionAlias: sessionAlias.value, text });
