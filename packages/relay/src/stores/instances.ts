@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { generateToken, hashToken } from "../auth.js";
+import { generateToken, hashEquals, hashToken } from "../auth.js";
 import type { SqlDriver } from "../db.js";
 
 export interface InstanceRow {
@@ -67,7 +67,7 @@ export class InstanceStore {
       id: string; account_id: string; name: string; credential_hash: string;
       core_version: string | null; last_seen_at: string | null; created_at: string;
     }>("SELECT * FROM instances WHERE id = ?", [instanceId]);
-    if (!row || row.credential_hash !== hashToken(credential)) return null;
+    if (!row || !hashEquals(row.credential_hash, hashToken(credential))) return null;
     return toInstanceRow(row);
   }
 

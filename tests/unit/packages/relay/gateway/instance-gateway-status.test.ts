@@ -32,3 +32,26 @@ test("onStatusChange fires online on auth and offline on close", async () => {
   socket.close();
   expect(events).toEqual([["i1", "a1", true], ["i1", "a1", false]]);
 });
+
+test("sendRequest pending requests reject with instance-offline on disconnect", async () => {
+  const gateway = new InstanceGateway({
+    instances: {
+      redeemPairingToken: () => null,
+      verifyCredential: () => ({ id: "i1", accountId: "a1" }),
+      touch: () => {},
+    } as never,
+    // Large timeout: the test must prove the DRAIN rejects, not the timer.
+    requestTimeoutMs: 60_000,
+  });
+  const socket = new FakeSocket();
+  gateway.handleConnection(socket as never);
+  socket.emit("message", encodeEnvelope({
+    protocolVersion: RELAY_PROTOCOL_VERSION, kind: "req", id: "h1", type: MSG.instanceAuth,
+    payload: { instanceId: "i1", credential: "c" },
+  }));
+  expect(gateway.isOnline("i1")).toBe(true);
+
+  const p = gateway.sendRequest("i1", MSG.sessionsList, {});
+  socket.close();
+  await expect(p).rejects.toThrow("instance-offline");
+});

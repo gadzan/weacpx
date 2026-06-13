@@ -29,6 +29,7 @@ interface PendingRequest {
   resolve: (payload: unknown) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  instanceId: string;
 }
 
 export class InstanceGateway {
@@ -84,6 +85,13 @@ export class InstanceGateway {
     socket.on("close", () => {
       if (authed) {
         this.connections.delete(authed.instanceId);
+        for (const [id, p] of this.pending) {
+          if (p.instanceId === authed.instanceId) {
+            clearTimeout(p.timer);
+            this.pending.delete(id);
+            p.reject(new Error("instance-offline"));
+          }
+        }
         this.deps.onStatusChange?.(authed.instanceId, authed.accountId, false);
       }
     });
@@ -143,7 +151,7 @@ export class InstanceGateway {
         this.pending.delete(id);
         reject(new Error("timeout"));
       }, timeoutMs);
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, { resolve, reject, timer, instanceId });
       connection.socket.send(encodeEnvelope({
         protocolVersion: RELAY_PROTOCOL_VERSION, kind: "req", id, type, payload,
       }));
