@@ -102,6 +102,44 @@ it("keys buffers by NUL so space-containing names do not collide", () => {
   expect(chat.streaming).toBe("");
 });
 
+it("turn-finished with ok:false surfaces an error and marks the tail failed", () => {
+  const chat = useChatStore();
+  chat.select("inst", "A");
+  chat.applyEvent({ kind: "control-event", instanceId: "inst", event: { type: "turn-output", chatKey: "c", sessionAlias: "A", chunk: "partial" } });
+  chat.applyEvent({ kind: "control-event", instanceId: "inst", event: { type: "turn-finished", chatKey: "c", sessionAlias: "A", ok: false, errorMessage: "boom" } });
+  expect(chat.error).toBe("boom");
+  const last = chat.messages[chat.messages.length - 1];
+  expect(last?.failed ?? false).toBe(true);
+});
+
+it("turn-finished with ok:true does not set error", () => {
+  const chat = useChatStore();
+  chat.select("inst", "A");
+  chat.applyEvent({ kind: "control-event", instanceId: "inst", event: { type: "turn-output", chatKey: "c", sessionAlias: "A", chunk: "hi" } });
+  chat.applyEvent({ kind: "control-event", instanceId: "inst", event: { type: "turn-finished", chatKey: "c", sessionAlias: "A", ok: true } });
+  expect(chat.error).toBe("");
+  expect(chat.messages[chat.messages.length - 1].failed ?? false).toBe(false);
+});
+
+it("clears error on session select", () => {
+  const chat = useChatStore();
+  chat.select("inst", "A");
+  chat.error = "stale";
+  chat.select("inst", "B");
+  expect(chat.error).toBe("");
+});
+
+it("marks the optimistic message failed when send rejects", async () => {
+  rpc.mockRejectedValueOnce(new ApiError("instance-offline", 503));
+  const chat = useChatStore();
+  chat.select("inst", "A");
+  await chat.send("hello");
+  const last = chat.messages[chat.messages.length - 1];
+  expect(last.direction).toBe("in");
+  expect(last.failed).toBe(true);
+  expect(chat.error).toBe("instance-offline");
+});
+
 test("PromptInput emits send with trimmed text and clears", async () => {
   const wrapper = mount(PromptInput);
   await wrapper.find("textarea").setValue("  do it  ");
