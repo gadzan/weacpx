@@ -78,5 +78,14 @@ export function initSchema(db: SqlDriver): void {
       last_seen_at TEXT,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      instance_id TEXT NOT NULL REFERENCES instances(id),
+      session_alias TEXT NOT NULL,
+      direction TEXT NOT NULL CHECK (direction IN ('in','out')),
+      text TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_messages_session ON messages (instance_id, session_alias, id);
   `);
 }
