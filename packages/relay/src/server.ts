@@ -32,6 +32,7 @@ export interface RelayRuntime {
 export interface CreateRuntimeOptions {
   webRoot?: string;
   historyRetentionDays?: number;
+  requestTimeoutMs?: number;
 }
 
 /** Testable assembly without any network listener. */
@@ -49,6 +50,7 @@ export async function createRelayRuntime(dbPath: string, options: CreateRuntimeO
 
   const gateway = new InstanceGateway({
     instances,
+    requestTimeoutMs: options.requestTimeoutMs ?? 120_000,
     onStatusChange: (instanceId, accountId, online) => {
       if (!online) {
         const prefix = `${instanceId}\0`;
@@ -90,6 +92,7 @@ export interface StartRelayOptions {
   host?: string;
   webRoot?: string;
   historyRetentionDays?: number;
+  requestTimeoutMs?: number;
 }
 
 export interface RunningRelay {
@@ -103,6 +106,7 @@ export async function startRelayServer(options: StartRelayOptions): Promise<Runn
   const runtime = await createRelayRuntime(options.dbPath, {
     webRoot: options.webRoot,
     historyRetentionDays: options.historyRetentionDays,
+    requestTimeoutMs: options.requestTimeoutMs,
   });
   const host = options.host ?? "0.0.0.0";
 
