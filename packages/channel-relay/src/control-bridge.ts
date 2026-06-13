@@ -1,0 +1,126 @@
+import {
+  MSG,
+  errorPayload,
+  type CommandExecutePayload,
+  type OrchestrationCancelPayload,
+  type OrchestrationGetPayload,
+  type OrchestrationTaskDto,
+  type PromptCancelPayload,
+  type PromptPayload,
+  type RelayEnvelope,
+  type ScheduledCancelPayload,
+  type ScheduledCreatePayload,
+  type ScheduledListPayload,
+  type ScheduledTaskDto,
+  type SessionsCreatePayload,
+  type SessionsRemovePayload,
+} from "@ganglion/xacpx-relay-protocol";
+import type { ControlService } from "xacpx/plugin-api";
+
+// Wire mappers live here (not in relay-protocol) so the protocol package stays
+// free of xacpx imports. Field lists mirror the "Keep in sync" notes in dtos.ts.
+export function scheduledTaskToDto(record: ReturnType<ControlService["listScheduledTasks"]>[number]): ScheduledTaskDto {
+  return {
+    id: record.id,
+    sessionAlias: record.session_alias,
+    executeAt: record.execute_at,
+    message: record.message,
+    status: record.status,
+    createdAt: record.created_at,
+  };
+}
+
+export function orchestrationTaskToDto(
+  record: Awaited<ReturnType<ControlService["listOrchestrationTasks"]>>[number],
+): OrchestrationTaskDto {
+  return {
+    taskId: record.taskId,
+    status: record.status,
+    targetAgent: record.targetAgent,
+    workspace: record.workspace,
+    task: record.task,
+    summary: record.summary,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
+export type ControlBridge = (envelope: RelayEnvelope, respond: (payload: unknown) => void) => void;
+
+export function createControlBridge(control: ControlService): ControlBridge {
+  return (envelope, respond) => {
+    void dispatchControlRequest(control, envelope)
+      .then(respond)
+      .catch((error: unknown) => {
+        respond(errorPayload("internal", error instanceof Error ? error.message : String(error)));
+      });
+  };
+}
+
+async function dispatchControlRequest(control: ControlService, envelope: RelayEnvelope): Promise<unknown> {
+  const payload = envelope.payload;
+  switch (envelope.type) {
+    case MSG.sessionsList:
+      return { sessions: control.listSessions() }; // ControlSessionInfo is field-identical to SessionDto
+    case MSG.sessionsCreate: {
+      const input = payload as SessionsCreatePayload;
+      return await control.createSession(input.alias, input.agent, input.workspace);
+    }
+    case MSG.sessionsRemove: {
+      const input = payload as SessionsRemovePayload;
+      return await control.removeSession(input.alias);
+    }
+    case MSG.prompt:
+      return await control.prompt(payload as PromptPayload);
+    case MSG.promptCancel: {
+      const input = payload as PromptCancelPayload;
+      return { cancelled: control.cancelTurn(input.chatKey, input.sessionAlias) };
+    }
+    case MSG.commandExecute: {
+      const input = payload as CommandExecutePayload;
+      return { output: await control.executeCommand(input) };
+    }
+    case MSG.scheduledList: {
+      const input = payload as ScheduledListPayload;
+      return { tasks: control.listScheduledTasks(input.chatKey).map(scheduledTaskToDto) };
+    }
+    case MSG.scheduledCreate: {
+      const input = payload as ScheduledCreatePayload;
+      const ms = Date.parse(input.executeAt);
+      if (Number.isNaN(ms)) return errorPayload("bad-request", "executeAt is not a valid ISO timestamp");
+      const task = await control.createScheduledTask({
+        chatKey: input.chatKey,
+        sessionAlias: input.sessionAlias,
+        executeAt: new Date(ms),
+        message: input.message,
+      });
+      return scheduledTaskToDto(task);
+    }
+    case MSG.scheduledCancel: {
+      const input = payload as ScheduledCancelPayload;
+      return { cancelled: await control.cancelScheduledTask(input.id, input.chatKey) };
+    }
+    case MSG.orchestrationList:
+      return { tasks: (await control.listOrchestrationTasks()).map(orchestrationTaskToDto) };
+    case MSG.orchestrationGet: {
+      const input = payload as OrchestrationGetPayload;
+      const task = await control.getOrchestrationTask(input.taskId);
+      return { task: task ? orchestrationTaskToDto(task) : null };
+    }
+    case MSG.orchestrationCancel: {
+      const input = payload as OrchestrationCancelPayload;
+      return orchestrationTaskToDto(await control.cancelOrchestrationTask({ taskId: input.taskId }));
+    }
+    default:
+      return errorPayload("unknown-type", `unsupported rpc type: ${envelope.type}`);
+  }
+}
+
+export function subscribeControlEvents(
+  control: ControlService,
+  sendEvent: (type: string, payload: unknown) => void,
+): () => void {
+  return control.events.subscribe((event) => {
+    sendEvent(MSG.instanceEvent, { event });
+  });
+}

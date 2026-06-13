@@ -199,5 +199,5 @@ test("first-party channel packages live outside core", async () => {
     .filter((name) => name.startsWith("channel-"))
     .sort();
 
-  expect(channelPackages).toEqual(["channel-feishu", "channel-yuanbao"]);
+  expect(channelPackages).toEqual(["channel-feishu", "channel-relay", "channel-yuanbao"]);
 });

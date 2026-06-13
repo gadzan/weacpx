@@ -88,6 +88,7 @@ test("a turn that finished while backgrounded records a completion signal and pi
   (channel as any).activeTurns = {
     markActive() {},
     isActive: () => false,
+    isActiveAnywhere: () => false,
     markInactive: (ck: string, alias: string) => inactiveCalls.push({ ck, alias }),
   };
   (channel as any).logger = createNoopLogger();
@@ -117,7 +118,7 @@ test("a turn that finished while STILL foreground records nothing and does not p
     peekCurrentSessionAlias: () => "feishu:acct:c:codex", // still foreground
     setBackgroundResult: async (...a: unknown[]) => { setCalls.push(a); },
   };
-  (channel as any).activeTurns = { markActive() {}, markInactive() {}, isActive: () => false };
+  (channel as any).activeTurns = { markActive() {}, markInactive() {}, isActive: () => false, isActiveAnywhere: () => false };
   (channel as any).logger = createNoopLogger();
   (channel as any).deliverResponse = async () => {};
   (channel as any).sendReplyWithGuard = async ({ text }: { text: string }) => { sent.push(text); };
@@ -141,7 +142,7 @@ test("a backgrounded turn that errored records an error signal and pings failure
     peekCurrentSessionAlias: () => "feishu:acct:c:other",
     setBackgroundResult: async (_ck: string, alias: string, r: any) => { setCalls.push({ alias, r }); },
   };
-  (channel as any).activeTurns = { markActive() {}, markInactive() {}, isActive: () => false };
+  (channel as any).activeTurns = { markActive() {}, markInactive() {}, isActive: () => false, isActiveAnywhere: () => false };
   (channel as any).logger = createNoopLogger();
   (channel as any).deliverResponse = async () => {};
   (channel as any).sendReplyWithGuard = async ({ text }: { text: string }) => { sent.push(text); };
@@ -164,7 +165,7 @@ test("a turn that never ran (agent unavailable) records NOTHING and does not fal
     peekCurrentSessionAlias: () => "feishu:acct:c:other", // switched away
     setBackgroundResult: async (_ck: string, _alias: string, r: any) => { setCalls.push({ r }); },
   };
-  (channel as any).activeTurns = { markActive() {}, markInactive() {}, isActive: () => false };
+  (channel as any).activeTurns = { markActive() {}, markInactive() {}, isActive: () => false, isActiveAnywhere: () => false };
   (channel as any).logger = createNoopLogger();
   (channel as any).deliverResponse = async () => {};
   (channel as any).sendReplyWithGuard = async ({ text }: { text: string }) => { sent.push(text); };
@@ -188,7 +189,7 @@ test("a turn suppressed (cancelled) before running records NOTHING and does not 
     peekCurrentSessionAlias: () => "feishu:acct:c:other", // switched away
     setBackgroundResult: async (_ck: string, _alias: string, r: any) => { setCalls.push({ r }); },
   };
-  (channel as any).activeTurns = { markActive() {}, markInactive() {}, isActive: () => false };
+  (channel as any).activeTurns = { markActive() {}, markInactive() {}, isActive: () => false, isActiveAnywhere: () => false };
   (channel as any).logger = createNoopLogger();
   (channel as any).deliverResponse = async () => {};
   (channel as any).sendReplyWithGuard = async ({ text }: { text: string }) => { sent.push(text); };
