@@ -21,7 +21,8 @@ async function makeApp() {
       return { sessions: [] };
     },
   };
-  const app = createApp({ accounts, instances, gateway, messages: new MessageStore(db) });
+  const messages = new MessageStore(db);
+  const app = createApp({ accounts, instances, gateway, messages });
   const login = async (username: string, password: string) => {
     const res = await app.request("/api/login", {
       method: "POST",
@@ -30,7 +31,7 @@ async function makeApp() {
     });
     return { res, cookie: res.headers.get("set-cookie")?.split(";")[0] ?? "" };
   };
-  return { app, accounts, instances, admin, gateway, rpcCalls, login };
+  return { app, accounts, instances, admin, gateway, rpcCalls, messages, login };
 }
 
 test("login sets HttpOnly cookie; bad password 401; rate limit kicks in", async () => {
@@ -104,6 +105,26 @@ test("instances: pairing token, list with online flag, account isolation, rpc st
     method: "POST", headers: { cookie, "content-type": "application/json" },
     body: JSON.stringify({ type: MSG.sessionsList, payload: {} }),
   })).status).toBe(404);
+});
+
+test("rpc command.execute echoes input and output into history", async () => {
+  const { app, instances, gateway, messages, login } = await makeApp();
+  const { cookie } = await login("admin", "admin-pw");
+  const tokenRes = await app.request("/api/instances/pairing-token", {
+    method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ name: "pc" }),
+  });
+  const { token } = (await tokenRes.json()) as { token: string };
+  const { instanceId, accountId } = instances.redeemPairingToken(token)!;
+
+  (gateway as unknown as { sendRequest: () => Promise<unknown> }).sendRequest = async () => ({ output: "ran ok" });
+
+  const res = await app.request(`/api/instances/${instanceId}/rpc`, {
+    method: "POST", headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ type: MSG.commandExecute, payload: { sessionAlias: "s", text: "/status" } }),
+  });
+  expect(res.status).toBe(200);
+  const cached = messages.listBySession(accountId, instanceId, "s");
+  expect(cached.map((m) => [m.direction, m.text])).toEqual([["in", "/status"], ["out", "ran ok"]]);
 });
 
 test("rpc rejects non-JSON content-type (CSRF backstop) but accepts application/json", async () => {

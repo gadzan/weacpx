@@ -165,6 +165,11 @@ export function createApp(deps: AppDeps): Hono<Vars> {
       if (body.type === MSG.prompt) {
         const p = payload as { sessionAlias?: string; text?: string };
         if (p.sessionAlias && p.text) deps.messages.append(instance.id, p.sessionAlias, "in", p.text);
+      } else if (body.type === MSG.commandExecute) {
+        const p = payload as { sessionAlias?: string; text?: string };
+        const output = (result as { output?: string } | undefined)?.output;
+        if (p.sessionAlias && p.text) deps.messages.append(instance.id, p.sessionAlias, "in", p.text);
+        if (p.sessionAlias && typeof output === "string") deps.messages.append(instance.id, p.sessionAlias, "out", output);
       }
       return c.json({ result });
     } catch (error) {
