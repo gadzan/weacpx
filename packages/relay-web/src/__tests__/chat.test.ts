@@ -1,6 +1,6 @@
 // packages/relay-web/src/__tests__/chat.test.ts
 import { setActivePinia, createPinia } from "pinia";
-import { beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, it, test, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 
 const rpc = vi.fn();
@@ -82,6 +82,24 @@ test("command send carries sessionAlias", async () => {
   chat.select("inst", "backend");
   await chat.send("/status");
   expect(rpc).toHaveBeenCalledWith("inst", "control.command.execute", { sessionAlias: "backend", text: "/status" });
+});
+
+it("drops an instance's stream buffers when it goes offline", () => {
+  const chat = useChatStore();
+  chat.select("inst", "A");
+  chat.applyEvent({ kind: "control-event", instanceId: "inst", event: { type: "turn-output", chatKey: "relay:x", sessionAlias: "A", chunk: "partial" } });
+  expect(chat.streaming).toBe("partial");
+  chat.applyEvent({ kind: "instance-status", instanceId: "inst", online: false });
+  expect(chat.streaming).toBe("");
+});
+
+it("keys buffers by NUL so space-containing names do not collide", () => {
+  const chat = useChatStore();
+  chat.select("a b", "c");
+  chat.applyEvent({ kind: "control-event", instanceId: "a b", event: { type: "turn-output", chatKey: "relay:x", sessionAlias: "c", chunk: "X" } });
+  chat.select("a", "b c");
+  // With a space delimiter both would map to "a b c" and collide; with NUL they are distinct.
+  expect(chat.streaming).toBe("");
 });
 
 test("PromptInput emits send with trimmed text and clears", async () => {

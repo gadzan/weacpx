@@ -8,9 +8,10 @@ export const useChatStore = defineStore("chat", () => {
   const sessionAlias = ref<string | null>(null);
   const messages = ref<MessageRecordDto[]>([]);
   const streamBuffers = ref<Record<string, string>>({});
+  const bufKey = (instanceId: string, alias: string) => `${instanceId}\0${alias}`;
   const streaming = computed(() => {
     if (!instanceId.value || !sessionAlias.value) return "";
-    return streamBuffers.value[`${instanceId.value} ${sessionAlias.value}`] ?? "";
+    return streamBuffers.value[bufKey(instanceId.value, sessionAlias.value)] ?? "";
   });
   const sending = ref(false);
   const error = ref("");
@@ -30,13 +31,20 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   function applyEvent(event: WebServerEvent): void {
+    if (event.kind === "instance-status" && !event.online) {
+      const prefix = `${event.instanceId}\0`;
+      for (const k of Object.keys(streamBuffers.value)) {
+        if (k.startsWith(prefix)) delete streamBuffers.value[k];
+      }
+      return;
+    }
     if (event.kind !== "control-event") return;
     const e = event.event;
     if (e.type === "turn-output") {
-      const k = `${event.instanceId} ${e.sessionAlias}`;
+      const k = bufKey(event.instanceId, e.sessionAlias);
       streamBuffers.value[k] = (streamBuffers.value[k] ?? "") + e.chunk;
     } else if (e.type === "turn-finished") {
-      const k = `${event.instanceId} ${e.sessionAlias}`;
+      const k = bufKey(event.instanceId, e.sessionAlias);
       const text = streamBuffers.value[k];
       delete streamBuffers.value[k];
       if (text && event.instanceId === instanceId.value && e.sessionAlias === sessionAlias.value) {
