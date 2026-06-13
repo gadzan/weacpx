@@ -25,6 +25,7 @@ function makeDeps() {
       }),
       removeSession: async (_alias: string) => ({ wasActive: true }),
       useSession: async () => ({ alias: "backend", agent: "claude", workspace: "/ws/backend" }),
+      resolveAliasForChat: async (_chatKey: string, alias: string) => alias,
     },
     activeTurns: { isActiveAnywhere: (alias: string) => alias === "backend" },
     scheduled: {
@@ -50,7 +51,7 @@ test("listSessions maps resolved sessions with running flag", () => {
   const { deps } = makeDeps();
   const control = new ControlService(deps as never);
 
-  expect(control.listSessions()).toEqual([
+  expect(control.listSessions("relay:acct")).toEqual([
     {
       alias: "backend",
       agent: "claude",
@@ -65,7 +66,7 @@ test("createSession delegates and emits sessions-changed", async () => {
   const { deps, seen } = makeDeps();
   const control = new ControlService(deps as never);
 
-  const created = await control.createSession("docs", "codex", "/ws/docs");
+  const created = await control.createSession("relay:acct", "docs", "codex", "/ws/docs");
   expect(created.alias).toBe("docs");
   expect(seen).toContainEqual({ type: "sessions-changed" });
 });
@@ -74,7 +75,7 @@ test("removeSession delegates and emits sessions-changed", async () => {
   const { deps, seen } = makeDeps();
   const control = new ControlService(deps as never);
 
-  const result = await control.removeSession("backend");
+  const result = await control.removeSession("relay:acct", "backend");
   expect(result.wasActive).toBe(true);
   expect(seen).toContainEqual({ type: "sessions-changed" });
 });

@@ -12,6 +12,11 @@ import type {
   OrchestrationTaskFilter,
 } from "../orchestration/orchestration-service";
 import type { OrchestrationTaskRecord } from "../orchestration/orchestration-types";
+import {
+  getChannelIdFromChatKey,
+  isSessionAliasVisibleInChannel,
+  toDisplaySessionAlias,
+} from "../channels/channel-scope";
 import type { ControlEventBus } from "./control-event-bus";
 
 export interface ControlSessionInfo {
@@ -37,7 +42,7 @@ export interface ControlServiceDeps {
   agent: Pick<ChatAgent, "chat">;
   sessions: Pick<
     SessionService,
-    "listAllResolvedSessions" | "createSession" | "removeSession" | "useSession"
+    "listAllResolvedSessions" | "createSession" | "removeSession" | "useSession" | "resolveAliasForChat"
   >;
   activeTurns: Pick<ActiveTurnRegistry, "isActiveAnywhere">;
   scheduled: Pick<ScheduledTaskService, "listPending" | "createTask" | "cancelPending">;
@@ -85,21 +90,30 @@ export class ControlService {
     return this.deps.events;
   }
 
-  listSessions(): ControlSessionInfo[] {
-    return this.deps.sessions.listAllResolvedSessions().map((session) => ({
-      alias: session.alias,
-      agent: session.agent,
-      workspace: session.workspace,
-      transportSession: session.transportSession,
-      running: this.deps.activeTurns.isActiveAnywhere(session.alias),
-    }));
+  // Sessions are keyed by a channel-scoped internal alias (e.g. `relay:demo`).
+  // The relay's chatKey is `relay:<accountId>`, so create/list/remove all scope
+  // to that channel — otherwise a session created here is invisible to a prompt,
+  // which resolves the same alias scoped. Aliases cross the wire in display form.
+  listSessions(chatKey: string): ControlSessionInfo[] {
+    const channelId = getChannelIdFromChatKey(chatKey);
+    return this.deps.sessions
+      .listAllResolvedSessions()
+      .filter((session) => isSessionAliasVisibleInChannel(session.alias, channelId))
+      .map((session) => ({
+        alias: toDisplaySessionAlias(session.alias),
+        agent: session.agent,
+        workspace: session.workspace,
+        transportSession: session.transportSession,
+        running: this.deps.activeTurns.isActiveAnywhere(session.alias),
+      }));
   }
 
-  async createSession(alias: string, agent: string, workspace: string): Promise<ControlSessionInfo> {
-    const session = await this.deps.sessions.createSession(alias, agent, workspace);
+  async createSession(chatKey: string, alias: string, agent: string, workspace: string): Promise<ControlSessionInfo> {
+    const internalAlias = await this.deps.sessions.resolveAliasForChat(chatKey, alias);
+    const session = await this.deps.sessions.createSession(internalAlias, agent, workspace);
     this.deps.events.emit({ type: "sessions-changed" });
     return {
-      alias: session.alias,
+      alias: toDisplaySessionAlias(session.alias),
       agent: session.agent,
       workspace: session.workspace,
       transportSession: session.transportSession,
@@ -107,8 +121,9 @@ export class ControlService {
     };
   }
 
-  async removeSession(alias: string): Promise<{ wasActive: boolean }> {
-    const result = await this.deps.sessions.removeSession(alias);
+  async removeSession(chatKey: string, alias: string): Promise<{ wasActive: boolean }> {
+    const internalAlias = await this.deps.sessions.resolveAliasForChat(chatKey, alias);
+    const result = await this.deps.sessions.removeSession(internalAlias);
     this.deps.events.emit({ type: "sessions-changed" });
     return result;
   }

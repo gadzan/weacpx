@@ -71,7 +71,13 @@ export const useChatStore = defineStore("chat", () => {
         const { output } = await api.rpc<{ output: string }>(instanceId.value, "control.command.execute", { sessionAlias: sessionAlias.value, text });
         messages.value.push({ instanceId: instanceId.value, sessionAlias: sessionAlias.value, direction: "out", text: output, createdAt: new Date().toISOString() });
       } else {
-        await api.rpc(instanceId.value, "control.prompt", { sessionAlias: sessionAlias.value, text });
+        // A pre-turn failure (e.g. session not found) resolves synchronously with
+        // ok:false and emits no turn-finished event, so surface it here.
+        const res = await api.rpc<{ ok?: boolean; errorMessage?: string }>(instanceId.value, "control.prompt", { sessionAlias: sessionAlias.value, text });
+        if (res && res.ok === false) {
+          error.value = res.errorMessage ?? "prompt-failed";
+          optimistic.failed = true;
+        }
       }
     } catch (e) {
       error.value = e instanceof ApiError ? e.code : "send-failed";

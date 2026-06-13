@@ -13,6 +13,7 @@ import {
   type ScheduledListPayload,
   type ScheduledTaskDto,
   type SessionsCreatePayload,
+  type SessionsListPayload,
   type SessionsRemovePayload,
   type WorkspacesCreatePayload,
 } from "@ganglion/xacpx-relay-protocol";
@@ -61,15 +62,17 @@ export function createControlBridge(control: ControlService): ControlBridge {
 async function dispatchControlRequest(control: ControlService, envelope: RelayEnvelope): Promise<unknown> {
   const payload = envelope.payload;
   switch (envelope.type) {
-    case MSG.sessionsList:
-      return { sessions: control.listSessions() }; // ControlSessionInfo is field-identical to SessionDto
+    case MSG.sessionsList: {
+      const input = payload as SessionsListPayload;
+      return { sessions: control.listSessions(input.chatKey) }; // ControlSessionInfo is field-identical to SessionDto
+    }
     case MSG.sessionsCreate: {
       const input = payload as SessionsCreatePayload;
-      return await control.createSession(input.alias, input.agent, input.workspace);
+      return await control.createSession(input.chatKey, input.alias, input.agent, input.workspace);
     }
     case MSG.sessionsRemove: {
       const input = payload as SessionsRemovePayload;
-      return await control.removeSession(input.alias);
+      return await control.removeSession(input.chatKey, input.alias);
     }
     case MSG.agentsList:
       return { agents: control.listAgents() };

@@ -74,16 +74,24 @@ export interface InstanceNoticePayload {
 }
 
 // --- control RPCs (relay -> instance req; instance res) ---
+export interface SessionsListPayload {
+  /** Server-stamped `relay:<accountId>`; scopes the listing to that channel. */
+  chatKey: string;
+}
 export interface SessionsListResult {
   sessions: SessionDto[];
 }
 export interface SessionsCreatePayload {
+  /** Server-stamped `relay:<accountId>`; scopes the new session to that channel. */
+  chatKey: string;
   alias: string;
   agent: string;
   workspace: string;
 }
 export type SessionsCreateResult = SessionDto;
 export interface SessionsRemovePayload {
+  /** Server-stamped `relay:<accountId>`; scopes the alias to that channel. */
+  chatKey: string;
   alias: string;
 }
 export interface SessionsRemoveResult {
