@@ -1,5 +1,6 @@
 import type { Agent as ChatAgent, ChatRequestMetadata } from "../weixin/agent/interface";
 import type { SessionService } from "../sessions/session-service";
+import type { ResolvedSession } from "../transport/types";
 import type { ActiveTurnRegistry } from "../sessions/active-turn-registry";
 import type {
   CreateScheduledTaskInput,
@@ -42,8 +43,12 @@ export interface ControlServiceDeps {
   agent: Pick<ChatAgent, "chat">;
   sessions: Pick<
     SessionService,
-    "listAllResolvedSessions" | "createSession" | "removeSession" | "useSession" | "resolveAliasForChat"
+    "listAllResolvedSessions" | "removeSession" | "useSession" | "resolveAliasForChat"
   >;
+  // Full-lifecycle session creator (resolve → ensure acpx session → bind),
+  // wired to CommandRouter.createSessionWithTransport in main.ts. Replaces the
+  // logical-only sessions.createSession so control-created sessions are promptable.
+  createSessionWithTransport: (internalAlias: string, agent: string, workspace: string) => Promise<ResolvedSession>;
   activeTurns: Pick<ActiveTurnRegistry, "isActiveAnywhere">;
   scheduled: Pick<ScheduledTaskService, "listPending" | "createTask" | "cancelPending">;
   orchestration: Pick<OrchestrationService, "listTasks" | "getTask" | "requestTaskCancellation">;
@@ -110,7 +115,7 @@ export class ControlService {
 
   async createSession(chatKey: string, alias: string, agent: string, workspace: string): Promise<ControlSessionInfo> {
     const internalAlias = await this.deps.sessions.resolveAliasForChat(chatKey, alias);
-    const session = await this.deps.sessions.createSession(internalAlias, agent, workspace);
+    const session = await this.deps.createSessionWithTransport(internalAlias, agent, workspace);
     this.deps.events.emit({ type: "sessions-changed" });
     return {
       alias: toDisplaySessionAlias(session.alias),

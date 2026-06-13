@@ -17,16 +17,16 @@ function makeDeps() {
     agent: { chat: async () => ({ text: "" }) },
     sessions: {
       listAllResolvedSessions: () => [session],
-      createSession: async (alias: string, agent: string, workspace: string) => ({
-        ...session,
-        alias,
-        agent,
-        workspace,
-      }),
       removeSession: async (_alias: string) => ({ wasActive: true }),
       useSession: async () => ({ alias: "backend", agent: "claude", workspace: "/ws/backend" }),
       resolveAliasForChat: async (_chatKey: string, alias: string) => alias,
     },
+    createSessionWithTransport: async (internalAlias: string, agent: string, workspace: string) => ({
+      ...session,
+      alias: internalAlias,
+      agent,
+      workspace,
+    }),
     activeTurns: { isActiveAnywhere: (alias: string) => alias === "backend" },
     scheduled: {
       listPending: () => [],
@@ -62,10 +62,9 @@ test("listSessions maps resolved sessions with running flag", () => {
   ]);
 });
 
-test("createSession delegates and emits sessions-changed", async () => {
+test("createSession runs the transport lifecycle and emits sessions-changed", async () => {
   const { deps, seen } = makeDeps();
   const control = new ControlService(deps as never);
-
   const created = await control.createSession("relay:acct", "docs", "codex", "/ws/docs");
   expect(created.alias).toBe("docs");
   expect(seen).toContainEqual({ type: "sessions-changed" });

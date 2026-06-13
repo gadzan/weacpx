@@ -763,6 +763,8 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
   const control = new ControlService({
     agent,
     sessions,
+    createSessionWithTransport: (internalAlias, agent, workspace) =>
+      router.createSessionWithTransport(internalAlias, agent, workspace),
     activeTurns,
     scheduled: scheduledService,
     orchestration,
