@@ -465,6 +465,39 @@ export class CommandRouter {
     };
   }
 
+  /**
+   * Create a session through the FULL transport lifecycle (resolve → reserve →
+   * ensure acpx named session → verify → bind logical session → refresh agent
+   * command), with no chat reply/progress. Used by the relay control surface so a
+   * dashboard-created session is immediately promptable, exactly like `/ss new`.
+   * `internalAlias` must already be channel-scoped (e.g. "relay:demo").
+   */
+  async createSessionWithTransport(
+    internalAlias: string,
+    agent: string,
+    workspace: string,
+  ): Promise<ResolvedSession> {
+    const session = this.sessions.resolveSession(
+      internalAlias,
+      agent,
+      workspace,
+      `${workspace}:${internalAlias}`,
+    );
+    const release = await this.reserveLogicalTransportSession(session.transportSession);
+    try {
+      await this.ensureTransportSession(session);
+      const exists = await this.checkTransportSession(session);
+      if (!exists) {
+        throw new Error(`transport session "${session.transportSession}" could not be verified`);
+      }
+      await this.sessions.attachSession(internalAlias, agent, workspace, session.transportSession);
+      await this.refreshSessionTransportAgentCommand(internalAlias);
+      return session;
+    } finally {
+      await release();
+    }
+  }
+
   private createSessionInteractionOps(perfSpan?: PerfSpan): SessionInteractionOps {
     return {
       setModeTransportSession: (session, modeId) => this.setModeTransportSession(session, modeId),

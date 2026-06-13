@@ -99,6 +99,24 @@ test("rejects session creation when acpx reports success but the named session i
   await expect(sessions.getCurrentSession("wx:user")).resolves.toBeNull();
 });
 
+test("createSessionWithTransport resolves, ensures the transport session, and binds the logical session", async () => {
+  const { router, transport, sessions, config } = buildRouter();
+  config.workspaces.home = { cwd: "/tmp/home" };
+  const ensured: string[] = [];
+  (transport.ensureSession as ReturnType<typeof mock>).mockImplementation(
+    async (s: { transportSession: string }) => {
+      ensured.push(s.transportSession);
+    },
+  );
+  (transport.hasSession as ReturnType<typeof mock>).mockImplementation(async () => true);
+
+  const resolved = await router.createSessionWithTransport("relay:demo", "codex", "home");
+
+  expect(resolved.transportSession).toBe("home:relay:demo");
+  expect(ensured).toEqual(["home:relay:demo"]);
+  expect(await sessions.getSession("relay:demo")).toBeTruthy();
+});
+
 test("/session new refuses an alias that already exists", async () => {
   const config = createConfig();
   config.agents.opencode = { driver: "opencode" };
