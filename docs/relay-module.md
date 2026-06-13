@@ -29,6 +29,10 @@
   过期/已用需在 relay 侧重新生成并 `xacpx channel add relay` 更新。
 - 桥接面：relay 的 control.* RPC → 核心 ControlService（见 docs/control-module.md）；
   ControlEventBus 事件与编排通知上行为 instance.event / instance.notice。
+- 会话创建表单数据面：`control.agents.list`（列已配置 agent：name+driver）、
+  `control.workspaces.list`（name+cwd+description）、`control.workspaces.create`
+  （按名+路径新建并**持久化**到实例 config，经 ConfigStore.upsertWorkspace + replaceRuntimeConfig
+  同步进运行时 config 供 SessionService 校验）——三者经 control-bridge 映射到 ControlService。
 - 阶段边界：离线不排队（实例离线时 RPC 返回 503）；事件断线期间丢弃；
   Web 看板（阶段三）消费本阶段的 HTTP API 与事件。
 

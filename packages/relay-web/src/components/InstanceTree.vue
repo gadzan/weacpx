@@ -1,25 +1,14 @@
 <script setup lang="ts">
-import { reactive, ref } from "vue";
+import { ref } from "vue";
 import { useInstancesStore } from "../stores/instances";
+import NewSessionDialog from "./NewSessionDialog.vue";
 
 const store = useInstancesStore();
 const emit = defineEmits<{ select: [instanceId: string, alias: string] }>();
-const formFor = ref<string | null>(null);
-const draft = reactive({ alias: "", agent: "", workspace: "" });
+const dialogFor = ref<{ id: string; name: string } | null>(null);
 
 async function toggle(id: string) {
   await store.loadSessions(id).catch(() => {});
-}
-function openForm(id: string) {
-  formFor.value = formFor.value === id ? null : id;
-  draft.alias = "";
-  draft.agent = "";
-  draft.workspace = "";
-}
-async function submitNew(id: string) {
-  if (!draft.alias || !draft.agent || !draft.workspace) return;
-  await store.createSession(id, draft.alias, draft.agent, draft.workspace).catch(() => {});
-  formFor.value = null;
 }
 function remove(id: string, alias: string) {
   void store.removeSession(id, alias).catch(() => {});
@@ -43,13 +32,11 @@ function remove(id: string, alias: string) {
           <button data-test="delete-session" class="text-xs text-red-400 hover:underline" @click.stop="remove(inst.id, s.alias)">delete</button>
         </li>
       </ul>
-      <button data-test="new-session" class="px-6 py-1 text-left text-xs text-slate-500 hover:underline" @click="openForm(inst.id)">+ new session</button>
-      <form v-if="formFor === inst.id" class="space-y-1 px-6 py-1" @submit.prevent="submitNew(inst.id)">
-        <input v-model="draft.alias" data-test="new-session-alias" placeholder="alias" class="w-full rounded border px-1 text-xs" />
-        <input v-model="draft.agent" data-test="new-session-agent" placeholder="agent" class="w-full rounded border px-1 text-xs" />
-        <input v-model="draft.workspace" data-test="new-session-workspace" placeholder="workspace" class="w-full rounded border px-1 text-xs" />
-        <button type="submit" data-test="new-session-submit" class="w-full rounded bg-slate-700 px-2 py-0.5 text-xs text-white">Create</button>
-      </form>
+      <button data-test="new-session" class="px-6 py-1.5 text-left text-xs font-medium text-slate-500 hover:text-slate-800"
+              @click="dialogFor = { id: inst.id, name: inst.name }">+ new session</button>
     </div>
+
+    <NewSessionDialog v-if="dialogFor" :instance-id="dialogFor.id" :instance-name="dialogFor.name"
+                      @close="dialogFor = null" @created="dialogFor = null" />
   </div>
 </template>

@@ -7,6 +7,19 @@ export interface SessionDto {
   running: boolean;
 }
 
+/** Wire DTO for a configured agent on an instance. */
+export interface AgentDto {
+  name: string;
+  driver: string;
+}
+
+/** Wire DTO for a configured workspace on an instance. */
+export interface WorkspaceDto {
+  name: string;
+  cwd: string;
+  description?: string;
+}
+
 // Keep in sync with ScheduledTaskStatus in src/scheduled/scheduled-types.ts
 export type ScheduledTaskStatusDto =
   | "pending"

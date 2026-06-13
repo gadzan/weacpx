@@ -14,6 +14,7 @@ import {
   type ScheduledTaskDto,
   type SessionsCreatePayload,
   type SessionsRemovePayload,
+  type WorkspacesCreatePayload,
 } from "@ganglion/xacpx-relay-protocol";
 import type { ControlService } from "xacpx/plugin-api";
 
@@ -69,6 +70,17 @@ async function dispatchControlRequest(control: ControlService, envelope: RelayEn
     case MSG.sessionsRemove: {
       const input = payload as SessionsRemovePayload;
       return await control.removeSession(input.alias);
+    }
+    case MSG.agentsList:
+      return { agents: control.listAgents() };
+    case MSG.workspacesList:
+      return { workspaces: control.listWorkspaces() };
+    case MSG.workspacesCreate: {
+      const input = payload as WorkspacesCreatePayload;
+      const name = typeof input.name === "string" ? input.name.trim() : "";
+      const cwd = typeof input.cwd === "string" ? input.cwd.trim() : "";
+      if (!name || !cwd) return errorPayload("bad-request", "workspace name and cwd are required");
+      return { workspace: await control.createWorkspace(name, cwd, input.description) };
     }
     case MSG.prompt:
       return await control.prompt(payload as PromptPayload);

@@ -22,6 +22,17 @@ export interface ControlSessionInfo {
   running: boolean;
 }
 
+export interface ControlAgentInfo {
+  name: string;
+  driver: string;
+}
+
+export interface ControlWorkspaceInfo {
+  name: string;
+  cwd: string;
+  description?: string;
+}
+
 export interface ControlServiceDeps {
   agent: Pick<ChatAgent, "chat">;
   sessions: Pick<
@@ -32,6 +43,14 @@ export interface ControlServiceDeps {
   scheduled: Pick<ScheduledTaskService, "listPending" | "createTask" | "cancelPending">;
   orchestration: Pick<OrchestrationService, "listTasks" | "getTask" | "requestTaskCancellation">;
   events: ControlEventBus;
+  // Read-only config views + a persisting workspace creator. Supplied by main.ts
+  // where the live AppConfig and ConfigStore are in scope; created workspaces are
+  // written back into the live config so SessionService validation sees them.
+  agents: { list(): ControlAgentInfo[] };
+  workspaces: {
+    list(): ControlWorkspaceInfo[];
+    create(name: string, cwd: string, description?: string): Promise<ControlWorkspaceInfo>;
+  };
 }
 
 export interface ControlPromptInput {
@@ -92,6 +111,18 @@ export class ControlService {
     const result = await this.deps.sessions.removeSession(alias);
     this.deps.events.emit({ type: "sessions-changed" });
     return result;
+  }
+
+  listAgents(): ControlAgentInfo[] {
+    return this.deps.agents.list();
+  }
+
+  listWorkspaces(): ControlWorkspaceInfo[] {
+    return this.deps.workspaces.list();
+  }
+
+  createWorkspace(name: string, cwd: string, description?: string): Promise<ControlWorkspaceInfo> {
+    return this.deps.workspaces.create(name, cwd, description);
   }
 
   listScheduledTasks(chatKey: string): ScheduledTaskRecord[] {
