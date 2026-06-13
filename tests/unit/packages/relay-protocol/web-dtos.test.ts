@@ -50,3 +50,32 @@ test("parseWebServerEvent rejects malformed payloads", () => {
   expect(parseWebServerEvent(wrap({ kind: "control-event", instanceId: "i1", event: "x" }))).toBeNull();
   expect(parseWebServerEvent(wrap({ kind: "notice", instanceId: "i1", notice: 5 }))).toBeNull();
 });
+
+test("rejects a control-event whose inner event has an unknown type", () => {
+  expect(parseWebServerEvent(webEventEnvelope({ kind: "control-event", instanceId: "i", event: { type: "__bogus__" } as never }))).toBeNull();
+});
+
+test("rejects a turn-output event missing sessionAlias/chunk", () => {
+  expect(parseWebServerEvent(webEventEnvelope({ kind: "control-event", instanceId: "i", event: { type: "turn-output" } as never }))).toBeNull();
+});
+
+test("rejects a turn-finished event missing ok", () => {
+  expect(parseWebServerEvent(webEventEnvelope({ kind: "control-event", instanceId: "i", event: { type: "turn-finished", chatKey: "c", sessionAlias: "s" } as never }))).toBeNull();
+});
+
+test("rejects a notice missing kind/text", () => {
+  expect(parseWebServerEvent(webEventEnvelope({ kind: "notice", instanceId: "i", notice: { foo: 1 } as never }))).toBeNull();
+});
+
+test("rejects a notice with an unknown kind", () => {
+  expect(parseWebServerEvent(webEventEnvelope({ kind: "notice", instanceId: "i", notice: { kind: "bad", text: "x" } as never }))).toBeNull();
+});
+
+test("accepts well-formed control-events and notices", () => {
+  expect(parseWebServerEvent(webEventEnvelope({ kind: "control-event", instanceId: "i", event: { type: "turn-output", chatKey: "c", sessionAlias: "s", chunk: "x" } }))).not.toBeNull();
+  expect(parseWebServerEvent(webEventEnvelope({ kind: "control-event", instanceId: "i", event: { type: "turn-finished", chatKey: "c", sessionAlias: "s", ok: true } }))).not.toBeNull();
+  expect(parseWebServerEvent(webEventEnvelope({ kind: "control-event", instanceId: "i", event: { type: "sessions-changed" } }))).not.toBeNull();
+  expect(parseWebServerEvent(webEventEnvelope({ kind: "control-event", instanceId: "i", event: { type: "scheduled-changed", chatKey: "c" } }))).not.toBeNull();
+  expect(parseWebServerEvent(webEventEnvelope({ kind: "control-event", instanceId: "i", event: { type: "orchestration-changed" } }))).not.toBeNull();
+  expect(parseWebServerEvent(webEventEnvelope({ kind: "notice", instanceId: "i", notice: { kind: "task-completion", text: "done" } }))).not.toBeNull();
+});

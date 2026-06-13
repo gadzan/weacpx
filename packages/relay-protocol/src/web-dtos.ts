@@ -29,6 +29,36 @@ export function webEventEnvelope(event: WebServerEvent): RelayEnvelope {
 
 const WEB_EVENT_KINDS = new Set(["instance-status", "control-event", "notice"]);
 
+const CONTROL_EVENT_TYPES = new Set([
+  "turn-output",
+  "turn-finished",
+  "sessions-changed",
+  "scheduled-changed",
+  "orchestration-changed",
+]);
+
+/** Deep-validate an inner ControlEventDto: discriminant + per-variant required fields. */
+function validControlEvent(e: unknown): boolean {
+  if (typeof e !== "object" || e === null) return false;
+  const c = e as Record<string, unknown>;
+  if (typeof c.type !== "string" || !CONTROL_EVENT_TYPES.has(c.type)) return false;
+  if (c.type === "turn-output")
+    return typeof c.chatKey === "string" && typeof c.sessionAlias === "string" && typeof c.chunk === "string";
+  if (c.type === "turn-finished")
+    return typeof c.chatKey === "string" && typeof c.sessionAlias === "string" && typeof c.ok === "boolean";
+  if (c.type === "scheduled-changed") return typeof c.chatKey === "string";
+  return true; // sessions-changed / orchestration-changed carry no extra required fields
+}
+
+const NOTICE_KINDS = new Set(["task-completion", "task-progress", "coordinator-message"]);
+
+/** Deep-validate an inner InstanceNoticePayload: known kind + required text. */
+function validNotice(n: unknown): boolean {
+  if (typeof n !== "object" || n === null) return false;
+  const c = n as Record<string, unknown>;
+  return typeof c.kind === "string" && NOTICE_KINDS.has(c.kind) && typeof c.text === "string";
+}
+
 /** Parse + validate a relay→web push payload; returns null for any malformed envelope. */
 export function parseWebServerEvent(envelope: RelayEnvelope): WebServerEvent | null {
   if (envelope.kind !== "event" || envelope.type !== WEB_EVENT_TYPE) return null;
@@ -38,7 +68,7 @@ export function parseWebServerEvent(envelope: RelayEnvelope): WebServerEvent | n
   if (typeof candidate.instanceId !== "string") return null;
   if (typeof candidate.kind !== "string" || !WEB_EVENT_KINDS.has(candidate.kind)) return null;
   if (candidate.kind === "instance-status" && typeof candidate.online !== "boolean") return null;
-  if (candidate.kind === "control-event" && (typeof candidate.event !== "object" || candidate.event === null)) return null;
-  if (candidate.kind === "notice" && (typeof candidate.notice !== "object" || candidate.notice === null)) return null;
+  if (candidate.kind === "control-event" && !validControlEvent(candidate.event)) return null;
+  if (candidate.kind === "notice" && !validNotice(candidate.notice)) return null;
   return payload as WebServerEvent;
 }
