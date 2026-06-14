@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
-import { isErrorPayload, type AgentDto, type SessionDto, type WebServerEvent, type WorkspaceDto } from "@ganglion/xacpx-relay-protocol";
+import { isErrorPayload, type AgentCatalogEntryDto, type AgentDto, type SessionDto, type WebServerEvent, type WorkspaceDto } from "@ganglion/xacpx-relay-protocol";
 import { api, ApiError } from "../api/client";
 
 // An instance-side RPC error comes back as a 200 with an `{error:{code,message}}`
@@ -19,16 +19,17 @@ export interface InstanceView {
   sessions: SessionDto[];
   agents: AgentDto[];
   workspaces: WorkspaceDto[];
+  agentCatalog: AgentCatalogEntryDto[];
 }
 
 export const useInstancesStore = defineStore("instances", () => {
   const instances = ref<InstanceView[]>([]);
 
   async function loadInstances(): Promise<void> {
-    const { instances: rows } = await api.get<{ instances: Array<Omit<InstanceView, "sessions" | "agents" | "workspaces">> }>("/api/instances");
+    const { instances: rows } = await api.get<{ instances: Array<Omit<InstanceView, "sessions" | "agents" | "workspaces" | "agentCatalog">> }>("/api/instances");
     instances.value = rows.map((r) => {
       const prev = byId(r.id);
-      return { ...r, sessions: prev?.sessions ?? [], agents: prev?.agents ?? [], workspaces: prev?.workspaces ?? [] };
+      return { ...r, sessions: prev?.sessions ?? [], agents: prev?.agents ?? [], workspaces: prev?.workspaces ?? [], agentCatalog: prev?.agentCatalog ?? [] };
     });
   }
 
@@ -41,15 +42,40 @@ export const useInstancesStore = defineStore("instances", () => {
   // Pull the instance's configured agents + workspaces to drive the create-session
   // form's dropdowns. Called when the dialog opens.
   async function loadFormOptions(instanceId: string): Promise<void> {
-    const [{ agents }, { workspaces }] = await Promise.all([
+    const [{ agents }, { workspaces }, { agents: catalog }] = await Promise.all([
       api.rpc<{ agents: AgentDto[] }>(instanceId, "control.agents.list"),
       api.rpc<{ workspaces: WorkspaceDto[] }>(instanceId, "control.workspaces.list"),
+      api.rpc<{ agents: AgentCatalogEntryDto[] }>(instanceId, "control.agents.catalog"),
     ]);
     const inst = byId(instanceId);
     if (inst) {
       inst.agents = agents;
       inst.workspaces = workspaces;
+      inst.agentCatalog = catalog;
     }
+  }
+
+  // Pull the full driver catalog (every acpx driver + configured/install hints) so
+  // the create-session picker can show un-configured, installable drivers too.
+  async function loadAgentCatalog(instanceId: string): Promise<void> {
+    const { agents } = await api.rpc<{ agents: AgentCatalogEntryDto[] }>(instanceId, "control.agents.catalog");
+    const inst = byId(instanceId);
+    if (inst) inst.agentCatalog = agents;
+  }
+
+  async function createAgent(instanceId: string, name: string, driver: string): Promise<void> {
+    unwrap(await api.rpc(instanceId, "control.agents.create", { name, driver }));
+    await Promise.all([loadFormOptions(instanceId), loadAgentCatalog(instanceId)]);
+  }
+
+  async function removeAgent(instanceId: string, name: string): Promise<void> {
+    unwrap(await api.rpc(instanceId, "control.agents.remove", { name }));
+    await Promise.all([loadFormOptions(instanceId), loadAgentCatalog(instanceId)]);
+  }
+
+  async function removeWorkspace(instanceId: string, name: string): Promise<void> {
+    unwrap(await api.rpc(instanceId, "control.workspaces.remove", { name }));
+    await loadFormOptions(instanceId);
   }
 
   async function createWorkspace(instanceId: string, name: string, cwd: string, description?: string): Promise<WorkspaceDto> {
@@ -94,5 +120,5 @@ export const useInstancesStore = defineStore("instances", () => {
     return instances.value.find((i) => i.id === id);
   }
 
-  return { instances, loadInstances, loadSessions, loadFormOptions, createWorkspace, createSession, removeSession, applyEvent, byId };
+  return { instances, loadInstances, loadSessions, loadFormOptions, loadAgentCatalog, createWorkspace, createAgent, removeAgent, removeWorkspace, createSession, removeSession, applyEvent, byId };
 });

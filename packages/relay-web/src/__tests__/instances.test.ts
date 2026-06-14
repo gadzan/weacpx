@@ -15,7 +15,7 @@ test("loadInstances populates the list with online flags", async () => {
 
 test("applyEvent instance-status toggles online without refetch", () => {
   const store = useInstancesStore();
-  store.instances = [{ id: "i1", name: "pc", online: true, lastSeenAt: null, sessions: [], agents: [], workspaces: [] }];
+  store.instances = [{ id: "i1", name: "pc", online: true, lastSeenAt: null, sessions: [], agents: [], workspaces: [], agentCatalog: [] }];
   store.applyEvent({ kind: "instance-status", instanceId: "i1", online: false });
   expect(store.instances[0]?.online).toBe(false);
 });
@@ -25,7 +25,7 @@ test("loadSessions caches sessions under the instance", async () => {
     result: { sessions: [{ alias: "backend", agent: "claude", workspace: "/w", transportSession: "t", running: false }] },
   }), { status: 200 })));
   const store = useInstancesStore();
-  store.instances = [{ id: "i1", name: "pc", online: true, lastSeenAt: null, sessions: [], agents: [], workspaces: [] }];
+  store.instances = [{ id: "i1", name: "pc", online: true, lastSeenAt: null, sessions: [], agents: [], workspaces: [], agentCatalog: [] }];
   await store.loadSessions("i1");
   expect(store.instances[0]?.sessions.map((s) => s.alias)).toEqual(["backend"]);
 });
@@ -35,7 +35,7 @@ describe("createSession timeout handling", () => {
 
   function seed() {
     const store = useInstancesStore();
-    store.instances = [{ id: "i1", name: "pc", online: true, lastSeenAt: null, sessions: [], agents: [], workspaces: [] }];
+    store.instances = [{ id: "i1", name: "pc", online: true, lastSeenAt: null, sessions: [], agents: [], workspaces: [], agentCatalog: [] }];
     return store;
   }
 
@@ -78,6 +78,29 @@ describe("createSession timeout handling", () => {
   });
 });
 
+describe("agent catalog + management actions", () => {
+  beforeEach(() => setActivePinia(createPinia()));
+
+  test("loadAgentCatalog stores the catalog on the instance", async () => {
+    const store = useInstancesStore();
+    store.instances = [{ id: "i1", name: "n", online: true, lastSeenAt: null, sessions: [], agents: [], workspaces: [], agentCatalog: [] }];
+    const { api } = await import("../api/client");
+    vi.spyOn(api, "rpc").mockResolvedValue({ agents: [{ driver: "gemini", configured: false, installed: "unknown" }] });
+    await store.loadAgentCatalog("i1");
+    expect(store.byId("i1")!.agentCatalog).toEqual([{ driver: "gemini", configured: false, installed: "unknown" }]);
+    vi.restoreAllMocks();
+  });
+
+  test("removeAgent surfaces an instance-side error payload", async () => {
+    const store = useInstancesStore();
+    store.instances = [{ id: "i1", name: "n", online: true, lastSeenAt: null, sessions: [], agents: [], workspaces: [], agentCatalog: [] }];
+    const { api } = await import("../api/client");
+    vi.spyOn(api, "rpc").mockResolvedValue({ error: { code: "internal", message: 'agent "codex" is in use by an existing session' } });
+    await expect(store.removeAgent("i1", "codex")).rejects.toThrow(/in use/);
+    vi.restoreAllMocks();
+  });
+});
+
 import { mount } from "@vue/test-utils";
 import InstanceTree from "../components/InstanceTree.vue";
 
@@ -85,8 +108,8 @@ test("InstanceTree renders an online dot per instance", () => {
   setActivePinia(createPinia());
   const store = useInstancesStore();
   store.instances = [
-    { id: "i1", name: "pc", online: true, lastSeenAt: null, sessions: [], agents: [], workspaces: [] },
-    { id: "i2", name: "srv", online: false, lastSeenAt: null, sessions: [], agents: [], workspaces: [] },
+    { id: "i1", name: "pc", online: true, lastSeenAt: null, sessions: [], agents: [], workspaces: [], agentCatalog: [] },
+    { id: "i2", name: "srv", online: false, lastSeenAt: null, sessions: [], agents: [], workspaces: [], agentCatalog: [] },
   ];
   const wrapper = mount(InstanceTree);
   const dots = wrapper.findAll('[data-test="online-dot"]');
