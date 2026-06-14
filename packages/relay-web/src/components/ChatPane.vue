@@ -16,6 +16,21 @@ const elapsed = computed(() => {
   const s = Math.max(0, Math.floor((nowMs.value - chat.liveTurn.startedAt) / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 });
+
+// Whimsical near-synonyms cycled through while a turn runs (à la Claude Code).
+// Purely cosmetic — unrelated to what the agent is actually doing. Reuses the
+// 1Hz clock above; the word changes every ~4s. "Working" stays first so the
+// HUD reads sensibly at t≈0.
+const VERBS = [
+  "Working", "Thinking", "Pondering", "Cogitating", "Reasoning", "Computing",
+  "Churning", "Crunching", "Percolating", "Noodling", "Mulling", "Brewing",
+  "Processing", "Deliberating", "Ruminating", "Synthesizing", "Wrangling", "Tinkering",
+];
+const verb = computed(() => {
+  if (!chat.liveTurn) return VERBS[0];
+  const s = Math.max(0, Math.floor((nowMs.value - chat.liveTurn.startedAt) / 1000));
+  return VERBS[Math.floor(s / 4) % VERBS.length];
+});
 const runningTools = computed(() => chat.liveTurn?.toolSteps.filter((t) => t.status === "running").length ?? 0);
 </script>
 
@@ -33,7 +48,7 @@ const runningTools = computed(() => chat.liveTurn?.toolSteps.filter((t) => t.sta
       <MessageList :messages="chat.messages" :streaming="chat.streaming" :live-turn="chat.liveTurn" />
       <div v-if="chat.busy" data-test="turn-hud" class="flex items-center gap-2 px-4 py-1 text-xs text-slate-500">
         <span class="animate-pulse">●</span>
-        <span>Working… {{ elapsed }}</span>
+        <span>{{ verb }}… {{ elapsed }}</span>
         <span v-if="runningTools > 0">· 🔧 {{ runningTools }}</span>
         <button data-test="cancel-turn" class="ml-auto text-red-500 hover:underline" @click="chat.cancel">Cancel</button>
       </div>
