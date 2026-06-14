@@ -193,14 +193,18 @@ export function createApp(deps: AppDeps): Hono<Vars> {
       };
     }
     try {
-      const result = await deps.gateway.sendRequest(instance.id, body.type, payload);
-      if (body.type === MSG.prompt) {
+      // Persist the inbound user message BEFORE awaiting the turn: sendRequest
+      // resolves only after the agent's turn-finished event has already
+      // persisted the "out" message, so appending "in" afterwards would give it
+      // a higher autoincrement id and flip the history order.
+      if (body.type === MSG.prompt || body.type === MSG.commandExecute) {
         const p = payload as { sessionAlias?: string; text?: string };
         if (p.sessionAlias && p.text) deps.messages.append(instance.id, p.sessionAlias, "in", p.text);
-      } else if (body.type === MSG.commandExecute) {
+      }
+      const result = await deps.gateway.sendRequest(instance.id, body.type, payload);
+      if (body.type === MSG.commandExecute) {
         const p = payload as { sessionAlias?: string; text?: string };
         const output = (result as { output?: string } | undefined)?.output;
-        if (p.sessionAlias && p.text) deps.messages.append(instance.id, p.sessionAlias, "in", p.text);
         if (p.sessionAlias && typeof output === "string") deps.messages.append(instance.id, p.sessionAlias, "out", output);
       }
       return c.json({ result });

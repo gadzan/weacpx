@@ -127,6 +127,31 @@ test("rpc command.execute echoes input and output into history", async () => {
   expect(cached.map((m) => [m.direction, m.text])).toEqual([["in", "/status"], ["out", "ran ok"]]);
 });
 
+test("rpc prompt persists the inbound message before the turn's out message (history order)", async () => {
+  const { app, instances, gateway, messages, login } = await makeApp();
+  const { cookie } = await login("admin", "admin-pw");
+  const tokenRes = await app.request("/api/instances/pairing-token", {
+    method: "POST", headers: { cookie, "content-type": "application/json" }, body: JSON.stringify({ name: "pc" }),
+  });
+  const { token } = (await tokenRes.json()) as { token: string };
+  const { instanceId, accountId } = instances.redeemPairingToken(token)!;
+
+  // Real flow: the agent's turn-finished fires (appending "out") WHILE
+  // sendRequest is still awaiting, before it resolves. Simulate that here.
+  (gateway as unknown as { sendRequest: () => Promise<unknown> }).sendRequest = async () => {
+    messages.append(instanceId, "s", "out", "agent reply");
+    return {};
+  };
+
+  const res = await app.request(`/api/instances/${instanceId}/rpc`, {
+    method: "POST", headers: { cookie, "content-type": "application/json" },
+    body: JSON.stringify({ type: MSG.prompt, payload: { sessionAlias: "s", text: "hi" } }),
+  });
+  expect(res.status).toBe(200);
+  const cached = messages.listBySession(accountId, instanceId, "s");
+  expect(cached.map((m) => [m.direction, m.text])).toEqual([["in", "hi"], ["out", "agent reply"]]);
+});
+
 test("GET /api/config returns the retention policy from deps", async () => {
   const db = await createSqlDriver(":memory:");
   initSchema(db);
