@@ -51,6 +51,7 @@ import { renderTaskHeartbeat, renderTaskProgress } from "./formatting/render-tex
 import { QuotaManager } from "./weixin/messaging/quota-manager";
 import { createControlEventBus } from "./control/control-event-bus";
 import { ControlService } from "./control/control-service";
+import { listAgentCatalog } from "./config/agent-catalog";
 
 export interface RuntimePaths {
   configPath: string;
@@ -772,6 +773,16 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
     agents: {
       list: () =>
         Object.entries(config.agents).map(([name, agentConfig]) => ({ name, driver: agentConfig.driver })),
+      catalog: () => listAgentCatalog(config),
+      create: async (name, driver) => {
+        const updated = await configStore.upsertAgent(name, { driver });
+        replaceRuntimeConfig(config, updated);
+        return { name, driver };
+      },
+      remove: async (name) => {
+        const updated = await configStore.removeAgent(name);
+        replaceRuntimeConfig(config, updated);
+      },
     },
     workspaces: {
       list: () =>
@@ -786,6 +797,10 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
         // The persisted values equal the inputs; build the DTO from them directly
         // (avoids an unchecked index read of the freshly-written workspaces map).
         return { name, cwd, ...(description ? { description } : {}) };
+      },
+      remove: async (name) => {
+        const updated = await configStore.removeWorkspace(name);
+        replaceRuntimeConfig(config, updated);
       },
     },
   });
