@@ -1,5 +1,5 @@
 import { beforeEach, expect, test, vi } from "vitest";
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import WorkspacesManager from "../components/WorkspacesManager.vue";
 import AgentsManager from "../components/AgentsManager.vue";
@@ -34,8 +34,22 @@ test("WorkspacesManager surfaces a remove-in-use error", async () => {
   vi.spyOn(store, "removeWorkspace").mockRejectedValue(new Error("workspace \"backend\" is in use by an existing session"));
   const w = mount(WorkspacesManager, { props: { instanceId: "i1" } });
   await w.get('[data-test="wm-remove-backend"]').trigger("click");
-  await new Promise((r) => setTimeout(r));
+  await flushPromises();
   expect(w.get('[data-test="wm-error"]').text()).toMatch(/in use/);
+});
+
+test("WorkspacesManager resets its inputs after a successful create", async () => {
+  const store = useInstancesStore(); seed(store);
+  vi.spyOn(store, "createWorkspace").mockResolvedValue(undefined as never);
+  const w = mount(WorkspacesManager, { props: { instanceId: "i1" } });
+  await w.get('[data-test="wm-name"]').setValue("frontend");
+  await w.get('[data-test="wm-path"]').setValue("/f");
+  await w.get('[data-test="wm-desc"]').setValue("the frontend");
+  await w.get('[data-test="wm-create"]').trigger("click");
+  await flushPromises();
+  expect((w.get('[data-test="wm-name"]').element as HTMLInputElement).value).toBe("");
+  expect((w.get('[data-test="wm-path"]').element as HTMLInputElement).value).toBe("");
+  expect((w.get('[data-test="wm-desc"]').element as HTMLInputElement).value).toBe("");
 });
 
 test("AgentsManager adds an agent from the catalog driver picker", async () => {

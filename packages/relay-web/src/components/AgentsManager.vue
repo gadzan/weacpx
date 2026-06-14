@@ -24,9 +24,11 @@ async function add(): Promise<void> {
 }
 
 async function remove(name: string): Promise<void> {
-  error.value = "";
+  if (busy.value) return;
+  busy.value = true; error.value = "";
   try { await store.removeAgent(props.instanceId, name); }
   catch (e) { error.value = e instanceof Error ? e.message : "remove failed"; }
+  finally { busy.value = false; }
 }
 
 function hint(installed: string): string {
@@ -38,10 +40,11 @@ function hint(installed: string): string {
   <section class="space-y-3">
     <h3 class="text-sm font-semibold uppercase text-slate-500">Agents</h3>
     <p v-if="error" data-test="am-error" class="rounded bg-red-50 px-3 py-2 text-sm text-red-700">{{ error }}</p>
-    <ul class="divide-y rounded border">
+    <p v-if="!(inst?.agents ?? []).length" data-test="am-empty" class="text-sm text-slate-400">No agents yet.</p>
+    <ul v-else class="divide-y rounded border">
       <li v-for="a in inst?.agents ?? []" :key="a.name" class="flex items-center justify-between px-3 py-2 text-sm">
         <span><span class="font-medium">{{ a.name }}</span> · <span class="text-slate-500">{{ a.driver }}</span></span>
-        <button :data-test="`am-remove-${a.name}`" class="text-red-600 hover:underline" @click="remove(a.name)">remove</button>
+        <button :data-test="`am-remove-${a.name}`" class="text-red-600 hover:underline disabled:opacity-50" :disabled="busy" @click="remove(a.name)">remove</button>
       </li>
     </ul>
     <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">

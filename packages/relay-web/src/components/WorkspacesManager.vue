@@ -23,9 +23,11 @@ async function create(): Promise<void> {
 }
 
 async function remove(wsName: string): Promise<void> {
-  error.value = "";
+  if (busy.value) return;
+  busy.value = true; error.value = "";
   try { await store.removeWorkspace(props.instanceId, wsName); }
   catch (e) { error.value = e instanceof Error ? e.message : "remove failed"; }
+  finally { busy.value = false; }
 }
 </script>
 
@@ -33,10 +35,11 @@ async function remove(wsName: string): Promise<void> {
   <section class="space-y-3">
     <h3 class="text-sm font-semibold uppercase text-slate-500">Workspaces</h3>
     <p v-if="error" data-test="wm-error" class="rounded bg-red-50 px-3 py-2 text-sm text-red-700">{{ error }}</p>
-    <ul class="divide-y rounded border">
+    <p v-if="!(inst?.workspaces ?? []).length" data-test="wm-empty" class="text-sm text-slate-400">No workspaces yet.</p>
+    <ul v-else class="divide-y rounded border">
       <li v-for="w in inst?.workspaces ?? []" :key="w.name" class="flex items-center justify-between px-3 py-2 text-sm">
         <span><span class="font-medium">{{ w.name }}</span> — <span class="text-slate-500">{{ w.cwd }}</span></span>
-        <button :data-test="`wm-remove-${w.name}`" class="text-red-600 hover:underline" @click="remove(w.name)">remove</button>
+        <button :data-test="`wm-remove-${w.name}`" class="text-red-600 hover:underline disabled:opacity-50" :disabled="busy" @click="remove(w.name)">remove</button>
       </li>
     </ul>
     <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
