@@ -2,6 +2,7 @@ import { mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
 import MessageList from "../components/MessageList.vue";
 import type { ChatMessage } from "../stores/chat";
+import ToolCallPanel from "../components/ToolCallPanel.vue";
 
 function msg(partial: Partial<ChatMessage>): ChatMessage {
   return {
@@ -17,7 +18,7 @@ function msg(partial: Partial<ChatMessage>): ChatMessage {
 describe("MessageList", () => {
   it("renders agent output as markdown", () => {
     const wrapper = mount(MessageList, {
-      props: { messages: [msg({ direction: "out", text: "**bold**" })], streaming: "" },
+      props: { messages: [msg({ direction: "out", text: "**bold**" })], streaming: "", liveTurn: null },
     });
     const out = wrapper.find('[data-test="msg-out"]');
     expect(out.html()).toContain("<strong>bold</strong>");
@@ -25,7 +26,7 @@ describe("MessageList", () => {
 
   it("keeps user input as plain text (no markdown rendering)", () => {
     const wrapper = mount(MessageList, {
-      props: { messages: [msg({ direction: "in", text: "**not bold**" })], streaming: "" },
+      props: { messages: [msg({ direction: "in", text: "**not bold**" })], streaming: "", liveTurn: null },
     });
     const inEl = wrapper.find('[data-test="msg-in"]');
     expect(inEl.exists()).toBe(true);
@@ -35,14 +36,14 @@ describe("MessageList", () => {
 
   it("does not render raw HTML from agent output", () => {
     const wrapper = mount(MessageList, {
-      props: { messages: [msg({ direction: "out", text: "<script>alert(1)</script>" })], streaming: "" },
+      props: { messages: [msg({ direction: "out", text: "<script>alert(1)</script>" })], streaming: "", liveTurn: null },
     });
     expect(wrapper.html()).not.toContain("<script>alert(1)</script>");
   });
 
   it("renders the live streaming bubble as healed markdown", () => {
     const wrapper = mount(MessageList, {
-      props: { messages: [], streaming: "answer **important" },
+      props: { messages: [], streaming: "answer **important", liveTurn: null },
     });
     const bubble = wrapper.find('[data-test="msg-streaming"]');
     expect(bubble.exists()).toBe(true);
@@ -51,8 +52,36 @@ describe("MessageList", () => {
 
   it("marks failed output messages", () => {
     const wrapper = mount(MessageList, {
-      props: { messages: [msg({ direction: "out", text: "boom", failed: true })], streaming: "" },
+      props: { messages: [msg({ direction: "out", text: "boom", failed: true })], streaming: "", liveTurn: null },
     });
     expect(wrapper.find('[data-test="msg-failed"]').exists()).toBe(true);
   });
+});
+
+it("renders persisted tool steps under a completed out message", () => {
+  const wrapper = mount(MessageList, {
+    props: {
+      messages: [msg({ direction: "out", text: "done", status: "done", structured: { toolSteps: [{ toolCallId: "t1", toolName: "Bash", kind: "execute", status: "success", title: "ls" }] } })],
+      streaming: "",
+      liveTurn: null,
+    },
+  });
+  expect(wrapper.findComponent(ToolCallPanel).exists()).toBe(true);
+});
+
+it("renders a cancelled marker on a stopped message", () => {
+  const wrapper = mount(MessageList, {
+    props: { messages: [msg({ direction: "out", text: "partial", status: "cancelled" })], streaming: "", liveTurn: null },
+  });
+  expect(wrapper.find('[data-test="msg-cancelled"]').exists()).toBe(true);
+});
+
+it("renders live tool panel above the streaming bubble", () => {
+  const wrapper = mount(MessageList, {
+    props: {
+      messages: [], streaming: "thinking",
+      liveTurn: { text: "thinking", toolSteps: [{ toolCallId: "t1", toolName: "R", kind: "read", status: "running", title: "a.ts" }], reasoning: "", status: "streaming", startedAt: 0 },
+    },
+  });
+  expect(wrapper.findComponent(ToolCallPanel).exists()).toBe(true);
 });

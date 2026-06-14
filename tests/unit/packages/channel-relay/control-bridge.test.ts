@@ -183,3 +183,25 @@ test("scheduledTaskToDto maps snake_case record", () => {
     id: "i", chat_key: "k", session_alias: "s", execute_at: "e", message: "m", status: "pending", created_at: "c",
   } as never)).toEqual({ id: "i", sessionAlias: "s", executeAt: "e", message: "m", status: "pending", createdAt: "c" });
 });
+
+import { createControlEventBus } from "../../../../src/control/control-event-bus";
+
+test("subscribeControlEvents normalizes tool-event into a step DTO", () => {
+  const events = createControlEventBus();
+  const sent: Array<{ type: string; payload: any }> = [];
+  const control = { events } as never;
+  const stop = subscribeControlEvents(control, (type, payload) => sent.push({ type, payload }));
+
+  events.emit({ type: "turn-started", chatKey: "c", sessionAlias: "s" });
+  events.emit({
+    type: "tool-event", chatKey: "c", sessionAlias: "s",
+    event: { toolCallId: "t1", toolName: "Bash", kind: "execute", status: "success", rawInput: { command: "ls" } },
+  });
+  stop();
+
+  expect(sent[0].payload.event).toEqual({ type: "turn-started", chatKey: "c", sessionAlias: "s" });
+  const tool = sent[1].payload.event;
+  expect(tool.type).toBe("tool-event");
+  expect(tool.step).toMatchObject({ toolCallId: "t1", kind: "execute", title: "ls", detail: { type: "command", command: "ls" } });
+  expect(tool.event).toBeUndefined();
+});

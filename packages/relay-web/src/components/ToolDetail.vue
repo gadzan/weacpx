@@ -1,0 +1,54 @@
+<script setup lang="ts">
+import { computed } from "vue";
+import type { ToolDetailDto } from "@ganglion/xacpx-relay-protocol";
+
+const props = defineProps<{ detail: ToolDetailDto }>();
+
+// Split a diff body into rendered +/- lines.
+const diffLines = computed(() => {
+  if (props.detail.type !== "diff") return { del: [] as string[], add: [] as string[] };
+  return { del: props.detail.oldText.split("\n"), add: props.detail.newText.split("\n") };
+});
+</script>
+
+<template>
+  <div class="mt-1 space-y-1 text-xs">
+    <template v-if="detail.type === 'diff'">
+      <div class="font-mono text-slate-500">📄 {{ detail.path }}</div>
+      <div class="overflow-x-auto rounded bg-slate-50 p-2 font-mono">
+        <div v-for="(l, i) in diffLines.del" :key="'d' + i" data-test="diff-del" class="whitespace-pre text-red-600">- {{ l }}</div>
+        <div v-for="(l, i) in diffLines.add" :key="'a' + i" data-test="diff-add" class="whitespace-pre text-green-600">+ {{ l }}</div>
+      </div>
+    </template>
+
+    <template v-else-if="detail.type === 'command'">
+      <div data-test="cmd-command" class="font-mono text-slate-700">$ {{ detail.command }}</div>
+      <pre v-if="detail.output" data-test="cmd-output" class="overflow-x-auto rounded bg-slate-900 p-2 font-mono text-slate-100 whitespace-pre-wrap">{{ detail.output }}</pre>
+      <div v-if="detail.exitCode !== undefined" class="text-slate-500">exit {{ detail.exitCode }}</div>
+    </template>
+
+    <template v-else-if="detail.type === 'read'">
+      <div data-test="read-path" class="font-mono text-slate-700">📄 {{ detail.path }}<span v-if="detail.lines" class="ml-2 text-slate-500">{{ detail.lines }}</span></div>
+      <pre v-if="detail.preview" class="overflow-x-auto rounded bg-slate-50 p-2 font-mono text-slate-600 whitespace-pre-wrap">{{ detail.preview }}</pre>
+    </template>
+
+    <template v-else-if="detail.type === 'search'">
+      <div data-test="search-query" class="font-mono text-slate-700">🔍 {{ detail.query }}</div>
+      <pre v-if="detail.output" data-test="search-output" class="overflow-x-auto rounded bg-slate-50 p-2 font-mono text-slate-600 whitespace-pre-wrap">{{ detail.output }}</pre>
+    </template>
+
+    <template v-else-if="detail.type === 'fields'">
+      <dl class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-1">
+        <template v-for="f in detail.fields" :key="f.label">
+          <dt class="text-slate-500">{{ f.label }}</dt>
+          <dd :data-test="'field-' + f.label" class="font-mono text-slate-700 break-all">{{ f.value }}</dd>
+        </template>
+      </dl>
+      <pre v-if="detail.output" class="overflow-x-auto rounded bg-slate-50 p-2 font-mono text-slate-600 whitespace-pre-wrap">{{ detail.output }}</pre>
+    </template>
+
+    <template v-else-if="detail.type === 'text'">
+      <p data-test="tool-text" class="whitespace-pre-wrap text-slate-600">{{ detail.text }}</p>
+    </template>
+  </div>
+</template>

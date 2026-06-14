@@ -112,6 +112,54 @@
 - **`scheduled.create` 入参校验**：`control-bridge` 校验 `executeAt`，非 ISO 值返回 `bad-request`
   （原先抛通用 internal error）。
 
+## 阶段六：Turn 状态展示流水线（turn-status display）
+
+### 协议事件（packages/relay-protocol/src/dtos.ts）
+
+`ControlEventDto` 包含以下新事件变体（与现有 `turn-output` 并列）：
+
+- `{ type: "turn-started"; chatKey; sessionAlias }` — 回合开始，触发前端/服务端清零缓冲。
+- `{ type: "tool-event"; chatKey; sessionAlias; step: ToolStepDto }` — 单次工具调用的 **归一化** 呈现 DTO（非原始 `ToolUseEvent`；由连接器侧规整后再入线）。
+- `{ type: "turn-thought"; chatKey; sessionAlias; chunk: string }` — reasoning 文本分片（流式追加）。
+- `{ type: "turn-finished"; chatKey; sessionAlias; ok; errorMessage?; cancelled?: boolean }` — 终态信号；`cancelled` 为 true 表示用户手动取消。
+
+### 连接器规整（packages/channel-relay/src/tool-presentation.ts）
+
+`toolUseEventToStepDto(event: ToolUseEvent): ToolStepDto` 将核心层的原始 `ToolUseEvent` 规整为友好的、有上限的呈现 DTO：
+
+- `TEXT_CAP = 8000` 字符（文本/命令输出/搜索结果/读取预览等通用字段上限）。
+- `DIFF_CAP = 4000` 字符（diff oldText / newText 各自上限）。
+- `REASONING_CAP = 16000` 字符（在服务端侧对 reasoning chunk 累积截断）。
+- **工具步数上限 `MAX_TOOL_STEPS = 200`**（服务端 server.ts 中校验，超出步数的新步骤静默丢弃）。
+- 按 `kind` 分派到具体 `ToolDetailDto` 变体（`diff / read / command / search / text / fields`），不向线路侧暴露任何原始 JSON。
+
+### 服务端累积与持久化（packages/relay/src/server.ts）
+
+`createRelayRuntime` 的 `onEvent` 回调里维护 `Map<string, TurnAccumulator>`，键为 `"${instanceId}\0${sessionAlias}"`：
+
+```ts
+interface TurnAccumulator { text: string; steps: Map<string, ToolStepDto>; reasoning: string }
+```
+
+事件处理逻辑：
+
+- `turn-started` → 清零/新建该键的 accumulator。
+- `turn-output` → `a.text += chunk`。
+- `tool-event` → 按 `toolCallId` upsert `a.steps`（受 `MAX_TOOL_STEPS = 200` 封顶）。
+- `turn-thought` → `a.reasoning = (a.reasoning + chunk).slice(0, 16000)`。
+- `turn-finished` → flush：`messages.append(instanceId, sessionAlias, "out", a.text, structured)`，
+  其中 `structured = { toolSteps, reasoning? }`（仅当有步骤或 reasoning 时携带）；之后删除 accumulator。
+- 实例离线（`onStatusChange online=false`）→ 按前缀批量删除对应实例的所有 accumulator，防内存泄漏。
+
+所有事件先经 `webGateway.broadcast` 实时广播给 Web 客户端，再处理累积逻辑（广播与持久化并行，互不阻塞）。
+
+### 数据库 `messages.structured` 列（packages/relay/src/db.ts）
+
+`messages` 表新增 `structured TEXT` 列（存 JSON 序列化的 `{ toolSteps, reasoning? }`）：
+
+- 建表 DDL 直接含此列；**幂等 `ALTER TABLE` 迁移**在启动时检查列是否存在（`PRAGMA table_info(messages)`），不存在则执行 `ALTER TABLE messages ADD COLUMN structured TEXT`，兼容旧部署。
+- `MessageStore.append(instanceId, alias, dir, text, structured?)` 序列化写入；`listBySession` 反序列化后在 `MessageRecordDto.structured` 中返回。
+
 ## 测试
 
 - 单测按文件跑（tests/unit/packages/relay、tests/unit/packages/channel-relay）；

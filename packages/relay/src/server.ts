@@ -4,7 +4,7 @@ import { serve, type ServerType } from "@hono/node-server";
 import { WebSocketServer } from "ws";
 
 import {
-  MSG, type ControlEventDto, type InstanceEventPayload, type InstanceNoticePayload, type RelayEnvelope,
+  MSG, type ControlEventDto, type InstanceEventPayload, type InstanceNoticePayload, type RelayEnvelope, type ToolStepDto,
 } from "@ganglion/xacpx-relay-protocol";
 
 import { createSqlDriver, initSchema, type SqlDriver } from "./db.js";
@@ -17,6 +17,8 @@ import { createApp } from "./http/app.js";
 import { startMaintenanceLoop } from "./maintenance.js";
 
 const MAX_MESSAGES_PER_SESSION = 2000;
+const MAX_TOOL_STEPS = 200;
+const REASONING_CAP = 16000;
 
 export interface RelayRuntime {
   db: SqlDriver;
@@ -44,8 +46,9 @@ export async function createRelayRuntime(dbPath: string, options: CreateRuntimeO
   const messages = new MessageStore(db);
   const webGateway = new WebGateway();
 
-  // Accumulate streaming turn output per (instance, session); flush to history on finish.
-  const turnBuffers = new Map<string, string>();
+  // Accumulate streaming turn state per (instance, session); flush to history on finish.
+  interface TurnAccumulator { text: string; steps: Map<string, ToolStepDto>; reasoning: string }
+  const turnBuffers = new Map<string, TurnAccumulator>();
   const key = (instanceId: string, alias: string) => `${instanceId}\0${alias}`;
 
   const gateway = new InstanceGateway({
@@ -62,14 +65,36 @@ export async function createRelayRuntime(dbPath: string, options: CreateRuntimeO
       if (envelope.type === MSG.instanceEvent) {
         const event = (envelope.payload as InstanceEventPayload).event as ControlEventDto;
         webGateway.broadcast(accountId, { kind: "control-event", instanceId, event });
-        if (event.type === "turn-output") {
-          const k = key(instanceId, event.sessionAlias);
-          turnBuffers.set(k, (turnBuffers.get(k) ?? "") + event.chunk);
+        if (event.type === "turn-started") {
+          turnBuffers.set(key(instanceId, event.sessionAlias), { text: "", steps: new Map(), reasoning: "" });
+        } else if (event.type === "turn-output") {
+          // Only append to an existing buffer; never lazily resurrect one. A buffer
+          // is created solely by turn-started, so a stray streaming event arriving
+          // after an offline sweep (or with no turn-started) is dropped instead of
+          // leaking a buffer that no turn-finished will ever clear.
+          const a = turnBuffers.get(key(instanceId, event.sessionAlias));
+          if (a) a.text += event.chunk;
+        } else if (event.type === "tool-event") {
+          const a = turnBuffers.get(key(instanceId, event.sessionAlias));
+          if (a && (a.steps.has(event.step.toolCallId) || a.steps.size < MAX_TOOL_STEPS)) {
+            a.steps.set(event.step.toolCallId, event.step);
+          }
+        } else if (event.type === "turn-thought") {
+          const a = turnBuffers.get(key(instanceId, event.sessionAlias));
+          if (a) a.reasoning = (a.reasoning + event.chunk).slice(0, REASONING_CAP);
         } else if (event.type === "turn-finished") {
           const k = key(instanceId, event.sessionAlias);
-          const text = turnBuffers.get(k);
+          const a = turnBuffers.get(k);
           turnBuffers.delete(k);
-          if (text) messages.append(instanceId, event.sessionAlias, "out", text);
+          if (!a) return;
+          const steps = [...a.steps.values()];
+          const hasStructured = steps.length > 0 || a.reasoning.length > 0;
+          if (a.text || hasStructured) {
+            const structured = hasStructured
+              ? { toolSteps: steps, ...(a.reasoning ? { reasoning: a.reasoning } : {}) }
+              : undefined;
+            messages.append(instanceId, event.sessionAlias, "out", a.text, structured);
+          }
         }
       } else if (envelope.type === MSG.instanceNotice) {
         webGateway.broadcast(accountId, { kind: "notice", instanceId, notice: envelope.payload as InstanceNoticePayload });

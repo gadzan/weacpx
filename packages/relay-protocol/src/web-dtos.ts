@@ -1,5 +1,5 @@
 import { RELAY_PROTOCOL_VERSION, type RelayEnvelope } from "./envelope.js";
-import type { ControlEventDto } from "./dtos.js";
+import type { ControlEventDto, ToolStepDto } from "./dtos.js";
 import type { InstanceNoticePayload } from "./messages.js";
 
 /** Envelope `type` for every relay→web push. */
@@ -14,6 +14,8 @@ export interface MessageRecordDto {
   direction: MessageDirection;
   text: string;
   createdAt: string;
+  /** Present on completed `out` turns: persisted tool steps + reasoning. */
+  structured?: { toolSteps: ToolStepDto[]; reasoning?: string };
 }
 
 /** Server→web push payloads (tagged with the originating instance). */
@@ -31,11 +33,60 @@ const WEB_EVENT_KINDS = new Set(["instance-status", "control-event", "notice"]);
 
 const CONTROL_EVENT_TYPES = new Set([
   "turn-output",
+  "turn-started",
+  "tool-event",
+  "turn-thought",
   "turn-finished",
   "sessions-changed",
   "scheduled-changed",
   "orchestration-changed",
 ]);
+
+const TOOL_STEP_KINDS = new Set(["read", "search", "execute", "edit", "think", "other"]);
+const TOOL_STEP_STATUSES = new Set(["running", "success", "error"]);
+
+const isStr = (v: unknown): boolean => typeof v === "string";
+const optStr = (v: unknown): boolean => v === undefined || typeof v === "string";
+const optNum = (v: unknown): boolean => v === undefined || typeof v === "number";
+
+/** Validate the inner fields of a ToolDetailDto per its discriminant — a known
+ *  tag is not enough; junk/missing fields must be rejected so a buggy connector
+ *  cannot push e.g. a `diff` with no `path` or a `command` that is a number. */
+function validToolDetail(d: Record<string, unknown>): boolean {
+  switch (d.type) {
+    case "diff":
+      return isStr(d.path) && isStr(d.oldText) && isStr(d.newText);
+    case "read":
+      return isStr(d.path) && optStr(d.lines) && optStr(d.preview);
+    case "command":
+      return isStr(d.command) && optStr(d.output) && optNum(d.exitCode);
+    case "search":
+      return isStr(d.query) && optStr(d.output);
+    case "text":
+      return isStr(d.text);
+    case "fields":
+      return (
+        Array.isArray(d.fields) &&
+        d.fields.every((f) => f !== null && typeof f === "object" && isStr((f as Record<string, unknown>).label) && isStr((f as Record<string, unknown>).value)) &&
+        optStr(d.output)
+      );
+    default:
+      return false;
+  }
+}
+
+function validToolStep(s: unknown): boolean {
+  if (typeof s !== "object" || s === null) return false;
+  const c = s as Record<string, unknown>;
+  if (typeof c.toolCallId !== "string" || typeof c.toolName !== "string" || typeof c.title !== "string") return false;
+  if (typeof c.kind !== "string" || !TOOL_STEP_KINDS.has(c.kind)) return false;
+  if (typeof c.status !== "string" || !TOOL_STEP_STATUSES.has(c.status)) return false;
+  if (c.detail !== undefined) {
+    if (typeof c.detail !== "object" || c.detail === null) return false;
+    if (!validToolDetail(c.detail as Record<string, unknown>)) return false;
+  }
+  return true;
+}
 
 /** Deep-validate an inner ControlEventDto: discriminant + per-variant required fields. */
 function validControlEvent(e: unknown): boolean {
@@ -47,6 +98,12 @@ function validControlEvent(e: unknown): boolean {
   if (c.type === "turn-finished")
     return typeof c.chatKey === "string" && typeof c.sessionAlias === "string" && typeof c.ok === "boolean";
   if (c.type === "scheduled-changed") return typeof c.chatKey === "string";
+  if (c.type === "turn-started")
+    return typeof c.chatKey === "string" && typeof c.sessionAlias === "string";
+  if (c.type === "turn-thought")
+    return typeof c.chatKey === "string" && typeof c.sessionAlias === "string" && typeof c.chunk === "string";
+  if (c.type === "tool-event")
+    return typeof c.chatKey === "string" && typeof c.sessionAlias === "string" && validToolStep(c.step);
   return true; // sessions-changed / orchestration-changed carry no extra required fields
 }
 

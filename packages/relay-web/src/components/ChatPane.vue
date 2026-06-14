@@ -1,9 +1,22 @@
 <script setup lang="ts">
+import { computed, onUnmounted, ref } from "vue";
 import { useChatStore } from "../stores/chat";
 import MessageList from "./MessageList.vue";
 import PromptInput from "./PromptInput.vue";
 
 const chat = useChatStore();
+
+// Live elapsed clock for the active turn HUD.
+const nowMs = ref(Date.now());
+const timer = setInterval(() => { nowMs.value = Date.now(); }, 1000);
+onUnmounted(() => clearInterval(timer));
+
+const elapsed = computed(() => {
+  if (!chat.liveTurn) return "";
+  const s = Math.max(0, Math.floor((nowMs.value - chat.liveTurn.startedAt) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+});
+const runningTools = computed(() => chat.liveTurn?.toolSteps.filter((t) => t.status === "running").length ?? 0);
 </script>
 
 <template>
@@ -17,11 +30,14 @@ const chat = useChatStore();
         {{ chat.error }}
         <button class="ml-2 underline" @click="chat.error = ''">dismiss</button>
       </div>
-      <MessageList :messages="chat.messages" :streaming="chat.streaming" />
-      <div v-if="chat.sending || chat.streaming" class="px-4 pb-1">
-        <button data-test="cancel-turn" class="text-xs text-red-500 hover:underline" @click="chat.cancel">Cancel</button>
+      <MessageList :messages="chat.messages" :streaming="chat.streaming" :live-turn="chat.liveTurn" />
+      <div v-if="chat.busy" data-test="turn-hud" class="flex items-center gap-2 px-4 py-1 text-xs text-slate-500">
+        <span class="animate-pulse">●</span>
+        <span>Working… {{ elapsed }}</span>
+        <span v-if="runningTools > 0">· 🔧 {{ runningTools }}</span>
+        <button data-test="cancel-turn" class="ml-auto text-red-500 hover:underline" @click="chat.cancel">Cancel</button>
       </div>
-      <PromptInput @send="chat.send" />
+      <PromptInput :busy="chat.busy" @send="chat.send" />
     </template>
   </div>
 </template>

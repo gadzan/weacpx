@@ -221,6 +221,11 @@ export class ControlService {
       this.inFlight.delete(key);
       return { ok: false, errorMessage: toErrorMessage(error) };
     }
+    this.deps.events.emit({
+      type: "turn-started",
+      chatKey: input.chatKey,
+      sessionAlias: input.sessionAlias,
+    });
     const emitChunk = (chunk: string) => {
       this.deps.events.emit({
         type: "turn-output",
@@ -238,6 +243,22 @@ export class ControlService {
         abortSignal: controller.signal,
         reply: async (chunk) => {
           emitChunk(chunk);
+        },
+        onToolEvent: (event) => {
+          this.deps.events.emit({
+            type: "tool-event",
+            chatKey: input.chatKey,
+            sessionAlias: input.sessionAlias,
+            event,
+          });
+        },
+        onThought: (chunk) => {
+          this.deps.events.emit({
+            type: "turn-thought",
+            chatKey: input.chatKey,
+            sessionAlias: input.sessionAlias,
+            chunk,
+          });
         },
       });
       if (response.text) {
@@ -258,6 +279,7 @@ export class ControlService {
         sessionAlias: input.sessionAlias,
         ok: false,
         errorMessage,
+        ...(controller.signal.aborted ? { cancelled: true } : {}),
       });
       return { ok: false, errorMessage };
     } finally {

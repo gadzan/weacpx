@@ -79,3 +79,55 @@ test("accepts well-formed control-events and notices", () => {
   expect(parseWebServerEvent(webEventEnvelope({ kind: "control-event", instanceId: "i", event: { type: "orchestration-changed" } }))).not.toBeNull();
   expect(parseWebServerEvent(webEventEnvelope({ kind: "notice", instanceId: "i", notice: { kind: "task-completion", text: "done" } }))).not.toBeNull();
 });
+
+function roundtrip(event: any) {
+  return parseWebServerEvent(webEventEnvelope(event));
+}
+
+test("accepts the new turn-status control events", () => {
+  expect(roundtrip({ kind: "control-event", instanceId: "i1", event: { type: "turn-started", chatKey: "c", sessionAlias: "s" } })).not.toBeNull();
+  expect(roundtrip({ kind: "control-event", instanceId: "i1", event: { type: "turn-thought", chatKey: "c", sessionAlias: "s", chunk: "x" } })).not.toBeNull();
+  expect(roundtrip({
+    kind: "control-event", instanceId: "i1",
+    event: { type: "tool-event", chatKey: "c", sessionAlias: "s", step: { toolCallId: "t1", toolName: "Read", kind: "read", status: "running", title: "x" } },
+  })).not.toBeNull();
+});
+
+test("rejects a malformed tool-event step", () => {
+  expect(roundtrip({ kind: "control-event", instanceId: "i1", event: { type: "tool-event", chatKey: "c", sessionAlias: "s", step: { toolCallId: "t1" } } })).toBeNull();
+});
+
+test("rejects a tool-event step with an unknown detail tag", () => {
+  expect(roundtrip({
+    kind: "control-event", instanceId: "i1",
+    event: { type: "tool-event", chatKey: "c", sessionAlias: "s", step: { toolCallId: "t1", toolName: "R", kind: "read", status: "running", title: "x", detail: { type: "bogus" } } },
+  })).toBeNull();
+});
+
+test("rejects a tool-event whose detail has a known tag but missing/junk inner fields", () => {
+  const step = (detail: unknown) => ({
+    kind: "control-event", instanceId: "i1",
+    event: { type: "tool-event", chatKey: "c", sessionAlias: "s", step: { toolCallId: "t1", toolName: "R", kind: "read", status: "running", title: "x", detail } },
+  });
+  expect(roundtrip(step({ type: "diff", path: "a" }))).toBeNull(); // missing oldText/newText
+  expect(roundtrip(step({ type: "command", command: 42 }))).toBeNull(); // command not a string
+  expect(roundtrip(step({ type: "command", command: "ls", exitCode: "0" }))).toBeNull(); // exitCode not a number
+  expect(roundtrip(step({ type: "search" }))).toBeNull(); // missing query
+  expect(roundtrip(step({ type: "text" }))).toBeNull(); // missing text
+  expect(roundtrip(step({ type: "read" }))).toBeNull(); // missing path
+  expect(roundtrip(step({ type: "fields", fields: [{ label: "a" }] }))).toBeNull(); // field missing value
+  expect(roundtrip(step({ type: "fields", fields: "nope" }))).toBeNull(); // fields not an array
+});
+
+test("accepts well-formed per-variant tool details", () => {
+  const step = (detail: unknown) => ({
+    kind: "control-event", instanceId: "i1",
+    event: { type: "tool-event", chatKey: "c", sessionAlias: "s", step: { toolCallId: "t1", toolName: "R", kind: "read", status: "success", title: "x", detail } },
+  });
+  expect(roundtrip(step({ type: "diff", path: "a", oldText: "x", newText: "y" }))).not.toBeNull();
+  expect(roundtrip(step({ type: "read", path: "a", lines: "0–10", preview: "hi" }))).not.toBeNull();
+  expect(roundtrip(step({ type: "command", command: "ls", output: "f", exitCode: 0 }))).not.toBeNull();
+  expect(roundtrip(step({ type: "search", query: "rg x" }))).not.toBeNull();
+  expect(roundtrip(step({ type: "text", text: "thinking" }))).not.toBeNull();
+  expect(roundtrip(step({ type: "fields", fields: [{ label: "a", value: "b" }], output: "o" }))).not.toBeNull();
+});
