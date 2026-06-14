@@ -1,8 +1,12 @@
 import type { AppLogger } from "../logging/app-logger";
+import type { ToolUseEvent } from "../channels/types";
 
 export type ControlEvent =
   | { type: "turn-output"; chatKey: string; sessionAlias: string; chunk: string }
-  | { type: "turn-finished"; chatKey: string; sessionAlias: string; ok: boolean; errorMessage?: string }
+  | { type: "turn-started"; chatKey: string; sessionAlias: string }
+  | { type: "tool-event"; chatKey: string; sessionAlias: string; event: ToolUseEvent }
+  | { type: "turn-thought"; chatKey: string; sessionAlias: string; chunk: string }
+  | { type: "turn-finished"; chatKey: string; sessionAlias: string; ok: boolean; errorMessage?: string; cancelled?: boolean }
   | { type: "sessions-changed" }
   | { type: "scheduled-changed"; chatKey: string }
   | { type: "orchestration-changed" };
