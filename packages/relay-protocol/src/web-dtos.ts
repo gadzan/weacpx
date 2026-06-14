@@ -44,7 +44,36 @@ const CONTROL_EVENT_TYPES = new Set([
 
 const TOOL_STEP_KINDS = new Set(["read", "search", "execute", "edit", "think", "other"]);
 const TOOL_STEP_STATUSES = new Set(["running", "success", "error"]);
-const TOOL_DETAIL_TYPES = new Set(["diff", "read", "command", "search", "text", "fields"]);
+
+const isStr = (v: unknown): boolean => typeof v === "string";
+const optStr = (v: unknown): boolean => v === undefined || typeof v === "string";
+const optNum = (v: unknown): boolean => v === undefined || typeof v === "number";
+
+/** Validate the inner fields of a ToolDetailDto per its discriminant — a known
+ *  tag is not enough; junk/missing fields must be rejected so a buggy connector
+ *  cannot push e.g. a `diff` with no `path` or a `command` that is a number. */
+function validToolDetail(d: Record<string, unknown>): boolean {
+  switch (d.type) {
+    case "diff":
+      return isStr(d.path) && isStr(d.oldText) && isStr(d.newText);
+    case "read":
+      return isStr(d.path) && optStr(d.lines) && optStr(d.preview);
+    case "command":
+      return isStr(d.command) && optStr(d.output) && optNum(d.exitCode);
+    case "search":
+      return isStr(d.query) && optStr(d.output);
+    case "text":
+      return isStr(d.text);
+    case "fields":
+      return (
+        Array.isArray(d.fields) &&
+        d.fields.every((f) => f !== null && typeof f === "object" && isStr((f as Record<string, unknown>).label) && isStr((f as Record<string, unknown>).value)) &&
+        optStr(d.output)
+      );
+    default:
+      return false;
+  }
+}
 
 function validToolStep(s: unknown): boolean {
   if (typeof s !== "object" || s === null) return false;
@@ -54,8 +83,7 @@ function validToolStep(s: unknown): boolean {
   if (typeof c.status !== "string" || !TOOL_STEP_STATUSES.has(c.status)) return false;
   if (c.detail !== undefined) {
     if (typeof c.detail !== "object" || c.detail === null) return false;
-    const d = c.detail as Record<string, unknown>;
-    if (typeof d.type !== "string" || !TOOL_DETAIL_TYPES.has(d.type)) return false;
+    if (!validToolDetail(c.detail as Record<string, unknown>)) return false;
   }
   return true;
 }

@@ -61,6 +61,33 @@ test("caps long output with a truncated marker", () => {
   expect(out.endsWith("…(truncated)")).toBe(true);
 });
 
+test("read derives preview from a resource content block", () => {
+  const step = toolUseEventToStepDto({
+    toolCallId: "t8", toolName: "Read", kind: "read", status: "success",
+    rawInput: { file_path: "src/b.ts" },
+    content: [{ type: "content", content: { type: "resource", resource: { uri: "file://src/b.ts", text: "resource body" } } }],
+  });
+  expect(step.detail).toMatchObject({ type: "read", path: "src/b.ts", preview: "resource body" });
+});
+
+test("read shows a resource_link's title when it has no inline text", () => {
+  const step = toolUseEventToStepDto({
+    toolCallId: "t9", toolName: "Read", kind: "read", status: "success",
+    rawInput: { file_path: "src/c.ts" },
+    content: [{ type: "content", content: { type: "resource_link", uri: "file://src/c.ts", title: "c.ts" } }],
+  });
+  expect(step.detail).toMatchObject({ type: "read", path: "src/c.ts", preview: "c.ts" });
+});
+
+test("execute keeps a bare-string rawOutput as the command output", () => {
+  const step = toolUseEventToStepDto({
+    toolCallId: "t10", toolName: "Bash", kind: "execute", status: "success",
+    rawInput: { command: "echo hi" },
+    rawOutput: "hi\n",
+  });
+  expect(step.detail).toMatchObject({ type: "command", command: "echo hi", output: "hi\n" });
+});
+
 test("think uses description as prose text", () => {
   const step = toolUseEventToStepDto({
     toolCallId: "t7", toolName: "Task", kind: "think", status: "success",

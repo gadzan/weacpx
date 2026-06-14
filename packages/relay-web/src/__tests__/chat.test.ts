@@ -184,6 +184,24 @@ it("cancel surfaces an error code on failure", async () => {
   expect(chat.error).toBe("instance-offline");
 });
 
+it("cancel optimistically releases busy and preserves streamed content; the late echo is a no-op", async () => {
+  rpc.mockResolvedValueOnce({ cancelled: true });
+  const chat = useChatStore();
+  chat.select("inst", "A");
+  chat.applyEvent({ kind: "control-event", instanceId: "inst", event: { type: "turn-started", chatKey: "c", sessionAlias: "A" } } as never);
+  chat.applyEvent({ kind: "control-event", instanceId: "inst", event: { type: "turn-output", chatKey: "c", sessionAlias: "A", chunk: "half a" } } as never);
+  expect(chat.busy).toBe(true);
+  await chat.cancel();
+  // input/HUD release immediately, without waiting for any server turn-finished echo
+  expect(chat.busy).toBe(false);
+  const flushed = chat.messages.at(-1);
+  expect(flushed).toMatchObject({ direction: "out", text: "half a", status: "cancelled" });
+  // a server echo arriving afterwards must not double-render
+  const before = chat.messages.length;
+  chat.applyEvent({ kind: "control-event", instanceId: "inst", event: { type: "turn-finished", chatKey: "c", sessionAlias: "A", ok: false, cancelled: true } } as never);
+  expect(chat.messages.length).toBe(before);
+});
+
 it("cancel is a no-op with no session selected", async () => {
   const chat = useChatStore();
   await chat.cancel();

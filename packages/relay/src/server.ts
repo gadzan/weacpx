@@ -50,11 +50,6 @@ export async function createRelayRuntime(dbPath: string, options: CreateRuntimeO
   interface TurnAccumulator { text: string; steps: Map<string, ToolStepDto>; reasoning: string }
   const turnBuffers = new Map<string, TurnAccumulator>();
   const key = (instanceId: string, alias: string) => `${instanceId}\0${alias}`;
-  const acc = (k: string): TurnAccumulator => {
-    let a = turnBuffers.get(k);
-    if (!a) { a = { text: "", steps: new Map(), reasoning: "" }; turnBuffers.set(k, a); }
-    return a;
-  };
 
   const gateway = new InstanceGateway({
     instances,
@@ -73,15 +68,20 @@ export async function createRelayRuntime(dbPath: string, options: CreateRuntimeO
         if (event.type === "turn-started") {
           turnBuffers.set(key(instanceId, event.sessionAlias), { text: "", steps: new Map(), reasoning: "" });
         } else if (event.type === "turn-output") {
-          acc(key(instanceId, event.sessionAlias)).text += event.chunk;
+          // Only append to an existing buffer; never lazily resurrect one. A buffer
+          // is created solely by turn-started, so a stray streaming event arriving
+          // after an offline sweep (or with no turn-started) is dropped instead of
+          // leaking a buffer that no turn-finished will ever clear.
+          const a = turnBuffers.get(key(instanceId, event.sessionAlias));
+          if (a) a.text += event.chunk;
         } else if (event.type === "tool-event") {
-          const a = acc(key(instanceId, event.sessionAlias));
-          if (a.steps.has(event.step.toolCallId) || a.steps.size < MAX_TOOL_STEPS) {
+          const a = turnBuffers.get(key(instanceId, event.sessionAlias));
+          if (a && (a.steps.has(event.step.toolCallId) || a.steps.size < MAX_TOOL_STEPS)) {
             a.steps.set(event.step.toolCallId, event.step);
           }
         } else if (event.type === "turn-thought") {
-          const a = acc(key(instanceId, event.sessionAlias));
-          a.reasoning = (a.reasoning + event.chunk).slice(0, REASONING_CAP);
+          const a = turnBuffers.get(key(instanceId, event.sessionAlias));
+          if (a) a.reasoning = (a.reasoning + event.chunk).slice(0, REASONING_CAP);
         } else if (event.type === "turn-finished") {
           const k = key(instanceId, event.sessionAlias);
           const a = turnBuffers.get(k);

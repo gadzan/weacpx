@@ -43,6 +43,35 @@ export const useChatStore = defineStore("chat", () => {
     return t;
   }
 
+  /** Finalize a live turn: clear it (so `busy`/HUD release) and, if it streamed any
+   *  content into the selected session, flush it into a persisted-shaped message.
+   *  Used by both turn-finished and the optimistic local cancel. Idempotent — a
+   *  second call for an already-cleared turn is a no-op. */
+  function flushTurn(instId: string, alias: string, status: TurnStatus, errorMessage?: string): void {
+    const k = bufKey(instId, alias);
+    const t = liveTurns.value[k];
+    delete liveTurns.value[k];
+    const selected = instId === instanceId.value && alias === sessionAlias.value;
+    if (status === "error" && selected) error.value = errorMessage ?? "turn-failed";
+    const hasContent = !!t && (t.text.length > 0 || t.toolSteps.length > 0 || t.reasoning.length > 0);
+    if (hasContent && selected) {
+      const structured =
+        t!.toolSteps.length > 0 || t!.reasoning.length > 0
+          ? { toolSteps: t!.toolSteps, ...(t!.reasoning ? { reasoning: t!.reasoning } : {}) }
+          : undefined;
+      messages.value.push({
+        instanceId: instId,
+        sessionAlias: alias,
+        direction: "out",
+        text: t!.text,
+        createdAt: new Date().toISOString(),
+        failed: status === "error",
+        status,
+        ...(structured ? { structured } : {}),
+      });
+    }
+  }
+
   function select(id: string, alias: string): void {
     instanceId.value = id;
     sessionAlias.value = alias;
@@ -79,29 +108,8 @@ export const useChatStore = defineStore("chat", () => {
     } else if (e.type === "turn-thought") {
       ensureTurn(bufKey(event.instanceId, e.sessionAlias)).reasoning += e.chunk;
     } else if (e.type === "turn-finished") {
-      const k = bufKey(event.instanceId, e.sessionAlias);
-      const t = liveTurns.value[k];
-      delete liveTurns.value[k];
-      const selected = event.instanceId === instanceId.value && e.sessionAlias === sessionAlias.value;
       const status: TurnStatus = e.cancelled ? "cancelled" : e.ok ? "done" : "error";
-      if (!e.ok && !e.cancelled && selected) error.value = e.errorMessage ?? "turn-failed";
-      const hasContent = !!t && (t.text.length > 0 || t.toolSteps.length > 0 || t.reasoning.length > 0);
-      if (hasContent && selected) {
-        const structured =
-          t!.toolSteps.length > 0 || t!.reasoning.length > 0
-            ? { toolSteps: t!.toolSteps, ...(t!.reasoning ? { reasoning: t!.reasoning } : {}) }
-            : undefined;
-        messages.value.push({
-          instanceId: event.instanceId,
-          sessionAlias: e.sessionAlias,
-          direction: "out",
-          text: t!.text,
-          createdAt: new Date().toISOString(),
-          failed: status === "error",
-          status,
-          ...(structured ? { structured } : {}),
-        });
-      }
+      flushTurn(event.instanceId, e.sessionAlias, status, e.errorMessage);
     }
   }
 
@@ -135,8 +143,15 @@ export const useChatStore = defineStore("chat", () => {
 
   async function cancel(): Promise<void> {
     if (!instanceId.value || !sessionAlias.value) return;
+    const id = instanceId.value;
+    const alias = sessionAlias.value;
+    // Optimistically finalize locally so the input/HUD release immediately instead of
+    // waiting for the server's turn-finished echo (which may be lost if the agent dies).
+    // Streamed content is preserved as a "cancelled" message; the later echo finds no
+    // live turn and is a no-op, so there is no double-render.
+    flushTurn(id, alias, "cancelled");
     try {
-      await api.rpc(instanceId.value, "control.prompt.cancel", { sessionAlias: sessionAlias.value });
+      await api.rpc(id, "control.prompt.cancel", { sessionAlias: alias });
     } catch (e) {
       error.value = e instanceof ApiError ? e.code : "cancel-failed";
     }

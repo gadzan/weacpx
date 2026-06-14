@@ -49,7 +49,8 @@ test("instance event flows to web client and is cached as history", async () => 
   ws.on("message", (d) => events.push(String(d)));
   await new Promise<void>((resolve) => ws.on("open", () => resolve()));
 
-  // instance emits a streamed turn
+  // instance emits a streamed turn (turn-started opens the accumulator)
+  listeners.forEach((l) => l({ type: "turn-started", chatKey: "relay:x", sessionAlias: "backend" }));
   listeners.forEach((l) => l({ type: "turn-output", chatKey: "relay:x", sessionAlias: "backend", chunk: "done" }));
   listeners.forEach((l) => l({ type: "turn-finished", chatKey: "relay:x", sessionAlias: "backend", ok: true }));
   await new Promise((r) => setTimeout(r, 200));
