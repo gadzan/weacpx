@@ -57,6 +57,7 @@ test("prompt binds session, streams chunks as events, and reports completion", a
     isOwner: true,
   });
   expect(seen).toEqual([
+    { type: "turn-started", chatKey: "relay:acct-1", sessionAlias: "backend" },
     { type: "turn-output", chatKey: "relay:acct-1", sessionAlias: "backend", chunk: "chunk-1" },
     { type: "turn-output", chatKey: "relay:acct-1", sessionAlias: "backend", chunk: "final" },
     { type: "turn-finished", chatKey: "relay:acct-1", sessionAlias: "backend", ok: true },
