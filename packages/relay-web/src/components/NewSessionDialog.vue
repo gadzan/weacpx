@@ -16,6 +16,7 @@ const workspaceSel = ref("");
 const workspacePath = ref("");
 const submitting = ref(false);
 const pending = ref(false);
+const submittedAlias = ref("");
 const error = ref("");
 const loading = ref(true);
 
@@ -60,31 +61,31 @@ async function submit(): Promise<void> {
   error.value = "";
   try {
     const agentName = agentValue.value;
-    // 1) auto-create the config agent if an un-configured driver was picked
-    if (!configuredNames.value.has(agentName)) {
-      await store.createAgent(props.instanceId, agentName, agentName);
-    }
-    // 2) resolve workspace (auto-create from path if in New-path mode)
+    // 1) derive the workspace + alias names up front
     let workspaceName = workspaceSel.value;
     if (wsMode.value === "path") {
       const existing = (inst.value?.workspaces ?? []).map((w) => w.name);
       workspaceName = uniqueName(workspaceNameFromPath(workspacePath.value), existing);
     }
-    // 3) alias: explicit, else generated + de-duped against existing sessions
     const existingAliases = (inst.value?.sessions ?? []).map((s) => s.alias);
     const finalAlias = alias.value.trim() || uniqueName(genAlias(workspaceName, agentName), existingAliases);
-    // 3b) guard against empty derived names (e.g. an all-symbols path/alias)
+    // 2) guard against empty derived names (e.g. an all-symbols path/alias)
+    //    BEFORE creating anything (agent/workspace), so nothing is written on bad input.
     if (!workspaceName || !finalAlias) {
       error.value = "could not derive a valid name — please enter an alias or a normal path";
       return;
     }
-    // 4) create the workspace once names are confirmed valid
+    // 3) auto-create the config agent if an un-configured driver was picked
+    if (!configuredNames.value.has(agentName)) {
+      await store.createAgent(props.instanceId, agentName, agentName);
+    }
+    // 4) create the workspace from path once names are confirmed valid
     if (wsMode.value === "path") {
       await store.createWorkspace(props.instanceId, workspaceName, workspacePath.value.trim());
     }
     // 5) create the session (preserve PR #31 pending handling)
     const result = await store.createSession(props.instanceId, finalAlias, agentName, workspaceName);
-    if (result.pending) { pending.value = true; return; }
+    if (result.pending) { submittedAlias.value = finalAlias; pending.value = true; return; }
     emit("created", finalAlias);
     emit("close");
   } catch (e) {
@@ -161,7 +162,7 @@ async function submit(): Promise<void> {
         <template v-if="pending">
           <button data-test="ns-pending-close"
                   class="rounded-lg bg-slate-800 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
-                  @click="emit('created', alias.trim()); emit('close')">OK</button>
+                  @click="emit('created', submittedAlias); emit('close')">OK</button>
         </template>
         <template v-else>
           <button class="rounded-lg px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100" @click="emit('close')">Cancel</button>

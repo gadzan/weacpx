@@ -110,6 +110,45 @@ describe("NewSessionDialog", () => {
     expect(store.createSession).not.toHaveBeenCalled();
   });
 
+  it("does not create an agent when an all-symbols path yields an empty name (guard precedes createAgent)", async () => {
+    const { wrapper, store } = mountDialog({
+      agents: [{ name: "codex", driver: "codex" }],
+      workspaces: [],
+      agentCatalog: [
+        { driver: "codex", configured: true, installed: "builtin" },
+        { driver: "gemini", configured: false, installed: "yes" },
+      ],
+      sessions: [],
+    });
+    await flushPromises();
+    await wrapper.get('[data-test="ns-agent"]').setValue("gemini");
+    await wrapper.get('[data-test="ns-ws-mode-path"]').trigger("click");
+    await wrapper.get('[data-test="ns-ws-path"]').setValue("@@@");
+    await wrapper.get('[data-test="ns-create"]').trigger("click");
+    await flushPromises();
+    expect(wrapper.find('[data-test="ns-error"]').exists()).toBe(true);
+    expect(store.createAgent).not.toHaveBeenCalled();
+    expect(store.createWorkspace).not.toHaveBeenCalled();
+    expect(store.createSession).not.toHaveBeenCalled();
+  });
+
+  it("emits the resolved auto-generated alias on pending-close when alias was blank", async () => {
+    const { wrapper, store } = mountDialog({
+      agents: [{ name: "codex", driver: "codex" }],
+      workspaces: [{ name: "backend", cwd: "/b" }],
+      agentCatalog: [{ driver: "codex", configured: true, installed: "builtin" }],
+      sessions: [],
+    });
+    vi.mocked(store.createSession).mockResolvedValue({ pending: true });
+    await flushPromises();
+    // leave alias blank → auto-generated "backend-codex"
+    await wrapper.get('[data-test="ns-create"]').trigger("click");
+    await flushPromises();
+    expect(wrapper.find('[data-test="ns-pending"]').exists()).toBe(true);
+    await wrapper.get('[data-test="ns-pending-close"]').trigger("click");
+    expect(wrapper.emitted("created")?.[0]).toEqual(["backend-codex"]);
+  });
+
   it("shows a non-error pending notice on a create timeout and defers emit until acknowledged", async () => {
     const { wrapper, store } = mountDialog({
       agents: [{ name: "codex", driver: "codex" }],
