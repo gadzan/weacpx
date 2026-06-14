@@ -84,8 +84,16 @@ export function initSchema(db: SqlDriver): void {
       session_alias TEXT NOT NULL,
       direction TEXT NOT NULL CHECK (direction IN ('in','out')),
       text TEXT NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      structured TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages (instance_id, session_alias, id);
   `);
+  // Migration: older deployments have `messages` without `structured`.
+  const hasStructured = db
+    .all<{ name: string }>("PRAGMA table_info(messages)")
+    .some((c) => c.name === "structured");
+  if (!hasStructured) {
+    db.exec("ALTER TABLE messages ADD COLUMN structured TEXT");
+  }
 }

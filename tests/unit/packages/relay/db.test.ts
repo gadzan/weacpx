@@ -25,3 +25,23 @@ test("initSchema creates all tables idempotently", async () => {
   }
   db.close();
 });
+
+test("messages table has a structured column after initSchema", async () => {
+  const db = await createSqlDriver(":memory:");
+  initSchema(db);
+  const cols = db.all<{ name: string }>("PRAGMA table_info(messages)").map((c) => c.name);
+  expect(cols).toContain("structured");
+  db.close();
+});
+
+test("initSchema adds structured to a pre-existing messages table (migration)", async () => {
+  const db = await createSqlDriver(":memory:");
+  // Simulate an old deployment: messages table without the structured column.
+  db.exec(`CREATE TABLE messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, instance_id TEXT NOT NULL, session_alias TEXT NOT NULL,
+    direction TEXT NOT NULL, text TEXT NOT NULL, created_at TEXT NOT NULL)`);
+  initSchema(db);
+  const cols = db.all<{ name: string }>("PRAGMA table_info(messages)").map((c) => c.name);
+  expect(cols).toContain("structured");
+  db.close();
+});
