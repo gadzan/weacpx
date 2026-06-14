@@ -13,6 +13,13 @@ export interface AgentDto {
   driver: string;
 }
 
+/** Wire DTO for a machine-available agent driver and its readiness. */
+export interface AgentCatalogEntryDto {
+  driver: string;
+  configured: boolean;
+  installed: "builtin" | "yes" | "unknown";
+}
+
 /** Wire DTO for a configured workspace on an instance. */
 export interface WorkspaceDto {
   name: string;

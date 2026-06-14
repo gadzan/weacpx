@@ -1,4 +1,4 @@
-import type { AgentDto, ControlEventDto, OrchestrationTaskDto, ScheduledTaskDto, SessionDto, WorkspaceDto } from "./dtos.js";
+import type { AgentCatalogEntryDto, AgentDto, ControlEventDto, OrchestrationTaskDto, ScheduledTaskDto, SessionDto, WorkspaceDto } from "./dtos.js";
 
 // Instance <-> relay message types. Convention: chatKey for relay-driven chats
 // is `relay:<accountId>`; the relay server stamps chatKey/senderId/isOwner on
@@ -14,6 +14,10 @@ export const MSG = {
   agentsList: "control.agents.list",
   workspacesList: "control.workspaces.list",
   workspacesCreate: "control.workspaces.create",
+  agentsCatalog: "control.agents.catalog",
+  agentsCreate: "control.agents.create",
+  agentsRemove: "control.agents.remove",
+  workspacesRemove: "control.workspaces.remove",
   prompt: "control.prompt",
   promptCancel: "control.prompt.cancel",
   commandExecute: "control.command.execute",
@@ -110,6 +114,25 @@ export interface WorkspacesCreatePayload {
 }
 export interface WorkspacesCreateResult {
   workspace: WorkspaceDto;
+}
+export interface AgentsCatalogResult {
+  agents: AgentCatalogEntryDto[];
+}
+export interface AgentsCreatePayload {
+  name: string;
+  driver: string;
+}
+export interface AgentsCreateResult {
+  agent: AgentDto;
+}
+export interface AgentsRemovePayload {
+  name: string;
+}
+export interface WorkspacesRemovePayload {
+  name: string;
+}
+export interface OkResult {
+  ok: true;
 }
 export interface PromptPayload {
   chatKey: string;
