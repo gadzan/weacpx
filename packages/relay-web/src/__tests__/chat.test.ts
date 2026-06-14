@@ -197,3 +197,33 @@ test("PromptInput emits send with trimmed text and clears", async () => {
   expect(wrapper.emitted("send")?.[0]).toEqual(["do it"]);
   expect((wrapper.find("textarea").element as HTMLTextAreaElement).value).toBe("");
 });
+
+test("live turn accumulates tool steps, reasoning, and flushes structured on finish", () => {
+  const store = useChatStore();
+  store.select("i1", "backend");
+  store.applyEvent({ kind: "control-event", instanceId: "i1", event: { type: "turn-started", chatKey: "c", sessionAlias: "backend" } } as never);
+  expect(store.busy).toBe(true);
+  store.applyEvent({ kind: "control-event", instanceId: "i1", event: { type: "tool-event", chatKey: "c", sessionAlias: "backend", step: { toolCallId: "t1", toolName: "Bash", kind: "execute", status: "running", title: "ls" } } } as never);
+  store.applyEvent({ kind: "control-event", instanceId: "i1", event: { type: "tool-event", chatKey: "c", sessionAlias: "backend", step: { toolCallId: "t1", toolName: "Bash", kind: "execute", status: "success", title: "ls" } } } as never);
+  store.applyEvent({ kind: "control-event", instanceId: "i1", event: { type: "turn-thought", chatKey: "c", sessionAlias: "backend", chunk: "reasoning" } } as never);
+  store.applyEvent({ kind: "control-event", instanceId: "i1", event: { type: "turn-output", chatKey: "c", sessionAlias: "backend", chunk: "answer" } } as never);
+  expect(store.liveTurn?.toolSteps.length).toBe(1);
+  expect(store.liveTurn?.reasoning).toBe("reasoning");
+  store.applyEvent({ kind: "control-event", instanceId: "i1", event: { type: "turn-finished", chatKey: "c", sessionAlias: "backend", ok: true } } as never);
+  expect(store.busy).toBe(false);
+  expect(store.liveTurn).toBeNull();
+  const last = store.messages.at(-1)!;
+  expect(last).toMatchObject({ direction: "out", text: "answer", status: "done" });
+  expect(last.structured?.toolSteps.length).toBe(1);
+  expect(last.structured?.reasoning).toBe("reasoning");
+});
+
+test("a cancelled finish marks the turn stopped, not errored", () => {
+  const store = useChatStore();
+  store.select("i1", "backend");
+  store.applyEvent({ kind: "control-event", instanceId: "i1", event: { type: "turn-started", chatKey: "c", sessionAlias: "backend" } } as never);
+  store.applyEvent({ kind: "control-event", instanceId: "i1", event: { type: "turn-output", chatKey: "c", sessionAlias: "backend", chunk: "partial" } } as never);
+  store.applyEvent({ kind: "control-event", instanceId: "i1", event: { type: "turn-finished", chatKey: "c", sessionAlias: "backend", ok: false, cancelled: true } } as never);
+  expect(store.error).toBe("");
+  expect(store.messages.at(-1)).toMatchObject({ status: "cancelled", text: "partial" });
+});

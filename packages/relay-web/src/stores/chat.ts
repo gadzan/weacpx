@@ -1,24 +1,47 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
-import type { MessageRecordDto, WebServerEvent } from "@ganglion/xacpx-relay-protocol";
+import type { MessageRecordDto, ToolStepDto, WebServerEvent } from "@ganglion/xacpx-relay-protocol";
 import { api, ApiError } from "../api/client";
+
+export type TurnStatus = "working" | "streaming" | "done" | "cancelled" | "error";
+
+export interface LiveTurn {
+  text: string;
+  toolSteps: ToolStepDto[];
+  reasoning: string;
+  status: "working" | "streaming";
+  startedAt: number;
+}
 
 export interface ChatMessage extends MessageRecordDto {
   failed?: boolean;
+  status?: TurnStatus;
 }
 
 export const useChatStore = defineStore("chat", () => {
   const instanceId = ref<string | null>(null);
   const sessionAlias = ref<string | null>(null);
   const messages = ref<ChatMessage[]>([]);
-  const streamBuffers = ref<Record<string, string>>({});
+  const liveTurns = ref<Record<string, LiveTurn>>({});
   const bufKey = (instanceId: string, alias: string) => `${instanceId}\0${alias}`;
-  const streaming = computed(() => {
-    if (!instanceId.value || !sessionAlias.value) return "";
-    return streamBuffers.value[bufKey(instanceId.value, sessionAlias.value)] ?? "";
-  });
+
+  const selectedKey = computed(() =>
+    instanceId.value && sessionAlias.value ? bufKey(instanceId.value, sessionAlias.value) : null,
+  );
+  const liveTurn = computed<LiveTurn | null>(() =>
+    selectedKey.value ? liveTurns.value[selectedKey.value] ?? null : null,
+  );
+  const streaming = computed(() => liveTurn.value?.text ?? "");
+  const busy = computed(() => liveTurn.value !== null);
+
   const sending = ref(false);
   const error = ref("");
+
+  function ensureTurn(k: string): LiveTurn {
+    let t = liveTurns.value[k];
+    if (!t) { t = { text: "", toolSteps: [], reasoning: "", status: "working", startedAt: Date.now() }; liveTurns.value[k] = t; }
+    return t;
+  }
 
   function select(id: string, alias: string): void {
     instanceId.value = id;
@@ -38,24 +61,46 @@ export const useChatStore = defineStore("chat", () => {
   function applyEvent(event: WebServerEvent): void {
     if (event.kind === "instance-status" && !event.online) {
       const prefix = `${event.instanceId}\0`;
-      for (const k of Object.keys(streamBuffers.value)) {
-        if (k.startsWith(prefix)) delete streamBuffers.value[k];
-      }
+      for (const k of Object.keys(liveTurns.value)) if (k.startsWith(prefix)) delete liveTurns.value[k];
       return;
     }
     if (event.kind !== "control-event") return;
     const e = event.event;
-    if (e.type === "turn-output") {
-      const k = bufKey(event.instanceId, e.sessionAlias);
-      streamBuffers.value[k] = (streamBuffers.value[k] ?? "") + e.chunk;
+    if (e.type === "turn-started") {
+      ensureTurn(bufKey(event.instanceId, e.sessionAlias));
+    } else if (e.type === "turn-output") {
+      const t = ensureTurn(bufKey(event.instanceId, e.sessionAlias));
+      t.text += e.chunk;
+      t.status = "streaming";
+    } else if (e.type === "tool-event") {
+      const t = ensureTurn(bufKey(event.instanceId, e.sessionAlias));
+      const idx = t.toolSteps.findIndex((s) => s.toolCallId === e.step.toolCallId);
+      if (idx >= 0) t.toolSteps[idx] = e.step; else t.toolSteps.push(e.step);
+    } else if (e.type === "turn-thought") {
+      ensureTurn(bufKey(event.instanceId, e.sessionAlias)).reasoning += e.chunk;
     } else if (e.type === "turn-finished") {
       const k = bufKey(event.instanceId, e.sessionAlias);
-      const text = streamBuffers.value[k];
-      delete streamBuffers.value[k];
+      const t = liveTurns.value[k];
+      delete liveTurns.value[k];
       const selected = event.instanceId === instanceId.value && e.sessionAlias === sessionAlias.value;
-      if (!e.ok && selected) error.value = e.errorMessage ?? "turn-failed";
-      if (text && selected) {
-        messages.value.push({ instanceId: event.instanceId, sessionAlias: e.sessionAlias, direction: "out", text, createdAt: new Date().toISOString(), failed: !e.ok });
+      const status: TurnStatus = e.cancelled ? "cancelled" : e.ok ? "done" : "error";
+      if (!e.ok && !e.cancelled && selected) error.value = e.errorMessage ?? "turn-failed";
+      const hasContent = !!t && (t.text.length > 0 || t.toolSteps.length > 0 || t.reasoning.length > 0);
+      if (hasContent && selected) {
+        const structured =
+          t!.toolSteps.length > 0 || t!.reasoning.length > 0
+            ? { toolSteps: t!.toolSteps, ...(t!.reasoning ? { reasoning: t!.reasoning } : {}) }
+            : undefined;
+        messages.value.push({
+          instanceId: event.instanceId,
+          sessionAlias: e.sessionAlias,
+          direction: "out",
+          text: t!.text,
+          createdAt: new Date().toISOString(),
+          failed: status === "error",
+          status,
+          ...(structured ? { structured } : {}),
+        });
       }
     }
   }
@@ -71,8 +116,6 @@ export const useChatStore = defineStore("chat", () => {
         const { output } = await api.rpc<{ output: string }>(instanceId.value, "control.command.execute", { sessionAlias: sessionAlias.value, text });
         messages.value.push({ instanceId: instanceId.value, sessionAlias: sessionAlias.value, direction: "out", text: output, createdAt: new Date().toISOString() });
       } else {
-        // A pre-turn failure (e.g. session not found) resolves synchronously with
-        // ok:false and emits no turn-finished event, so surface it here.
         const res = await api.rpc<{ ok?: boolean; errorMessage?: string }>(instanceId.value, "control.prompt", { sessionAlias: sessionAlias.value, text });
         if (res && res.ok === false) {
           error.value = res.errorMessage ?? "prompt-failed";
@@ -80,9 +123,6 @@ export const useChatStore = defineStore("chat", () => {
         }
       }
     } catch (e) {
-      // A prompt turn can outlast any RPC timeout; its result still arrives over the
-      // /ws event stream (turn-output/turn-finished), so a timeout here is not fatal.
-      // A /command is request/response with no streaming, so its timeout must surface.
       const isTimeout = e instanceof ApiError && (e.status === 504 || e.code === "timeout");
       if (text.startsWith("/") || !isTimeout) {
         error.value = e instanceof ApiError ? e.code : "send-failed";
@@ -102,5 +142,5 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  return { instanceId, sessionAlias, messages, streaming, sending, error, select, loadHistory, applyEvent, send, cancel };
+  return { instanceId, sessionAlias, messages, streaming, liveTurn, busy, sending, error, select, loadHistory, applyEvent, send, cancel };
 });
