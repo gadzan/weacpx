@@ -63,14 +63,16 @@ export const useInstancesStore = defineStore("instances", () => {
     if (inst) inst.agentCatalog = agents;
   }
 
+  // loadFormOptions already refreshes agents + workspaces + catalog in one shot,
+  // so we don't also call loadAgentCatalog here (it would race a duplicate write).
   async function createAgent(instanceId: string, name: string, driver: string): Promise<void> {
     unwrap(await api.rpc(instanceId, "control.agents.create", { name, driver }));
-    await Promise.all([loadFormOptions(instanceId), loadAgentCatalog(instanceId)]);
+    await loadFormOptions(instanceId);
   }
 
   async function removeAgent(instanceId: string, name: string): Promise<void> {
     unwrap(await api.rpc(instanceId, "control.agents.remove", { name }));
-    await Promise.all([loadFormOptions(instanceId), loadAgentCatalog(instanceId)]);
+    await loadFormOptions(instanceId);
   }
 
   async function removeWorkspace(instanceId: string, name: string): Promise<void> {

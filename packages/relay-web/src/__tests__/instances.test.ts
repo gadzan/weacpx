@@ -91,6 +91,24 @@ describe("agent catalog + management actions", () => {
     vi.restoreAllMocks();
   });
 
+  test("createAgent refreshes once (single catalog fetch, no double)", async () => {
+    const store = useInstancesStore();
+    store.instances = [{ id: "i1", name: "n", online: true, lastSeenAt: null, sessions: [], agents: [], workspaces: [], agentCatalog: [] }];
+    const { api } = await import("../api/client");
+    const rpc = vi.spyOn(api, "rpc").mockImplementation(async (_id: string, type: string) => {
+      if (type === "control.agents.list") return { agents: [] } as never;
+      if (type === "control.workspaces.list") return { workspaces: [] } as never;
+      if (type === "control.agents.catalog") return { agents: [] } as never;
+      return { agent: { name: "gemini", driver: "gemini" } } as never;
+    });
+    await expect(store.createAgent("i1", "gemini", "gemini")).resolves.toBeUndefined();
+    const types = rpc.mock.calls.map((c) => c[1]);
+    expect(types[0]).toBe("control.agents.create");
+    // loadFormOptions refreshes everything once; the catalog is fetched exactly once.
+    expect(types.filter((t) => t === "control.agents.catalog")).toHaveLength(1);
+    vi.restoreAllMocks();
+  });
+
   test("removeAgent surfaces an instance-side error payload", async () => {
     const store = useInstancesStore();
     store.instances = [{ id: "i1", name: "n", online: true, lastSeenAt: null, sessions: [], agents: [], workspaces: [], agentCatalog: [] }];
