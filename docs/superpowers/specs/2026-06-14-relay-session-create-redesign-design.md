@@ -30,17 +30,16 @@ The relay dashboard's "new session" dialog has four usability gaps the user rais
 ```ts
 export interface AgentCatalogEntry {
   driver: string;            // acpx driver name (also the default agent name)
-  description: string;       // from agent-templates
-  configured: boolean;       // driver name present in config.agents (by name OR driver)
+  configured: boolean;       // a config.agents entry has this name OR this driver
   installed: "builtin" | "yes" | "unknown"; // see probe below
 }
 export function listAgentCatalog(config: AppConfig): AgentCatalogEntry[];
 ```
-- Built from `listAgentTemplates()` (16 drivers) merged with `config.agents`.
-- `installed`:
-  - `"builtin"` for drivers in `BUILT_IN_AGENT_PACKAGES` (codex, claude) — always usable via npx.
-  - else resolve `resolveAgentCommand(driver)`, extract the leading binary token, and check it exists on PATH → `"yes"` if found, `"unknown"` if not found or the probe errors. (`"unknown"` rather than a hard `"no"`: the binary may be installed under a name we can't predict; we never want to *block* a real agent. The UI greys-out `"unknown"` with a hint but still allows selection — see §C.)
-- Probe results cached with a short TTL (e.g. 60s) so opening the dialog/Settings repeatedly doesn't re-`which` 16 binaries.
+- Built from `listAgentTemplates()` (18 driver keys; templates carry only `{driver}`, no description) merged with `config.agents`.
+- `installed` (note: `BUILT_IN_AGENT_PACKAGES` lives in acpx and is **not importable** by xacpx — acpx is a child-process binary; and xacpx's `resolveAgentCommand(driver, command?)` only returns an explicit override, not the default binary, so it cannot supply the probe target):
+  - `"builtin"` for a small hardcoded set `BUILTIN_DRIVERS = ["codex", "claude"]` — always usable via npx.
+  - else look up the driver's CLI binary from a small hardcoded best-effort map `DRIVER_BINARIES` (default: the binary equals the driver name; known exceptions like `cursor → cursor-agent` overridden), and check it on PATH → `"yes"` if found, `"unknown"` if not found / not mapped / probe errors. (`"unknown"` never blocks — the binary may be installed under a name we can't predict; the UI greys it with a hint but keeps it selectable — see §C.)
+- Probe results cached with a short TTL (e.g. 60s) so re-opening the dialog/manager doesn't re-`which` every binary.
 
 **ControlService additions** (`src/control/control-service.ts`) + deps wired in `src/main.ts` against the live `AppConfig`/`ConfigStore`:
 - `listAgentCatalog(): AgentCatalogEntry[]`
@@ -48,7 +47,7 @@ export function listAgentCatalog(config: AppConfig): AgentCatalogEntry[];
 - `removeAgent(name: string): Promise<void>` — **guard:** reject (`agent-in-use`) if any session in `listAllResolvedSessions()` uses it.
 - `removeWorkspace(name: string): Promise<void>` — **guard:** reject (`workspace-in-use`) if any session uses it.
 
-`ConfigStore` gains `upsertAgent`, `removeAgent`, `removeWorkspace` if not present (mirroring `upsertWorkspace`).
+`ConfigStore` **already has** `upsertAgent(name, AgentConfig)`, `removeAgent(name)`, `removeWorkspace(name)` (`src/config/config-store.ts`) — no config-store changes needed; the new ControlService deps call them then `replaceRuntimeConfig(config, updated)`, mirroring the existing `workspaces.create` wiring in `src/main.ts`.
 
 ### B. relay-protocol — new messages/DTOs
 
@@ -57,7 +56,7 @@ Add to `packages/relay-protocol/src/messages.ts` + `dtos.ts`:
 - `MSG.agentsCreate = "control.agents.create"` → payload `{ name, driver }` → `{ agent: AgentDto }`
 - `MSG.agentsRemove = "control.agents.remove"` → payload `{ name }` → `{ ok: true }`
 - `MSG.workspacesRemove = "control.workspaces.remove"` → payload `{ name }` → `{ ok: true }`
-- `AgentCatalogEntryDto = { driver, description, configured, installed }`
+- `AgentCatalogEntryDto = { driver, configured, installed }`
 
 Mapped in `packages/channel-relay/src/control-bridge.ts` (config-global, **no** chatKey stamping — same as the existing `agents.list`/`workspaces.list`).
 
@@ -71,9 +70,11 @@ Mapped in `packages/channel-relay/src/control-bridge.ts` (config-global, **no** 
   On submit in **New path** mode: derive a workspace name from the path basename (sanitized `[a-z0-9-]`, de-duped against `inst.workspaces`), call `createWorkspace(name, path)` (no description), then create the session. The old inline name/desc "+ New workspace…" sub-form is **removed**.
 - **Submit order:** (1) ensure agent (auto-create if needed) → (2) ensure workspace (auto-create if New-path) → (3) `createSession`. Each step's error surfaces in the existing `ns-error` banner. The `{pending:true}` create-timeout handling from PR #31 is preserved.
 
-### D. Settings module (`packages/relay-web/src/views/SettingsView.vue`)
+### D. Per-instance management modal (dashboard)
 
-Two new sections, each its own component for isolation:
+Management is **per-instance** (the control RPCs target one connected instance), and the existing `SettingsView` is a global, admin-gated page with no instance context. So the manager lives as a **modal opened from each instance row** in the dashboard's `InstanceTree` — a "Manage" button next to "+ new session", mirroring the existing `NewSessionDialog` modal pattern. `SettingsView` is unchanged.
+
+**New `ManageInstanceDialog.vue`** — a modal with two sections, each its own child component for isolation:
 - **`WorkspacesManager.vue`** — list (`name · cwd · description`), create form (name/path/desc), remove button per row. Remove-in-use → inline error.
 - **`AgentsManager.vue`** — list configured agents (`name · driver · availability`), add form (driver `<select>` from catalog + optional custom name, default = driver), remove button per row. Remove-in-use → inline error.
 
@@ -107,15 +108,15 @@ Both use new store actions (below). The catalog (with availability) powers the a
 
 | File | Change |
 |---|---|
-| `src/config/agent-catalog.ts` | **new** — `listAgentCatalog` + install probe |
-| `src/config/config-store.ts` (or equivalent) | add `upsertAgent`/`removeAgent`/`removeWorkspace` if missing |
-| `src/control/control-service.ts` | `listAgentCatalog`/`createAgent`/`removeAgent`/`removeWorkspace` + deps |
-| `src/main.ts` | wire the new ControlService deps against ConfigStore/live config |
-| `packages/relay-protocol/src/messages.ts`, `dtos.ts` | new MSG + DTOs |
-| `packages/channel-relay/src/control-bridge.ts` | map the 4 new MSGs |
-| `packages/relay-web/src/stores/instances.ts` | catalog state + 4 actions |
+| `src/config/agent-catalog.ts` | **new** — `listAgentCatalog` + best-effort install probe (`BUILTIN_DRIVERS`, `DRIVER_BINARIES`, PATH check, TTL cache) |
+| `src/control/control-service.ts` | `listAgentCatalog`/`createAgent`/`removeAgent`/`removeWorkspace` + deps; in-use guards via `listAllResolvedSessions()` |
+| `src/main.ts` | wire the new ControlService deps against `configStore` + `replaceRuntimeConfig` (mirror existing `workspaces.create`) |
+| `packages/relay-protocol/src/messages.ts`, `dtos.ts` | new MSG (`agentsCatalog/agentsCreate/agentsRemove/workspacesRemove`) + `AgentCatalogEntryDto` + payload/result interfaces |
+| `packages/channel-relay/src/control-bridge.ts` | map the 4 new MSGs (non-chat-scoped) |
+| `packages/relay-web/src/stores/instances.ts` | `agentCatalog` state + `loadAgentCatalog`/`createAgent`/`removeAgent`/`removeWorkspace` actions |
 | `packages/relay-web/src/components/NewSessionDialog.vue` | optional alias, catalog agent picker, workspace pick-or-path |
+| `packages/relay-web/src/components/ManageInstanceDialog.vue` | **new** — per-instance modal hosting the two managers |
 | `packages/relay-web/src/components/WorkspacesManager.vue` | **new** |
 | `packages/relay-web/src/components/AgentsManager.vue` | **new** |
-| `packages/relay-web/src/views/SettingsView.vue` | mount the two managers |
-| `docs/relay-module.md`, `docs/relay-web-module.md` | document new RPCs + form/Settings behavior |
+| `packages/relay-web/src/components/InstanceTree.vue` | add a "Manage" button per instance row opening `ManageInstanceDialog` |
+| `docs/relay-module.md`, `docs/relay-web-module.md` | document new RPCs + form/manager behavior |
