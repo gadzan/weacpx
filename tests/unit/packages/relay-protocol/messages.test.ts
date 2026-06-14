@@ -5,6 +5,7 @@ import {
   errorPayload,
   isErrorPayload,
 } from "../../../../packages/relay-protocol/src/messages";
+import type { AgentCatalogEntryDto } from "../../../../packages/relay-protocol/src/dtos";
 
 test("message type constants are namespaced and unique", () => {
   const values = Object.values(MSG);
@@ -23,4 +24,16 @@ test("errorPayload/isErrorPayload roundtrip", () => {
   expect(isErrorPayload({ error: { code: 1, message: "x" } })).toBe(false);
   expect(isErrorPayload({ error: "not-an-object" })).toBe(false);
   expect(isErrorPayload({ error: { code: "ok", message: 42 } })).toBe(false);
+});
+
+test("new control message types exist with the control. prefix", () => {
+  expect(MSG.agentsCatalog).toBe("control.agents.catalog");
+  expect(MSG.agentsCreate).toBe("control.agents.create");
+  expect(MSG.agentsRemove).toBe("control.agents.remove");
+  expect(MSG.workspacesRemove).toBe("control.workspaces.remove");
+});
+
+test("AgentCatalogEntryDto shape compiles", () => {
+  const e: AgentCatalogEntryDto = { driver: "gemini", configured: false, installed: "unknown" };
+  expect(e.driver).toBe("gemini");
 });

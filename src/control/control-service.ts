@@ -19,6 +19,7 @@ import {
   toDisplaySessionAlias,
 } from "../channels/channel-scope";
 import type { ControlEventBus } from "./control-event-bus";
+import type { AgentCatalogEntry } from "../config/agent-catalog";
 
 export interface ControlSessionInfo {
   alias: string;
@@ -56,10 +57,16 @@ export interface ControlServiceDeps {
   // Read-only config views + a persisting workspace creator. Supplied by main.ts
   // where the live AppConfig and ConfigStore are in scope; created workspaces are
   // written back into the live config so SessionService validation sees them.
-  agents: { list(): ControlAgentInfo[] };
+  agents: {
+    list(): ControlAgentInfo[];
+    catalog(): AgentCatalogEntry[];
+    create(name: string, driver: string): Promise<ControlAgentInfo>;
+    remove(name: string): Promise<void>;
+  };
   workspaces: {
     list(): ControlWorkspaceInfo[];
     create(name: string, cwd: string, description?: string): Promise<ControlWorkspaceInfo>;
+    remove(name: string): Promise<void>;
   };
 }
 
@@ -143,6 +150,28 @@ export class ControlService {
 
   createWorkspace(name: string, cwd: string, description?: string): Promise<ControlWorkspaceInfo> {
     return this.deps.workspaces.create(name, cwd, description);
+  }
+
+  listAgentCatalog(): AgentCatalogEntry[] {
+    return this.deps.agents.catalog();
+  }
+
+  createAgent(name: string, driver: string): Promise<ControlAgentInfo> {
+    return this.deps.agents.create(name, driver);
+  }
+
+  async removeAgent(name: string): Promise<void> {
+    if (this.deps.sessions.listAllResolvedSessions().some((s) => s.agent === name)) {
+      throw new Error(`agent "${name}" is in use by an existing session`);
+    }
+    await this.deps.agents.remove(name);
+  }
+
+  async removeWorkspace(name: string): Promise<void> {
+    if (this.deps.sessions.listAllResolvedSessions().some((s) => s.workspace === name)) {
+      throw new Error(`workspace "${name}" is in use by an existing session`);
+    }
+    await this.deps.workspaces.remove(name);
   }
 
   listScheduledTasks(chatKey: string): ScheduledTaskRecord[] {

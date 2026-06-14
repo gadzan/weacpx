@@ -2,10 +2,12 @@
 import { ref } from "vue";
 import { useInstancesStore } from "../stores/instances";
 import NewSessionDialog from "./NewSessionDialog.vue";
+import ManageInstanceDialog from "./ManageInstanceDialog.vue";
 
 const store = useInstancesStore();
 const emit = defineEmits<{ select: [instanceId: string, alias: string] }>();
 const dialogFor = ref<{ id: string; name: string } | null>(null);
+const manageFor = ref<{ id: string; name: string } | null>(null);
 
 async function toggle(id: string) {
   await store.loadSessions(id).catch(() => {});
@@ -32,11 +34,17 @@ function remove(id: string, alias: string) {
           <button data-test="delete-session" class="text-xs text-red-400 hover:underline" @click.stop="remove(inst.id, s.alias)">delete</button>
         </li>
       </ul>
-      <button data-test="new-session" class="px-6 py-1.5 text-left text-xs font-medium text-slate-500 hover:text-slate-800"
-              @click="dialogFor = { id: inst.id, name: inst.name }">+ new session</button>
+      <div class="flex items-center gap-3 px-6 py-1.5">
+        <button data-test="new-session" class="text-left text-xs font-medium text-slate-500 hover:text-slate-800"
+                @click="dialogFor = { id: inst.id, name: inst.name }">+ new session</button>
+        <button data-test="manage-instance" class="text-left text-xs font-medium text-slate-500 hover:text-slate-800"
+                @click="manageFor = { id: inst.id, name: inst.name }">Manage</button>
+      </div>
     </div>
 
     <NewSessionDialog v-if="dialogFor" :instance-id="dialogFor.id" :instance-name="dialogFor.name"
                       @close="dialogFor = null" @created="dialogFor = null" />
+    <ManageInstanceDialog v-if="manageFor" :instance-id="manageFor.id" :instance-name="manageFor.name"
+                          @close="manageFor = null" />
   </div>
 </template>

@@ -12,10 +12,13 @@ import {
   type ScheduledCreatePayload,
   type ScheduledListPayload,
   type ScheduledTaskDto,
+  type AgentsCreatePayload,
+  type AgentsRemovePayload,
   type SessionsCreatePayload,
   type SessionsListPayload,
   type SessionsRemovePayload,
   type WorkspacesCreatePayload,
+  type WorkspacesRemovePayload,
 } from "@ganglion/xacpx-relay-protocol";
 import type { ControlService } from "xacpx/plugin-api";
 
@@ -84,6 +87,29 @@ async function dispatchControlRequest(control: ControlService, envelope: RelayEn
       const cwd = typeof input.cwd === "string" ? input.cwd.trim() : "";
       if (!name || !cwd) return errorPayload("bad-request", "workspace name and cwd are required");
       return { workspace: await control.createWorkspace(name, cwd, input.description) };
+    }
+    case MSG.agentsCatalog:
+      return { agents: control.listAgentCatalog() };
+    case MSG.agentsCreate: {
+      const input = payload as AgentsCreatePayload;
+      const name = typeof input.name === "string" ? input.name.trim() : "";
+      const driver = typeof input.driver === "string" ? input.driver.trim() : "";
+      if (!name || !driver) return errorPayload("bad-request", "agent name and driver are required");
+      return { agent: await control.createAgent(name, driver) };
+    }
+    case MSG.agentsRemove: {
+      const input = payload as AgentsRemovePayload;
+      const name = typeof input.name === "string" ? input.name.trim() : "";
+      if (!name) return errorPayload("bad-request", "agent name is required");
+      await control.removeAgent(name);
+      return { ok: true };
+    }
+    case MSG.workspacesRemove: {
+      const input = payload as WorkspacesRemovePayload;
+      const name = typeof input.name === "string" ? input.name.trim() : "";
+      if (!name) return errorPayload("bad-request", "workspace name is required");
+      await control.removeWorkspace(name);
+      return { ok: true };
     }
     case MSG.prompt:
       return await control.prompt(payload as PromptPayload);

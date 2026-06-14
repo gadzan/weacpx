@@ -36,6 +36,15 @@
   `control.workspaces.list`（name+cwd+description）、`control.workspaces.create`
   （按名+路径新建并**持久化**到实例 config，经 ConfigStore.upsertWorkspace + replaceRuntimeConfig
   同步进运行时 config 供 SessionService 校验）——三者经 control-bridge 映射到 ControlService。
+- agent catalog 与配置管理 RPC（**config-global，非 chat-scoped**，与 agents.list/workspaces.list 一致）：
+  - `control.agents.catalog`：返回 xacpx 已知的**全部 acpx driver**（来自 `listAgentTemplates()`，见
+    src/config/agent-catalog.ts），每项带 `configured`（是否已落到 config.agents）+ best-effort
+    `installed`：`builtin`（codex/claude，npx 自动拉取无需预装）/`yes`（PATH 探到对应 CLI 二进制）/
+    `unknown`（探不到——纯提示，永不硬拦，可能装在无法预测的名字下）。
+  - `control.agents.create {name,driver}`：按名+driver 新建 agent 并持久化进实例 config。
+  - `control.agents.remove {name}`：删除 agent；若有现存会话正在用该 agent，则以 in-use 错误拒绝。
+  - `control.workspaces.remove {name}`：删除 workspace；若有现存会话正在用该 workspace，则以 in-use 错误拒绝。
+  - 四者经 control-bridge 映射到 ControlService（catalog/create/remove），in-use 校验在 ControlService 内。
 - `control.sessions.create` 走**完整 transport 生命周期**（resolve→reserve→ensure→check→attach→refresh，
   经 `CommandRouter.createSessionWithTransport`）：解析 agent/workspace → 预留别名 → 在后端建/确认 acpx 命名会话
   → 校验 → 绑定逻辑会话 → best-effort 刷新 agent command。看板新建的会话因此**立即可 prompt**（旧实现只建逻辑会话，

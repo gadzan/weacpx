@@ -11,7 +11,7 @@ const req = (type: string, payload: unknown): RelayEnvelope => ({
   protocolVersion: RELAY_PROTOCOL_VERSION, kind: "req", id: "r-1", type, payload,
 });
 
-function makeFakeControl() {
+function makeFakeControl(overrides: Record<string, unknown> = {}) {
   const calls: Record<string, unknown[]> = {};
   const record = (name: string, args: unknown) => { (calls[name] ??= []).push(args); };
   const listeners: Array<(event: unknown) => void> = [];
@@ -55,6 +55,7 @@ function makeFakeControl() {
       sourceHandle: "h", sourceKind: "human", coordinatorSession: "c", resultText: "",
     }),
     events: { subscribe: (listener: (event: unknown) => void) => { listeners.push(listener); return () => {}; } },
+    ...overrides,
   };
   return { control, calls, emit: (event: unknown) => listeners.forEach((l) => l(event)) };
 }
@@ -124,6 +125,41 @@ test("workspaces.create rejects missing name or cwd with bad-request", async () 
     error: { code: "bad-request", message: "workspace name and cwd are required" },
   });
   expect(calls.createWorkspace).toBeUndefined();
+});
+
+test("agents.catalog returns the control catalog", async () => {
+  const { control } = makeFakeControl({
+    listAgentCatalog: () => [{ driver: "gemini", configured: false, installed: "unknown" }],
+  });
+  const bridge = createControlBridge(control as never);
+  expect(await dispatch(bridge, req(MSG.agentsCatalog, {}))).toEqual({
+    agents: [{ driver: "gemini", configured: false, installed: "unknown" }],
+  });
+});
+
+test("agents.create requires name and driver", async () => {
+  const { control } = makeFakeControl({
+    createAgent: async (name: string, driver: string) => ({ name, driver }),
+  });
+  const bridge = createControlBridge(control as never);
+  expect(await dispatch(bridge, req(MSG.agentsCreate, { name: "", driver: "gemini" }))).toMatchObject({
+    error: { code: "bad-request" },
+  });
+  expect(await dispatch(bridge, req(MSG.agentsCreate, { name: "gemini", driver: "gemini" }))).toEqual({
+    agent: { name: "gemini", driver: "gemini" },
+  });
+});
+
+test("agents.remove and workspaces.remove return ok", async () => {
+  const removed: string[] = [];
+  const { control } = makeFakeControl({
+    removeAgent: async (name: string) => { removed.push(`a:${name}`); },
+    removeWorkspace: async (name: string) => { removed.push(`w:${name}`); },
+  });
+  const bridge = createControlBridge(control as never);
+  expect(await dispatch(bridge, req(MSG.agentsRemove, { name: "gemini" }))).toEqual({ ok: true });
+  expect(await dispatch(bridge, req(MSG.workspacesRemove, { name: "ws1" }))).toEqual({ ok: true });
+  expect(removed).toEqual(["a:gemini", "w:ws1"]);
 });
 
 test("unknown type and thrown errors become error payloads", async () => {
