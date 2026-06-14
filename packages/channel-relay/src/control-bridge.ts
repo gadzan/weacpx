@@ -21,6 +21,7 @@ import {
   type WorkspacesRemovePayload,
 } from "@ganglion/xacpx-relay-protocol";
 import type { ControlService } from "xacpx/plugin-api";
+import { toolUseEventToStepDto } from "./tool-presentation";
 
 // Wire mappers live here (not in relay-protocol) so the protocol package stays
 // free of xacpx imports. Field lists mirror the "Keep in sync" notes in dtos.ts.
@@ -162,6 +163,12 @@ export function subscribeControlEvents(
   sendEvent: (type: string, payload: unknown) => void,
 ): () => void {
   return control.events.subscribe((event) => {
+    if (event.type === "tool-event") {
+      sendEvent(MSG.instanceEvent, {
+        event: { type: "tool-event", chatKey: event.chatKey, sessionAlias: event.sessionAlias, step: toolUseEventToStepDto(event.event) },
+      });
+      return;
+    }
     sendEvent(MSG.instanceEvent, { event });
   });
 }
