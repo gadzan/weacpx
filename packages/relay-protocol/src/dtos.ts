@@ -69,10 +69,36 @@ export interface OrchestrationTaskDto {
   updatedAt: string;
 }
 
-/** Wire mirror of src/control ControlEvent. */
+export type ToolStepStatus = "running" | "success" | "error";
+export type ToolStepKind = "read" | "search" | "execute" | "edit" | "think" | "other";
+
+/** Friendly, presentation-ready detail for one tool call (no raw JSON crosses the wire). */
+export type ToolDetailDto =
+  | { type: "diff"; path: string; oldText: string; newText: string }
+  | { type: "read"; path: string; lines?: string; preview?: string }
+  | { type: "command"; command: string; output?: string; exitCode?: number }
+  | { type: "search"; query: string; output?: string }
+  | { type: "text"; text: string }
+  | { type: "fields"; fields: Array<{ label: string; value: string }>; output?: string };
+
+/** One collapsed tool-call step, normalized at the connector from a core ToolUseEvent. */
+export interface ToolStepDto {
+  toolCallId: string;
+  toolName: string;
+  kind: ToolStepKind;
+  status: ToolStepStatus;
+  title: string;
+  durationMs?: number;
+  detail?: ToolDetailDto;
+}
+
+/** Wire mirror of src/control ControlEvent (tool-event carries the NORMALIZED step). */
 export type ControlEventDto =
   | { type: "turn-output"; chatKey: string; sessionAlias: string; chunk: string }
-  | { type: "turn-finished"; chatKey: string; sessionAlias: string; ok: boolean; errorMessage?: string }
+  | { type: "turn-started"; chatKey: string; sessionAlias: string }
+  | { type: "tool-event"; chatKey: string; sessionAlias: string; step: ToolStepDto }
+  | { type: "turn-thought"; chatKey: string; sessionAlias: string; chunk: string }
+  | { type: "turn-finished"; chatKey: string; sessionAlias: string; ok: boolean; errorMessage?: string; cancelled?: boolean }
   | { type: "sessions-changed" }
   | { type: "scheduled-changed"; chatKey: string }
   | { type: "orchestration-changed" };
