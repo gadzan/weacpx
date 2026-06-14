@@ -227,3 +227,8 @@ test("a cancelled finish marks the turn stopped, not errored", () => {
   expect(store.error).toBe("");
   expect(store.messages.at(-1)).toMatchObject({ status: "cancelled", text: "partial" });
 });
+
+test("PromptInput disables its textarea when busy", () => {
+  const wrapper = mount(PromptInput, { props: { busy: true } });
+  expect((wrapper.find("textarea").element as HTMLTextAreaElement).disabled).toBe(true);
+});

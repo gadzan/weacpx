@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
-defineProps<{ reasoning: string }>();
-const open = ref(true);
+const props = withDefaults(defineProps<{ reasoning: string; defaultOpen?: boolean }>(), { defaultOpen: true });
+const open = ref(props.defaultOpen ?? true);
 </script>
 
 <template>
