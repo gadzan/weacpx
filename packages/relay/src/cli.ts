@@ -7,7 +7,7 @@ export interface RelayCliIo {
 
 const USAGE = [
   "Usage: xacpx-relay <command>",
-  "  start       --db <path> [--http-port 8787] [--ws-port 8788] [--host 0.0.0.0] [--web-root <dir>] [--history-retention-days <n>]",
+  "  start       --db <path> [--http-port 8787] [--ws-port 8788] [--host 0.0.0.0] [--web-root <dir>] [--history-retention-days <n>] [--request-timeout-ms 120000]",
   "  init-admin  --username <name> [--password <pw>] --db <path>",
   "  token new   --account <username> [--name <label>] [--ttl-minutes 10] --db <path>",
 ].join("\n");
@@ -71,6 +71,8 @@ export async function runRelayCli(args: string[], io: RelayCliIo): Promise<numbe
   if (args[0] === "start") {
     const retentionRaw = flag(args, "--history-retention-days");
     const retentionDays = retentionRaw !== undefined ? Number(retentionRaw) : undefined;
+    const requestTimeoutRaw = flag(args, "--request-timeout-ms");
+    const requestTimeoutMs = requestTimeoutRaw !== undefined ? Number(requestTimeoutRaw) : undefined;
     const running = await startRelayServer({
       dbPath,
       httpPort: Number(flag(args, "--http-port") ?? "8787"),
@@ -78,6 +80,7 @@ export async function runRelayCli(args: string[], io: RelayCliIo): Promise<numbe
       host: flag(args, "--host"),
       webRoot: flag(args, "--web-root"),
       historyRetentionDays: retentionDays !== undefined && !Number.isNaN(retentionDays) ? retentionDays : undefined,
+      requestTimeoutMs: requestTimeoutMs !== undefined && !Number.isNaN(requestTimeoutMs) ? requestTimeoutMs : undefined,
     });
     io.print(`xacpx-relay listening: http :${running.httpPort}, instance ws :${running.wsPort}, db ${dbPath}`);
     return await new Promise<number>((resolve) => {

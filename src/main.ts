@@ -763,10 +763,31 @@ export async function buildApp(paths: RuntimePaths, deps: RuntimeDeps = {}): Pro
   const control = new ControlService({
     agent,
     sessions,
+    createSessionWithTransport: (internalAlias, agent, workspace) =>
+      router.createSessionWithTransport(internalAlias, agent, workspace),
     activeTurns,
     scheduled: scheduledService,
     orchestration,
     events: controlEvents,
+    agents: {
+      list: () =>
+        Object.entries(config.agents).map(([name, agentConfig]) => ({ name, driver: agentConfig.driver })),
+    },
+    workspaces: {
+      list: () =>
+        Object.entries(config.workspaces).map(([name, workspace]) => ({
+          name,
+          cwd: workspace.cwd,
+          ...(workspace.description ? { description: workspace.description } : {}),
+        })),
+      create: async (name, cwd, description) => {
+        const updated = await configStore.upsertWorkspace(name, cwd, description);
+        replaceRuntimeConfig(config, updated);
+        // The persisted values equal the inputs; build the DTO from them directly
+        // (avoids an unchecked index read of the freshly-written workspaces map).
+        return { name, cwd, ...(description ? { description } : {}) };
+      },
+    },
   });
   const scheduledScheduler = new ScheduledTaskScheduler(scheduledService, {
     dispatchTask: buildScheduledDispatchTask({

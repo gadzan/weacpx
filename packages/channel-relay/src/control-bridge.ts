@@ -13,7 +13,9 @@ import {
   type ScheduledListPayload,
   type ScheduledTaskDto,
   type SessionsCreatePayload,
+  type SessionsListPayload,
   type SessionsRemovePayload,
+  type WorkspacesCreatePayload,
 } from "@ganglion/xacpx-relay-protocol";
 import type { ControlService } from "xacpx/plugin-api";
 
@@ -60,15 +62,28 @@ export function createControlBridge(control: ControlService): ControlBridge {
 async function dispatchControlRequest(control: ControlService, envelope: RelayEnvelope): Promise<unknown> {
   const payload = envelope.payload;
   switch (envelope.type) {
-    case MSG.sessionsList:
-      return { sessions: control.listSessions() }; // ControlSessionInfo is field-identical to SessionDto
+    case MSG.sessionsList: {
+      const input = payload as SessionsListPayload;
+      return { sessions: control.listSessions(input.chatKey) }; // ControlSessionInfo is field-identical to SessionDto
+    }
     case MSG.sessionsCreate: {
       const input = payload as SessionsCreatePayload;
-      return await control.createSession(input.alias, input.agent, input.workspace);
+      return await control.createSession(input.chatKey, input.alias, input.agent, input.workspace);
     }
     case MSG.sessionsRemove: {
       const input = payload as SessionsRemovePayload;
-      return await control.removeSession(input.alias);
+      return await control.removeSession(input.chatKey, input.alias);
+    }
+    case MSG.agentsList:
+      return { agents: control.listAgents() };
+    case MSG.workspacesList:
+      return { workspaces: control.listWorkspaces() };
+    case MSG.workspacesCreate: {
+      const input = payload as WorkspacesCreatePayload;
+      const name = typeof input.name === "string" ? input.name.trim() : "";
+      const cwd = typeof input.cwd === "string" ? input.cwd.trim() : "";
+      if (!name || !cwd) return errorPayload("bad-request", "workspace name and cwd are required");
+      return { workspace: await control.createWorkspace(name, cwd, input.description) };
     }
     case MSG.prompt:
       return await control.prompt(payload as PromptPayload);

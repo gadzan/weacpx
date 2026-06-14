@@ -465,6 +465,57 @@ export class CommandRouter {
     };
   }
 
+  /**
+   * Create a session through the FULL transport lifecycle (resolve → reserve →
+   * ensure acpx named session → verify → bind logical session → refresh agent
+   * command), with no chat reply/progress. Used by the relay control surface so a
+   * dashboard-created session is immediately promptable, exactly like `/ss new`.
+   * `internalAlias` must already be channel-scoped (e.g. "relay:demo").
+   */
+  async createSessionWithTransport(
+    internalAlias: string,
+    agent: string,
+    workspace: string,
+  ): Promise<ResolvedSession> {
+    // Refuse to overwrite an existing alias: silently re-pointing it would either
+    // reuse the old transport session (stale history) or orphan it, and a native
+    // session's agent_session_id would be silently dropped. Mirrors handleSessionNew.
+    const existing = this.sessions.getResolvedSessionByInternalAlias(internalAlias);
+    if (existing) {
+      throw new Error(`session "${internalAlias}" already exists`);
+    }
+
+    const session = this.sessions.resolveSession(
+      internalAlias,
+      agent,
+      workspace,
+      `${workspace}:${internalAlias}`,
+    );
+    const release = await this.reserveLogicalTransportSession(session.transportSession);
+    try {
+      await this.ensureTransportSession(session);
+      const exists = await this.checkTransportSession(session);
+      if (!exists) {
+        throw new Error(`transport session "${session.transportSession}" could not be verified`);
+      }
+      await this.sessions.attachSession(internalAlias, agent, workspace, session.transportSession);
+      // Best-effort: a transient refresh failure must not fail a create that has
+      // already succeeded, bound, and verified. Mirrors the chat paths' use of
+      // refreshSessionTransportAgentCommandBestEffort.
+      try {
+        await this.refreshSessionTransportAgentCommand(internalAlias);
+      } catch (error) {
+        await this.logger.error("session.agent_command_refresh_failed", "failed to refresh session agent command", {
+          alias: internalAlias,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return session;
+    } finally {
+      await release();
+    }
+  }
+
   private createSessionInteractionOps(perfSpan?: PerfSpan): SessionInteractionOps {
     return {
       setModeTransportSession: (session, modeId) => this.setModeTransportSession(session, modeId),

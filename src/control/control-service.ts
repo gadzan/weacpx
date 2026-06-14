@@ -1,5 +1,6 @@
 import type { Agent as ChatAgent, ChatRequestMetadata } from "../weixin/agent/interface";
 import type { SessionService } from "../sessions/session-service";
+import type { ResolvedSession } from "../transport/types";
 import type { ActiveTurnRegistry } from "../sessions/active-turn-registry";
 import type {
   CreateScheduledTaskInput,
@@ -12,6 +13,11 @@ import type {
   OrchestrationTaskFilter,
 } from "../orchestration/orchestration-service";
 import type { OrchestrationTaskRecord } from "../orchestration/orchestration-types";
+import {
+  getChannelIdFromChatKey,
+  isSessionAliasVisibleInChannel,
+  toDisplaySessionAlias,
+} from "../channels/channel-scope";
 import type { ControlEventBus } from "./control-event-bus";
 
 export interface ControlSessionInfo {
@@ -22,16 +28,39 @@ export interface ControlSessionInfo {
   running: boolean;
 }
 
+export interface ControlAgentInfo {
+  name: string;
+  driver: string;
+}
+
+export interface ControlWorkspaceInfo {
+  name: string;
+  cwd: string;
+  description?: string;
+}
+
 export interface ControlServiceDeps {
   agent: Pick<ChatAgent, "chat">;
   sessions: Pick<
     SessionService,
-    "listAllResolvedSessions" | "createSession" | "removeSession" | "useSession"
+    "listAllResolvedSessions" | "removeSession" | "useSession" | "resolveAliasForChat"
   >;
+  // Full-lifecycle session creator (resolve → ensure acpx session → bind),
+  // wired to CommandRouter.createSessionWithTransport in main.ts. Replaces the
+  // logical-only sessions.createSession so control-created sessions are promptable.
+  createSessionWithTransport: (internalAlias: string, agent: string, workspace: string) => Promise<ResolvedSession>;
   activeTurns: Pick<ActiveTurnRegistry, "isActiveAnywhere">;
   scheduled: Pick<ScheduledTaskService, "listPending" | "createTask" | "cancelPending">;
   orchestration: Pick<OrchestrationService, "listTasks" | "getTask" | "requestTaskCancellation">;
   events: ControlEventBus;
+  // Read-only config views + a persisting workspace creator. Supplied by main.ts
+  // where the live AppConfig and ConfigStore are in scope; created workspaces are
+  // written back into the live config so SessionService validation sees them.
+  agents: { list(): ControlAgentInfo[] };
+  workspaces: {
+    list(): ControlWorkspaceInfo[];
+    create(name: string, cwd: string, description?: string): Promise<ControlWorkspaceInfo>;
+  };
 }
 
 export interface ControlPromptInput {
@@ -66,21 +95,30 @@ export class ControlService {
     return this.deps.events;
   }
 
-  listSessions(): ControlSessionInfo[] {
-    return this.deps.sessions.listAllResolvedSessions().map((session) => ({
-      alias: session.alias,
-      agent: session.agent,
-      workspace: session.workspace,
-      transportSession: session.transportSession,
-      running: this.deps.activeTurns.isActiveAnywhere(session.alias),
-    }));
+  // Sessions are keyed by a channel-scoped internal alias (e.g. `relay:demo`).
+  // The relay's chatKey is `relay:<accountId>`, so create/list/remove all scope
+  // to that channel — otherwise a session created here is invisible to a prompt,
+  // which resolves the same alias scoped. Aliases cross the wire in display form.
+  listSessions(chatKey: string): ControlSessionInfo[] {
+    const channelId = getChannelIdFromChatKey(chatKey);
+    return this.deps.sessions
+      .listAllResolvedSessions()
+      .filter((session) => isSessionAliasVisibleInChannel(session.alias, channelId))
+      .map((session) => ({
+        alias: toDisplaySessionAlias(session.alias),
+        agent: session.agent,
+        workspace: session.workspace,
+        transportSession: session.transportSession,
+        running: this.deps.activeTurns.isActiveAnywhere(session.alias),
+      }));
   }
 
-  async createSession(alias: string, agent: string, workspace: string): Promise<ControlSessionInfo> {
-    const session = await this.deps.sessions.createSession(alias, agent, workspace);
+  async createSession(chatKey: string, alias: string, agent: string, workspace: string): Promise<ControlSessionInfo> {
+    const internalAlias = await this.deps.sessions.resolveAliasForChat(chatKey, alias);
+    const session = await this.deps.createSessionWithTransport(internalAlias, agent, workspace);
     this.deps.events.emit({ type: "sessions-changed" });
     return {
-      alias: session.alias,
+      alias: toDisplaySessionAlias(session.alias),
       agent: session.agent,
       workspace: session.workspace,
       transportSession: session.transportSession,
@@ -88,10 +126,23 @@ export class ControlService {
     };
   }
 
-  async removeSession(alias: string): Promise<{ wasActive: boolean }> {
-    const result = await this.deps.sessions.removeSession(alias);
+  async removeSession(chatKey: string, alias: string): Promise<{ wasActive: boolean }> {
+    const internalAlias = await this.deps.sessions.resolveAliasForChat(chatKey, alias);
+    const result = await this.deps.sessions.removeSession(internalAlias);
     this.deps.events.emit({ type: "sessions-changed" });
     return result;
+  }
+
+  listAgents(): ControlAgentInfo[] {
+    return this.deps.agents.list();
+  }
+
+  listWorkspaces(): ControlWorkspaceInfo[] {
+    return this.deps.workspaces.list();
+  }
+
+  createWorkspace(name: string, cwd: string, description?: string): Promise<ControlWorkspaceInfo> {
+    return this.deps.workspaces.create(name, cwd, description);
   }
 
   listScheduledTasks(chatKey: string): ScheduledTaskRecord[] {

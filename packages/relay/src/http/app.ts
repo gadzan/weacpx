@@ -37,6 +37,10 @@ const LOGIN_FAILURES_MAX = 4096;
 const CHAT_SCOPED_TYPES = new Set<string>([
   MSG.prompt, MSG.promptCancel, MSG.commandExecute,
   MSG.scheduledList, MSG.scheduledCreate, MSG.scheduledCancel,
+  // Session ops are chat-scoped too: created sessions must land in the same
+  // `relay:<accountId>` channel scope that prompt/list resolve against, else a
+  // freshly created session is unreachable by a subsequent prompt.
+  MSG.sessionsList, MSG.sessionsCreate, MSG.sessionsRemove,
 ]);
 
 function requireJson(contentType: string | undefined): boolean {

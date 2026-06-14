@@ -22,6 +22,12 @@ function makeFakeControl() {
       return { alias, agent, workspace, transportSession: "t", running: false };
     },
     removeSession: async (alias: string) => { record("removeSession", alias); return { wasActive: false }; },
+    listAgents: () => [{ name: "codex", driver: "codex" }, { name: "claude", driver: "claude" }],
+    listWorkspaces: () => [{ name: "home", cwd: "/home", description: "h" }],
+    createWorkspace: async (name: string, cwd: string, description?: string) => {
+      record("createWorkspace", { name, cwd, description });
+      return { name, cwd, ...(description ? { description } : {}) };
+    },
     prompt: async (input: unknown) => { record("prompt", input); return { ok: true, text: "done" }; },
     cancelTurn: (chatKey: string, alias: string) => { record("cancelTurn", { chatKey, alias }); return true; },
     executeCommand: async (input: unknown) => { record("executeCommand", input); return "output"; },
@@ -91,6 +97,33 @@ test("returns bad-request for an invalid executeAt on scheduled.create", async (
     chatKey: "relay:acct", sessionAlias: "a", executeAt: "not-a-date", message: "m",
   }))).toEqual({ error: { code: "bad-request", message: "executeAt is not a valid ISO timestamp" } });
   expect(calls.createScheduledTask).toBeUndefined(); // never forwarded to the control service
+});
+
+test("agents.list / workspaces.list / workspaces.create dispatch and shape results", async () => {
+  const { control, calls } = makeFakeControl();
+  const bridge = createControlBridge(control as never);
+  expect(await dispatch(bridge, req(MSG.agentsList, {}))).toEqual({
+    agents: [{ name: "codex", driver: "codex" }, { name: "claude", driver: "claude" }],
+  });
+  expect(await dispatch(bridge, req(MSG.workspacesList, {}))).toEqual({
+    workspaces: [{ name: "home", cwd: "/home", description: "h" }],
+  });
+  expect(await dispatch(bridge, req(MSG.workspacesCreate, { name: "backend", cwd: "/srv/backend", description: "api" }))).toEqual({
+    workspace: { name: "backend", cwd: "/srv/backend", description: "api" },
+  });
+  expect(calls.createWorkspace?.[0]).toEqual({ name: "backend", cwd: "/srv/backend", description: "api" });
+});
+
+test("workspaces.create rejects missing name or cwd with bad-request", async () => {
+  const { control, calls } = makeFakeControl();
+  const bridge = createControlBridge(control as never);
+  expect(await dispatch(bridge, req(MSG.workspacesCreate, { name: "  ", cwd: "/x" }))).toEqual({
+    error: { code: "bad-request", message: "workspace name and cwd are required" },
+  });
+  expect(await dispatch(bridge, req(MSG.workspacesCreate, { name: "x", cwd: "" }))).toEqual({
+    error: { code: "bad-request", message: "workspace name and cwd are required" },
+  });
+  expect(calls.createWorkspace).toBeUndefined();
 });
 
 test("unknown type and thrown errors become error payloads", async () => {
