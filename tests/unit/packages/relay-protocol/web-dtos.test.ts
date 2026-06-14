@@ -79,3 +79,27 @@ test("accepts well-formed control-events and notices", () => {
   expect(parseWebServerEvent(webEventEnvelope({ kind: "control-event", instanceId: "i", event: { type: "orchestration-changed" } }))).not.toBeNull();
   expect(parseWebServerEvent(webEventEnvelope({ kind: "notice", instanceId: "i", notice: { kind: "task-completion", text: "done" } }))).not.toBeNull();
 });
+
+function roundtrip(event: any) {
+  return parseWebServerEvent(webEventEnvelope(event));
+}
+
+test("accepts the new turn-status control events", () => {
+  expect(roundtrip({ kind: "control-event", instanceId: "i1", event: { type: "turn-started", chatKey: "c", sessionAlias: "s" } })).not.toBeNull();
+  expect(roundtrip({ kind: "control-event", instanceId: "i1", event: { type: "turn-thought", chatKey: "c", sessionAlias: "s", chunk: "x" } })).not.toBeNull();
+  expect(roundtrip({
+    kind: "control-event", instanceId: "i1",
+    event: { type: "tool-event", chatKey: "c", sessionAlias: "s", step: { toolCallId: "t1", toolName: "Read", kind: "read", status: "running", title: "x" } },
+  })).not.toBeNull();
+});
+
+test("rejects a malformed tool-event step", () => {
+  expect(roundtrip({ kind: "control-event", instanceId: "i1", event: { type: "tool-event", chatKey: "c", sessionAlias: "s", step: { toolCallId: "t1" } } })).toBeNull();
+});
+
+test("rejects a tool-event step with an unknown detail tag", () => {
+  expect(roundtrip({
+    kind: "control-event", instanceId: "i1",
+    event: { type: "tool-event", chatKey: "c", sessionAlias: "s", step: { toolCallId: "t1", toolName: "R", kind: "read", status: "running", title: "x", detail: { type: "bogus" } } },
+  })).toBeNull();
+});

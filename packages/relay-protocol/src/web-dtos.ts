@@ -1,5 +1,5 @@
 import { RELAY_PROTOCOL_VERSION, type RelayEnvelope } from "./envelope.js";
-import type { ControlEventDto } from "./dtos.js";
+import type { ControlEventDto, ToolStepDto } from "./dtos.js";
 import type { InstanceNoticePayload } from "./messages.js";
 
 /** Envelope `type` for every relay→web push. */
@@ -14,6 +14,8 @@ export interface MessageRecordDto {
   direction: MessageDirection;
   text: string;
   createdAt: string;
+  /** Present on completed `out` turns: persisted tool steps + reasoning. */
+  structured?: { toolSteps: ToolStepDto[]; reasoning?: string };
 }
 
 /** Server→web push payloads (tagged with the originating instance). */
@@ -31,11 +33,32 @@ const WEB_EVENT_KINDS = new Set(["instance-status", "control-event", "notice"]);
 
 const CONTROL_EVENT_TYPES = new Set([
   "turn-output",
+  "turn-started",
+  "tool-event",
+  "turn-thought",
   "turn-finished",
   "sessions-changed",
   "scheduled-changed",
   "orchestration-changed",
 ]);
+
+const TOOL_STEP_KINDS = new Set(["read", "search", "execute", "edit", "think", "other"]);
+const TOOL_STEP_STATUSES = new Set(["running", "success", "error"]);
+const TOOL_DETAIL_TYPES = new Set(["diff", "read", "command", "search", "text", "fields"]);
+
+function validToolStep(s: unknown): boolean {
+  if (typeof s !== "object" || s === null) return false;
+  const c = s as Record<string, unknown>;
+  if (typeof c.toolCallId !== "string" || typeof c.toolName !== "string" || typeof c.title !== "string") return false;
+  if (typeof c.kind !== "string" || !TOOL_STEP_KINDS.has(c.kind)) return false;
+  if (typeof c.status !== "string" || !TOOL_STEP_STATUSES.has(c.status)) return false;
+  if (c.detail !== undefined) {
+    if (typeof c.detail !== "object" || c.detail === null) return false;
+    const d = c.detail as Record<string, unknown>;
+    if (typeof d.type !== "string" || !TOOL_DETAIL_TYPES.has(d.type)) return false;
+  }
+  return true;
+}
 
 /** Deep-validate an inner ControlEventDto: discriminant + per-variant required fields. */
 function validControlEvent(e: unknown): boolean {
@@ -47,6 +70,12 @@ function validControlEvent(e: unknown): boolean {
   if (c.type === "turn-finished")
     return typeof c.chatKey === "string" && typeof c.sessionAlias === "string" && typeof c.ok === "boolean";
   if (c.type === "scheduled-changed") return typeof c.chatKey === "string";
+  if (c.type === "turn-started")
+    return typeof c.chatKey === "string" && typeof c.sessionAlias === "string";
+  if (c.type === "turn-thought")
+    return typeof c.chatKey === "string" && typeof c.sessionAlias === "string" && typeof c.chunk === "string";
+  if (c.type === "tool-event")
+    return typeof c.chatKey === "string" && typeof c.sessionAlias === "string" && validToolStep(c.step);
   return true; // sessions-changed / orchestration-changed carry no extra required fields
 }
 
